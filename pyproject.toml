@@ -9,4 +9,6 @@ dependencies = [
     "gymnasium>=1.2.3",
     "pymunk==6.6.0",
     "ruff>=0.15.5",
+    "torch>=2.10.0",
+    "zarr>=3.1.5",
 ]
