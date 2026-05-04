@@ -1,9 +1,6 @@
-import json
-import shutil
 from dataclasses import dataclass
 
 import torch
-from rich.pretty import pretty_repr
 from torch.nn import Linear, ReLU, Sequential
 from torch.optim import Adam
 from torch.utils.data import DataLoader, Dataset
@@ -11,10 +8,8 @@ from torch.utils.data import DataLoader, Dataset
 from scripts.policies.shared import POLICY_ROOT
 from scripts.shared import (
     create_logger,
-    get_config_file_path,
-    get_formatted_timestamp,
+    initialize_run,
     load_push_t_zarr,
-    set_seed,
 )
 
 logger = create_logger()
@@ -27,21 +22,11 @@ class Config:
 
 
 def main():
-    config_file_path = get_config_file_path()
-
-    with config_file_path.open() as config_file:
-        config = Config(**(json.load(config_file)))
-
-    logger.info(pretty_repr(config))
-
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    logger.info("Torch device: %s", device)
-
-    set_seed(seed=config.seed)
-
-    output_directory_path = POLICY_ROOT / "bc" / get_formatted_timestamp()
-    output_directory_path.mkdir(parents=True)
-    shutil.copy(src=config_file_path, dst=output_directory_path / "config.json")
+    config, device, output_directory_path = initialize_run(
+        config_class=Config,
+        runs_output_directory_path=POLICY_ROOT / "bc",
+        logger=logger,
+    )
 
     policy = create_policy(epoch_count=config.epoch_count, device=device)
 
@@ -50,7 +35,7 @@ def main():
     logger.info("Policy saved to %s", state_dict_file_path)
 
 
-def create_policy(epoch_count: int, device: str):
+def create_policy(epoch_count: int, device: torch.device):
     model = Sequential(
         Linear(in_features=5, out_features=256),
         ReLU(),
@@ -77,7 +62,7 @@ def training_iteration(
     model: torch.nn.Module,
     optimizer: torch.optim.Optimizer,
     data_loader: torch.utils.data.DataLoader,
-    device: str,
+    device: torch.device,
 ):
     model.train()
     running_loss = 0.0
