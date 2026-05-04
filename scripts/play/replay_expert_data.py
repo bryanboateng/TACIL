@@ -1,13 +1,14 @@
-from pathlib import Path
-
 import gym_pusht  # noqa: F401
 import gymnasium
 import numpy as np
-import zarr
+
+from scripts.shared import create_logger, load_push_t_zarr
+
+logger = create_logger()
 
 
 def main():
-    states, actions, episode_ends = load_dataset()
+    states, actions, episode_ends = load_push_t_zarr()
 
     environment = gymnasium.make("gym_pusht/PushT-v0", render_mode="human")
 
@@ -22,7 +23,9 @@ def main():
             )
             environment.render()
 
-            print(f"Distance: {np.linalg.norm(observation - states[step + 1]):.4f}")
+            logger.info(
+                "Distance: %.4f", np.linalg.norm(observation - states[step + 1])
+            )
 
             if terminated or truncated:
                 break
@@ -32,21 +35,13 @@ def main():
     environment.close()
 
 
-def load_dataset():
-    dataset = zarr.open(
-        store=Path("../expert_data/pusht_cchi_v7_replay.zarr"), mode="r"
-    )
-    states = dataset["data/state"][:]
-    actions = dataset["data/action"][:]
-    episode_ends = dataset["meta/episode_ends"][:]
-    return states, actions, episode_ends
-
-
 def set_environment_state(environment, state):
     environment.reset()
 
     unwrapped_environment = environment.unwrapped
-    unwrapped_environment._set_state(state)
+
+    # noinspection PyProtectedMember
+    unwrapped_environment._set_state(state)  # noqa: SLF001 - there is no public API for setting state
 
     unwrapped_environment.agent.position = tuple(state[0:2])
     unwrapped_environment.block.position = tuple(state[2:4])
