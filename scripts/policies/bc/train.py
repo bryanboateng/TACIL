@@ -1,41 +1,36 @@
-from dataclasses import dataclass
-
 import torch
+import tyro
+import wandb
 from torch.nn import Linear, ReLU, Sequential
 from torch.optim import Adam
 from torch.utils.data import DataLoader, Dataset
+from tqdm import tqdm
 
 from scripts.policies.shared import POLICY_ROOT
-from scripts.shared import (
-    create_logger,
-    initialize_run,
-    load_push_t_zarr,
-)
+from scripts.shared import create_logger, load_push_t_zarr, set_seed
 
 logger = create_logger()
 
 
-@dataclass
-class Config:
-    seed: int
-    epoch_count: int
+def main(seed: int, epoch_count: int):
+    set_seed(seed=seed)
 
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    logger.info("Using torch device: %s", device)
+    if device.type == "cuda":
+        logger.info("GPU: %s", torch.cuda.get_device_name(0))
+        logger.info(
+            "GPU Memory: %.2f GB",
+            torch.cuda.get_device_properties(0).total_memory / 1e9,
+        )
 
-def main():
-    config, device, output_directory_path = initialize_run(
-        config_class=Config,
-        runs_output_directory_path=POLICY_ROOT / "bc",
-        logger=logger,
+    data_loader = DataLoader(
+        dataset=PushTDataset(),
+        batch_size=64,
+        shuffle=True,
+        pin_memory=device.type == "cuda",
     )
 
-    policy = create_policy(epoch_count=config.epoch_count, device=device)
-
-    state_dict_file_path = output_directory_path / "state_dict.pt"
-    torch.save(obj=policy.state_dict(), f=state_dict_file_path)
-    logger.info("Policy saved to %s", state_dict_file_path)
-
-
-def create_policy(epoch_count: int, device: torch.device):
     model = Sequential(
         Linear(in_features=5, out_features=256),
         ReLU(),
@@ -43,51 +38,66 @@ def create_policy(epoch_count: int, device: torch.device):
         ReLU(),
         Linear(in_features=256, out_features=2),
     ).to(device=device)
+
     optimizer = Adam(params=model.parameters(), lr=1e-3)
 
-    data_loader = DataLoader(
-        dataset=PushTDataset(), batch_size=64, shuffle=True, pin_memory=device == "cuda"
-    )
+    wandb.login()
 
-    for epoch in range(epoch_count):
-        loss = training_iteration(
-            model=model, optimizer=optimizer, data_loader=data_loader, device=device
-        )
-        logger.info("epoch %04d | loss %.6f", epoch, loss)
+    with wandb.init(
+        project="asdf",
+        job_type="behaviour_cloning",
+        config={"seed": seed, "epoch_count": epoch_count},
+    ) as run:
+        assert run.name is not None
 
-    return model
+        run_output_directory_path = POLICY_ROOT / "bc" / run.name
+        run_output_directory_path.mkdir(parents=True, exist_ok=True)
+
+        logger.info("Output directory: %s", run_output_directory_path)
+
+        for _ in tqdm(range(epoch_count), desc="Epoch"):
+            model.train()
+            criterion = torch.nn.MSELoss()
+            for batch_inputs, batch_labels in data_loader:
+                device_batch_inputs = batch_inputs.to(device)
+                device_batch_labels = batch_labels.to(device)
+                optimizer.zero_grad()
+
+                predictions = model(device_batch_inputs)
+
+                batch_loss = criterion(predictions, device_batch_labels)
+
+                batch_loss.backward()
+
+                gradient_norm = torch.norm(
+                    input=torch.stack(
+                        tensors=[
+                            parameter.grad.norm()
+                            for parameter in model.parameters()
+                            if parameter.grad is not None
+                        ]
+                    )
+                )
+
+                optimizer.step()
+
+                run.log(
+                    {
+                        "train/loss": batch_loss.item(),
+                        "train/gradient_norm": gradient_norm.item(),
+                    }
+                )
+
+        state_dict_file_path = run_output_directory_path / "state_dict.pt"
+        torch.save(obj=model.state_dict(), f=state_dict_file_path)
+        logger.info("Policy saved to %s", state_dict_file_path)
+
+        artifact = wandb.Artifact(name=f"{run.name}-checkpoint", type="model")
+        artifact.add_file(str(state_dict_file_path))
+        run.log_artifact(artifact)
 
 
-def training_iteration(
-    model: torch.nn.Module,
-    optimizer: torch.optim.Optimizer,
-    data_loader: torch.utils.data.DataLoader,
-    device: torch.device,
-):
-    model.train()
-    running_loss = 0.0
-    batch_count = 0
-
-    criterion = torch.nn.MSELoss()
-    for batch_inputs, batch_labels in data_loader:
-        device_batch_inputs = batch_inputs.to(device)
-        device_batch_labels = batch_labels.to(device)
-        optimizer.zero_grad()
-
-        predictions = model(device_batch_inputs)
-
-        batch_loss = criterion(predictions, device_batch_labels)
-
-        batch_loss.backward()
-        optimizer.step()
-
-        running_loss += batch_loss.item()
-        batch_count += 1
-
-    return running_loss / batch_count
-
-
-class PushTDataset(Dataset):
+class PushTDataset(Dataset[tuple[torch.Tensor, torch.Tensor]]):
     def __init__(self):
         logger.info("Loading zarr dataset...")
         states, actions, _ = load_push_t_zarr()
@@ -103,4 +113,4 @@ class PushTDataset(Dataset):
 
 
 if __name__ == "__main__":
-    main()
+    tyro.cli(f=main)
