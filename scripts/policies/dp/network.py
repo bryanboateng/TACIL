@@ -1,283 +1,371 @@
-"""1D conditional U-Net used as the noise predictor for the diffusion policy.
-
-Architecture only — no training, no data loading, no I/O. Safe to import from
-inference code without pulling in optimizer / tqdm / dataloader dependencies.
-"""
-
 import math
-from typing import Union
 
 import torch
-import torch.nn as nn
 
 
-class ConditionalUnet1D(nn.Module):
+class ConditionalUnet1d(torch.nn.Module):
     def __init__(
         self,
-        input_dim: int,
-        global_cond_dim: int,
-        diffusion_step_embed_dim: int = 256,
-        down_dims=(256,),
-        kernel_size: int = 5,
-        n_groups: int = 8,
+        input_channel_count: int,
+        condition_dimensionality: int,
+        hidden_channel_counts: tuple[int, ...],
     ) -> None:
-        """
-        Args:
-            input_dim: Action dimensionality.
-            global_cond_dim: Dimensionality of FiLM conditioning applied in
-                addition to the diffusion step embedding. Typically
-                ``obs_horizon * obs_dim``.
-            diffusion_step_embed_dim: Size of the sinusoidal positional
-                encoding for the diffusion step index.
-            down_dims: Channel sizes per U-Net level. Length determines depth.
-            kernel_size: Conv kernel size.
-            n_groups: Number of groups for GroupNorm.
-        """
         super().__init__()
-        down_dims = list(down_dims)
-        all_dims = [input_dim] + down_dims
-        start_dim = down_dims[0]
 
-        dsed = diffusion_step_embed_dim
-        self.diffusion_step_encoder = nn.Sequential(
-            SinusoidalPosEmb(dsed),
-            nn.Linear(dsed, dsed * 4),
-            nn.Mish(),
-            nn.Linear(dsed * 4, dsed),
+        kernel_size = 5
+        channel_counts = [input_channel_count, *hidden_channel_counts]
+        first_hidden_channel_count = hidden_channel_counts[0]
+
+        diffusion_timestep_embedding_dimensionality = 256
+        self._diffusion_timestep_encoder = torch.nn.Sequential(
+            SinusoidalPositionalEmbedding(
+                dimensionality=diffusion_timestep_embedding_dimensionality
+            ),
+            torch.nn.Linear(
+                in_features=diffusion_timestep_embedding_dimensionality,
+                out_features=diffusion_timestep_embedding_dimensionality * 4,
+            ),
+            torch.nn.Mish(),
+            torch.nn.Linear(
+                in_features=diffusion_timestep_embedding_dimensionality * 4,
+                out_features=diffusion_timestep_embedding_dimensionality,
+            ),
         )
-        cond_dim = dsed + global_cond_dim
+        combined_condition_dimensionality = (
+            diffusion_timestep_embedding_dimensionality + condition_dimensionality
+        )
 
-        in_out = list(zip(all_dims[:-1], all_dims[1:]))
-        mid_dim = all_dims[-1]
+        level_channel_count_pairs = list(zip(channel_counts[:-1], channel_counts[1:]))
+        bottleneck_channel_count = channel_counts[-1]
+        last_level_index = len(level_channel_count_pairs) - 1
 
-        self.mid_modules = nn.ModuleList(
-            [
-                ConditionalResidualBlock1D(
-                    mid_dim,
-                    mid_dim,
-                    cond_dim=cond_dim,
+        self._middle_blocks = torch.nn.ModuleList(
+            modules=[
+                ConditionalResidualBlock1d(
+                    input_channel_count=bottleneck_channel_count,
+                    output_channel_count=bottleneck_channel_count,
+                    condition_dimensionality=combined_condition_dimensionality,
                     kernel_size=kernel_size,
-                    n_groups=n_groups,
                 ),
-                ConditionalResidualBlock1D(
-                    mid_dim,
-                    mid_dim,
-                    cond_dim=cond_dim,
+                ConditionalResidualBlock1d(
+                    input_channel_count=bottleneck_channel_count,
+                    output_channel_count=bottleneck_channel_count,
+                    condition_dimensionality=combined_condition_dimensionality,
                     kernel_size=kernel_size,
-                    n_groups=n_groups,
                 ),
             ]
         )
 
-        self.down_modules = nn.ModuleList(
-            [
-                nn.ModuleList(
-                    [
-                        ConditionalResidualBlock1D(
-                            dim_in,
-                            dim_out,
-                            cond_dim=cond_dim,
-                            kernel_size=kernel_size,
-                            n_groups=n_groups,
-                        ),
-                        ConditionalResidualBlock1D(
-                            dim_out,
-                            dim_out,
-                            cond_dim=cond_dim,
-                            kernel_size=kernel_size,
-                            n_groups=n_groups,
-                        ),
-                        Downsample1d(dim_out)
-                        if ind < len(in_out) - 1
-                        else nn.Identity(),
-                    ]
+        self._downsample_levels = torch.nn.ModuleList(
+            modules=[
+                _DownsampleLevel(
+                    input_channel_count=level_input_channel_count,
+                    output_channel_count=level_output_channel_count,
+                    condition_dimensionality=combined_condition_dimensionality,
+                    kernel_size=kernel_size,
+                    apply_downsample=level_index < last_level_index,
                 )
-                for ind, (dim_in, dim_out) in enumerate(in_out)
+                for level_index, (
+                    level_input_channel_count,
+                    level_output_channel_count,
+                ) in enumerate(iterable=level_channel_count_pairs)
             ]
         )
 
-        self.up_modules = nn.ModuleList(
-            [
-                nn.ModuleList(
-                    [
-                        ConditionalResidualBlock1D(
-                            dim_out * 2,
-                            dim_in,
-                            cond_dim=cond_dim,
-                            kernel_size=kernel_size,
-                            n_groups=n_groups,
-                        ),
-                        ConditionalResidualBlock1D(
-                            dim_in,
-                            dim_in,
-                            cond_dim=cond_dim,
-                            kernel_size=kernel_size,
-                            n_groups=n_groups,
-                        ),
-                        Upsample1d(dim_in) if ind < len(in_out) - 1 else nn.Identity(),
-                    ]
+        self._upsample_levels = torch.nn.ModuleList(
+            modules=[
+                _UpsampleLevel(
+                    input_channel_count=level_input_channel_count,
+                    output_channel_count=level_output_channel_count,
+                    condition_dimensionality=combined_condition_dimensionality,
+                    kernel_size=kernel_size,
+                    apply_upsample=level_index < last_level_index,
                 )
-                for ind, (dim_in, dim_out) in enumerate(reversed(in_out[1:]))
+                for level_index, (
+                    level_output_channel_count,
+                    level_input_channel_count,
+                ) in enumerate(iterable=reversed(level_channel_count_pairs[1:]))
             ]
         )
 
-        self.final_conv = nn.Sequential(
-            Conv1dBlock(start_dim, start_dim, kernel_size=kernel_size),
-            nn.Conv1d(start_dim, input_dim, 1),
+        self._final_convolution = torch.nn.Sequential(
+            Conv1dBlock(
+                input_channel_count=first_hidden_channel_count,
+                output_channel_count=first_hidden_channel_count,
+                kernel_size=kernel_size,
+            ),
+            torch.nn.Conv1d(
+                in_channels=first_hidden_channel_count,
+                out_channels=input_channel_count,
+                kernel_size=1,
+            ),
         )
 
     def forward(
         self,
-        sample: torch.Tensor,
-        timestep: Union[torch.Tensor, float, int],
-        global_cond: torch.Tensor = None,
+        noisy_sample_batch: torch.Tensor,
+        diffusion_timestep: torch.Tensor,
+        condition_batch: torch.Tensor,
     ) -> torch.Tensor:
-        """
-        Args:
-            sample: ``(B, T, input_dim)``
-            timestep: ``(B,)`` or scalar
-            global_cond: ``(B, global_cond_dim)``
+        noisy_sample_batch = noisy_sample_batch.moveaxis(source=-1, destination=-2)
 
-        Returns:
-            ``(B, T, input_dim)``
-        """
-        # (B, T, C) -> (B, C, T) for 1d convs
-        sample = sample.moveaxis(-1, -2)
+        diffusion_timestep_batch = _broadcast_to_batch(
+            values=diffusion_timestep, reference_batch=noisy_sample_batch
+        )
+        combined_condition_batch = torch.cat(
+            tensors=[
+                self._diffusion_timestep_encoder(input=diffusion_timestep_batch),
+                condition_batch,
+            ],
+            dim=-1,
+        )
 
-        timesteps = _broadcast_timesteps(timestep, sample)
-        global_feature = self.diffusion_step_encoder(timesteps)
-        if global_cond is not None:
-            global_feature = torch.cat([global_feature, global_cond], dim=-1)
+        hidden_state_batch = noisy_sample_batch
+        skip_connection_batches: list[torch.Tensor] = []
+        for downsample_level in self._downsample_levels:
+            hidden_state_batch, skip_connection_batch = downsample_level(
+                input_batch=hidden_state_batch,
+                condition_batch=combined_condition_batch,
+            )
+            skip_connection_batches.append(skip_connection_batch)
 
-        x = sample
-        skips = []
-        for resnet, resnet2, downsample in self.down_modules:
-            x = resnet(x, global_feature)
-            x = resnet2(x, global_feature)
-            skips.append(x)
-            x = downsample(x)
+        for middle_block in self._middle_blocks:
+            hidden_state_batch = middle_block(
+                input_batch=hidden_state_batch,
+                condition_batch=combined_condition_batch,
+            )
 
-        for mid_module in self.mid_modules:
-            x = mid_module(x, global_feature)
+        for upsample_level in self._upsample_levels:
+            hidden_state_batch = upsample_level(
+                input_batch=hidden_state_batch,
+                skip_connection_batch=skip_connection_batches.pop(),
+                condition_batch=combined_condition_batch,
+            )
 
-        for resnet, resnet2, upsample in self.up_modules:
-            x = torch.cat((x, skips.pop()), dim=1)
-            x = resnet(x, global_feature)
-            x = resnet2(x, global_feature)
-            x = upsample(x)
-
-        x = self.final_conv(x)
-        return x.moveaxis(-1, -2)  # back to (B, T, C)
-
-
-def _broadcast_timesteps(
-    timestep: Union[torch.Tensor, float, int], sample: torch.Tensor
-) -> torch.Tensor:
-    """Normalise ``timestep`` to a ``(B,)`` long tensor on ``sample``'s device."""
-    if not torch.is_tensor(timestep):
-        # NOTE: forces a CPU->GPU sync. Pass a tensor when possible.
-        timestep = torch.tensor([timestep], dtype=torch.long, device=sample.device)
-    elif timestep.ndim == 0:
-        timestep = timestep[None].to(sample.device)
-    return timestep.expand(sample.shape[0])
+        hidden_state_batch = self._final_convolution(input=hidden_state_batch)
+        return hidden_state_batch.moveaxis(source=-1, destination=-2)
 
 
-class SinusoidalPosEmb(nn.Module):
-    def __init__(self, dim: int) -> None:
-        super().__init__()
-        self.dim = dim
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        half_dim = self.dim // 2
-        scale = math.log(10000) / (half_dim - 1)
-        emb = torch.exp(torch.arange(half_dim, device=x.device) * -scale)
-        emb = x[:, None] * emb[None, :]
-        return torch.cat((emb.sin(), emb.cos()), dim=-1)
-
-
-class ConditionalResidualBlock1D(nn.Module):
+class _DownsampleLevel(torch.nn.Module):
     def __init__(
         self,
-        in_channels: int,
-        out_channels: int,
-        cond_dim: int,
-        kernel_size: int = 3,
-        n_groups: int = 8,
-    ) -> None:
-        super().__init__()
-        self.out_channels = out_channels
-
-        self.blocks = nn.ModuleList(
-            [
-                Conv1dBlock(in_channels, out_channels, kernel_size, n_groups=n_groups),
-                Conv1dBlock(out_channels, out_channels, kernel_size, n_groups=n_groups),
-            ]
-        )
-        # FiLM (https://arxiv.org/abs/1709.07871): per-channel scale and bias.
-        self.cond_encoder = nn.Sequential(
-            nn.Mish(),
-            nn.Linear(cond_dim, out_channels * 2),
-            nn.Unflatten(-1, (-1, 1)),
-        )
-        self.residual_conv = (
-            nn.Conv1d(in_channels, out_channels, 1)
-            if in_channels != out_channels
-            else nn.Identity()
-        )
-
-    def forward(self, x: torch.Tensor, cond: torch.Tensor) -> torch.Tensor:
-        """
-        Args:
-            x: ``(B, in_channels, horizon)``
-            cond: ``(B, cond_dim)``
-
-        Returns:
-            ``(B, out_channels, horizon)``
-        """
-        out = self.blocks[0](x)
-        embed = self.cond_encoder(cond).reshape(-1, 2, self.out_channels, 1)
-        scale, bias = embed[:, 0], embed[:, 1]
-        out = scale * out + bias
-        out = self.blocks[1](out)
-        return out + self.residual_conv(x)
-
-
-class Downsample1d(nn.Module):
-    def __init__(self, dim: int) -> None:
-        super().__init__()
-        self.conv = nn.Conv1d(dim, dim, kernel_size=3, stride=2, padding=1)
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.conv(x)
-
-
-class Upsample1d(nn.Module):
-    def __init__(self, dim: int) -> None:
-        super().__init__()
-        self.conv = nn.ConvTranspose1d(dim, dim, kernel_size=4, stride=2, padding=1)
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.conv(x)
-
-
-class Conv1dBlock(nn.Module):
-    """Conv1d -> GroupNorm -> Mish."""
-
-    def __init__(
-        self,
-        inp_channels: int,
-        out_channels: int,
+        input_channel_count: int,
+        output_channel_count: int,
+        condition_dimensionality: int,
         kernel_size: int,
-        n_groups: int = 8,
+        apply_downsample: bool,
     ) -> None:
         super().__init__()
-        self.block = nn.Sequential(
-            nn.Conv1d(
-                inp_channels, out_channels, kernel_size, padding=kernel_size // 2
-            ),
-            nn.GroupNorm(n_groups, out_channels),
-            nn.Mish(),
+        self._first_residual_block = ConditionalResidualBlock1d(
+            input_channel_count=input_channel_count,
+            output_channel_count=output_channel_count,
+            condition_dimensionality=condition_dimensionality,
+            kernel_size=kernel_size,
+        )
+        self._second_residual_block = ConditionalResidualBlock1d(
+            input_channel_count=output_channel_count,
+            output_channel_count=output_channel_count,
+            condition_dimensionality=condition_dimensionality,
+            kernel_size=kernel_size,
+        )
+        self._downsample = (
+            Downsample1d(channel_count=output_channel_count)
+            if apply_downsample
+            else torch.nn.Identity()
         )
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.block(x)
+    def forward(
+        self, input_batch: torch.Tensor, condition_batch: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        hidden_state_batch = self._first_residual_block(
+            input_batch=input_batch, condition_batch=condition_batch
+        )
+        hidden_state_batch = self._second_residual_block(
+            input_batch=hidden_state_batch, condition_batch=condition_batch
+        )
+        skip_connection_batch = hidden_state_batch
+
+        hidden_state_batch = self._downsample(hidden_state_batch)
+        return hidden_state_batch, skip_connection_batch
+
+
+class _UpsampleLevel(torch.nn.Module):
+    def __init__(
+        self,
+        input_channel_count: int,
+        output_channel_count: int,
+        condition_dimensionality: int,
+        kernel_size: int,
+        apply_upsample: bool,
+    ) -> None:
+        super().__init__()
+        # The first residual block sees input_channel_count * 2 because the skip
+        # connection (same channel count as the incoming hidden state) is
+        # concatenated along the channel dimension before this block runs.
+        self._first_residual_block = ConditionalResidualBlock1d(
+            input_channel_count=input_channel_count * 2,
+            output_channel_count=output_channel_count,
+            condition_dimensionality=condition_dimensionality,
+            kernel_size=kernel_size,
+        )
+        self._second_residual_block = ConditionalResidualBlock1d(
+            input_channel_count=output_channel_count,
+            output_channel_count=output_channel_count,
+            condition_dimensionality=condition_dimensionality,
+            kernel_size=kernel_size,
+        )
+        self._upsample = (
+            Upsample1d(channel_count=output_channel_count)
+            if apply_upsample
+            else torch.nn.Identity()
+        )
+
+    def forward(
+        self,
+        input_batch: torch.Tensor,
+        skip_connection_batch: torch.Tensor,
+        condition_batch: torch.Tensor,
+    ) -> torch.Tensor:
+        hidden_state_batch = torch.cat(
+            tensors=(input_batch, skip_connection_batch), dim=1
+        )
+        hidden_state_batch = self._first_residual_block(
+            input_batch=hidden_state_batch, condition_batch=condition_batch
+        )
+        hidden_state_batch = self._second_residual_block(
+            input_batch=hidden_state_batch, condition_batch=condition_batch
+        )
+        return self._upsample(hidden_state_batch)
+
+
+def _broadcast_to_batch(
+    values: torch.Tensor, reference_batch: torch.Tensor
+) -> torch.Tensor:
+    if values.ndim == 0:
+        values = values[None]
+    return values.to(device=reference_batch.device).expand(reference_batch.shape[0])
+
+
+class SinusoidalPositionalEmbedding(torch.nn.Module):
+    def __init__(self, dimensionality: int) -> None:
+        super().__init__()
+        self._dimensionality = dimensionality
+
+    def forward(self, input_batch: torch.Tensor) -> torch.Tensor:
+        half_dimensionality = self._dimensionality // 2
+        log_frequency_spacing = math.log(10000) / (half_dimensionality - 1)
+        frequencies = torch.exp(
+            input=torch.arange(end=half_dimensionality, device=input_batch.device)
+            * -log_frequency_spacing
+        )
+        phase_angle_batch = input_batch[:, None] * frequencies[None, :]
+        return torch.cat(
+            tensors=(phase_angle_batch.sin(), phase_angle_batch.cos()), dim=-1
+        )
+
+
+class ConditionalResidualBlock1d(torch.nn.Module):
+    def __init__(
+        self,
+        input_channel_count: int,
+        output_channel_count: int,
+        condition_dimensionality: int,
+        kernel_size: int = 3,
+    ) -> None:
+        super().__init__()
+        self._output_channel_count = output_channel_count
+
+        self._first_convolution_block = Conv1dBlock(
+            input_channel_count=input_channel_count,
+            output_channel_count=output_channel_count,
+            kernel_size=kernel_size,
+        )
+        self._second_convolution_block = Conv1dBlock(
+            input_channel_count=output_channel_count,
+            output_channel_count=output_channel_count,
+            kernel_size=kernel_size,
+        )
+
+        # FiLM (https://arxiv.org/abs/1709.07871): per-channel scale and bias.
+        self._feature_modulation_encoder = torch.nn.Sequential(
+            torch.nn.Mish(),
+            torch.nn.Linear(
+                in_features=condition_dimensionality,
+                out_features=output_channel_count * 2,
+            ),
+            torch.nn.Unflatten(dim=-1, unflattened_size=(-1, 1)),
+        )
+        self._residual_projection = (
+            torch.nn.Conv1d(
+                in_channels=input_channel_count,
+                out_channels=output_channel_count,
+                kernel_size=1,
+            )
+            if input_channel_count != output_channel_count
+            else torch.nn.Identity()
+        )
+
+    def forward(
+        self, input_batch: torch.Tensor, condition_batch: torch.Tensor
+    ) -> torch.Tensor:
+        hidden_state_batch = self._first_convolution_block(input_batch=input_batch)
+        modulation_parameter_batch = self._feature_modulation_encoder(
+            input=condition_batch
+        ).reshape(-1, 2, self._output_channel_count, 1)
+        scale_batch = modulation_parameter_batch[:, 0]
+        shift_batch = modulation_parameter_batch[:, 1]
+        hidden_state_batch = scale_batch * hidden_state_batch + shift_batch
+        hidden_state_batch = self._second_convolution_block(
+            input_batch=hidden_state_batch
+        )
+        return hidden_state_batch + self._residual_projection(input=input_batch)
+
+
+class Downsample1d(torch.nn.Module):
+    def __init__(self, channel_count: int) -> None:
+        super().__init__()
+        self._convolution = torch.nn.Conv1d(
+            in_channels=channel_count,
+            out_channels=channel_count,
+            kernel_size=3,
+            stride=2,
+            padding=1,
+        )
+
+    def forward(self, input_batch: torch.Tensor) -> torch.Tensor:
+        return self._convolution(input=input_batch)
+
+
+class Upsample1d(torch.nn.Module):
+    def __init__(self, channel_count: int) -> None:
+        super().__init__()
+        self._transposed_convolution = torch.nn.ConvTranspose1d(
+            in_channels=channel_count,
+            out_channels=channel_count,
+            kernel_size=4,
+            stride=2,
+            padding=1,
+        )
+
+    def forward(self, input_batch: torch.Tensor) -> torch.Tensor:
+        return self._transposed_convolution(input=input_batch)
+
+
+class Conv1dBlock(torch.nn.Module):
+    def __init__(
+        self, input_channel_count: int, output_channel_count: int, kernel_size: int
+    ) -> None:
+        super().__init__()
+        self._layers = torch.nn.Sequential(
+            torch.nn.Conv1d(
+                in_channels=input_channel_count,
+                out_channels=output_channel_count,
+                kernel_size=kernel_size,
+                padding=kernel_size // 2,
+            ),
+            torch.nn.GroupNorm(num_groups=8, num_channels=output_channel_count),
+            torch.nn.Mish(),
+        )
+
+    def forward(self, input_batch: torch.Tensor) -> torch.Tensor:
+        return self._layers(input=input_batch)

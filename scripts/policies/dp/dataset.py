@@ -1,112 +1,148 @@
-from typing import Dict, List
-
-import numpy as np
-from torch.utils.data import Dataset
+import torch
 
 from scripts.shared import load_push_t_zarr
 
 
-class PushTWindowDataset(Dataset):
-    """Sliding windows of length ``pred_horizon`` with edge padding.
-
-    ``obs`` is truncated to ``obs_horizon`` timesteps; ``action`` keeps the full
-    prediction horizon. Both are normalised to ``[-1, 1]``.
-    """
-
+class PushTWindowDataset(torch.utils.data.Dataset[tuple[torch.Tensor, torch.Tensor]]):
     def __init__(
-        self, pred_horizon: int, obs_horizon: int, action_horizon: int
+        self,
+        prediction_horizon_length: int,
+        observation_horizon_length: int,
+        action_horizon_length: int,
     ) -> None:
-        states, actions, episode_ends = load_push_t_zarr()
+        observations_np, actions_np, episode_ends_np = load_push_t_zarr()
 
-        self.normalization_ranges: Dict[str, NormalizationRange] = {
-            "obs": NormalizationRange(values=states),
-            "action": NormalizationRange(values=actions),
-        }
-        self._normalized = {
-            "obs": self.normalization_ranges["obs"].normalize(states),
-            "action": self.normalization_ranges["action"].normalize(actions),
-        }
+        observations = torch.from_numpy(observations_np).float()
+        actions = torch.from_numpy(actions_np).float()
+        episode_ends = torch.from_numpy(episode_ends_np)
 
-        self._indices = _create_sample_indices(
-            episode_ends=episode_ends,
-            sequence_length=pred_horizon,
-            pad_before=obs_horizon - 1,
-            pad_after=action_horizon - 1,
+        self.observation_normalization_range = NormalizationRange.from_values(
+            values=observations
+        )
+        self.action_normalization_range = NormalizationRange.from_values(values=actions)
+
+        self._normalized_observations = self.observation_normalization_range.normalize(
+            values=observations
+        )
+        self._normalized_actions = self.action_normalization_range.normalize(
+            values=actions
         )
 
-        self.pred_horizon = pred_horizon
-        self.obs_horizon = obs_horizon
-        self.action_horizon = action_horizon
+        self._window_indices = _build_window_indices(
+            episode_ends=episode_ends,
+            prediction_horizon_length=prediction_horizon_length,
+            observation_padding_length=observation_horizon_length - 1,
+            action_padding_length=action_horizon_length - 1,
+        )
+
+        self._prediction_horizon_length = prediction_horizon_length
+        self._observation_horizon_length = observation_horizon_length
 
     def __len__(self) -> int:
-        return len(self._indices)
+        return len(self._window_indices)
 
-    def __getitem__(self, idx: int) -> Dict[str, np.ndarray]:
-        buffer_start, buffer_end, sample_start, sample_end = (
-            int(v) for v in self._indices[idx]
+    def __getitem__(self, index: int) -> tuple[torch.Tensor, torch.Tensor]:
+        (
+            source_read_start_position,
+            source_read_end_position,
+            output_write_start_position,
+            output_write_end_position,
+        ) = (int(value) for value in self._window_indices[index])
+
+        observations = _extract_window_with_edge_padding(
+            source_tensor=self._normalized_observations,
+            output_length=self._prediction_horizon_length,
+            source_read_start_position=source_read_start_position,
+            source_read_end_position=source_read_end_position,
+            output_write_start_position=output_write_start_position,
+            output_write_end_position=output_write_end_position,
         )
-        nsample = _sample_sequence(
-            train_data=self._normalized,
-            sequence_length=self.pred_horizon,
-            buffer_start=buffer_start,
-            buffer_end=buffer_end,
-            sample_start=sample_start,
-            sample_end=sample_end,
+        actions = _extract_window_with_edge_padding(
+            source_tensor=self._normalized_actions,
+            output_length=self._prediction_horizon_length,
+            source_read_start_position=source_read_start_position,
+            source_read_end_position=source_read_end_position,
+            output_write_start_position=output_write_start_position,
+            output_write_end_position=output_write_end_position,
         )
-        nsample["obs"] = nsample["obs"][: self.obs_horizon, :]
-        return nsample
+
+        observations = observations[: self._observation_horizon_length]
+
+        return observations, actions
 
 
-def _create_sample_indices(
-    episode_ends: np.ndarray,
-    sequence_length: int,
-    pad_before: int = 0,
-    pad_after: int = 0,
-) -> np.ndarray:
-    """Enumerate ``(buffer_start, buffer_end, sample_start, sample_end)`` per window."""
-    indices: List[List[int]] = []
-    for i, end_idx in enumerate(episode_ends):
-        start_idx = int(episode_ends[i - 1]) if i > 0 else 0
-        end_idx = int(end_idx)
-        episode_length = end_idx - start_idx
+def _build_window_indices(
+    episode_ends: torch.Tensor,
+    prediction_horizon_length: int,
+    observation_padding_length: int,
+    action_padding_length: int,
+) -> torch.Tensor:
+    window_indices: list[list[int]] = []
 
-        min_start = -pad_before
-        max_start = episode_length - sequence_length + pad_after
+    for episode_index, episode_end_position in enumerate(episode_ends):
+        episode_start_position = (
+            int(episode_ends[episode_index - 1]) if episode_index > 0 else 0
+        )
+        episode_length = int(episode_end_position) - episode_start_position
 
-        for idx in range(min_start, max_start + 1):
-            buffer_start = max(idx, 0) + start_idx
-            buffer_end = min(idx + sequence_length, episode_length) + start_idx
-            start_offset = buffer_start - (idx + start_idx)
-            end_offset = (idx + sequence_length + start_idx) - buffer_end
-            indices.append(
-                [buffer_start, buffer_end, start_offset, sequence_length - end_offset]
+        first_window_offset = -observation_padding_length
+        last_window_offset = (
+            episode_length - prediction_horizon_length + action_padding_length
+        )
+
+        for window_offset in range(first_window_offset, last_window_offset + 1):
+            source_read_start_position = episode_start_position + max(window_offset, 0)
+            source_read_end_position = episode_start_position + min(
+                window_offset + prediction_horizon_length, episode_length
             )
-    return np.array(indices, dtype=np.int64)
+
+            output_write_start_position = max(-window_offset, 0)
+            output_write_end_position = min(
+                episode_length - window_offset, prediction_horizon_length
+            )
+
+            window_indices.append(
+                [
+                    source_read_start_position,
+                    source_read_end_position,
+                    output_write_start_position,
+                    output_write_end_position,
+                ]
+            )
+
+    return torch.tensor(window_indices, dtype=torch.long)
 
 
-def _sample_sequence(
-    train_data: Dict[str, np.ndarray],
-    sequence_length: int,
-    buffer_start: int,
-    buffer_end: int,
-    sample_start: int,
-    sample_end: int,
-) -> Dict[str, np.ndarray]:
-    """Slice a window out of the buffer, edge-padding as needed."""
-    result: Dict[str, np.ndarray] = {}
-    for key, arr in train_data.items():
-        sample = arr[buffer_start:buffer_end]
-        if sample_start == 0 and sample_end == sequence_length:
-            result[key] = sample
-            continue
-        padded = np.zeros((sequence_length,) + arr.shape[1:], dtype=arr.dtype)
-        if sample_start > 0:
-            padded[:sample_start] = sample[0]
-        if sample_end < sequence_length:
-            padded[sample_end:] = sample[-1]
-        padded[sample_start:sample_end] = sample
-        result[key] = padded
-    return result
+def _extract_window_with_edge_padding(
+    source_tensor: torch.Tensor,
+    output_length: int,
+    source_read_start_position: int,
+    source_read_end_position: int,
+    output_write_start_position: int,
+    output_write_end_position: int,
+) -> torch.Tensor:
+    """Read a slice from `source_tensor` and place it inside an output window
+    of length `output_length`. Any positions in the output window before
+    `output_write_start_position` or after `output_write_end_position` are
+    filled by repeating the first / last value of the read slice (edge
+    padding).
+    """
+    valid_content = source_tensor[source_read_start_position:source_read_end_position]
+
+    if output_write_start_position == 0 and output_write_end_position == output_length:
+        return valid_content
+
+    output_window = torch.empty(
+        (output_length,) + source_tensor.shape[1:],
+        dtype=source_tensor.dtype,
+        device=source_tensor.device,
+    )
+
+    output_window[output_write_start_position:output_write_end_position] = valid_content
+    output_window[:output_write_start_position] = valid_content[0]
+    output_window[output_write_end_position:] = valid_content[-1]
+
+    return output_window
 
 
 class NormalizationRange:
@@ -115,16 +151,24 @@ class NormalizationRange:
     Guards against zero-range features so constant dimensions stay finite.
     """
 
-    def __init__(self, values: np.ndarray) -> None:
-        flat = values.reshape(-1, values.shape[-1])
-        self.minimum = flat.min(axis=0)
-        self.maximum = flat.max(axis=0)
+    def __init__(self, minimum: torch.Tensor, maximum: torch.Tensor) -> None:
+        self.minimum = minimum
+        self.maximum = maximum
 
-    def normalize(self, values: np.ndarray) -> np.ndarray:
-        value_range = np.maximum(self.maximum - self.minimum, 1e-8)
+    @classmethod
+    def from_values(cls, values: torch.Tensor) -> "NormalizationRange":
+        flattened = values.reshape(-1, values.shape[-1])
+
+        return cls(
+            minimum=flattened.min(dim=0).values,
+            maximum=flattened.max(dim=0).values,
+        )
+
+    def normalize(self, values: torch.Tensor) -> torch.Tensor:
+        value_range = (self.maximum - self.minimum).clamp(min=1e-8)
         unit = (values - self.minimum) / value_range
         return unit * 2.0 - 1.0
 
-    def denormalize(self, normalized_values: np.ndarray) -> np.ndarray:
-        unit = (normalized_values + 1.0) / 2.0
+    def denormalize(self, values: torch.Tensor) -> torch.Tensor:
+        unit = (values + 1.0) / 2.0
         return unit * (self.maximum - self.minimum) + self.minimum
