@@ -7,9 +7,11 @@ from datetime import datetime
 from pathlib import Path
 
 import numpy as np
+import numpy.typing as npt
 import torch
 import zarr
 from rich.pretty import pretty_repr
+from zarr import Array, Group
 
 
 def find_project_root() -> Path:
@@ -24,20 +26,27 @@ PROJECT_ROOT = find_project_root()
 OUTPUT_ROOT = PROJECT_ROOT / "output"
 
 
-def load_push_t_zarr():
+def load_push_t_zarr() -> tuple[
+    npt.NDArray[np.float32], npt.NDArray[np.float32], npt.NDArray[np.int64]
+]:
     zarr_file_path = PROJECT_ROOT / "expert_data" / "pusht_cchi_v7_replay.zarr"
     store = zarr.open(store=zarr_file_path, mode="r")
+    assert isinstance(store, Group)
 
-    # this removes the "does not support indexing" type checker warning
-    # zarr.open() return type is too broad to support indexing
-    # mode="r" with a path always returns a Group
-    assert isinstance(store, zarr.Group)
+    def _get(key: str, dtype: type) -> np.ndarray:
+        group_member = store[key]
+        assert isinstance(group_member, Array), f"{key!r} is not an Array"
+        assert group_member.dtype == dtype, (
+            f"{key!r} has dtype {group_member.dtype.name}, expected {dtype.__name__}"
+        )
+        data = group_member[:]
+        assert isinstance(data, np.ndarray)
+        return data
 
-    return (
-        store["data/state"][:],
-        store["data/action"][:],
-        store["meta/episode_ends"][:],
-    )
+    states = _get(key="data/state", dtype=np.float32)
+    actions = _get(key="data/action", dtype=np.float32)
+    episode_ends = _get(key="meta/episode_ends", dtype=np.int64)
+    return states, actions, episode_ends
 
 
 def create_logger():
