@@ -679,6 +679,7 @@ def fit_dynamics(
         perm = torch.randperm(n=n_train, device=model_device)
         epoch_losses: list[DynamicsLoss] = []
         epoch_gradient_norms: list[torch.Tensor] = []
+        epoch_skipped_steps = 0
 
         for step in range(steps_per_epoch):
             idx = perm[step * batch_size : (step + 1) * batch_size]
@@ -692,10 +693,14 @@ def fit_dynamics(
             loss.total.backward()
 
             gradient_norm = torch.nn.utils.clip_grad_norm_(
-                parameters=parameters, max_norm=float("inf")
+                parameters=parameters, max_norm=1.0
             )
 
-            optimizer.step()
+            if torch.isfinite(loss.total) and torch.isfinite(gradient_norm):
+                optimizer.step()
+            else:
+                epoch_skipped_steps += 1
+
             epoch_losses.append(loss)
             epoch_gradient_norms.append(gradient_norm)
 
@@ -709,6 +714,7 @@ def fit_dynamics(
                 "loss/lipschitz": epoch_mean_loss.lipschitz_regularization.item(),
                 "gradient_norm/mean": gradient_norms_tensor.mean().item(),
                 "gradient_norm/max": gradient_norms_tensor.max().item(),
+                "skipped_steps": epoch_skipped_steps,
             },
             step=epoch,
         )
