@@ -521,9 +521,9 @@ def compute_importance_weighted_lipschitz_regularized_dynamics_loss(
         config=config,
     )
 
-    per_sample_importance = importance_network(
-        torch.cat([state_batch, action_batch], dim=-1)
-    ).squeeze(-1)  # [batch]
+    per_sample_importance = torch.nn.functional.softplus(
+        importance_network(torch.cat([state_batch, action_batch], dim=-1)).squeeze(-1)
+    )  # [batch]
 
     importance_regularization = 1.0 - torch.exp(
         input=-0.1 * per_sample_importance.abs().mean()
