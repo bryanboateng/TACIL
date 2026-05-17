@@ -814,7 +814,7 @@ def save_multi_step_rollout_plot(
     run: Run,
 ) -> None:
 
-    rollout_horizons = (
+    rollout_horizons = sorted(
         expert_holdout_rollout_errors.keys() | random_rollout_errors.keys()
     )
 
