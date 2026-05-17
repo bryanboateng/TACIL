@@ -678,6 +678,7 @@ def fit_dynamics(
     for epoch in tqdm(range(epoch_count)):
         perm = torch.randperm(n=n_train, device=model_device)
         epoch_losses: list[DynamicsLoss] = []
+        epoch_gradient_norms: list[torch.Tensor] = []
 
         for step in range(steps_per_epoch):
             idx = perm[step * batch_size : (step + 1) * batch_size]
@@ -689,17 +690,25 @@ def fit_dynamics(
                 next_state_batch=next_state_batch[idx],
             )
             loss.total.backward()
+
+            gradient_norm = torch.nn.utils.clip_grad_norm_(
+                parameters=parameters, max_norm=float("inf")
+            )
+
             optimizer.step()
             epoch_losses.append(loss)
+            epoch_gradient_norms.append(gradient_norm)
 
         epoch_mean_loss = _mean_loss(losses=epoch_losses)
+        gradient_norms_tensor = torch.stack(epoch_gradient_norms)
 
         run.log(
             {
                 "loss/total": epoch_mean_loss.total.item(),
                 "loss/prediction": epoch_mean_loss.prediction.item(),
                 "loss/lipschitz": epoch_mean_loss.lipschitz_regularization.item(),
-                "epoch": epoch,
+                "gradient_norm/mean": gradient_norms_tensor.mean().item(),
+                "gradient_norm/max": gradient_norms_tensor.max().item(),
             },
             step=epoch,
         )
