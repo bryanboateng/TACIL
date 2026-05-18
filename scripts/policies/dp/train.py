@@ -106,8 +106,7 @@ def train(
     ).to(device=device)
 
     noise_prediction_network_ema = EMAModel(
-        parameters=noise_prediction_network.parameters(),
-        power=optimization.ema_power,
+        parameters=noise_prediction_network.parameters(), power=optimization.ema_power
     )
 
     optimizer = torch.optim.AdamW(
@@ -163,10 +162,7 @@ def train(
             dynamic_ncols=True,
             position=0,
         ):
-            run.log(
-                data={"epoch": epoch_number},
-                step=global_step,
-            )
+            run.log(data={"epoch": epoch_number}, step=global_step)
             noise_prediction_network.train()
 
             for training_batch in tqdm(
@@ -291,10 +287,7 @@ def train(
         artifact = wandb.Artifact(
             name=f"{run.name}-checkpoint",
             type="model",
-            metadata={
-                "epoch": optimization.epoch_count,
-                "global_step": global_step,
-            },
+            metadata={"epoch": optimization.epoch_count, "global_step": global_step},
         )
         artifact.add_file(str(checkpoint_file_path))
         run.log_artifact(
@@ -435,8 +428,7 @@ def _evaluate(
             )
 
             policy_factory = load_diffusion_policy(
-                checkpoint_path=checkpoint_path,
-                device=device,
+                checkpoint_path=checkpoint_path, device=device
             )
 
             maximum_coverages = np.array(

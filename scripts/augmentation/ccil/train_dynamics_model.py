@@ -249,11 +249,9 @@ def main(
         train_states, train_actions, train_next_states = concatenate_episodes(
             episodes=train_episodes
         )
-        (
-            expert_holdout_states,
-            expert_holdout_actions,
-            expert_holdout_next_states,
-        ) = concatenate_episodes(episodes=expert_holdout_episodes)
+        (expert_holdout_states, expert_holdout_actions, expert_holdout_next_states) = (
+            concatenate_episodes(episodes=expert_holdout_episodes)
+        )
 
         dynamics_model, importance_head = build_models(
             hidden_layer_sizes=hidden_layer_sizes,
@@ -435,9 +433,7 @@ def create_loss_function(
 def load_episodes() -> list[Episode]:
     flat_states, flat_actions, episode_ends = load_push_t_zarr()
     return _split_flat_arrays_into_episodes(
-        flat_states=flat_states,
-        flat_actions=flat_actions,
-        episode_ends=episode_ends,
+        flat_states=flat_states, flat_actions=flat_actions, episode_ends=episode_ends
     )
 
 
@@ -461,13 +457,7 @@ def _split_flat_arrays_into_episodes(
     for episode_start, episode_end in zip(episode_starts, episode_ends):
         episode_states = flat_states[episode_start:episode_end]
         episode_actions = flat_actions[episode_start:episode_end]
-        episodes.append(
-            (
-                episode_states[:-1],
-                episode_actions[:-1],
-                episode_states[1:],
-            )
-        )
+        episodes.append((episode_states[:-1], episode_actions[:-1], episode_states[1:]))
     return episodes
 
 
@@ -755,10 +745,7 @@ def save_checkpoint(
     importance_head_path: Path | None = None
     if importance_head is not None:
         importance_head_path = output_directory_path / "importance_head.pt"
-        torch.save(
-            obj=importance_head.state_dict(),
-            f=importance_head_path,
-        )
+        torch.save(obj=importance_head.state_dict(), f=importance_head_path)
 
     model_artifact = wandb.Artifact(
         name="dynamics_model",
@@ -876,11 +863,9 @@ def save_lipschitz_distribution_plot(
         batch_size=1_024,
     )
 
-    (
-        random_rollout_episode_states,
-        random_rollout_episode_actions,
-        _,
-    ) = concatenate_episodes(episodes=random_rollout_episodes)
+    (random_rollout_episode_states, random_rollout_episode_actions, _) = (
+        concatenate_episodes(episodes=random_rollout_episodes)
+    )
     random_rollout_coefficients = eval_lipschitz_coeff(
         dynamics_model=dynamics_model,
         states=random_rollout_episode_states,
