@@ -44,14 +44,14 @@ def load_push_t_zarr() -> tuple[
     return states, actions, episode_ends
 
 
-def create_logger():
+def create_logger() -> logging.Logger:
     logging.basicConfig(
         level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s"
     )
     return logging.getLogger(__name__)
 
 
-def set_seed(seed):
+def set_seed(seed) -> None:
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
