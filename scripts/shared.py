@@ -60,3 +60,13 @@ def set_seed(seed) -> None:
     torch.use_deterministic_algorithms(True)
     torch.backends.cudnn.benchmark = False
     torch.backends.cudnn.deterministic = True
+
+
+def log_device_info(device: torch.device, logger: logging.Logger) -> None:
+    logger.info("Using torch device: %s", device)
+    if device.type == "cuda":
+        logger.info("GPU: %s", torch.cuda.get_device_name(0))
+        logger.info(
+            "GPU Memory: %.2f GB",
+            torch.cuda.get_device_properties(0).total_memory / 1e9,
+        )

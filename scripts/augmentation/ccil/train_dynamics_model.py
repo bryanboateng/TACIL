@@ -21,7 +21,7 @@ from tqdm import tqdm
 from wandb import Run
 
 from scripts.augmentation.ccil.shared import CCIL_ROOT
-from scripts.shared import create_logger, load_push_t_zarr, set_seed
+from scripts.shared import create_logger, load_push_t_zarr, log_device_info, set_seed
 
 logger = create_logger()
 
@@ -204,15 +204,8 @@ def main(
     hidden_layer_sizes: tuple[int, ...] = (256, 256),
 ) -> None:
     set_seed(seed=seed)
-
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    logger.info("Using torch device: %s", device)
-    if device.type == "cuda":
-        logger.info("GPU: %s", torch.cuda.get_device_name(0))
-        logger.info(
-            "GPU Memory: %.2f GB",
-            torch.cuda.get_device_properties(0).total_memory / 1e9,
-        )
+    device = torch.device(device="cuda" if torch.cuda.is_available() else "cpu")
+    log_device_info(device=device, logger=logger)
 
     with wandb.init(
         project="asdf",
