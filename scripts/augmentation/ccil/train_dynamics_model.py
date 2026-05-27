@@ -20,7 +20,7 @@ from torch.func import jacrev
 from tqdm import tqdm
 from wandb import Run
 
-from scripts.augmentation.ccil.shared import CCIL_ROOT
+from scripts.paths import CCIL_ROOT
 from scripts.shared import create_logger, load_push_t_zarr, log_device_info, set_seed
 
 logger = create_logger()

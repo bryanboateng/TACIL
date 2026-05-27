@@ -5,10 +5,10 @@ from typing import Callable
 import numpy as np
 import torch
 
+from scripts.paths import PROJECT_ROOT
 from scripts.policies.dp.dataset import NormalizationRange
 from scripts.policies.dp.network import ConditionalUnet1d
 from scripts.policies.dp.noise_scheduler import get_noise_scheduler
-from scripts.shared import PROJECT_ROOT
 
 Policy = Callable[[np.ndarray], np.ndarray]
 PolicyFactory = Callable[[int], Policy]

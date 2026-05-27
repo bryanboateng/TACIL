@@ -1,6 +1,5 @@
 import logging
 import random
-from pathlib import Path
 
 import numpy as np
 import numpy.typing as npt
@@ -8,17 +7,7 @@ import torch
 import zarr
 from zarr import Array, Group
 
-
-def find_project_root() -> Path:
-    path = Path(__file__).resolve()
-    for parent in [path, *path.parents]:
-        if (parent / "pyproject.toml").exists():
-            return parent
-    raise RuntimeError("Project root not found")
-
-
-PROJECT_ROOT = find_project_root()
-OUTPUT_ROOT = PROJECT_ROOT / "output"
+from scripts.paths import PROJECT_ROOT
 
 
 def load_push_t_zarr() -> tuple[

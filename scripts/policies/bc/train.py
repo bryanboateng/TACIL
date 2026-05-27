@@ -6,7 +6,7 @@ from torch.optim import Adam
 from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
 
-from scripts.policies.shared import POLICY_ROOT
+from scripts.paths import POLICY_ROOT
 from scripts.shared import create_logger, load_push_t_zarr, log_device_info, set_seed
 
 logger = create_logger()
