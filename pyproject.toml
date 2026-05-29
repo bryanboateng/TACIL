@@ -12,7 +12,6 @@ dependencies = [
     "numpy>=2.4.3",
     "pymunk==6.6.0",
     "rich>=15.0.0",
-    "ruff>=0.15.5",
     "scikit-learn>=1.8.0",
     "scipy>=1.17.1",
     "scipy-stubs~=1.17.1",
@@ -21,6 +20,12 @@ dependencies = [
     "tyro>=1.0.13",
     "wandb>=0.27.0",
     "zarr>=3.1.5",
+]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.15.15",
+    "ty>=0.0.40",
 ]
 
 [tool.ruff.format]
