@@ -7,7 +7,7 @@ import wandb
 def main(expert_data_file_path: Path):
     with wandb.init(project="abc", job_type="ingest-expert-dataset") as run:
         artifact = wandb.Artifact(name="expert-dataset", type="dataset")
-        artifact.add_dir(local_path=expert_data_file_path)
+        artifact.add_dir(local_path=str(expert_data_file_path))
         run.log_artifact(artifact_or_path=artifact)
 
 
