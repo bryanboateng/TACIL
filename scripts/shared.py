@@ -1,5 +1,8 @@
+import hashlib
+import json
 import logging
 import random
+from typing import Any
 
 import numpy as np
 import numpy.typing as npt
@@ -59,3 +62,8 @@ def log_device_info(device: torch.device, logger: logging.Logger) -> None:
             "GPU Memory: %.2f GB",
             torch.cuda.get_device_properties(0).total_memory / 1e9,
         )
+
+
+def compute_config_hash(config: dict[str, Any]) -> str:
+    serialized = json.dumps(config, sort_keys=True, separators=(",", ":"))
+    return hashlib.md5(serialized.encode()).hexdigest()[:8]
