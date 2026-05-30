@@ -3,9 +3,12 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 
 import numpy as np
+import numpy.typing as npt
 import tyro
 import wandb
+import zarr
 from rich.pretty import pretty_repr
+from zarr import Array, Group
 
 from scripts.ashared import compute_config_hash, create_logger
 from scripts.shared.data import (
@@ -19,15 +22,13 @@ logger = create_logger()
 
 @dataclass
 class Config:
-    # Fraction of episodes to augment with noise (0, 1]
-    fraction: float
     use_artifact: str
-    # Noise standard deviation as a fraction of each state dimension's range.
-    # E.g. 0.02 = 2% of the observed min-max range per dimension.
+    # Ratio of original episodes to augment (0, 1].
+    # E.g. 0.5 means 50% of episodes get a noisy copy added → dataset grows by 50%.
+    augmentation_ratio: float
+    # Noise std as a fraction of each state dimension's observed min-max range.
+    # E.g. 0.02 = 2% of range per dimension.
     noise_scale: float = 0.02
-    # If True, noise std is computed per state dimension from the data.
-    # If False, a single std is computed from the global state range.
-    per_dimension_noise: bool = True
     seed: int = 42
 
 
@@ -50,30 +51,30 @@ def _run(config: Config):
         )
 
         logger.info(
-            "Applying noise augmentation to %g%% of episodes (noise_scale=%.4f, per_dim=%s) ...",
-            config.fraction * 100,
+            "Augmenting %g%% of episodes with noise (noise_scale=%.4f) ...",
+            config.augmentation_ratio * 100,
             config.noise_scale,
-            config.per_dimension_noise,
         )
 
-        augmented_data = _augment_with_noise(
+        augmented_demonstration_data = _augment_with_noise(
             demonstration_data=demonstration_data,
-            fraction=config.fraction,
-            noise_scale=config.noise_scale,
+            fraction=config.augmentation_ratio,
+            noise_fraction=config.noise_scale,
             rng=rng,
         )
 
         logger.info("Noise augmentation completed.")
-        logger.info("# Transitions (unchanged): %d", len(augmented_data.states))
+        logger.info("# Transitions: %d", len(augmented_demonstration_data.states))
         logger.info(
-            "# Episodes (unchanged): %d", len(augmented_data.episode_end_indices)
+            "# Episodes: %d", len(augmented_demonstration_data.episode_end_indices)
         )
 
         with tempfile.TemporaryDirectory() as tmpdir:
             output_zarr_path = Path(tmpdir) / "dataset.zarr"
 
             write_zarr(
-                zarr_file_path=output_zarr_path, demonstration_data=augmented_data
+                zarr_file_path=output_zarr_path,
+                demonstration_data=augmented_demonstration_data,
             )
 
             new_artifact = wandb.Artifact(
@@ -89,69 +90,92 @@ def _run(config: Config):
 def _augment_with_noise(
     demonstration_data: DemonstrationData,
     fraction: float,
-    noise_scale: float,
+    noise_fraction: float,
     rng: np.random.Generator,
 ) -> DemonstrationData:
-    """
-    Augment a fraction of episodes by adding Gaussian noise to states.
-
-    The noise std is computed as `noise_scale * range` where range is either
-    per-dimension (if per_dimension_noise=True) or global across all dimensions.
-
-    Actions are left untouched to preserve demonstration quality.
-    The episode structure (episode_end_indices) is unchanged since we augment
-    in-place rather than duplicating episodes.
-    """
     if not (0.0 < fraction <= 1.0):
-        raise ValueError(f"fraction must be in (0, 1], got {fraction}")
+        raise ValueError(f"augmentation_ratio must be in (0, 1], got {fraction}")
 
-    episode_end_indices = demonstration_data.episode_end_indices
-    episode_count = len(episode_end_indices)
+    episode_count = len(demonstration_data.episode_end_indices)
 
-    # --- Compute noise std from the full dataset (before any augmentation) ---
-    states = demonstration_data.states  # shape: (N, state_dim)
+    selected_episode_indices = int(episode_count * fraction)
 
-    # std per state dimension: noise_scale * (max - min) per dim
-    state_min = states.min(axis=0)  # (state_dim,)
-    state_max = states.max(axis=0)  # (state_dim,)
-    noise_std = noise_scale * (state_max - state_min)  # (state_dim,)
-    logger.info("Per-dimension noise std: %s", noise_std)
+    if selected_episode_indices < 1:
+        raise ValueError(
+            f"fraction={fraction} results in selecting 0 episodes "
+            f"from episode_count={episode_count}. "
+            f"Increase the fraction."
+        )
 
-    # --- Select which episodes get augmented ---
-    selected_episode_count = max(1, int(round(episode_count * fraction)))
-
-    selected_episode_indices = rng.choice(
-        a=episode_count, size=selected_episode_count, replace=False
+    selected_episode_indices = np.sort(
+        rng.choice(a=episode_count, size=selected_episode_indices, replace=False)
     )
 
-    logger.info(
-        "Augmenting %d / %d episodes with noise.", selected_episode_count, episode_count
-    )
-
-    # --- Compute episode start indices ---
     episode_start_indices = np.concatenate(
-        (np.zeros(shape=1, dtype=episode_end_indices.dtype), episode_end_indices[:-1])
+        (
+            np.zeros(shape=1, dtype=demonstration_data.episode_end_indices.dtype),
+            demonstration_data.episode_end_indices[:-1],
+        )
     )
 
-    # --- Apply noise to selected episodes ---
-    augmented_states = states.copy()
+    noisy_states_list: list[npt.NDArray[np.float32]] = []
+    noisy_actions_list: list[npt.NDArray[np.float32]] = []
+    noisy_episode_end_indices: list[int] = []
 
-    for episode_index in selected_episode_indices:
-        start: int = episode_start_indices[episode_index]
-        end: int = episode_end_indices[episode_index]
-        episode_length = end - start
+    cumulative_transition_count = int(demonstration_data.episode_end_indices[-1])
+
+    noise_std = _compute_noise_std(
+        states=demonstration_data.states, noise_fraction=noise_fraction
+    )
+    for selected_episode_index in selected_episode_indices:
+        start_index: int = episode_start_indices[selected_episode_index]
+        end_index: int = demonstration_data.episode_end_indices[selected_episode_index]
+
+        episode_length = end_index - start_index
 
         noise = rng.normal(
-            loc=0.0, scale=noise_std, size=(episode_length, states.shape[1])
+            loc=0.0,
+            scale=noise_std,
+            size=(episode_length, demonstration_data.states.shape[1]),
         ).astype(np.float32)
 
-        augmented_states[start:end] += noise
+        noisy_states_list.append(
+            demonstration_data.states[start_index:end_index] + noise
+        )
+        noisy_actions_list.append(
+            demonstration_data.actions[start_index:end_index].copy()
+        )
+
+        cumulative_transition_count += episode_length
+        noisy_episode_end_indices.append(cumulative_transition_count)
 
     return DemonstrationData(
-        states=augmented_states,
-        actions=demonstration_data.actions.copy(),
-        episode_end_indices=episode_end_indices.copy(),
+        states=np.concatenate([demonstration_data.states] + noisy_states_list, axis=0),
+        actions=np.concatenate(
+            [demonstration_data.actions] + noisy_actions_list, axis=0
+        ),
+        episode_end_indices=np.concatenate(
+            [
+                demonstration_data.episode_end_indices,
+                np.asarray(
+                    noisy_episode_end_indices,
+                    dtype=demonstration_data.episode_end_indices.dtype,
+                ),
+            ]
+        ),
     )
+
+
+def _compute_noise_std(
+    states: npt.NDArray[np.float32], noise_fraction: float
+) -> npt.NDArray[np.float32]:
+
+    min_per_dimension: npt.NDArray[np.float32] = states.min(axis=0)
+    max_per_dimension: npt.NDArray[np.float32] = states.max(axis=0)
+
+    range_per_dimension = max_per_dimension - min_per_dimension
+
+    return noise_fraction * range_per_dimension
 
 
 if __name__ == "__main__":

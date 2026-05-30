@@ -77,9 +77,7 @@ def _subsample_episodes(
     if not (0.0 < fraction <= 1.0):
         raise ValueError(f"fraction must be in (0, 1], got {fraction}")
 
-    episode_end_indices = demonstration_data.episode_end_indices
-
-    episode_count = len(episode_end_indices)
+    episode_count = len(demonstration_data.episode_end_indices)
 
     selected_episodes_count = int(episode_count * fraction)
 
@@ -95,7 +93,10 @@ def _subsample_episodes(
     )
 
     episode_start_indices = np.concatenate(
-        (np.zeros(shape=1, dtype=episode_end_indices.dtype), episode_end_indices[:-1])
+        (
+            np.zeros(shape=1, dtype=demonstration_data.episode_end_indices.dtype),
+            demonstration_data.episode_end_indices[:-1],
+        )
     )
 
     selected_transition_indices_list = []
@@ -107,7 +108,7 @@ def _subsample_episodes(
     for selected_episode_index in selected_episode_indices:
         selected_episode_index: int
         start_index: int = episode_start_indices[selected_episode_index]
-        end_index: int = episode_end_indices[selected_episode_index]
+        end_index: int = demonstration_data.episode_end_indices[selected_episode_index]
 
         episode_transition_indices = np.arange(start_index, stop=end_index)
 
