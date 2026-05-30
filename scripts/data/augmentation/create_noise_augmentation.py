@@ -6,9 +6,8 @@ import numpy as np
 import numpy.typing as npt
 import tyro
 import wandb
-import zarr
+from numpy.random import Generator
 from rich.pretty import pretty_repr
-from zarr import Array, Group
 
 from scripts.ashared import compute_config_hash, create_logger
 from scripts.shared.data import (
@@ -16,6 +15,7 @@ from scripts.shared.data import (
     load_demonstration_data_from_artifact,
     write_zarr,
 )
+from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
 
 logger = create_logger()
 
@@ -23,8 +23,10 @@ logger = create_logger()
 @dataclass
 class Config:
     use_artifact: str
-    # Ratio of original episodes to augment (0, 1].
-    # E.g. 0.5 means 50% of episodes get a noisy copy added → dataset grows by 50%.
+    # Length of subtrajectories to extract and augment.
+    window_length: int
+    # Fraction of all candidate subtrajectories to sample and add as noisy episodes (0, 1].
+    # E.g. 0.3 means 30% of all sliding-window subtrajectories become new noisy episodes.
     augmentation_ratio: float
     # Noise std as a fraction of each state dimension's observed min-max range.
     # E.g. 0.02 = 2% of range per dimension.
@@ -42,7 +44,10 @@ def _run(config: Config):
     rng = np.random.default_rng(seed=config.seed)
 
     with wandb.init(
-        project="abc", job_type="augmentation-noisy", config=asdict(config)
+        project="abc",
+        job_type="augmentation-noisy",
+        config=asdict(config),
+        dir=OUTPUT_DIRECTORY_PATH,
     ) as run:
         artifact = run.use_artifact(artifact_or_name=config.use_artifact)
 
@@ -51,15 +56,14 @@ def _run(config: Config):
         )
 
         logger.info(
-            "Augmenting %g%% of episodes with noise (noise_scale=%.4f) ...",
-            config.augmentation_ratio * 100,
-            config.noise_scale,
+            "Extracting all sliding-windows of length %d ...", config.window_length
         )
 
-        augmented_demonstration_data = _augment_with_noise(
+        augmented_demonstration_data = _augment_with_noisy_episodes(
             demonstration_data=demonstration_data,
-            fraction=config.augmentation_ratio,
-            noise_fraction=config.noise_scale,
+            window_length=config.window_length,
+            augmentation_ratio=config.augmentation_ratio,
+            noise_scale=config.noise_scale,
             rng=rng,
         )
 
@@ -87,95 +91,148 @@ def _run(config: Config):
             run.log_artifact(new_artifact)
 
 
-def _augment_with_noise(
+def _augment_with_noisy_episodes(
     demonstration_data: DemonstrationData,
-    fraction: float,
-    noise_fraction: float,
-    rng: np.random.Generator,
+    window_length: int,
+    augmentation_ratio: float,
+    noise_scale: float,
+    rng: Generator,
 ) -> DemonstrationData:
-    if not (0.0 < fraction <= 1.0):
-        raise ValueError(f"augmentation_ratio must be in (0, 1], got {fraction}")
-
-    episode_count = len(demonstration_data.episode_end_indices)
-
-    selected_episode_indices = int(episode_count * fraction)
-
-    if selected_episode_indices < 1:
-        raise ValueError(
-            f"fraction={fraction} results in selecting 0 episodes "
-            f"from episode_count={episode_count}. "
-            f"Increase the fraction."
-        )
-
-    selected_episode_indices = np.sort(
-        rng.choice(a=episode_count, size=selected_episode_indices, replace=False)
-    )
-
-    episode_start_indices = np.concatenate(
-        (
-            np.zeros(shape=1, dtype=demonstration_data.episode_end_indices.dtype),
-            demonstration_data.episode_end_indices[:-1],
-        )
-    )
-
-    noisy_states_list: list[npt.NDArray[np.float32]] = []
-    noisy_actions_list: list[npt.NDArray[np.float32]] = []
-    noisy_episode_end_indices: list[int] = []
-
-    cumulative_transition_count = int(demonstration_data.episode_end_indices[-1])
 
     noise_std = _compute_noise_std(
-        states=demonstration_data.states, noise_fraction=noise_fraction
+        states=demonstration_data.states, noise_scale=noise_scale
+    )  # (state_dimensionality,)
+
+    sliding_window_slices = _get_sliding_window_slices(
+        episode_end_indices=demonstration_data.episode_end_indices,
+        window_length=window_length,
     )
-    for selected_episode_index in selected_episode_indices:
-        start_index: int = episode_start_indices[selected_episode_index]
-        end_index: int = demonstration_data.episode_end_indices[selected_episode_index]
 
-        episode_length = end_index - start_index
+    sampled_window_indices = _sample_random_indices(
+        population_size=len(sliding_window_slices),
+        sampling_ratio=augmentation_ratio,
+        rng=rng,
+    )  # (sampled_window_count,)
 
-        noise = rng.normal(
+    augmented_states: list[npt.NDArray[np.float32]] = [
+        demonstration_data.states
+    ]  # (original_transition_count, state_dimensionality)
+    augmented_actions: list[npt.NDArray[np.float32]] = [
+        demonstration_data.actions
+    ]  # (original_transition_count, action_dimensionality)
+    augmented_episode_end_indices: list[int] = []
+
+    # End indices continue from the original data, since the noisy episodes are appended after it.
+    cumulative_end_index = int(demonstration_data.episode_end_indices[-1])
+
+    for sampled_window_index in sampled_window_indices:
+        window_slice = sliding_window_slices[int(sampled_window_index)]
+
+        window_states = demonstration_data.states[
+            window_slice
+        ]  # (window_length, state_dimensionality)
+        window_actions = demonstration_data.actions[
+            window_slice
+        ]  # (window_length, action_dimensionality)
+
+        state_noise = rng.normal(
             loc=0.0,
             scale=noise_std,
-            size=(episode_length, demonstration_data.states.shape[1]),
-        ).astype(np.float32)
+            size=(window_length, demonstration_data.states.shape[1]),
+        ).astype(dtype=window_states.dtype)  # (window_length, state_dimensionality)
 
-        noisy_states_list.append(
-            demonstration_data.states[start_index:end_index] + noise
-        )
-        noisy_actions_list.append(
-            demonstration_data.actions[start_index:end_index].copy()
-        )
+        augmented_states.append(window_states + state_noise)
+        augmented_actions.append(window_actions.copy())
 
-        cumulative_transition_count += episode_length
-        noisy_episode_end_indices.append(cumulative_transition_count)
+        cumulative_end_index += window_length
+        augmented_episode_end_indices.append(cumulative_end_index)
 
     return DemonstrationData(
-        states=np.concatenate([demonstration_data.states] + noisy_states_list, axis=0),
+        states=np.concatenate(
+            augmented_states, axis=0
+        ),  # (original_transition_count + sampled_window_count * window_length, state_dimensionality)
         actions=np.concatenate(
-            [demonstration_data.actions] + noisy_actions_list, axis=0
-        ),
+            augmented_actions, axis=0
+        ),  # (original_transition_count + sampled_window_count * window_length, action_dimensionality)
         episode_end_indices=np.concatenate(
             [
                 demonstration_data.episode_end_indices,
                 np.asarray(
-                    noisy_episode_end_indices,
+                    augmented_episode_end_indices,
                     dtype=demonstration_data.episode_end_indices.dtype,
                 ),
             ]
-        ),
+        ),  # (original_episode_count + sampled_window_count,)
     )
 
 
+def _sample_random_indices(
+    population_size: int, sampling_ratio: float, rng: Generator
+) -> npt.NDArray[np.int64]:  # (sample_size,)
+    sample_size = int(population_size * sampling_ratio)
+
+    if sample_size < 1:
+        raise ValueError(
+            f"sample_size={sample_size} must be at least 1. "
+            f"Got sampling_ratio={sampling_ratio} and population_size={population_size}."
+        )
+
+    return rng.choice(a=population_size, size=sample_size, replace=False)
+
+
+def _get_sliding_window_slices(
+    episode_end_indices: npt.NDArray[np.int64],  # (episode_count,)
+    window_length: int,
+) -> list[slice]:  # len == total_window_count
+    episode_start_indices = np.concatenate(
+        (np.zeros(shape=1, dtype=episode_end_indices.dtype), episode_end_indices[:-1])
+    )  # (episode_count,)
+
+    all_window_slices: list[slice] = []
+
+    skipped_episode_count = 0
+
+    for episode_start_index, episode_end_index in zip(
+        episode_start_indices, episode_end_indices
+    ):
+        episode_length: int = episode_end_index - episode_start_index
+
+        if episode_length < window_length:
+            skipped_episode_count += 1
+            continue
+
+        window_count = episode_length - window_length + 1
+
+        for window_index_offset in range(window_count):
+            window_start_index: int = episode_start_index + window_index_offset
+            window_end_index = window_start_index + window_length
+
+            all_window_slices.append(slice(window_start_index, window_end_index))
+
+    if skipped_episode_count > 0:
+        logger.info(
+            "Skipped %d episodes shorter than subtrajectory_length=%d.",
+            skipped_episode_count,
+            window_length,
+        )
+
+    return all_window_slices
+
+
 def _compute_noise_std(
-    states: npt.NDArray[np.float32], noise_fraction: float
-) -> npt.NDArray[np.float32]:
-
-    min_per_dimension: npt.NDArray[np.float32] = states.min(axis=0)
-    max_per_dimension: npt.NDArray[np.float32] = states.max(axis=0)
-
-    range_per_dimension = max_per_dimension - min_per_dimension
-
-    return noise_fraction * range_per_dimension
+    states: npt.NDArray[np.float32],  # (transition_count, state_dimensionality)
+    noise_scale: float,
+) -> npt.NDArray[np.float32]:  # (state_dimensionality,)
+    min_per_dimension: npt.NDArray[np.float32] = states.min(
+        axis=0
+    )  # (state_dimensionality,)
+    max_per_dimension: npt.NDArray[np.float32] = states.max(
+        axis=0
+    )  # (state_dimensionality,)
+    range_per_dimension = (
+        max_per_dimension - min_per_dimension
+    )  # (state_dimensionality,)
+    return noise_scale * range_per_dimension
 
 
 if __name__ == "__main__":
