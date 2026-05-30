@@ -10,13 +10,15 @@ import zarr
 from numpy import typing as npt
 from zarr import Array, Group
 
-from scripts.paths import PROJECT_ROOT
+from scripts.shared.paths import PROJECT_ROOT_DIRECTORY_PATH
 
 
 def load_push_t_zarr() -> tuple[
     npt.NDArray[np.float32], npt.NDArray[np.float32], npt.NDArray[np.int64]
 ]:
-    zarr_file_path = PROJECT_ROOT / "expert_data" / "pusht_cchi_v7_replay.zarr"
+    zarr_file_path = (
+        PROJECT_ROOT_DIRECTORY_PATH / "expert_data" / "pusht_cchi_v7_replay.zarr"
+    )
     store = zarr.open(store=zarr_file_path, mode="r")
     assert isinstance(store, Group)
 

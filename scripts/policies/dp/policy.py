@@ -5,10 +5,10 @@ from typing import Callable
 import numpy as np
 import torch
 
-from scripts.paths import PROJECT_ROOT
 from scripts.policies.dp.dataset import NormalizationRange
 from scripts.policies.dp.network import ConditionalUnet1d
 from scripts.policies.dp.noise_scheduler import get_noise_scheduler
+from scripts.shared.paths import PROJECT_ROOT_DIRECTORY_PATH
 
 Policy = Callable[[np.ndarray], np.ndarray]
 PolicyFactory = Callable[[int], Policy]
@@ -51,7 +51,9 @@ def save_diffusion_policy(
 
 
 def load_diffusion_policy(checkpoint_path: Path, device: torch.device) -> PolicyFactory:
-    checkpoint = torch.load(f=PROJECT_ROOT / checkpoint_path, map_location=device)
+    checkpoint = torch.load(
+        f=PROJECT_ROOT_DIRECTORY_PATH / checkpoint_path, map_location=device
+    )
 
     observation_horizon_length = checkpoint["observation_horizon_length"]
     prediction_horizon_length = checkpoint["prediction_horizon_length"]

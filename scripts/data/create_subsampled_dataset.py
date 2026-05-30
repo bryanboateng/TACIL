@@ -8,8 +8,8 @@ import wandb
 from rich.pretty import pretty_repr
 
 from scripts.ashared import compute_config_hash, create_logger
-from scripts.paths import OUTPUT_ROOT
 from scripts.shared.data import DemonstrationData, load_zarr, write_zarr
+from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
 
 logger = create_logger()
 
@@ -33,7 +33,7 @@ def _run(config: Config):
         project="abc",
         job_type="subsample-dataset",
         config=asdict(config),
-        dir=OUTPUT_ROOT,
+        dir=OUTPUT_DIRECTORY_PATH,
     ) as run:
         artifact = run.use_artifact(artifact_or_name="expert-dataset:latest")
 

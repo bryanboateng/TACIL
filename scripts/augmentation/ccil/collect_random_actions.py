@@ -7,7 +7,7 @@ import zarr
 from tqdm import tqdm
 
 from scripts.ashared import create_logger, set_seed
-from scripts.paths import CCIL_ROOT
+from scripts.shared.paths import CCIL_ROOT
 
 logger = create_logger()
 
