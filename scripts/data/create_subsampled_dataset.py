@@ -3,15 +3,13 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 
 import numpy as np
-import numpy.typing as npt
 import tyro
 import wandb
-import zarr
 from rich.pretty import pretty_repr
-from zarr import Array, Group
 
+from scripts.ashared import compute_config_hash, create_logger
 from scripts.paths import OUTPUT_ROOT
-from scripts.shared import compute_config_hash, create_logger
+from scripts.shared.data import DemonstrationData, load_zarr, write_zarr
 
 logger = create_logger()
 
@@ -20,13 +18,6 @@ logger = create_logger()
 class Config:
     fraction: float
     seed: int = 42
-
-
-@dataclass
-class DemonstrationData:
-    states: npt.NDArray[np.float32]
-    actions: npt.NDArray[np.float32]
-    episode_end_indices: npt.NDArray[np.int64]
 
 
 def main():
@@ -50,7 +41,7 @@ def _run(config: Config):
 
         logger.info("Loading dataset from path %s ...", artifact_content_path)
 
-        demonstration_data = _load_zarr(zarr_file_path=artifact_content_path)
+        demonstration_data = load_zarr(zarr_file_path=artifact_content_path)
 
         logger.info("Loading dataset completed.")
         logger.info("# Transitions: %d", len(demonstration_data.states))
@@ -68,7 +59,7 @@ def _run(config: Config):
         with tempfile.TemporaryDirectory() as tmpdir:
             output_zarr_path = Path(tmpdir) / "dataset.zarr"
 
-            _write_zarr(
+            write_zarr(
                 zarr_file_path=output_zarr_path, demonstration_data=subsampled_episodes
             )
 
@@ -135,76 +126,6 @@ def _subsample_episodes(
         states=demonstration_data.states[selected_transition_indices_np_array],
         actions=demonstration_data.actions[selected_transition_indices_np_array],
         episode_end_indices=np.asarray(subsampled_episode_end_indices),
-    )
-
-
-def _write_zarr(zarr_file_path: Path, demonstration_data: DemonstrationData):
-    root = zarr.open(store=zarr_file_path, mode="w")
-
-    assert isinstance(root, Group)
-
-    root.create_array(
-        "data/state",
-        data=demonstration_data.states,
-        chunks=(
-            min(1024, len(demonstration_data.states)),
-            demonstration_data.states.shape[1],
-        ),
-    )
-
-    root.create_array(
-        "data/action",
-        data=demonstration_data.actions,
-        chunks=(
-            min(1024, len(demonstration_data.actions)),
-            demonstration_data.actions.shape[1],
-        ),
-    )
-
-    root.create_array(
-        "meta/episode_ends",
-        data=demonstration_data.episode_end_indices,
-        chunks=(min(1024, len(demonstration_data.episode_end_indices)),),
-    )
-
-
-def _load_zarr(zarr_file_path: Path) -> DemonstrationData:
-    store = zarr.open(store=zarr_file_path, mode="r")
-
-    if not isinstance(store, Group):
-        raise TypeError(
-            f"Expected zarr.Group at {zarr_file_path}, got {type(store).__name__}"
-        )
-
-    def _get(key: str, dtype: object) -> np.ndarray:
-        try:
-            group_member = store[key]
-        except KeyError as exc:
-            raise KeyError(f"Missing dataset entry {key!r}") from exc
-
-        if not isinstance(group_member, Array):
-            raise TypeError(f"{key!r} is not a zarr.Array")
-
-        data = group_member[:]
-
-        if not isinstance(data, np.ndarray):
-            raise TypeError(
-                f"{key!r} did not load as np.ndarray (got {type(data).__name__})"
-            )
-
-        expected_dtype = np.dtype(dtype)
-
-        if data.dtype != expected_dtype:
-            raise TypeError(
-                f"{key!r} has dtype {data.dtype}, expected {expected_dtype}"
-            )
-
-        return data
-
-    return DemonstrationData(
-        states=_get(key="data/state", dtype=np.float32),
-        actions=_get(key="data/action", dtype=np.float32),
-        episode_end_indices=_get(key="meta/episode_ends", dtype=np.int64),
     )
 
 

@@ -1,6 +1,6 @@
 import torch
 
-from scripts.shared import load_push_t_zarr
+from scripts.ashared import load_push_t_zarr
 
 
 class PushTWindowDataset(torch.utils.data.Dataset[tuple[torch.Tensor, torch.Tensor]]):
@@ -160,8 +160,7 @@ class NormalizationRange:
         flattened = values.reshape(-1, values.shape[-1])
 
         return cls(
-            minimum=flattened.min(dim=0).values,
-            maximum=flattened.max(dim=0).values,
+            minimum=flattened.min(dim=0).values, maximum=flattened.max(dim=0).values
         )
 
     def normalize(self, values: torch.Tensor) -> torch.Tensor:

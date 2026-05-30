@@ -5,9 +5,9 @@ import random
 from typing import Any
 
 import numpy as np
-import numpy.typing as npt
 import torch
 import zarr
+from numpy import typing as npt
 from zarr import Array, Group
 
 from scripts.paths import PROJECT_ROOT

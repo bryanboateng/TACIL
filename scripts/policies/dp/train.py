@@ -14,6 +14,7 @@ from diffusers.schedulers.scheduling_ddpm import DDPMScheduler
 from diffusers.training_utils import EMAModel
 from tqdm.auto import tqdm
 
+from scripts.ashared import create_logger, log_device_info, set_seed
 from scripts.paths import POLICY_ROOT
 from scripts.policies.dp.dataset import PushTWindowDataset
 from scripts.policies.dp.network import ConditionalUnet1d
@@ -23,7 +24,6 @@ from scripts.policies.dp.policy import (
     load_diffusion_policy,
     save_diffusion_policy,
 )
-from scripts.shared import create_logger, log_device_info, set_seed
 
 logger = create_logger()
 

@@ -6,8 +6,8 @@ import tyro
 import zarr
 from tqdm import tqdm
 
+from scripts.ashared import create_logger, set_seed
 from scripts.paths import CCIL_ROOT
-from scripts.shared import create_logger, set_seed
 
 logger = create_logger()
 
