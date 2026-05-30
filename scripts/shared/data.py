@@ -1,9 +1,11 @@
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
 import zarr
 from numpy import typing as npt
+from wandb import Artifact
 from zarr import Array, Group
 
 
@@ -82,3 +84,19 @@ def load_zarr(zarr_file_path: Path) -> DemonstrationData:
         actions=_get(key="data/action", dtype=np.float32),
         episode_end_indices=_get(key="meta/episode_ends", dtype=np.int64),
     )
+
+
+def load_demonstration_data_from_artifact(
+    artifact: Artifact, logger: logging.Logger
+) -> DemonstrationData:
+    artifact_content_path = Path(artifact.download())
+
+    logger.info("Loading dataset from path %s ...", artifact_content_path)
+
+    demonstration_data = load_zarr(zarr_file_path=artifact_content_path)
+
+    logger.info("Loading dataset completed.")
+    logger.info("# Transitions: %d", len(demonstration_data.states))
+    logger.info("# Episodes: %d", len(demonstration_data.episode_end_indices))
+
+    return demonstration_data
