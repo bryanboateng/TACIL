@@ -10,6 +10,7 @@ import zarr
 from rich.pretty import pretty_repr
 from zarr import Array, Group
 
+from scripts.paths import OUTPUT_ROOT
 from scripts.shared import compute_config_hash, create_logger
 
 logger = create_logger()
@@ -38,7 +39,10 @@ def _run(config: Config):
     rng = np.random.default_rng(seed=config.seed)
 
     with wandb.init(
-        project="abc", job_type="subsample-dataset", config=asdict(config)
+        project="abc",
+        job_type="subsample-dataset",
+        config=asdict(config),
+        dir=OUTPUT_ROOT,
     ) as run:
         artifact = run.use_artifact(artifact_or_name="expert-dataset:latest")
 
