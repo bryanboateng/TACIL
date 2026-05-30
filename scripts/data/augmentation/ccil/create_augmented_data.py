@@ -1,0 +1,604 @@
+"""Multi-step disturbed-backtrack episodes for diffusion-policy training.
+
+Hybrid of CCIL's two single-step techniques (Ke et al., ICLR 2024)
+extended into multi-step synthetic episodes:
+
+  - From BackTrack: anchors at an expert state s_p and propagates the
+    anchor backward (each step's target is the previous synthetic head,
+    not the expert successor).
+  - From DisturbedAction: at every backward step uses a perturbed action
+    a + noise_std * N(0, 1), with the SAME base expert action a and fresh
+    noise per step.
+  - New: walks back `synthetic_length` steps, then appends a tail of
+    expert states/actions so each augmented episode is long enough for
+    diffusion-policy windows that bridge synthetic -> expert.
+
+Each augmented episode, in temporal order:
+    [s_{-L}, ..., s_{-1}, s_p, s_{p+1}, ..., s_{p+M-1}]
+with L = synthetic_length backward (synthetic) states, then M expert
+states starting at the anchor position p, M = min(expert_tail_length,
+episode_end - p). Actions follow the pusht convention (action[i] is taken
+at state[i]); the synthetic actions are the per-step noisy actions, the
+tail actions are the expert actions.
+
+Label filtering follows Deshpande et al. 2024 (Eq. 8): reject a synthetic
+episode if ANY backward step has Jacobian-weighted bound
+``||J_f(head, a)||_2 * ||predecessor - head||`` at or above sigma, where
+sigma is a quantile of the bound distribution over all converged steps.
+The bound is computed in normalized state space (see
+`scripts.ccil.dynamics.label_filtering`), consistent with the dynamics
+training loss and rollout metrics.
+
+Design notes
+------------
+* The backward Newton solve reuses `solve_inverse_dynamics_state`, the
+  single shared solver also used by the training loss and the dynamics
+  evaluation. (An earlier version of this script reimplemented Newton
+  inline and differentiated the bare residual map, which both duplicated
+  logic and solved the wrong equation -- it omitted the state's identity
+  term in the Jacobian. Reusing the shared solver fixes that.)
+* The dynamics model speaks RAW physical units at its boundary
+  (raw state/action in, raw next-state out) and carries its own
+  normalization stats internally. So this script loads raw expert data,
+  calls the model in raw units, and writes raw augmented data -- the
+  augmented episodes live in the same physical space as the expert data
+  and can be concatenated with them directly. Normalization is used only
+  where we MEASURE things (the label bound), never at the I/O boundary.
+"""
+
+import matplotlib
+from rich.pretty import pretty_repr
+
+from scripts.data.augmentation.ccil.dynamics.config import _check_unit
+
+matplotlib.use(backend="Agg")
+
+from dataclasses import asdict, dataclass
+from pathlib import Path
+
+import matplotlib.pyplot as plt
+import numpy as np
+import numpy.typing as npt
+import torch
+import tyro
+import wandb
+import zarr
+from scipy.stats import gaussian_kde
+from tqdm import tqdm
+from wandb import Run
+
+from scripts.data.augmentation.ccil.dynamics.checkpoint import load_dynamics_checkpoint
+from scripts.data.augmentation.ccil.dynamics.inverse_dynamics import (
+    solve_inverse_dynamics_state,
+)
+from scripts.data.augmentation.ccil.dynamics_model import DynamicsModel
+from scripts.data.augmentation.ccil.label_filtering import compute_label_error_bound
+from scripts.data.augmentation.ccil.shared import CCIL_ROOT
+from scripts.shared import PROJECT_ROOT, create_logger, load_push_t_zarr, set_seed
+
+logger = create_logger()
+
+
+@dataclass(frozen=True)
+class AugmentationResult:
+    """Output of an augmentation run, in flattened-episode form (raw units)."""
+
+    augmented_states: np.ndarray  # (augmented_timestep_count, state_dimensionality)
+    augmented_actions: np.ndarray  # (augmented_timestep_count, action_dimensionality)
+    augmented_episode_ends: np.ndarray  # exclusive ends into augmented_states
+    bounds: np.ndarray  # per-step normalized bounds over converged steps
+    sigma: float
+    num_accepted: int
+    num_rejected: int
+    num_not_converged: int
+
+
+@dataclass(frozen=True)
+class InversionOutcomes:
+    """Dense per-(anchor, step) outcomes. step indexes backward from the anchor."""
+
+    predecessor_states: torch.Tensor  # (anchor, step, state_dim)
+    predecessor_actions: torch.Tensor  # (anchor, step, action_dim)
+    step_converged: torch.Tensor  # (anchor, step) bool
+    step_bounds: torch.Tensor  # (anchor, step) float, normalized
+
+
+@dataclass(frozen=True)
+class Config:
+    dynamics_model_file_path: Path
+    seed: int = 42
+
+    synthetic_length: int = 5
+    expert_tail_length: int = 16
+    action_noise_std: float = 0.1
+    label_error_bound_quantile: float = 0.5
+    maximum_newton_iterations: int = 30
+
+    def __post_init__(self):
+        _check_unit(
+            name="label_error_bound_quantile", value=self.label_error_bound_quantile
+        )
+
+
+def main():
+    config = tyro.cli(f=Config, config=[tyro.conf.UsePythonSyntaxForLiteralCollections])
+    logger.info(pretty_repr(config))
+    _run(config=config)
+
+
+def _run(config: Config) -> None:
+    set_seed(seed=config.seed)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    log_device_info(device)
+
+    with wandb.init(
+        project="asdf", job_type="augmentation", config=asdict(config)
+    ) as run:
+        assert run.name is not None
+
+        output_directory_path = CCIL_ROOT / "augmented_data" / run.name
+        output_directory_path.mkdir(parents=True, exist_ok=True)
+        logger.info("Output directory: %s", output_directory_path)
+
+        dynamics_model = load_dynamics_checkpoint(
+            path=PROJECT_ROOT / config.dynamics_model_file_path, device=device
+        )
+        dynamics_model.eval()
+
+        (
+            states,  # (total_timesteps, state_dimensionality)
+            actions,  # (total_timesteps, state_dimensionality)
+            episode_ends,  # (episode_count,)
+        ) = load_push_t_zarr()
+
+        non_terminal_timestep_indices = get_non_terminal_timestep_indices(
+            episode_end_indices=episode_ends
+        )
+
+        non_terminal_timestep_states = torch.as_tensor(
+            states[non_terminal_timestep_indices]
+        ).to(device=device)
+
+        non_terminal_timestep_actions = torch.as_tensor(
+            actions[non_terminal_timestep_indices]
+        ).to(device=device)
+
+        inversion_outcomes = _run_synthetic_inversions(
+            dynamics_model=dynamics_model,
+            state_batch=non_terminal_timestep_states,
+            action_batch=non_terminal_timestep_actions,
+            trajectory_length=config.synthetic_length,
+            action_noise_std=config.action_noise_std,
+            max_newton_iteration_count=config.maximum_newton_iterations,
+        )
+
+        result = create_augmented_episodes(
+            inversion_outcomes=inversion_outcomes,
+            states=np.asarray(states),
+            actions=np.asarray(actions),
+            episode_ends=np.asarray(episode_ends),
+            anchor_positions=non_terminal_timestep_indices,
+            expert_tail_length=config.expert_tail_length,
+            label_error_bound_quantile=config.label_error_bound_quantile,
+        )
+
+        write_combined_zarr(
+            output_path=output_directory_path / "combined.zarr",
+            states=np.asarray(states),
+            actions=np.asarray(actions),
+            episode_ends=np.asarray(episode_ends),
+            augmented_states=result.augmented_states,
+            augmented_actions=result.augmented_actions,
+            augmented_episode_ends_relative=result.augmented_episode_ends,
+        )
+
+        save_outcomes_plot(result=result, output_directory_path=output_directory_path)
+        save_bounds_plot(
+            result=result,
+            quantile=label_error_bound_quantile,
+            output_directory_path=output_directory_path,
+        )
+        _log_summary_to_wandb(
+            run=run,
+            result=result,
+            quantile=label_error_bound_quantile,
+            output_directory_path=output_directory_path,
+        )
+
+
+@torch.no_grad()
+def create_augmented_episodes(
+    inversion_outcomes: InversionOutcomes,
+    states: np.ndarray,
+    actions: np.ndarray,
+    episode_ends: np.ndarray,
+    anchor_positions: np.ndarray,
+    expert_tail_length: int,
+    label_error_bound_quantile: float,
+) -> AugmentationResult:
+
+    # Sigma is a quantile of bounds at CONVERGED steps only; non-converged steps
+    # are rejected anyway and shouldn't skew the threshold.
+    converged_step_bounds = inversion_outcomes.step_bounds[
+        inversion_outcomes.step_converged
+    ]
+    if converged_step_bounds.numel() == 0:
+        raise RuntimeError(
+            "No backward steps converged; cannot choose a sigma threshold. "
+            "Check the dynamics model and the Newton iteration count."
+        )
+    sigma = float(
+        torch.quantile(converged_step_bounds, q=label_error_bound_quantile).item()
+    )
+
+    step_accepted = inversion_outcomes.step_converged & (
+        inversion_outcomes.step_bounds <= sigma
+    )
+    episode_accepted = step_accepted.all(dim=1)  # (anchor_count,)
+    episode_converged = inversion_outcomes.step_converged.all(dim=1)
+
+    tail_length_per_anchor = _compute_tail_lengths(
+        anchor_positions=anchor_positions,
+        episode_ends=episode_ends,
+        target_tail_length=expert_tail_length,
+    )
+
+    augmented_states, augmented_actions, augmented_episode_ends = _assemble_episodes(
+        predecessor_states=inversion_outcomes.predecessor_states.cpu().numpy(),
+        predecessor_actions=inversion_outcomes.predecessor_actions.cpu().numpy(),
+        episode_accepted=episode_accepted.cpu().numpy(),
+        anchor_positions=np.asarray(anchor_positions, dtype=np.int64),
+        tail_length_per_anchor=tail_length_per_anchor,
+        states=states,
+        actions=actions,
+    )
+
+    anchor_count = inversion_outcomes.predecessor_actions.shape[0]
+    accepted_count = int(episode_accepted.sum().item())
+    not_converged_count = int((~episode_converged).sum().item())
+    rejected_count = anchor_count - accepted_count - not_converged_count
+
+    logger.info(
+        "Anchors: %d | accepted: %d | rejected (converged, bound>sigma): %d | "
+        "not converged: %d | sigma=%.4g (q=%.2f)",
+        anchor_count,
+        accepted_count,
+        rejected_count,
+        not_converged_count,
+        sigma,
+        label_error_bound_quantile,
+    )
+
+    return AugmentationResult(
+        augmented_states=augmented_states,
+        augmented_actions=augmented_actions,
+        augmented_episode_ends=augmented_episode_ends,
+        bounds=converged_step_bounds.cpu().numpy(),
+        sigma=sigma,
+        num_accepted=accepted_count,
+        num_rejected=rejected_count,
+        num_not_converged=not_converged_count,
+    )
+
+
+@torch.no_grad()
+def _run_synthetic_inversions(
+    dynamics_model: DynamicsModel,
+    state_batch: torch.Tensor,  # (anchor_count, state_dimensionality)
+    action_batch: torch.Tensor,  # (anchor_count, action_dimensionality)
+    trajectory_length: int,
+    action_noise_std: float,
+    max_newton_iteration_count: int,
+) -> InversionOutcomes:
+    device = state_batch.device
+    anchor_count, state_dimensionality = state_batch.shape
+    action_dimensionality = action_batch.shape[1]
+
+    anchor_state_batch = state_batch.clone()  # (anchor_count, state_dimensionality)
+
+    predecessor_states = torch.empty(
+        size=(anchor_count, trajectory_length, state_dimensionality), device=device
+    )
+    predecessor_actions = torch.empty(
+        size=(anchor_count, trajectory_length, action_dimensionality), device=device
+    )
+
+    step_converged = torch.empty(
+        size=(anchor_count, trajectory_length), dtype=torch.bool, device=device
+    )
+
+    step_bounds = torch.empty(size=(anchor_count, trajectory_length), device=device)
+
+    for step in tqdm(range(trajectory_length), desc="synthetic step", unit="step"):
+        noisy_action_batch = (
+            action_batch + torch.randn_like(input=action_batch) * action_noise_std
+        )
+
+        predecessor_state_batch = solve_inverse_dynamics_state(
+            dynamics_model=dynamics_model,
+            initial_state_estimate_batch=anchor_state_batch,
+            action_batch=noisy_action_batch,
+            target_next_state_batch=anchor_state_batch,
+            max_newton_iteration_count=max_newton_iteration_count,
+        )  # (anchor_count, state_dimensionality)
+
+        reconstruction_error_batch: torch.Tensor = (
+            dynamics_model.predict_next_state(
+                state_batch=predecessor_state_batch, action_batch=noisy_action_batch
+            )
+            - anchor_state_batch
+        ).norm(dim=-1)  # (anchor_count,)
+
+        step_has_converged_batch = reconstruction_error_batch <= 1e-4
+
+        bounds = compute_label_error_bound(
+            dynamics_model=dynamics_model,
+            anchor_state_batch=anchor_state_batch,
+            action_batch=noisy_action_batch,
+            predecessor_state_batch=predecessor_state_batch,
+        )  # (anchor_count,)
+
+        predecessor_states[:, step, :] = predecessor_state_batch
+        predecessor_actions[:, step, :] = noisy_action_batch
+        step_converged[:, step] = step_has_converged_batch
+        step_bounds[:, step] = bounds
+
+        anchor_state_batch = predecessor_state_batch
+
+    return InversionOutcomes(
+        predecessor_states=predecessor_states,
+        predecessor_actions=predecessor_actions,
+        step_converged=step_converged,
+        step_bounds=step_bounds,
+    )
+
+
+def _assemble_episodes(
+    predecessor_states: np.ndarray,  # (anchor, L, state_dim)
+    predecessor_actions: np.ndarray,  # (anchor, L, action_dim)
+    episode_accepted: np.ndarray,  # (anchor,) bool
+    anchor_positions: np.ndarray,  # (anchor,) int
+    tail_length_per_anchor: np.ndarray,  # (anchor,) int
+    states: np.ndarray,  # (expert_timestep_count, state_dim)
+    actions: np.ndarray,  # (expert_timestep_count, action_dim)
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Stitch accepted anchors into flattened episodes (raw units).
+
+    For accepted anchor at expert position p with synthetic predecessors
+    [p_0, ..., p_{L-1}] (p_0 one step back from the anchor, p_{L-1} the
+    furthest), the temporal episode is:
+
+        states:  [p_{L-1}, ..., p_0, s_p, s_{p+1}, ..., s_{p+M-1}]
+        actions: [a_{L-1}, ..., a_0, u_p, u_{p+1}, ..., u_{p+M-1}]
+
+    i.e. predecessors reversed (oldest first) followed by M expert states,
+    with each synthetic action a_t paired with the synthetic state it acts
+    on (pusht convention: action[i] is taken at state[i]).
+    """
+    synthetic_length = predecessor_states.shape[1]
+
+    episode_state_chunks: list[np.ndarray] = []
+    episode_action_chunks: list[np.ndarray] = []
+    episode_lengths: list[int] = []
+
+    for anchor_index in np.nonzero(episode_accepted)[0]:
+        anchor_position = int(anchor_positions[anchor_index])
+        tail_length = int(tail_length_per_anchor[anchor_index])
+
+        # Synthetic prefix in temporal order = predecessors reversed.
+        synthetic_states = predecessor_states[anchor_index][::-1]  # (L, state_dim)
+        synthetic_actions = predecessor_actions[anchor_index][::-1]  # (L, action_dim)
+
+        tail_slice = slice(anchor_position, anchor_position + tail_length)
+        tail_states = states[tail_slice]  # (M, state_dim)
+        tail_actions = actions[tail_slice]  # (M, action_dim)
+
+        episode_states = np.concatenate([synthetic_states, tail_states], axis=0)
+        episode_actions = np.concatenate([synthetic_actions, tail_actions], axis=0)
+
+        episode_state_chunks.append(episode_states)
+        episode_action_chunks.append(episode_actions)
+        episode_lengths.append(synthetic_length + tail_length)
+
+    if not episode_state_chunks:
+        state_dim = predecessor_states.shape[2]
+        action_dim = predecessor_actions.shape[2]
+        return (
+            np.zeros((0, state_dim), dtype=np.float32),
+            np.zeros((0, action_dim), dtype=np.float32),
+            np.zeros((0,), dtype=np.int64),
+        )
+
+    augmented_states = np.concatenate(episode_state_chunks, axis=0).astype(np.float32)
+    augmented_actions = np.concatenate(episode_action_chunks, axis=0).astype(np.float32)
+    augmented_episode_ends = np.cumsum(np.asarray(episode_lengths, dtype=np.int64))
+
+    return augmented_states, augmented_actions, augmented_episode_ends
+
+
+def get_non_terminal_timestep_indices(
+    episode_end_indices: npt.NDArray[np.int64],  # (episode_count,)
+) -> npt.NDArray[np.int64]:
+
+    mask = np.ones(shape=episode_end_indices[-1], dtype=bool)
+    mask[episode_end_indices - 1] = False
+    return np.flatnonzero(mask).astype(episode_end_indices.dtype, copy=False)
+
+
+def _compute_tail_lengths(
+    anchor_positions: np.ndarray, episode_ends: np.ndarray, target_tail_length: int
+) -> np.ndarray:
+    """Per-anchor expert tail length, capped at the anchor's episode end."""
+    anchor_positions = np.asarray(anchor_positions, dtype=np.int64)
+    episode_ends = np.asarray(episode_ends, dtype=np.int64)
+
+    episode_index_per_anchor = np.searchsorted(
+        episode_ends, anchor_positions, side="right"
+    )
+    episode_end_per_anchor = episode_ends[episode_index_per_anchor]
+    available_tail_per_anchor = episode_end_per_anchor - anchor_positions
+    return np.minimum(target_tail_length, available_tail_per_anchor).astype(np.int64)
+
+
+def _validate_arguments(
+    synthetic_length: int, expert_tail_length: int, label_error_bound_quantile: float
+) -> None:
+    if synthetic_length < 1:
+        raise ValueError(f"synthetic_length must be >= 1, got {synthetic_length}")
+    if expert_tail_length < 1:
+        raise ValueError(f"expert_tail_length must be >= 1, got {expert_tail_length}")
+    if not 0.0 < label_error_bound_quantile <= 1.0:
+        raise ValueError(
+            f"label_error_bound_quantile must be in (0, 1], got "
+            f"{label_error_bound_quantile}"
+        )
+
+
+def write_combined_zarr(
+    output_path: Path,
+    states: np.ndarray,
+    actions: np.ndarray,
+    episode_ends: np.ndarray,
+    augmented_states: np.ndarray,
+    augmented_actions: np.ndarray,
+    augmented_episode_ends_relative: np.ndarray,
+) -> None:
+    """Write expert + augmented episodes as a single zarr in pusht layout.
+
+    `augmented_episode_ends_relative` are exclusive end indices INTO
+    `augmented_states`; they're shifted by the expert state count to become
+    absolute indices in the combined dataset.
+    """
+    states = states.astype(np.float32)
+    actions = actions.astype(np.float32)
+    augmented_states = augmented_states.astype(np.float32)
+    augmented_actions = augmented_actions.astype(np.float32)
+
+    all_states = np.concatenate([states, augmented_states], axis=0)
+    all_actions = np.concatenate([actions, augmented_actions], axis=0)
+
+    expert_total = states.shape[0]
+    augmented_ends_absolute = expert_total + augmented_episode_ends_relative.astype(
+        np.int64
+    )
+    all_ends = np.concatenate(
+        [episode_ends.astype(np.int64), augmented_ends_absolute], axis=0
+    )
+
+    root = zarr.open(str(output_path), mode="w", zarr_format=2)
+    data = root.create_group("data")
+    data.create_array("state", data=all_states)
+    data.create_array("action", data=all_actions)
+    meta = root.create_group("meta")
+    meta.create_array("episode_ends", data=all_ends)
+
+    logger.info(
+        "Wrote %d expert + %d augmented = %d states across %d episodes "
+        "(%d augmented) to %s",
+        expert_total,
+        augmented_states.shape[0],
+        all_states.shape[0],
+        len(all_ends),
+        len(augmented_ends_absolute),
+        output_path,
+    )
+
+
+def _apply_plot_style() -> None:
+    plt.style.use("seaborn-v0_8-whitegrid")
+    plt.rcParams["figure.dpi"] = 150
+    plt.rcParams["savefig.dpi"] = 300
+
+
+def save_outcomes_plot(result: AugmentationResult, output_directory_path: Path) -> None:
+    _apply_plot_style()
+    figure, plot_area = plt.subplots(figsize=(6, 4))
+
+    counts = [result.num_accepted, result.num_rejected, result.num_not_converged]
+    bars = plot_area.bar(
+        ["Accepted", "Rejected", "Not converged"],
+        counts,
+        color=["tab:green", "tab:orange", "tab:red"],
+    )
+    plot_area.set_ylabel("Count")
+    plot_area.set_title("Augmentation outcomes")
+    for bar, count in zip(bars, counts):
+        plot_area.text(
+            bar.get_x() + bar.get_width() / 2,
+            bar.get_height(),
+            str(count),
+            ha="center",
+            va="bottom",
+        )
+    figure.savefig(output_directory_path / "outcomes.png", bbox_inches="tight")
+    plt.close(figure)
+
+
+def save_bounds_plot(
+    result: AugmentationResult, quantile: float, output_directory_path: Path
+) -> None:
+    """Density of per-step normalized bounds with the sigma threshold marked."""
+    bounds = result.bounds
+    if bounds.size == 0:
+        return
+
+    _apply_plot_style()
+    figure, plot_area = plt.subplots(figsize=(7, 4))
+
+    max_x_value = float(np.percentile(bounds, q=99.5))
+    x_values = np.linspace(start=0.0, stop=max_x_value, num=1_000)
+    y_values = gaussian_kde(bounds)(x_values)
+    accept_rate = float(np.mean(bounds <= result.sigma))
+
+    plot_area.fill_between(
+        x_values,
+        y_values,
+        where=x_values <= result.sigma,
+        color="tab:green",
+        interpolate=True,
+        label=f"Accepted (bound \u2264 \u03c3): {accept_rate:.1%}",
+    )
+    plot_area.fill_between(
+        x_values,
+        y_values,
+        where=x_values >= result.sigma,
+        color="tab:orange",
+        interpolate=True,
+        label=f"Rejected (bound > \u03c3): {1 - accept_rate:.1%}",
+    )
+    plot_area.axvline(
+        result.sigma,
+        color="black",
+        linestyle="--",
+        linewidth=1.5,
+        label=f"\u03c3 = {result.sigma:.4f} (q={quantile})",
+    )
+    plot_area.set_xlabel("Normalized Jacobian-weighted label error bound")
+    plot_area.set_ylabel("Density")
+    plot_area.set_title("Per-step bound distribution (converged steps)")
+    plot_area.set_xlim(left=0.0, right=max_x_value)
+    plot_area.set_ylim(bottom=0.0)
+    plot_area.legend()
+
+    figure.savefig(output_directory_path / "bounds.png", bbox_inches="tight")
+    plt.close(figure)
+
+
+def _log_summary_to_wandb(
+    run: Run, result: AugmentationResult, quantile: float, output_directory_path: Path
+) -> None:
+    run.summary["aug/num_accepted_episodes"] = result.num_accepted
+    run.summary["aug/num_rejected"] = result.num_rejected
+    run.summary["aug/num_not_converged"] = result.num_not_converged
+    run.summary["aug/num_augmented_states"] = int(result.augmented_states.shape[0])
+    run.summary["aug/sigma"] = result.sigma
+    run.summary["aug/quantile"] = float(quantile)
+
+    for name, file_name in (("outcomes", "outcomes.png"), ("bounds", "bounds.png")):
+        plot_path = output_directory_path / file_name
+        if plot_path.exists():
+            run.summary[f"figures/{name}"] = wandb.Image(str(plot_path))
+
+
+if __name__ == "__main__":
+    main()
