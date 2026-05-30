@@ -11,7 +11,6 @@ from scripts.ashared import compute_config_hash, create_logger
 from scripts.shared.data import (
     DemonstrationData,
     load_demonstration_data_from_artifact,
-    load_zarr,
     write_zarr,
 )
 from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
@@ -42,7 +41,9 @@ def _run(config: Config):
     ) as run:
         artifact = run.use_artifact(artifact_or_name="expert-dataset:latest")
 
-        demonstration_data = load_demonstration_data_from_artifact(artifact=artifact, logger=logger)
+        demonstration_data = load_demonstration_data_from_artifact(
+            artifact=artifact, logger=logger
+        )
 
         logger.info("Subsampling dataset with %g%% ...", config.fraction * 100)
         subsampled_episodes = _subsample_episodes(

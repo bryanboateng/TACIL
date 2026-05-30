@@ -3,7 +3,6 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 
 import numpy as np
-import numpy.typing as npt
 import tyro
 import wandb
 from rich.pretty import pretty_repr
@@ -12,7 +11,6 @@ from scripts.ashared import compute_config_hash, create_logger
 from scripts.shared.data import (
     DemonstrationData,
     load_demonstration_data_from_artifact,
-    load_zarr,
     write_zarr,
 )
 
@@ -47,7 +45,9 @@ def _run(config: Config):
     ) as run:
         artifact = run.use_artifact(artifact_or_name=config.use_artifact)
 
-        demonstration_data = load_demonstration_data_from_artifact(artifact=artifact, logger=logger)
+        demonstration_data = load_demonstration_data_from_artifact(
+            artifact=artifact, logger=logger
+        )
 
         logger.info(
             "Applying noise augmentation to %g%% of episodes (noise_scale=%.4f, per_dim=%s) ...",
