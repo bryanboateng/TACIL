@@ -203,13 +203,13 @@ class DynamicsModel(torch.nn.Module):
 def _get_activation_module_class(
     activation_function_name: ActivationFunctionName,
 ) -> type[torch.nn.Module]:
-    if activation_function_name == "relu":
-        return torch.nn.ReLU
-    if activation_function_name == "silu":
-        return torch.nn.SiLU
-    if activation_function_name == "gelu":
-        return torch.nn.GELU
-    raise ValueError(f"Unknown activation: {activation_function_name!r}")
+    match activation_function_name:
+        case "relu":
+            return torch.nn.ReLU
+        case "silu":
+            return torch.nn.SiLU
+        case "gelu":
+            return torch.nn.GELU
 
 
 class _SpectralNormalizedLinear(torch.nn.Module):
@@ -260,8 +260,7 @@ def _create_network(
     else:
         activation_lipschitz = _ACTIVATION_LIPSCHITZ[activation_function_name]
         lipschitz_constant_upper_bound_per_layer = (
-            lipschitz_constant_upper_bound
-            / activation_lipschitz**activation_count
+            lipschitz_constant_upper_bound / activation_lipschitz**activation_count
         ) ** (1.0 / linear_layer_count)
 
     layers: list[torch.nn.Module] = []
