@@ -60,10 +60,12 @@ def backward_rollout_window_batch(
         )  # (window_count, state_dimensionality)
 
         forward_residual_batch: torch.Tensor = (
-            dynamics_model.predict_next_state(
-                state_batch=predecessor_state_batch, action_batch=action_batch
+            dynamics_model.normalize_state(
+                dynamics_model.predict_next_state(
+                    state_batch=predecessor_state_batch, action_batch=action_batch
+                )
             )
-            - current_state_batch
+            - dynamics_model.normalize_state(current_state_batch)
         ).norm(dim=-1)  # (window_count,)
 
         step_converged_list.append(forward_residual_batch <= CONVERGENCE_TOLERANCE)

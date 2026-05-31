@@ -142,13 +142,16 @@ def _run(config: Config) -> None:
 
     with wandb.init(
         project="abc",
-        job_type="augmentation",
+        job_type="augmentation-ccil",
         config=asdict(config),
         dir=OUTPUT_DIRECTORY_PATH,
     ) as run:
-        model_artifact = run.use_artifact(artifact_or_name=config.model_artifact)
         dynamics_model = load_dynamics_checkpoint(
-            path=Path(model_artifact.download()) / "dynamics.pt", device=device
+            path=Path(
+                run.use_artifact(artifact_or_name=config.model_artifact).download()
+            )
+            / "dynamics.pt",
+            device=device,
         )
         dynamics_model.eval()
 
@@ -157,7 +160,7 @@ def _run(config: Config) -> None:
             logger=logger,
         )
 
-        non_terminal_timestep_indices = get_non_terminal_timestep_indices(
+        non_terminal_timestep_indices = _get_non_terminal_timestep_indices(
             episode_end_indices=demonstration_data.episode_end_indices
         )
 
@@ -355,9 +358,12 @@ def _run_synthetic_inversions(
         )  # (anchor_count, state_dimensionality)
 
         reconstruction_error_batch: torch.Tensor = (
-            predecessor_state_batch
-            + dynamics_model(predecessor_state_batch, noisy_action_batch)
-            - anchor_state_batch
+            dynamics_model.normalize_state(
+                state_batch=dynamics_model.predict_next_state(
+                    state_batch=predecessor_state_batch, action_batch=noisy_action_batch
+                )
+            )
+            - dynamics_model.normalize_state(anchor_state_batch)
         ).norm(dim=-1)  # (anchor_count,)
 
         step_has_converged_batch = reconstruction_error_batch <= CONVERGENCE_TOLERANCE
@@ -447,7 +453,7 @@ def _assemble_episodes(
     return augmented_states, augmented_actions, augmented_episode_ends
 
 
-def get_non_terminal_timestep_indices(
+def _get_non_terminal_timestep_indices(
     episode_end_indices: npt.NDArray[np.int64],  # (episode_count,)
 ) -> npt.NDArray[np.int64]:
 
@@ -631,10 +637,6 @@ def _log_summary_to_wandb(
             run.summary[f"figures/{name}"] = wandb.Image(str(plot_path))
 
 
-if __name__ == "__main__":
-    main()
-
-
 @torch.no_grad()
 def compute_label_error_bound(
     dynamics_model: DynamicsModel,
@@ -653,3 +655,7 @@ def compute_label_error_bound(
     )
 
     return local_lipschitz_constant * normalized_step_distance
+
+
+if __name__ == "__main__":
+    main()

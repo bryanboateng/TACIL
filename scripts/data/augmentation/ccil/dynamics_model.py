@@ -72,14 +72,6 @@ class DynamicsModel(torch.nn.Module):
         self._action_std.copy_(action_batch.std(dim=0))
         self._next_state_residual_std.copy_(next_state_residual_batch.std(dim=0))
 
-    @property
-    def state_std(self) -> torch.Tensor:  # (state_dimensionality,)
-        return self._state_std
-
-    @property
-    def action_std(self) -> torch.Tensor:  # (action_dimensionality,)
-        return self._action_std
-
     def normalize_state(
         self,
         state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
@@ -90,6 +82,56 @@ class DynamicsModel(torch.nn.Module):
             std_batch=self._state_std,
         )
 
+    def denormalize_state(
+        self,
+        normalized_state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
+    ) -> torch.Tensor:  # (batch_size, state_dimensionality)
+        return self._denormalize(
+            input_batch=normalized_state_batch,
+            mean_batch=self._state_mean,
+            std_batch=self._state_std,
+        )
+
+    def predict_next_state(
+        self,
+        state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
+        action_batch: torch.Tensor,  # (batch_size, action_dimensionality)
+    ) -> torch.Tensor:
+        normalized_residual: torch.Tensor = self._network(
+            torch.cat(
+                tensors=[
+                    self.normalize_state(state_batch=state_batch),
+                    self._normalize_action(action_batch=action_batch),
+                ],
+                dim=-1,
+            )
+        )
+
+        raw_residual = self._denormalize(
+            input_batch=normalized_residual,
+            mean_batch=self._next_state_residual_mean,
+            std_batch=self._next_state_residual_std,
+        )
+        return state_batch + raw_residual
+
+    def local_lipschitz_constants(
+        self,
+        state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
+        action_batch: torch.Tensor,  # (batch_size, action_dimensionality)
+    ) -> torch.Tensor:
+        normalized_input_batch = torch.cat(
+            tensors=[
+                self.normalize_state(state_batch=state_batch),
+                self._normalize_action(action_batch=action_batch),
+            ],
+            dim=-1,
+        )
+        jacobian_batch: torch.Tensor = torch.vmap(
+            func=torch.func.jacrev(func=self._network)
+        )(normalized_input_batch)
+
+        return torch.linalg.matrix_norm(A=jacobian_batch, ord=2)
+
     def _normalize_action(
         self,
         action_batch: torch.Tensor,  # (batch_size, action_dimensionality)
@@ -99,75 +141,6 @@ class DynamicsModel(torch.nn.Module):
             mean_batch=self._action_mean,
             std_batch=self._action_std,
         )
-
-    def _normalized_residual_from_normalized(
-        self,
-        normalized_state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
-        normalized_action_batch: torch.Tensor,  # (batch_size, action_dimensionality)
-    ) -> torch.Tensor:  # (batch_size, state_dimensionality)
-        # Spectral norm bounds the Jacobian of this map, so this is
-        # the function to differentiate when measuring the local Lipschitz
-        # constant.
-        return self._network(
-            torch.cat(tensors=[normalized_state_batch, normalized_action_batch], dim=-1)
-        )
-
-    def normalized_residual(
-        self,
-        state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
-        action_batch: torch.Tensor,  # (batch_size, action_dimensionality)
-    ) -> torch.Tensor:  # (batch_size, state_dimensionality)
-        return self._normalized_residual_from_normalized(
-            normalized_state_batch=self.normalize_state(state_batch),
-            normalized_action_batch=self._normalize_action(action_batch),
-        )
-
-    def forward(
-        self,
-        state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
-        action_batch: torch.Tensor,  # (batch_size, action_dimensionality)
-    ) -> torch.Tensor:  # (batch_size, state_dimensionality)
-        # Returns the raw state change f̂(s, a), NOT the next state.
-
-        return self._denormalize(
-            input_batch=self.normalized_residual(
-                state_batch=state_batch, action_batch=action_batch
-            ),
-            mean_batch=self._next_state_residual_mean,
-            std_batch=self._next_state_residual_std,
-        )
-
-    def predict_next_state(
-        self,
-        state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
-        action_batch: torch.Tensor,  # (batch_size, action_dimensionality)
-    ) -> torch.Tensor:  # (batch_size, state_dimensionality)
-        return state_batch + self(state_batch, action_batch)
-
-    def local_lipschitz_constants(
-        self,
-        state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
-        action_batch: torch.Tensor,  # (batch_size, action_dimensionality)
-    ) -> torch.Tensor:  # (batch_size,)
-        # Spectral norm of the Jacobian of the normalized-residual map, at each
-        # sample. Measured in normalized coordinates because that's where the
-        # spectral-norm bound is enforced; normalization stays internal so the
-        # public interface remains raw-in/raw-out.
-        normalized_inputs = torch.cat(
-            [self.normalize_state(state_batch), self._normalize_action(action_batch)],
-            dim=-1,
-        )
-
-        def normalized_residual(normalized_input: torch.Tensor) -> torch.Tensor:
-            return self._normalized_residual_from_normalized(
-                normalized_state_batch=normalized_input[: self.state_dimensionality],
-                normalized_action_batch=normalized_input[self.state_dimensionality :],
-            )
-
-        jacobians = torch.vmap(torch.func.jacrev(normalized_residual))(
-            normalized_inputs
-        )
-        return torch.linalg.matrix_norm(jacobians, ord=2)
 
     @staticmethod
     def _normalize(

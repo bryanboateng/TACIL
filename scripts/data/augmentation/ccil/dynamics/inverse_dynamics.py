@@ -12,88 +12,143 @@ def solve_inverse_dynamics_state(
     target_next_state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
     max_newton_iteration_count: int,
 ) -> torch.Tensor:  # (batch_size, state_dimensionality)
-
-    ridge_term = 1e-8 * torch.eye(
-        n=initial_state_estimate_batch.shape[-1],
-        device=initial_state_estimate_batch.device,
-        dtype=initial_state_estimate_batch.dtype,
+    normalized_target_next_state_batch = dynamics_model.normalize_state(
+        state_batch=target_next_state_batch
     )
 
-    # Phase 1:
-    # Run a non-differentiable Newton solve to find an approximate inverse state.
-    # This avoids storing the full optimization trajectory in the autograd graph.
+    normalized_converged_state_batch = _run_newton_iterations_until_convergence(
+        dynamics_model=dynamics_model,
+        normalized_initial_state_estimate=dynamics_model.normalize_state(
+            state_batch=initial_state_estimate_batch
+        ),
+        action=action_batch,
+        normalized_target_next_state_batch=normalized_target_next_state_batch,
+        max_iteration_count=max_newton_iteration_count,
+    )
+
+    # Freeze the Jacobian at the converged point so gradients flow through
+    # the residual only.
     with torch.no_grad():
-        initial_state_estimate_batch_detached = (
-            initial_state_estimate_batch.detach().clone()
-        )
-        action_batch_detached = action_batch.detach()
-        target_next_state_batch_detached = target_next_state_batch.detach()
-
-        for _ in range(max_newton_iteration_count):
-            next_state_residual_batch: torch.Tensor = (
-                dynamics_model.predict_next_state(
-                    state_batch=initial_state_estimate_batch_detached,
-                    action_batch=action_batch_detached,
-                )
-                - target_next_state_batch_detached
-            )  # (batch_size, state_dimensionality)
-
-            if (next_state_residual_batch.norm(dim=-1) <= CONVERGENCE_TOLERANCE).all():
-                break
-
-            jacobian_wrt_state = _compute_next_state_jacobian_wrt_state(
+        frozen_jacobian_batch = (
+            _compute_batched_jacobian_of_normalized_residual_wrt_normalized_state(
                 dynamics_model=dynamics_model,
-                state_batch=initial_state_estimate_batch_detached,
-                action_batch=action_batch_detached,
+                normalized_state_batch=normalized_converged_state_batch,
+                action_batch=action_batch,
+                normalized_target_next_state_batch=normalized_target_next_state_batch,
             )
+        )
+        regularized_frozen_jacobian_batch = _add_ridge(
+            jacobian_batch=frozen_jacobian_batch
+        )
 
-            newton_step_batch: torch.Tensor = torch.linalg.solve(
-                A=jacobian_wrt_state + ridge_term,
-                B=next_state_residual_batch.unsqueeze(dim=-1),
-            ).squeeze(-1)
+    normalized_residual_batch = _compute_normalized_residual(
+        dynamics_model=dynamics_model,
+        normalized_state_batch=normalized_converged_state_batch,
+        action_batch=action_batch,
+        normalized_target_next_state_batch=normalized_target_next_state_batch,
+    )
+    differentiable_correction_batch: torch.Tensor = torch.linalg.solve(
+        A=regularized_frozen_jacobian_batch,
+        b=normalized_residual_batch.unsqueeze(dim=-1),
+    ).squeeze(dim=-1)
 
-            initial_state_estimate_batch_detached = (
-                initial_state_estimate_batch_detached - newton_step_batch
-            )
-
-        solved_state_batch = initial_state_estimate_batch_detached.detach()
-
-    # Phase 2:
-    # Freeze the local Jacobian around the converged solution.
-    # This gives a stable linearization for the differentiable correction step.
-    with torch.no_grad():
-        solution_jacobian_batch = _compute_next_state_jacobian_wrt_state(
-            dynamics_model=dynamics_model,
-            state_batch=solved_state_batch,
-            action_batch=action_batch.detach(),
-        ).detach()
-
-    # Phase 3:
-    # Apply one differentiable Newton correction step.
-    # This restores useful gradients without backpropagating through all iterations.
-    predicted_next_state_batch = dynamics_model.predict_next_state(
-        state_batch=solved_state_batch, action_batch=action_batch
+    normalized_solution_batch = (
+        normalized_converged_state_batch - differentiable_correction_batch
+    )
+    return dynamics_model.denormalize_state(
+        normalized_state_batch=normalized_solution_batch
     )
 
-    next_state_residual_batch = predicted_next_state_batch - target_next_state_batch
 
-    newton_step_batch = torch.linalg.solve(
-        A=solution_jacobian_batch + ridge_term,
-        B=next_state_residual_batch.unsqueeze(-1),
-    ).squeeze(-1)
-
-    return solved_state_batch - newton_step_batch
-
-
-def _compute_next_state_jacobian_wrt_state(
+@torch.no_grad()
+def _run_newton_iterations_until_convergence(
     dynamics_model: DynamicsModel,
-    state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
+    normalized_initial_state_estimate: torch.Tensor,  # (batch_size, state_dimensionality)
+    action: torch.Tensor,  # (batch_size, action_dimensionality)
+    normalized_target_next_state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
+    max_iteration_count: int,
+) -> torch.Tensor:  # (batch_size, state_dimensionality)
+    normalized_state_estimate_batch = normalized_initial_state_estimate.clone()
+
+    for _ in range(max_iteration_count):
+        normalized_residual_batch = _compute_normalized_residual(
+            dynamics_model=dynamics_model,
+            normalized_state_batch=normalized_state_estimate_batch,
+            action_batch=action,
+            normalized_target_next_state_batch=normalized_target_next_state_batch,
+        )
+        if (normalized_residual_batch.norm(dim=-1) <= CONVERGENCE_TOLERANCE).all():
+            break
+
+        jacobian_batch = (
+            _compute_batched_jacobian_of_normalized_residual_wrt_normalized_state(
+                dynamics_model=dynamics_model,
+                normalized_state_batch=normalized_state_estimate_batch,
+                action_batch=action,
+                normalized_target_next_state_batch=normalized_target_next_state_batch,
+            )
+        )
+        newton_step_batch: torch.Tensor = torch.linalg.solve(
+            A=_add_ridge(jacobian_batch=jacobian_batch),
+            b=normalized_residual_batch.unsqueeze(dim=-1),
+        ).squeeze(-1)
+        normalized_state_estimate_batch = (
+            normalized_state_estimate_batch - newton_step_batch
+        )
+
+    return normalized_state_estimate_batch
+
+
+def _compute_batched_jacobian_of_normalized_residual_wrt_normalized_state(
+    dynamics_model: DynamicsModel,
+    normalized_state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
     action_batch: torch.Tensor,  # (batch_size, action_dimensionality)
+    normalized_target_next_state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
 ) -> torch.Tensor:  # (batch_size, state_dimensionality, state_dimensionality)
 
-    def next_state(state: torch.Tensor, action: torch.Tensor) -> torch.Tensor:
-        return dynamics_model.predict_next_state(state_batch=state, action_batch=action)
+    def normalized_residual_for_single_element(
+        single_normalized_state: torch.Tensor,
+        single_action: torch.Tensor,
+        single_normalized_target_next_state: torch.Tensor,
+    ) -> torch.Tensor:
+        return _compute_normalized_residual(
+            dynamics_model=dynamics_model,
+            normalized_state_batch=single_normalized_state.unsqueeze(dim=0),
+            action_batch=single_action.unsqueeze(dim=0),
+            normalized_target_next_state_batch=single_normalized_target_next_state.unsqueeze(
+                dim=0
+            ),
+        ).squeeze(dim=0)
 
-    return torch.vmap(func=torch.func.jacrev(func=next_state, argnums=0))(
-        state_batch, action_batch
+    return torch.vmap(
+        func=torch.func.jacrev(func=normalized_residual_for_single_element, argnums=0)
+    )(normalized_state_batch, action_batch, normalized_target_next_state_batch)
+
+
+def _compute_normalized_residual(
+    dynamics_model: DynamicsModel,
+    normalized_state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
+    action_batch: torch.Tensor,  # (batch_size, action_dimensionality)
+    normalized_target_next_state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
+) -> torch.Tensor:  # (batch_size, state_dimensionality)
+
+    predicted_next_state_batch = dynamics_model.predict_next_state(
+        state_batch=dynamics_model.denormalize_state(
+            normalized_state_batch=normalized_state_batch
+        ),
+        action_batch=action_batch,
     )
+    return (
+        dynamics_model.normalize_state(state_batch=predicted_next_state_batch)
+        - normalized_target_next_state_batch
+    )
+
+
+def _add_ridge(
+    jacobian_batch: torch.Tensor,  # (batch_size, state_dimensionality, state_dimensionality)
+) -> torch.Tensor:  # (batch_size, state_dimensionality, state_dimensionality)
+    state_dimensionality = jacobian_batch.shape[-1]
+    identity = torch.eye(
+        n=state_dimensionality, device=jacobian_batch.device, dtype=jacobian_batch.dtype
+    )
+    return jacobian_batch + 1e-8 * identity
