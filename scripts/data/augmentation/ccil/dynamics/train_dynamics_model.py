@@ -107,7 +107,7 @@ def _run(config: Config) -> None:
         )
 
         run.summary["selected/epoch"] = best_epoch
-        run.summary["selected/clean_backward_error"] = best_backward_error
+        run.summary["selected/backward_error"] = best_backward_error
 
         _log_model_artifact(dynamics_model=dynamics_model, config=config, run=run)
 
