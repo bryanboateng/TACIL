@@ -74,7 +74,9 @@ def _compute_forward_loss(
             :, timestep_index, :
         ]  # (window_count, action_dimensionality)
 
-        current_state_batch += dynamics_model(current_state_batch, current_action_batch)
+        current_state_batch = dynamics_model.predict_next_state(
+            state_batch=current_state_batch, action_batch=current_action_batch
+        )
         predicted_state_batches.append(current_state_batch)
 
     predicted_state_trajectory_batch = torch.stack(

@@ -1,8 +1,10 @@
+import tempfile
 from enum import StrEnum
 from pathlib import Path
 
 import torch
 import wandb
+from imageio.plugins import _bsdf
 from wandb import Run
 
 from scripts.data.augmentation.ccil.dynamics_model import DynamicsModel
@@ -17,34 +19,35 @@ class CheckpointKeys(StrEnum):
     LIPSCHITZ_CONSTANT_UPPER_BOUND = "lipschitz_constant_upper_bound"
 
 
-def save_checkpoint(
-    dynamics_model: DynamicsModel, output_directory_path: Path, run: Run
-) -> None:
-    dynamics_checkpoint_path = output_directory_path / "dynamics.pt"
-    save_dynamics_checkpoint(
-        dynamics_model=dynamics_model, path=dynamics_checkpoint_path
-    )
+def save_checkpoint(dynamics_model: DynamicsModel, run: Run, config_hash: str) -> None:
+    """Serialise the model into a temp dir, push exactly one wandb artifact, and
+    discard the temp dir. Nothing is persisted on the local filesystem."""
+    with tempfile.TemporaryDirectory() as temporary_directory:
+        dynamics_checkpoint_path = Path(temporary_directory) / "dynamics.pt"
+        _save_dynamics_checkpoint(
+            dynamics_model=dynamics_model, path=dynamics_checkpoint_path
+        )
 
-    model_artifact = wandb.Artifact(
-        name="dynamics_model",
-        type="model",
-        metadata={
-            CheckpointKeys.STATE_DIMENSIONALITY: dynamics_model.state_dimensionality,
-            CheckpointKeys.ACTION_DIMENSIONALITY: dynamics_model.action_dimensionality,
-            CheckpointKeys.HIDDEN_DIMENSIONALITIES: list(
-                dynamics_model.hidden_dimensionalities
-            ),
-            CheckpointKeys.ACTIVATION_FUNCTION_NAME: dynamics_model.activation_function_name,
-            CheckpointKeys.LIPSCHITZ_CONSTANT_UPPER_BOUND: dynamics_model.lipschitz_constant_upper_bound,
-        },
-    )
-    model_artifact.add_file(
-        local_path=str(dynamics_checkpoint_path), name="dynamics.pt"
-    )
-    run.log_artifact(artifact_or_path=model_artifact)
+        model_artifact = wandb.Artifact(
+            name=f"dynamics-model-{config_hash}",
+            type="model",
+            metadata={
+                CheckpointKeys.STATE_DIMENSIONALITY: dynamics_model.state_dimensionality,
+                CheckpointKeys.ACTION_DIMENSIONALITY: dynamics_model.action_dimensionality,
+                CheckpointKeys.HIDDEN_DIMENSIONALITIES: list(
+                    dynamics_model.hidden_dimensionalities
+                ),
+                CheckpointKeys.ACTIVATION_FUNCTION_NAME: dynamics_model.activation_function_name,
+                CheckpointKeys.LIPSCHITZ_CONSTANT_UPPER_BOUND: dynamics_model.lipschitz_constant_upper_bound,
+            },
+        )
+        model_artifact.add_file(
+            local_path=str(dynamics_checkpoint_path), name="dynamics.pt"
+        )
+        run.log_artifact(model_artifact).wait()
 
 
-def save_dynamics_checkpoint(dynamics_model: DynamicsModel, path: Path) -> None:
+def _save_dynamics_checkpoint(dynamics_model: DynamicsModel, path: Path) -> None:
     torch.save(
         obj={
             CheckpointKeys.STATE_DICT: dynamics_model.state_dict(),

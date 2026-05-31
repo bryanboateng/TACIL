@@ -1,6 +1,4 @@
-import tempfile
 from dataclasses import asdict
-from pathlib import Path
 
 import numpy as np
 import torch
@@ -231,47 +229,42 @@ def _evaluate_dynamics_model(
         max_newton_iteration_count=config.evaluation.max_newton_iteration_count,
     )
 
-    validation_transitions = concatenate_episodes(episodes=validation_episodes)
-    local_lipschitz_constants = calculate_local_lipschitz_constants(
-        dynamics_model=dynamics_model,
-        states=validation_transitions.states,
-        actions=validation_transitions.actions,
-        batch_size=1_024,
-    )
+    upper_bound = config.architecture.lipschitz_constant_upper_bound
+    if upper_bound is None:
+        # No spectral-norm budget configured, so a "violation rate" is meaningless
+        # (and `array > None` would raise). Skip the (expensive) Jacobian pass.
+        lipschitz_violation_rate = 0.0
+    else:
+        validation_transitions = concatenate_episodes(episodes=validation_episodes)
+        local_lipschitz_constants = calculate_local_lipschitz_constants(
+            dynamics_model=dynamics_model,
+            states=validation_transitions.states,
+            actions=validation_transitions.actions,
+            batch_size=1_024,
+        )
+        lipschitz_violation_rate = float(
+            np.mean(local_lipschitz_constants > upper_bound)
+        )
 
     return (
         rollout_result.reconstruction_error,
         rollout_result.newton_convergence_rate,
-        float(
-            np.mean(
-                local_lipschitz_constants
-                > config.architecture.lipschitz_constant_upper_bound
-            )
-        ),
+        lipschitz_violation_rate,
     )
 
 
 def _log_model_artifact(
     dynamics_model: DynamicsModel, config: Config, run: Run
 ) -> None:
-    """Log the selected model to wandb only. Serialise into a temp dir, push the artifact,
-    await the upload, discard the temp dir. Name is a config hash; no metadata (the run
-    carries the config, and lineage comes from use_artifact/log_artifact).
+    """Log the selected model to wandb only, as a single artifact whose name is a config
+    hash. Serialisation + upload happen inside save_checkpoint via a temp dir; nothing is
+    written to a persistent local path, and lineage comes from use_artifact/log_artifact.
     """
-    with tempfile.TemporaryDirectory() as temporary_directory:
-        save_checkpoint(
-            dynamics_model=dynamics_model,
-            output_directory_path=Path(temporary_directory),
-            run=run,
-        )
-
-        artifact = wandb.Artifact(
-            name=f"dynamics-model-{compute_config_hash(config=asdict(config))}",
-            type="model",
-        )
-        artifact.add_dir(temporary_directory)
-        logged_artifact = run.log_artifact(artifact)
-        logged_artifact.wait()  # block until uploaded, so the temp dir is safe to delete
+    save_checkpoint(
+        dynamics_model=dynamics_model,
+        run=run,
+        config_hash=compute_config_hash(config=asdict(config)),
+    )
 
 
 if __name__ == "__main__":

@@ -49,7 +49,7 @@ Design notes
 import matplotlib
 from rich.pretty import pretty_repr
 
-from scripts.ashared import create_logger, set_seed
+from scripts.ashared import compute_config_hash, create_logger, set_seed
 from scripts.data.augmentation.ccil.dynamics.config import _check_unit
 from scripts.data.augmentation.create_noise_augmentation import compute_noise_std
 from scripts.shared.data import load_demonstration_data_from_artifact
@@ -57,6 +57,7 @@ from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
 
 matplotlib.use(backend="Agg")
 
+import tempfile
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
@@ -147,9 +148,8 @@ def _run(config: Config) -> None:
         dir=OUTPUT_DIRECTORY_PATH,
     ) as run:
         model_artifact = run.use_artifact(artifact_or_name=config.model_artifact)
-        artifact_content_path = Path(model_artifact.download())
         dynamics_model = load_dynamics_checkpoint(
-            path=artifact_content_path, device=device
+            path=Path(model_artifact.download()) / "dynamics.pt", device=device
         )
         dynamics_model.eval()
 
@@ -163,7 +163,7 @@ def _run(config: Config) -> None:
         )
 
         action_noise_std = compute_noise_std(
-            samples=demonstration_data.states, noise_scale=config.action_noise_scale
+            samples=demonstration_data.actions, noise_scale=config.action_noise_scale
         )  # (action_dimensionality,)
 
         inversion_outcomes = _run_synthetic_inversions(
@@ -181,16 +181,38 @@ def _run(config: Config) -> None:
 
         result = create_augmented_episodes(
             inversion_outcomes=inversion_outcomes,
-            states=np.asarray(states),
-            actions=np.asarray(actions),
-            episode_ends=np.asarray(episode_ends),
+            states=np.asarray(demonstration_data.states),
+            actions=np.asarray(demonstration_data.actions),
+            episode_ends=np.asarray(demonstration_data.episode_end_indices),
             anchor_positions=non_terminal_timestep_indices,
             expert_tail_length=config.expert_length,
             label_error_bound_quantile=config.label_error_bound_quantile,
         )
 
+        _log_augmentation_to_wandb(
+            run=run,
+            config=config,
+            result=result,
+            states=demonstration_data.states,
+            actions=demonstration_data.actions,
+            episode_ends=demonstration_data.episode_end_indices,
+        )
+
+
+def _log_augmentation_to_wandb(
+    run: Run,
+    config: Config,
+    result: AugmentationResult,
+    states: np.ndarray,
+    actions: np.ndarray,
+    episode_ends: np.ndarray,
+) -> None:
+    with tempfile.TemporaryDirectory() as temporary_directory:
+        temporary_directory_path = Path(temporary_directory)
+        combined_zarr_path = temporary_directory_path / "combined.zarr"
+
         write_combined_zarr(
-            output_path=output_directory_path / "combined.zarr",
+            output_path=combined_zarr_path,
             states=np.asarray(states),
             actions=np.asarray(actions),
             episode_ends=np.asarray(episode_ends),
@@ -199,18 +221,29 @@ def _run(config: Config) -> None:
             augmented_episode_ends_relative=result.augmented_episode_ends,
         )
 
-        save_outcomes_plot(result=result, output_directory_path=output_directory_path)
+        save_outcomes_plot(
+            result=result, output_directory_path=temporary_directory_path
+        )
         save_bounds_plot(
             result=result,
-            quantile=label_error_bound_quantile,
-            output_directory_path=output_directory_path,
+            quantile=config.label_error_bound_quantile,
+            output_directory_path=temporary_directory_path,
         )
         _log_summary_to_wandb(
             run=run,
             result=result,
-            quantile=label_error_bound_quantile,
-            output_directory_path=output_directory_path,
+            quantile=config.label_error_bound_quantile,
+            output_directory_path=temporary_directory_path,
         )
+
+        dataset_artifact = wandb.Artifact(
+            name=f"augmented-dataset-{compute_config_hash(config=asdict(config))}",
+            type="dataset",
+        )
+        dataset_artifact.add_dir(
+            local_path=str(combined_zarr_path), name="combined.zarr"
+        )
+        run.log_artifact(dataset_artifact).wait()
 
 
 @torch.no_grad()
@@ -224,16 +257,12 @@ def create_augmented_episodes(
     label_error_bound_quantile: float,
 ) -> AugmentationResult:
 
-    # Sigma is a quantile of bounds at CONVERGED steps only; non-converged steps
-    # are rejected anyway and shouldn't skew the threshold.
     converged_step_bounds = inversion_outcomes.step_bounds[
         inversion_outcomes.step_converged
     ]
     if converged_step_bounds.numel() == 0:
-        raise RuntimeError(
-            "No backward steps converged; cannot choose a sigma threshold. "
-            "Check the dynamics model and the Newton iteration count."
-        )
+        raise RuntimeError("No backward steps converged. ")
+
     sigma = float(
         torch.quantile(converged_step_bounds, q=label_error_bound_quantile).item()
     )

@@ -1,20 +1,8 @@
-import warnings
 from typing import Literal
 
 import torch
 
 ActivationFunctionName = Literal["relu", "silu", "gelu"]
-
-# Lipschitz constant (sup_x |f'(x)|) of each activation, used to keep the spectral-
-# norm budget honest. relu is exactly 1; silu/gelu overshoot slightly above 1 and
-# would otherwise inflate the realized network Lipschitz constant above the target.
-# Computed numerically (coarse scan + bounded refine) to ~1e-9; regenerate if the
-# activation set changes. gelu uses the torch default (exact/erf) variant.
-_ACTIVATION_LIPSCHITZ: dict[ActivationFunctionName, float] = {
-    "relu": 1.0,
-    "silu": 1.099839320,
-    "gelu": 1.128904145,
-}
 
 
 class DynamicsModel(torch.nn.Module):
@@ -52,15 +40,16 @@ class DynamicsModel(torch.nn.Module):
         self.register_buffer(
             name="_state_mean", tensor=torch.zeros(state_dimensionality)
         )
-        self.register_buffer(name="_state_std", tensor=torch.ones(state_dimensionality))
         self.register_buffer(
             name="_action_mean", tensor=torch.zeros(action_dimensionality)
         )
         self.register_buffer(
-            name="_action_std", tensor=torch.ones(action_dimensionality)
-        )
-        self.register_buffer(
             name="_next_state_residual_mean", tensor=torch.zeros(state_dimensionality)
+        )
+
+        self.register_buffer(name="_state_std", tensor=torch.ones(state_dimensionality))
+        self.register_buffer(
+            name="_action_std", tensor=torch.ones(action_dimensionality)
         )
         self.register_buffer(
             name="_next_state_residual_std", tensor=torch.ones(state_dimensionality)
@@ -73,44 +62,15 @@ class DynamicsModel(torch.nn.Module):
         action_batch: torch.Tensor,  # (batch_size, action_dimensionality)
         next_state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
     ) -> None:
+        next_state_residual_batch = next_state_batch - state_batch
+
         self._state_mean.copy_(state_batch.mean(dim=0))
-        self._state_std.copy_(self._robust_std(batch=state_batch, name="state"))
-
         self._action_mean.copy_(action_batch.mean(dim=0))
-        self._action_std.copy_(self._robust_std(batch=action_batch, name="action"))
+        self._next_state_residual_mean.copy_(next_state_residual_batch.mean(dim=0))
 
-        residual_batch = next_state_batch - state_batch
-        self._next_state_residual_mean.copy_(residual_batch.mean(dim=0))
-        self._next_state_residual_std.copy_(
-            self._robust_std(batch=residual_batch, name="next-state residual")
-        )
-
-    @staticmethod
-    def _robust_std(
-        batch: torch.Tensor,  # (batch_size, dimensionality)
-        name: str,
-        relative_floor: float = 1e-3,
-        absolute_floor: float = 1e-6,
-    ) -> torch.Tensor:  # (dimensionality,)
-        # Because normalization divides by std, a near-constant dimension (std ~ 0)
-        # would otherwise get its residual noise amplified without bound, letting a
-        # dimension that barely moves dominate the normalized loss/metric. Floor std
-        # relative to the largest std (and at an absolute minimum), which caps the
-        # condition number of the normalization at 1 / relative_floor.
-        std = batch.std(dim=0)
-        floor = max(absolute_floor, relative_floor * std.max().item())
-
-        degenerate_dimension_indices = torch.nonzero(std < floor, as_tuple=False)
-        if degenerate_dimension_indices.numel() > 0:
-            warnings.warn(
-                f"{name}: {degenerate_dimension_indices.numel()} near-constant "
-                f"dimension(s) {degenerate_dimension_indices.flatten().tolist()} have "
-                f"std below the floor {floor:.3e} and were clamped. In normalized "
-                f"space these dimensions carry little signal; consider dropping them.",
-                stacklevel=2,
-            )
-
-        return std.clamp_min(floor)
+        self._state_std.copy_(state_batch.std(dim=0))
+        self._action_std.copy_(action_batch.std(dim=0))
+        self._next_state_residual_std.copy_(next_state_residual_batch.std(dim=0))
 
     @property
     def state_std(self) -> torch.Tensor:  # (state_dimensionality,)
@@ -212,25 +172,6 @@ def _get_activation_module_class(
             return torch.nn.GELU
 
 
-class _SpectralNormalizedLinear(torch.nn.Module):
-    def __init__(
-        self,
-        input_dimensionality: int,
-        output_dimensionality: int,
-        lipschitz_constant_upper_bound: float,
-    ):
-        super().__init__()
-        self._linear = torch.nn.utils.parametrizations.spectral_norm(
-            torch.nn.Linear(
-                in_features=input_dimensionality, out_features=output_dimensionality
-            )
-        )
-        self._lipschitz_constant_upper_bound = lipschitz_constant_upper_bound
-
-    def forward(self, input_batch: torch.Tensor) -> torch.Tensor:
-        return self._linear(input_batch) * self._lipschitz_constant_upper_bound
-
-
 def _create_network(
     input_dimensionality: int,
     output_dimensionality: int,
@@ -248,20 +189,14 @@ def _create_network(
         output_dimensionality,
     )
     linear_layer_count = len(layer_dimensionalities) - 1
-    activation_count = linear_layer_count - 1
 
-    # Distribute the global Lipschitz budget across the linear layers, accounting for
-    # the activations in between: with each linear layer constrained to operator norm
-    # c and each activation contributing a factor kappa, the network is bounded by
-    # c**linear_layer_count * kappa**activation_count, so solve that for c. With relu
-    # (kappa = 1) this reduces to the plain bound ** (1 / linear_layer_count).
-    if lipschitz_constant_upper_bound is None:
-        lipschitz_constant_upper_bound_per_layer = None
-    else:
-        activation_lipschitz = _ACTIVATION_LIPSCHITZ[activation_function_name]
-        lipschitz_constant_upper_bound_per_layer = (
-            lipschitz_constant_upper_bound / activation_lipschitz**activation_count
-        ) ** (1.0 / linear_layer_count)
+    lipschitz_constant_upper_bound_per_layer = (
+        _calculate_lipschitz_constant_upper_bound_per_layer(
+            lipschitz_constant_upper_bound=lipschitz_constant_upper_bound,
+            linear_layer_count=linear_layer_count,
+            activation_function_name=activation_function_name,
+        )
+    )
 
     layers: list[torch.nn.Module] = []
     for layer_index in range(linear_layer_count):
@@ -278,6 +213,45 @@ def _create_network(
     return torch.nn.Sequential(*layers)
 
 
+def _calculate_lipschitz_constant_upper_bound_per_layer(
+    lipschitz_constant_upper_bound: float | None,
+    linear_layer_count: int,
+    activation_function_name: ActivationFunctionName,
+) -> float | None:
+    activation_count = linear_layer_count - 1
+
+    if lipschitz_constant_upper_bound is None:
+        return None
+    else:
+        # We want the whole network's Lipschitz constant to be at most the target bound.
+        # Since Lipschitz constants multiply through a composition, the total is
+        # at most c^linear_layer_count * activation_lipschitz_constant^activation_count,
+        # where c is the norm we assign to each linear layer, and activation_lipschitz_constant
+        # is the maximum factor by which the activation function stretches space
+        # (exactly 1.0 for relu, slightly above 1 for silu/gelu).
+        # We solve this for c, which is what this function returns.
+
+        activation_lipschitz_constant = _get_activation_lipschitz_constant(
+            activation_function_name=activation_function_name
+        )
+        return (
+            lipschitz_constant_upper_bound
+            / (activation_lipschitz_constant**activation_count)
+        ) ** (1.0 / linear_layer_count)
+
+
+def _get_activation_lipschitz_constant(
+    activation_function_name: ActivationFunctionName,
+) -> float:
+    match activation_function_name:
+        case "relu":
+            return 1.0
+        case "silu":
+            return 1.099839320
+        case "gelu":
+            return 1.128904145
+
+
 def _create_linear_layer(
     input_dimensionality: int,
     output_dimensionality: int,
@@ -292,3 +266,22 @@ def _create_linear_layer(
         output_dimensionality=output_dimensionality,
         lipschitz_constant_upper_bound=lipschitz_constant_upper_bound_per_layer,
     )
+
+
+class _SpectralNormalizedLinear(torch.nn.Module):
+    def __init__(
+        self,
+        input_dimensionality: int,
+        output_dimensionality: int,
+        lipschitz_constant_upper_bound: float,
+    ):
+        super().__init__()
+        self._linear = torch.nn.utils.parametrizations.spectral_norm(
+            torch.nn.Linear(
+                in_features=input_dimensionality, out_features=output_dimensionality
+            )
+        )
+        self._lipschitz_constant_upper_bound = lipschitz_constant_upper_bound
+
+    def forward(self, input_batch: torch.Tensor) -> torch.Tensor:
+        return self._linear(input_batch) * self._lipschitz_constant_upper_bound
