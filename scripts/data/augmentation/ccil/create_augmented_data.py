@@ -69,6 +69,7 @@ from wandb import Run
 
 from scripts.data.augmentation.ccil.dynamics.checkpoint import load_dynamics_checkpoint
 from scripts.data.augmentation.ccil.dynamics.inverse_dynamics import (
+    CONVERGENCE_TOLERANCE,
     solve_inverse_dynamics_state,
 )
 from scripts.data.augmentation.ccil.dynamics_model import DynamicsModel
@@ -329,7 +330,7 @@ def _run_synthetic_inversions(
             - anchor_state_batch
         ).norm(dim=-1)  # (anchor_count,)
 
-        step_has_converged_batch = reconstruction_error_batch <= 1e-4
+        step_has_converged_batch = reconstruction_error_batch <= CONVERGENCE_TOLERANCE
 
         bounds = compute_label_error_bound(
             dynamics_model=dynamics_model,

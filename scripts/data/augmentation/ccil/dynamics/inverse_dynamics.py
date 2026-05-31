@@ -2,6 +2,8 @@ import torch
 
 from scripts.data.augmentation.ccil.dynamics_model import DynamicsModel
 
+CONVERGENCE_TOLERANCE = 1e-4
+
 
 def solve_inverse_dynamics_state(
     dynamics_model: DynamicsModel,
@@ -36,7 +38,7 @@ def solve_inverse_dynamics_state(
                 - target_next_state_batch_detached
             )  # (batch_size, state_dimensionality)
 
-            if (next_state_residual_batch.norm(dim=-1) <= 1e-4).all():
+            if (next_state_residual_batch.norm(dim=-1) <= CONVERGENCE_TOLERANCE).all():
                 break
 
             jacobian_wrt_state = _compute_next_state_jacobian_wrt_state(

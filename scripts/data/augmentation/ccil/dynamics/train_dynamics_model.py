@@ -16,6 +16,7 @@ from scripts.ashared import compute_config_hash, create_logger, set_seed
 from scripts.data.augmentation.ccil.dynamics.checkpoint import save_checkpoint
 from scripts.data.augmentation.ccil.dynamics.config import Config
 from scripts.data.augmentation.ccil.dynamics.data import (
+    Transitions,
     build_windows,
     concatenate_episodes,
     load_episodes,
@@ -116,7 +117,7 @@ def _train_dynamics_model(
     dynamics_model: DynamicsModel,
     training_state_windows: npt.NDArray[np.float32],
     training_action_windows: npt.NDArray[np.float32],
-    validation_episodes: list,
+    validation_episodes: list[Transitions],
     config: Config,
     run: Run,
 ) -> tuple[float, int]:

@@ -7,14 +7,10 @@ from tqdm import tqdm
 
 from scripts.data.augmentation.ccil.dynamics.data import Transitions
 from scripts.data.augmentation.ccil.dynamics.inverse_dynamics import (
+    CONVERGENCE_TOLERANCE,
     solve_inverse_dynamics_state,
 )
 from scripts.data.augmentation.ccil.dynamics_model import DynamicsModel
-
-# Raw-space residual under which a backward Newton step counts as "converged" for the
-# newton_step_success_rate diagnostic. Raw units because it measures solver health
-# (does predict_next_state return to the target), not normalized model accuracy.
-_STEP_SUCCESS_TOLERANCE: float = 1e-3
 
 
 @dataclass(frozen=True)
@@ -70,7 +66,7 @@ def backward_rollout_window_batch(
             - current_state_batch
         ).norm(dim=-1)  # (window_count,)
 
-        step_converged_list.append(forward_residual_batch <= 1e-3)
+        step_converged_list.append(forward_residual_batch <= CONVERGENCE_TOLERANCE)
 
         current_state_batch = predecessor_state_batch
 

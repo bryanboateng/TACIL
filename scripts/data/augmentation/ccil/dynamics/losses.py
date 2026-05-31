@@ -8,10 +8,6 @@ from scripts.data.augmentation.ccil.dynamics.inverse_dynamics import (
 )
 from scripts.data.augmentation.ccil.dynamics_model import DynamicsModel
 
-# Newton convergence tolerance for the inner inverse solve during loss computation.
-# Not a tuned knob, so kept as a constant rather than config surface.
-_INVERSE_CONVERGENCE_TOLERANCE: float = 1e-4
-
 
 @dataclass(frozen=True)
 class LossBreakdown:
@@ -45,7 +41,6 @@ def compute_loss(
         state_window_batch=state_window_batch,
         action_window_batch=action_window_batch,
         max_newton_iteration_count=config.inverse_max_newton_iteration_count,
-        convergence_tolerance=_INVERSE_CONVERGENCE_TOLERANCE,
     )
 
     total_loss = (
@@ -107,7 +102,6 @@ def _compute_inverse_loss(
     state_window_batch: torch.Tensor,  # (batch_size, window_length + 1, state_dimensionality)
     action_window_batch: torch.Tensor,  # (batch_size, window_length, action_dimensionality)
     max_newton_iteration_count: int,
-    convergence_tolerance: float,
 ) -> torch.Tensor:
     window_length = action_window_batch.shape[1]
 
