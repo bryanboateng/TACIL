@@ -160,18 +160,6 @@ class DynamicsModel(torch.nn.Module):
         return input_batch * std_batch + mean_batch
 
 
-def _get_activation_module_class(
-    activation_function_name: ActivationFunctionName,
-) -> type[torch.nn.Module]:
-    match activation_function_name:
-        case "relu":
-            return torch.nn.ReLU
-        case "silu":
-            return torch.nn.SiLU
-        case "gelu":
-            return torch.nn.GELU
-
-
 def _create_network(
     input_dimensionality: int,
     output_dimensionality: int,
@@ -211,6 +199,18 @@ def _create_network(
             layers.append(activation_module_class())
 
     return torch.nn.Sequential(*layers)
+
+
+def _get_activation_module_class(
+    activation_function_name: ActivationFunctionName,
+) -> type[torch.nn.Module]:
+    match activation_function_name:
+        case "relu":
+            return torch.nn.ReLU
+        case "silu":
+            return torch.nn.SiLU
+        case "gelu":
+            return torch.nn.GELU
 
 
 def _calculate_lipschitz_constant_upper_bound_per_layer(
