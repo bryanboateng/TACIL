@@ -99,8 +99,8 @@ def _augment_with_noisy_episodes(
     rng: Generator,
 ) -> DemonstrationData:
 
-    noise_std = _compute_noise_std(
-        states=demonstration_data.states, noise_scale=noise_scale
+    noise_std = compute_noise_std(
+        samples=demonstration_data.states, noise_scale=noise_scale
     )  # (state_dimensionality,)
 
     sliding_window_slices = _get_sliding_window_slices(
@@ -219,19 +219,17 @@ def _get_sliding_window_slices(
     return all_window_slices
 
 
-def _compute_noise_std(
-    states: npt.NDArray[np.float32],  # (transition_count, state_dimensionality)
+def compute_noise_std(
+    samples: npt.NDArray[np.float32],  # (N, dimensionality)
     noise_scale: float,
-) -> npt.NDArray[np.float32]:  # (state_dimensionality,)
-    min_per_dimension: npt.NDArray[np.float32] = states.min(
+) -> npt.NDArray[np.float32]:  # (dimensionality,)
+    min_per_dimension: npt.NDArray[np.float32] = samples.min(
         axis=0
-    )  # (state_dimensionality,)
-    max_per_dimension: npt.NDArray[np.float32] = states.max(
+    )  # (dimensionality,)
+    max_per_dimension: npt.NDArray[np.float32] = samples.max(
         axis=0
-    )  # (state_dimensionality,)
-    range_per_dimension = (
-        max_per_dimension - min_per_dimension
-    )  # (state_dimensionality,)
+    )  # (dimensionality,)
+    range_per_dimension = max_per_dimension - min_per_dimension  # (dimensionality,)
     return noise_scale * range_per_dimension
 
 

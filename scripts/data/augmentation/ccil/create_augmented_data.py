@@ -49,7 +49,11 @@ Design notes
 import matplotlib
 from rich.pretty import pretty_repr
 
+from scripts.ashared import create_logger, set_seed
 from scripts.data.augmentation.ccil.dynamics.config import _check_unit
+from scripts.data.augmentation.create_noise_augmentation import compute_noise_std
+from scripts.shared.data import load_demonstration_data_from_artifact
+from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
 
 matplotlib.use(backend="Agg")
 
@@ -74,8 +78,6 @@ from scripts.data.augmentation.ccil.dynamics.inverse_dynamics import (
 )
 from scripts.data.augmentation.ccil.dynamics_model import DynamicsModel
 from scripts.data.augmentation.ccil.label_filtering import compute_label_error_bound
-from scripts.data.augmentation.ccil.shared import CCIL_ROOT
-from scripts.shared import PROJECT_ROOT, create_logger, load_push_t_zarr, set_seed
 
 logger = create_logger()
 
@@ -106,12 +108,13 @@ class InversionOutcomes:
 
 @dataclass(frozen=True)
 class Config:
-    dynamics_model_file_path: Path
-    seed: int = 42
+    model_artifact: str
+    dataset_artifact: str
 
+    seed: int = 42
     synthetic_length: int = 5
-    expert_tail_length: int = 16
-    action_noise_std: float = 0.1
+    expert_length: int = 16
+    action_noise_scale: float = 0.1
     label_error_bound_quantile: float = 0.5
     maximum_newton_iterations: int = 30
 
@@ -130,46 +133,49 @@ def main():
 def _run(config: Config) -> None:
     set_seed(seed=config.seed)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    log_device_info(device)
+    if device.type == "cuda":
+        logger.info("GPU: %s", torch.cuda.get_device_name(0))
+        logger.info(
+            "GPU Memory: %.2f GB",
+            torch.cuda.get_device_properties(0).total_memory / 1e9,
+        )
 
     with wandb.init(
-        project="asdf", job_type="augmentation", config=asdict(config)
+        project="abc",
+        job_type="augmentation",
+        config=asdict(config),
+        dir=OUTPUT_DIRECTORY_PATH,
     ) as run:
-        assert run.name is not None
-
-        output_directory_path = CCIL_ROOT / "augmented_data" / run.name
-        output_directory_path.mkdir(parents=True, exist_ok=True)
-        logger.info("Output directory: %s", output_directory_path)
-
+        model_artifact = run.use_artifact(artifact_or_name=config.model_artifact)
+        artifact_content_path = Path(model_artifact.download())
         dynamics_model = load_dynamics_checkpoint(
-            path=PROJECT_ROOT / config.dynamics_model_file_path, device=device
+            path=artifact_content_path, device=device
         )
         dynamics_model.eval()
 
-        (
-            states,  # (total_timesteps, state_dimensionality)
-            actions,  # (total_timesteps, state_dimensionality)
-            episode_ends,  # (episode_count,)
-        ) = load_push_t_zarr()
-
-        non_terminal_timestep_indices = get_non_terminal_timestep_indices(
-            episode_end_indices=episode_ends
+        demonstration_data = load_demonstration_data_from_artifact(
+            artifact=run.use_artifact(artifact_or_name=config.dataset_artifact),
+            logger=logger,
         )
 
-        non_terminal_timestep_states = torch.as_tensor(
-            states[non_terminal_timestep_indices]
-        ).to(device=device)
+        non_terminal_timestep_indices = get_non_terminal_timestep_indices(
+            episode_end_indices=demonstration_data.episode_end_indices
+        )
 
-        non_terminal_timestep_actions = torch.as_tensor(
-            actions[non_terminal_timestep_indices]
-        ).to(device=device)
+        action_noise_std = compute_noise_std(
+            samples=demonstration_data.states, noise_scale=config.action_noise_scale
+        )  # (action_dimensionality,)
 
         inversion_outcomes = _run_synthetic_inversions(
             dynamics_model=dynamics_model,
-            state_batch=non_terminal_timestep_states,
-            action_batch=non_terminal_timestep_actions,
+            state_batch=torch.as_tensor(
+                demonstration_data.states[non_terminal_timestep_indices]
+            ).to(device=device),
+            action_batch=torch.as_tensor(
+                demonstration_data.actions[non_terminal_timestep_indices]
+            ).to(device=device),
             trajectory_length=config.synthetic_length,
-            action_noise_std=config.action_noise_std,
+            action_noise_std=torch.as_tensor(action_noise_std).to(device=device),
             max_newton_iteration_count=config.maximum_newton_iterations,
         )
 
@@ -179,7 +185,7 @@ def _run(config: Config) -> None:
             actions=np.asarray(actions),
             episode_ends=np.asarray(episode_ends),
             anchor_positions=non_terminal_timestep_indices,
-            expert_tail_length=config.expert_tail_length,
+            expert_tail_length=config.expert_length,
             label_error_bound_quantile=config.label_error_bound_quantile,
         )
 
@@ -288,7 +294,7 @@ def _run_synthetic_inversions(
     state_batch: torch.Tensor,  # (anchor_count, state_dimensionality)
     action_batch: torch.Tensor,  # (anchor_count, action_dimensionality)
     trajectory_length: int,
-    action_noise_std: float,
+    action_noise_std: torch.Tensor,  # (action_dimensionality,)
     max_newton_iteration_count: int,
 ) -> InversionOutcomes:
     device = state_batch.device
@@ -303,17 +309,14 @@ def _run_synthetic_inversions(
     predecessor_actions = torch.empty(
         size=(anchor_count, trajectory_length, action_dimensionality), device=device
     )
-
     step_converged = torch.empty(
         size=(anchor_count, trajectory_length), dtype=torch.bool, device=device
     )
-
     step_bounds = torch.empty(size=(anchor_count, trajectory_length), device=device)
 
     for step in tqdm(range(trajectory_length), desc="synthetic step", unit="step"):
-        noisy_action_batch = (
-            action_batch + torch.randn_like(input=action_batch) * action_noise_std
-        )
+        noise = torch.normal(mean=0.0, std=action_noise_std.expand_as(action_batch))
+        noisy_action_batch = action_batch + noise
 
         predecessor_state_batch = solve_inverse_dynamics_state(
             dynamics_model=dynamics_model,
@@ -324,15 +327,14 @@ def _run_synthetic_inversions(
         )  # (anchor_count, state_dimensionality)
 
         reconstruction_error_batch: torch.Tensor = (
-            dynamics_model.predict_next_state(
-                state_batch=predecessor_state_batch, action_batch=noisy_action_batch
-            )
+            predecessor_state_batch
+            + dynamics_model(predecessor_state_batch, noisy_action_batch)
             - anchor_state_batch
         ).norm(dim=-1)  # (anchor_count,)
 
         step_has_converged_batch = reconstruction_error_batch <= CONVERGENCE_TOLERANCE
 
-        bounds = compute_label_error_bound(
+        bound_batch = compute_label_error_bound(
             dynamics_model=dynamics_model,
             anchor_state_batch=anchor_state_batch,
             action_batch=noisy_action_batch,
@@ -342,7 +344,7 @@ def _run_synthetic_inversions(
         predecessor_states[:, step, :] = predecessor_state_batch
         predecessor_actions[:, step, :] = noisy_action_batch
         step_converged[:, step] = step_has_converged_batch
-        step_bounds[:, step] = bounds
+        step_bounds[:, step] = bound_batch
 
         anchor_state_batch = predecessor_state_batch
 
