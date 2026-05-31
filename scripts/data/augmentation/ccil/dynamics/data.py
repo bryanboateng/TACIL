@@ -1,13 +1,15 @@
 from dataclasses import dataclass
+from logging import Logger
 
 import numpy as np
 from numpy import typing as npt
+from wandb import Artifact
 
-from scripts.shared import load_push_t_zarr
+from scripts.shared.data import load_demonstration_data_from_artifact
 
 
 @dataclass
-class Episode:
+class Transitions:
     states: npt.NDArray[np.float32]  #  (episode_length, state_dimensionality)
     actions: npt.NDArray[np.float32]  # (episode_length, action_dimensionality)
     next_states: npt.NDArray[np.float32]  # (episode_length, state_dimensionality)
@@ -17,29 +19,32 @@ class NoValidWindowsError(ValueError):
     pass
 
 
-def load_episodes() -> list[Episode]:
-    flat_states, flat_actions, episode_end_indices = load_push_t_zarr()
+def load_episodes(artifact: Artifact, logger: Logger) -> list[Transitions]:
+
+    demonstration_data = load_demonstration_data_from_artifact(
+        artifact=artifact, logger=logger
+    )
 
     episode_start_indices = np.concatenate(
-        [[0], episode_end_indices[:-1]]
+        [[0], demonstration_data.episode_end_indices[:-1]]
     )  # (episode_count,)
 
-    episodes: list[Episode] = []
+    episodes: list[Transitions] = []
     for episode_start_index, episode_end_index in zip(
-        episode_start_indices, episode_end_indices
+        episode_start_indices, demonstration_data.episode_end_indices
     ):
-        episode_states = flat_states[
+        episode_states = demonstration_data.states[
             episode_start_index:episode_end_index
         ]  # (episode_length, state_dimensionality)
 
-        episode_actions = flat_actions[
+        episode_actions = demonstration_data.actions[
             episode_start_index:episode_end_index
         ]  # (episode_length, action_dimensionality)
 
         # Drop the last timestep to form (s_t, a_t, s_{t+1}) triples,
         # since the terminal state has no corresponding action.
         episodes.append(
-            Episode(
+            Transitions(
                 states=episode_states[
                     :-1
                 ],  # (episode_length - 1, state_dimensionality)
@@ -55,22 +60,18 @@ def load_episodes() -> list[Episode]:
     return episodes
 
 
-def concatenate_episodes(
-    episodes: list[Episode],
-) -> tuple[
-    npt.NDArray[np.float32],  # states: (total_timesteps, state_dimensionality)
-    npt.NDArray[np.float32],  # actions: (total_timesteps, action_dimensionality)
-    npt.NDArray[np.float32],  # next_states: (total_timesteps, state_dimensionality)
-]:
-    return (
-        np.concatenate([episode.states for episode in episodes], axis=0),
-        np.concatenate([episode.actions for episode in episodes], axis=0),
-        np.concatenate([episode.next_states for episode in episodes], axis=0),
+def concatenate_episodes(episodes: list[Transitions]) -> Transitions:
+    return Transitions(
+        states=np.concatenate([episode.states for episode in episodes], axis=0),
+        actions=np.concatenate([episode.actions for episode in episodes], axis=0),
+        next_states=np.concatenate(
+            [episode.next_states for episode in episodes], axis=0
+        ),
     )
 
 
 def build_windows(
-    episodes: list[Episode], window_length: int
+    episodes: list[Transitions], window_length: int
 ) -> tuple[
     npt.NDArray[
         np.float32

@@ -9,11 +9,24 @@ def _check_unit(name: str, value: float) -> None:
 
 
 @dataclass(frozen=True)
+class LossConfig:
+    window_length: int = 1
+    forward_inverse_ratio: float = 0.5
+    inverse_max_newton_iteration_count: int = 10
+
+    def __post_init__(self) -> None:
+        _check_unit(name="forward_inverse_ratio", value=self.forward_inverse_ratio)
+
+
+@dataclass(frozen=True)
 class TrainingConfig:
+    loss: LossConfig
+
     learning_rate: float = 1e-3
     weight_decay: float = 1e-5
     batch_size: int = 2_048
     epoch_count: int = 500
+    early_stopping_patience: int = 10
 
 
 @dataclass(frozen=True)
@@ -27,16 +40,6 @@ class ArchitectureConfig:
 
 
 @dataclass(frozen=True)
-class LossConfig:
-    window_length: int = 1
-    forward_inverse_ratio: float = 0.5
-    inverse_max_newton_iteration_count: int = 10
-
-    def __post_init__(self) -> None:
-        _check_unit(name="forward_inverse_ratio", value=self.forward_inverse_ratio)
-
-
-@dataclass(frozen=True)
 class DataSplitConfig:
     seed: int = 0
     holdout_fraction: float = 0.2
@@ -46,23 +49,16 @@ class DataSplitConfig:
 
 
 @dataclass(frozen=True)
-class BackwardSolverConfig:
-    max_newton_iteration_count: int = 30
-    convergence_tolerance: float = 1e-4
-    action_noise_scale: float = 0.1
-
-
-@dataclass(frozen=True)
 class EvaluationConfig:
     data_split: DataSplitConfig
-    backward_solver: BackwardSolverConfig
-    rollout_horizons: tuple[int, ...] = (1, 2, 3, 5, 9)
+    window_length: int = 9
+    max_newton_iteration_count: int = 30
 
 
 @dataclass(frozen=True)
-class ExperimentConfig:
+class Config:
     training: TrainingConfig
     architecture: ArchitectureConfig
-    loss: LossConfig
     evaluation: EvaluationConfig
+    dataset_artifact: str
     seed: int = 42
