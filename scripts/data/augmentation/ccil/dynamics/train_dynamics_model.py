@@ -69,18 +69,6 @@ def _run(config: Config) -> None:
         logger.info("# Validation episodes: %d", len(validation_episodes))
 
         train_transitions = concatenate_episodes(episodes=train_episodes)
-        (
-            train_state_windows,  # (window_count, window_length + 1, state_dimensionality)
-            train_action_windows,  # (window_count, window_length, action_dimensionality)
-        ) = build_windows(
-            episodes=train_episodes, window_length=config.training.loss.window_length
-        )
-        logger.info(
-            "Built %d training windows of length %d.",
-            train_action_windows.shape[0],
-            config.training.loss.window_length,
-        )
-
         dynamics_model = DynamicsModel(
             state_dimensionality=train_transitions.states.shape[1],
             action_dimensionality=train_transitions.actions.shape[1],
@@ -95,6 +83,18 @@ def _run(config: Config) -> None:
             next_state_batch=torch.from_numpy(train_transitions.next_states).to(
                 device=device
             ),
+        )
+
+        (
+            train_state_windows,  # (window_count, window_length + 1, state_dimensionality)
+            train_action_windows,  # (window_count, window_length, action_dimensionality)
+        ) = build_windows(
+            episodes=train_episodes, window_length=config.training.loss.window_length
+        )
+        logger.info(
+            "Built %d training windows of length %d.",
+            train_action_windows.shape[0],
+            config.training.loss.window_length,
         )
 
         best_backward_error, best_epoch = _train_dynamics_model(
