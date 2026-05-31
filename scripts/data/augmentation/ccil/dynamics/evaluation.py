@@ -161,39 +161,21 @@ def calculate_local_lipschitz_constants(
     batch_size: int,
 ) -> np.ndarray:  # (sample_count,)
     model_device = next(dynamics_model.parameters()).device
-
-    normalized_states = dynamics_model.normalize_state(
-        state_batch=torch.from_numpy(states).to(device=model_device)
-    )  # (sample_count, state_dimensionality)
-    normalized_actions = dynamics_model.normalize_action(
-        action_batch=torch.from_numpy(actions).to(device=model_device)
-    )  # (sample_count, action_dimensionality)
-
-    normalized_inputs = torch.cat(
-        [normalized_states, normalized_actions], dim=-1
-    )  # (sample_count, state_dimensionality + action_dimensionality)
-
-    state_dimensionality = normalized_states.shape[-1]
-
-    def _normalized_residual(normalized_input: torch.Tensor) -> torch.Tensor:
-        return dynamics_model.normalized_residual_from_normalized(
-            normalized_state_batch=normalized_input[:state_dimensionality],
-            normalized_action_batch=normalized_input[state_dimensionality:],
-        )
-
-    batched_jacobian = torch.vmap(torch.func.jacrev(_normalized_residual))
+    states_tensor = torch.from_numpy(states).to(device=model_device)
+    actions_tensor = torch.from_numpy(actions).to(device=model_device)
 
     spectral_norm_batches: list[np.ndarray] = []
     for batch_start in tqdm(
-        range(0, normalized_inputs.shape[0], batch_size), desc="lipschitz", unit="batch"
+        range(0, states_tensor.shape[0], batch_size), desc="lipschitz", unit="batch"
     ):
-        jacobian_batch = batched_jacobian(
-            normalized_inputs[batch_start : batch_start + batch_size]
-        )  # (batch_size, state_dimensionality, state_dimensionality + action_dimensionality)
+        batch_slice = slice(batch_start, batch_start + batch_size)
+        spectral_norm_batches.append(
+            dynamics_model.local_lipschitz_constants(
+                state_batch=states_tensor[batch_slice],
+                action_batch=actions_tensor[batch_slice],
+            )
+            .cpu()
+            .numpy()
+        )
 
-        spectral_norms: torch.Tensor = torch.linalg.matrix_norm(
-            jacobian_batch, ord=2
-        )  # (batch_size,)
-        spectral_norm_batches.append(spectral_norms.cpu().numpy())
-
-    return np.concatenate(spectral_norm_batches)  # (sample_count,)
+    return np.concatenate(spectral_norm_batches)
