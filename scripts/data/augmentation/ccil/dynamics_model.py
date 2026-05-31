@@ -90,7 +90,7 @@ class DynamicsModel(torch.nn.Module):
             std_batch=self._state_std,
         )
 
-    def normalize_action(
+    def _normalize_action(
         self,
         action_batch: torch.Tensor,  # (batch_size, action_dimensionality)
     ) -> torch.Tensor:  # (batch_size, action_dimensionality)
@@ -119,7 +119,7 @@ class DynamicsModel(torch.nn.Module):
     ) -> torch.Tensor:  # (batch_size, state_dimensionality)
         return self._normalized_residual_from_normalized(
             normalized_state_batch=self.normalize_state(state_batch),
-            normalized_action_batch=self.normalize_action(action_batch),
+            normalized_action_batch=self._normalize_action(action_batch),
         )
 
     def forward(
@@ -154,7 +154,7 @@ class DynamicsModel(torch.nn.Module):
         # spectral-norm bound is enforced; normalization stays internal so the
         # public interface remains raw-in/raw-out.
         normalized_inputs = torch.cat(
-            [self.normalize_state(state_batch), self.normalize_action(action_batch)],
+            [self.normalize_state(state_batch), self._normalize_action(action_batch)],
             dim=-1,
         )
 

@@ -78,7 +78,6 @@ from scripts.data.augmentation.ccil.dynamics.inverse_dynamics import (
     solve_inverse_dynamics_state,
 )
 from scripts.data.augmentation.ccil.dynamics_model import DynamicsModel
-from scripts.data.augmentation.ccil.label_filtering import compute_label_error_bound
 
 logger = create_logger()
 
@@ -634,3 +633,23 @@ def _log_summary_to_wandb(
 
 if __name__ == "__main__":
     main()
+
+
+@torch.no_grad()
+def compute_label_error_bound(
+    dynamics_model: DynamicsModel,
+    anchor_state_batch: torch.Tensor,  # s*  (batch_size, state_dimensionality)
+    action_batch: torch.Tensor,  # a*  (batch_size, action_dimensionality)
+    predecessor_state_batch: torch.Tensor,  # s^G (batch_size, state_dimensionality)
+) -> torch.Tensor:  # (batch_size,)
+    local_lipschitz_constant = dynamics_model.local_lipschitz_constants(
+        state_batch=anchor_state_batch, action_batch=action_batch
+    )  # ||J_f̂(s*, a*)||_2
+
+    normalized_step_distance = torch.linalg.norm(
+        dynamics_model.normalize_state(state_batch=predecessor_state_batch)
+        - dynamics_model.normalize_state(state_batch=anchor_state_batch),
+        dim=-1,
+    )
+
+    return local_lipschitz_constant * normalized_step_distance

@@ -1,4 +1,6 @@
+import tempfile
 from dataclasses import asdict
+from pathlib import Path
 
 import numpy as np
 import torch
@@ -11,7 +13,7 @@ from tqdm import tqdm
 from wandb import Run
 
 from scripts.ashared import compute_config_hash, create_logger, set_seed
-from scripts.data.augmentation.ccil.dynamics.checkpoint import save_checkpoint
+from scripts.data.augmentation.ccil.dynamics.checkpoint import _save_dynamics_checkpoint
 from scripts.data.augmentation.ccil.dynamics.config import Config
 from scripts.data.augmentation.ccil.dynamics.data import (
     Transitions,
@@ -260,11 +262,21 @@ def _log_model_artifact(
     hash. Serialisation + upload happen inside save_checkpoint via a temp dir; nothing is
     written to a persistent local path, and lineage comes from use_artifact/log_artifact.
     """
-    save_checkpoint(
-        dynamics_model=dynamics_model,
-        run=run,
-        config_hash=compute_config_hash(config=asdict(config)),
-    )
+    config_hash = compute_config_hash(config=asdict(config))
+    with tempfile.TemporaryDirectory() as temporary_directory:
+        dynamics_checkpoint_path = Path(temporary_directory) / "dynamics.pt"
+        _save_dynamics_checkpoint(
+            dynamics_model=dynamics_model, path=dynamics_checkpoint_path
+        )
+
+        model_artifact = wandb.Artifact(
+            name=f"dynamics-model-{config_hash}",
+            type="model",
+        )
+        model_artifact.add_file(
+            local_path=str(dynamics_checkpoint_path), name="dynamics.pt"
+        )
+        run.log_artifact(model_artifact).wait()
 
 
 if __name__ == "__main__":
