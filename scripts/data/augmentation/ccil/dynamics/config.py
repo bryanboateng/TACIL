@@ -56,6 +56,11 @@ class EvaluationConfig:
     data_split: DataSplitConfig
     window_length: int = 9
     max_newton_iteration_count: int = 30
+    epoch_interval: int = 10
+
+    def __post_init__(self) -> None:
+        if self.epoch_interval < 1:
+            raise ValueError(f"epoch_interval must be >= 1, got {self.epoch_interval}")
 
 
 @dataclass(frozen=True)

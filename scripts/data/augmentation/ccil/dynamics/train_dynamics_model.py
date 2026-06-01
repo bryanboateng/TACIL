@@ -201,6 +201,12 @@ def _train_dynamics_model(
 
         ema_model.update_parameters(model=dynamics_model)
 
+        is_final_epoch = epoch_index == config.training.epoch_count - 1
+        if (
+            epoch_index + 1
+        ) % config.evaluation.epoch_interval != 0 and not is_final_epoch:
+            continue
+
         if config.architecture.lipschitz_constant_upper_bound is not None:
             _refresh_spectral_norm_estimates(ema_dynamics_model=ema_dynamics_model)
 
