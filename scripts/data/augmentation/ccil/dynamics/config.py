@@ -26,7 +26,10 @@ class TrainingConfig:
     weight_decay: float = 1e-5
     batch_size: int = 2_048
     epoch_count: int = 500
-    early_stopping_patience: int = 10
+    ema_decay: float = 0.9
+
+    def __post_init__(self) -> None:
+        _check_unit(name="ema_decay", value=self.ema_decay)
 
 
 @dataclass(frozen=True)

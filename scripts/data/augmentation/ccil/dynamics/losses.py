@@ -143,6 +143,10 @@ def _compute_inverse_loss(
 
     # Normalized state space, same rationale as the forward loss.
     return torch.nn.functional.mse_loss(
-        input=dynamics_model.normalize_state(reconstructed_previous_state_tensor),
-        target=dynamics_model.normalize_state(ground_truth_previous_state_tensor),
+        input=dynamics_model.normalize_state(
+            state_batch=reconstructed_previous_state_tensor
+        ),
+        target=dynamics_model.normalize_state(
+            state_batch=ground_truth_previous_state_tensor
+        ),
     )

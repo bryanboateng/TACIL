@@ -1,6 +1,8 @@
+import copy
 import tempfile
 from dataclasses import asdict
 from pathlib import Path
+from typing import cast
 
 import numpy as np
 import torch
@@ -9,6 +11,7 @@ import wandb
 from numpy import typing as npt
 from rich.pretty import pretty_repr
 from sklearn.model_selection import train_test_split
+from torch.optim.swa_utils import AveragedModel
 from tqdm import tqdm
 from wandb import Run
 
@@ -27,7 +30,6 @@ from scripts.data.augmentation.ccil.dynamics.evaluation import (
 )
 from scripts.data.augmentation.ccil.dynamics.losses import compute_loss
 from scripts.data.augmentation.ccil.dynamics_model import DynamicsModel
-from scripts.shared.early_stoppong import EarlyStopping
 from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
 
 logger = create_logger()
@@ -98,7 +100,7 @@ def _run(config: Config) -> None:
             config.training.loss.window_length,
         )
 
-        best_backward_error, best_epoch = _train_dynamics_model(
+        best_rollout_error, best_epoch = _train_dynamics_model(
             dynamics_model=dynamics_model,
             training_state_windows=train_state_windows,
             training_action_windows=train_action_windows,
@@ -108,7 +110,7 @@ def _run(config: Config) -> None:
         )
 
         run.summary["selected/epoch"] = best_epoch
-        run.summary["selected/backward_error"] = best_backward_error
+        run.summary["selected/rollout_error"] = best_rollout_error
 
         _log_model_artifact(dynamics_model=dynamics_model, config=config, run=run)
 
@@ -136,12 +138,27 @@ def _train_dynamics_model(
         weight_decay=config.training.weight_decay,
     )
 
+    ema_model = AveragedModel(
+        dynamics_model,
+        avg_fn=lambda ema_parameter, current_parameter, _num_averaged: (
+            config.training.ema_decay * ema_parameter
+            + (1.0 - config.training.ema_decay) * current_parameter
+        ),
+        use_buffers=False,
+    )
+
+    # AveragedModel.module is typed as nn.Module but it is the DynamicsModel we wrapped.
+    ema_dynamics_model = cast(DynamicsModel, ema_model.module)
+
     window_count = train_state_windows_tensor.shape[0]
     steps_per_epoch = max(window_count // config.training.batch_size, 1)
 
-    early_stopping = EarlyStopping(patience=config.training.early_stopping_patience)
-
     global_step = 0
+
+    best_rollout_error = float("inf")
+    best_state_dict: dict[str, torch.Tensor] | None = None
+    best_epoch_index = -1
+
     for epoch_index in tqdm(
         range(config.training.epoch_count), desc="training", unit="epoch"
     ):
@@ -182,9 +199,14 @@ def _train_dynamics_model(
 
             global_step += 1
 
-        reconstruction_error, convergence_rate, lipschitz_violation_rate = (
+        ema_model.update_parameters(model=dynamics_model)
+
+        if config.architecture.lipschitz_constant_upper_bound is not None:
+            _refresh_spectral_norm_estimates(ema_dynamics_model=ema_dynamics_model)
+
+        rollout_error, rollout_convergence_rate, lipschitz_violation_rate = (
             _evaluate_dynamics_model(
-                dynamics_model=dynamics_model,
+                dynamics_model=ema_dynamics_model,
                 validation_episodes=validation_episodes,
                 config=config,
             )
@@ -192,30 +214,58 @@ def _train_dynamics_model(
 
         run.log(
             {
-                "eval/reconstruction_error": reconstruction_error,
-                "eval/convergence_rate": convergence_rate,
+                "eval/rollout_error": rollout_error,
+                "eval/rollout_convergence_rate": rollout_convergence_rate,
                 "eval/lipschitz_violation_rate": lipschitz_violation_rate,
             },
             step=global_step,
         )
 
-        should_stop = early_stopping.update(
-            metric=reconstruction_error, model=dynamics_model, epoch=epoch_index
+        if rollout_error < best_rollout_error:
+            best_rollout_error = rollout_error
+            best_state_dict = copy.deepcopy(ema_dynamics_model.state_dict())
+            best_epoch_index = epoch_index
+
+    if best_state_dict is None:
+        raise ValueError("No checkpoint was recorded")
+
+    dynamics_model.load_state_dict(best_state_dict)
+    logger.info(
+        "Restored best EMA checkpoint from epoch %d (rollout error %.6f).",
+        best_epoch_index,
+        best_rollout_error,
+    )
+    return best_rollout_error, best_epoch_index
+
+
+@torch.no_grad()
+def _refresh_spectral_norm_estimates(ema_dynamics_model: DynamicsModel) -> None:
+    """Recompute the spectral-norm vectors for the EMA model's averaged weights.
+
+    These vectors only update during train-mode forward passes, and the EMA model is
+    never trained, so its vectors are out of date. They also can't be copied from the
+    live model, because they only fit the exact weights they were computed from, and
+    the EMA model has different weights. So we run a few forward
+    passes in train mode: each pass moves the vectors one step closer to the correct
+    values for the current weights.
+    The input values play no role here, so we use zeros.
+    """
+    model_device = next(ema_dynamics_model.parameters()).device
+
+    dummy_state_batch = torch.empty(
+        1, ema_dynamics_model.state_dimensionality, device=model_device
+    )
+    dummy_action_batch = torch.empty(
+        1, ema_dynamics_model.action_dimensionality, device=model_device
+    )
+
+    model_was_training = ema_dynamics_model.training
+    ema_dynamics_model.train()
+    for _ in range(50):
+        ema_dynamics_model.predict_next_state(
+            state_batch=dummy_state_batch, action_batch=dummy_action_batch
         )
-        if should_stop:
-            logger.info(
-                "Early stopping at epoch %d (best epoch %d, backward prediction error %.6f).",
-                epoch_index,
-                early_stopping.best_epoch,
-                early_stopping.best_metric,
-            )
-            break
-
-    if early_stopping.best_state_dict is None:
-        raise ValueError()
-
-    dynamics_model.load_state_dict(early_stopping.best_state_dict)
-    return early_stopping.best_metric, early_stopping.best_epoch
+    ema_dynamics_model.train(mode=model_was_training)
 
 
 def _evaluate_dynamics_model(
@@ -233,16 +283,13 @@ def _evaluate_dynamics_model(
 
     upper_bound = config.architecture.lipschitz_constant_upper_bound
     if upper_bound is None:
-        # No spectral-norm budget configured, so a "violation rate" is meaningless
-        # (and `array > None` would raise). Skip the (expensive) Jacobian pass.
-        lipschitz_violation_rate = 0.0
+        lipschitz_violation_rate = float("nan")
     else:
         validation_transitions = concatenate_episodes(episodes=validation_episodes)
         local_lipschitz_constants = calculate_local_lipschitz_constants(
             dynamics_model=dynamics_model,
             states=validation_transitions.states,
             actions=validation_transitions.actions,
-            batch_size=1_024,
         )
         lipschitz_violation_rate = float(
             np.mean(local_lipschitz_constants > upper_bound)
@@ -250,7 +297,7 @@ def _evaluate_dynamics_model(
 
     return (
         rollout_result.reconstruction_error,
-        rollout_result.newton_convergence_rate,
+        rollout_result.step_convergence_rate,
         lipschitz_violation_rate,
     )
 
@@ -258,10 +305,6 @@ def _evaluate_dynamics_model(
 def _log_model_artifact(
     dynamics_model: DynamicsModel, config: Config, run: Run
 ) -> None:
-    """Log the selected model to wandb only, as a single artifact whose name is a config
-    hash. Serialisation + upload happen inside save_checkpoint via a temp dir; nothing is
-    written to a persistent local path, and lineage comes from use_artifact/log_artifact.
-    """
     config_hash = compute_config_hash(config=asdict(config))
     with tempfile.TemporaryDirectory() as temporary_directory:
         dynamics_checkpoint_path = Path(temporary_directory) / "dynamics.pt"
@@ -270,8 +313,7 @@ def _log_model_artifact(
         )
 
         model_artifact = wandb.Artifact(
-            name=f"dynamics-model-{config_hash}",
-            type="model",
+            name=f"dynamics-model-{config_hash}", type="model"
         )
         model_artifact.add_file(
             local_path=str(dynamics_checkpoint_path), name="dynamics.pt"
