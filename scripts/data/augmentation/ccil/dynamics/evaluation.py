@@ -46,7 +46,7 @@ def evaluate_rollout(
             window_length=window_length,
             max_newton_iteration_count=max_newton_iteration_count,
         )
-        for episode in tqdm(episodes, desc="evaluation", unit="episode")
+        for episode in tqdm(episodes, desc="evaluation", unit="episode", leave=False)
     ]
     return _aggregate_episode_evaluations(evaluations=evaluations)
 
@@ -67,7 +67,10 @@ def calculate_local_lipschitz_constants(
 
     spectral_norm_batches: list[np.ndarray] = []
     for batch_start in tqdm(
-        range(0, states_tensor.shape[0], batch_size), desc="lipschitz", unit="batch"
+        range(0, states_tensor.shape[0], batch_size),
+        desc="lipschitz",
+        unit="batch",
+        leave=False,
     ):
         batch_slice = slice(batch_start, batch_start + batch_size)
         spectral_norm_batches.append(

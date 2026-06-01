@@ -130,7 +130,7 @@ class DynamicsModel(torch.nn.Module):
             func=torch.func.jacrev(func=self._network)
         )(normalized_input_batch)
 
-        return torch.linalg.matrix_norm(A=jacobian_batch, ord=2)
+        return torch.linalg.matrix_norm(jacobian_batch, ord=2)
 
     def _normalize_action(
         self,
