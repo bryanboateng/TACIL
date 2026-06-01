@@ -218,7 +218,7 @@ def create_augmented_episodes(
         raise RuntimeError("No backward steps converged. ")
 
     sigma = float(
-        torch.quantile(converged_step_bounds, q=label_error_bound_quantile).item()
+        torch.quantile(input=converged_step_bounds, q=label_error_bound_quantile).item()
     )
 
     step_accepted = inversion_outcomes.step_converged & (
@@ -320,7 +320,7 @@ def _run_synthetic_inversions(
 
         step_has_converged_batch = reconstruction_error_batch <= CONVERGENCE_TOLERANCE
 
-        bound_batch = compute_label_error_bound(
+        bound_batch = _compute_label_error_bound(
             dynamics_model=dynamics_model,
             anchor_state_batch=anchor_state_batch,
             action_batch=noisy_action_batch,
@@ -417,7 +417,6 @@ def _get_non_terminal_timestep_indices(
 def _compute_tail_lengths(
     anchor_positions: np.ndarray, episode_ends: np.ndarray, target_tail_length: int
 ) -> np.ndarray:
-    """Per-anchor expert tail length, capped at the anchor's episode end."""
     anchor_positions = np.asarray(anchor_positions, dtype=np.int64)
     episode_ends = np.asarray(episode_ends, dtype=np.int64)
 
@@ -590,23 +589,23 @@ def _log_summary_to_wandb(
 
 
 @torch.no_grad()
-def compute_label_error_bound(
+def _compute_label_error_bound(
     dynamics_model: DynamicsModel,
-    anchor_state_batch: torch.Tensor,  # s*  (batch_size, state_dimensionality)
-    action_batch: torch.Tensor,  # a*  (batch_size, action_dimensionality)
-    predecessor_state_batch: torch.Tensor,  # s^G (batch_size, state_dimensionality)
+    anchor_state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
+    action_batch: torch.Tensor,  # (batch_size, action_dimensionality)
+    predecessor_state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
 ) -> torch.Tensor:  # (batch_size,)
-    local_lipschitz_constant = dynamics_model.local_lipschitz_constants(
+    local_lipschitz_constant_batch = dynamics_model.local_lipschitz_constants(
         state_batch=anchor_state_batch, action_batch=action_batch
-    )  # ||J_f̂(s*, a*)||_2
+    )
 
-    normalized_step_distance = torch.linalg.norm(
+    normalized_step_distance_batch: torch.Tensor = torch.linalg.norm(
         dynamics_model.normalize_state(state_batch=predecessor_state_batch)
         - dynamics_model.normalize_state(state_batch=anchor_state_batch),
         dim=-1,
     )
 
-    return local_lipschitz_constant * normalized_step_distance
+    return local_lipschitz_constant_batch * normalized_step_distance_batch
 
 
 if __name__ == "__main__":

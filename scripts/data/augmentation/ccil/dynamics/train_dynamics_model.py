@@ -252,10 +252,10 @@ def _refresh_spectral_norm_estimates(ema_dynamics_model: DynamicsModel) -> None:
     """
     model_device = next(ema_dynamics_model.parameters()).device
 
-    dummy_state_batch = torch.empty(
+    dummy_state_batch = torch.zeros(
         1, ema_dynamics_model.state_dimensionality, device=model_device
     )
-    dummy_action_batch = torch.empty(
+    dummy_action_batch = torch.zeros(
         1, ema_dynamics_model.action_dimensionality, device=model_device
     )
 
