@@ -49,7 +49,7 @@ def solve_inverse_dynamics_state(
     )
     differentiable_correction_batch: torch.Tensor = torch.linalg.solve(
         A=regularized_frozen_jacobian_batch,
-        b=normalized_residual_batch.unsqueeze(dim=-1),
+        B=normalized_residual_batch.unsqueeze(dim=-1),
     ).squeeze(dim=-1)
 
     normalized_solution_batch = (
@@ -90,7 +90,7 @@ def _run_newton_iterations_until_convergence(
         )
         newton_step_batch: torch.Tensor = torch.linalg.solve(
             A=_add_ridge(jacobian_batch=jacobian_batch),
-            b=normalized_residual_batch.unsqueeze(dim=-1),
+            B=normalized_residual_batch.unsqueeze(dim=-1),
         ).squeeze(-1)
         normalized_state_estimate_batch = (
             normalized_state_estimate_batch - newton_step_batch
