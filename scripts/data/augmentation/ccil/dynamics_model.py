@@ -2,8 +2,6 @@ from typing import Literal
 
 import torch
 
-ActivationFunctionName = Literal["relu", "silu", "gelu"]
-
 
 class DynamicsModel(torch.nn.Module):
     _state_mean: torch.Tensor  # (state_dimensionality,)
@@ -18,7 +16,6 @@ class DynamicsModel(torch.nn.Module):
         state_dimensionality: int,
         action_dimensionality: int,
         hidden_dimensionalities: tuple[int, ...],
-        activation_function_name: ActivationFunctionName,
         lipschitz_constant_upper_bound: float | None,
     ):
         super().__init__()
@@ -26,14 +23,12 @@ class DynamicsModel(torch.nn.Module):
         self.state_dimensionality = state_dimensionality
         self.action_dimensionality = action_dimensionality
         self.hidden_dimensionalities = hidden_dimensionalities
-        self.activation_function_name = activation_function_name
         self.lipschitz_constant_upper_bound = lipschitz_constant_upper_bound
 
         self._network = _create_network(
             input_dimensionality=state_dimensionality + action_dimensionality,
             output_dimensionality=state_dimensionality,
             hidden_dimensionalities=hidden_dimensionalities,
-            activation_function_name=activation_function_name,
             lipschitz_constant_upper_bound=lipschitz_constant_upper_bound,
         )
 
@@ -163,12 +158,8 @@ def _create_network(
     input_dimensionality: int,
     output_dimensionality: int,
     hidden_dimensionalities: tuple[int, ...],
-    activation_function_name: ActivationFunctionName,
-    lipschitz_constant_upper_bound: float | None,
+        lipschitz_constant_upper_bound: float | None,
 ) -> torch.nn.Sequential:
-    activation_module_class = _get_activation_module_class(
-        activation_function_name=activation_function_name
-    )
 
     layer_dimensionalities = (
         input_dimensionality,
@@ -181,7 +172,6 @@ def _create_network(
         _calculate_lipschitz_constant_upper_bound_per_layer(
             lipschitz_constant_upper_bound=lipschitz_constant_upper_bound,
             linear_layer_count=linear_layer_count,
-            activation_function_name=activation_function_name,
         )
     )
 
@@ -195,27 +185,14 @@ def _create_network(
             )
         )
         if layer_index != linear_layer_count - 1:
-            layers.append(activation_module_class())
+            layers.append(torch.nn.SiLU())
 
     return torch.nn.Sequential(*layers)
-
-
-def _get_activation_module_class(
-    activation_function_name: ActivationFunctionName,
-) -> type[torch.nn.Module]:
-    match activation_function_name:
-        case "relu":
-            return torch.nn.ReLU
-        case "silu":
-            return torch.nn.SiLU
-        case "gelu":
-            return torch.nn.GELU
 
 
 def _calculate_lipschitz_constant_upper_bound_per_layer(
     lipschitz_constant_upper_bound: float | None,
     linear_layer_count: int,
-    activation_function_name: ActivationFunctionName,
 ) -> float | None:
     activation_count = linear_layer_count - 1
 
@@ -230,25 +207,9 @@ def _calculate_lipschitz_constant_upper_bound_per_layer(
         # (exactly 1.0 for relu, slightly above 1 for silu/gelu).
         # We solve this for c, which is what this function returns.
 
-        activation_lipschitz_constant = _get_activation_lipschitz_constant(
-            activation_function_name=activation_function_name
+        return (lipschitz_constant_upper_bound / (1.099839320**activation_count)) ** (
+            1.0 / linear_layer_count
         )
-        return (
-            lipschitz_constant_upper_bound
-            / (activation_lipschitz_constant**activation_count)
-        ) ** (1.0 / linear_layer_count)
-
-
-def _get_activation_lipschitz_constant(
-    activation_function_name: ActivationFunctionName,
-) -> float:
-    match activation_function_name:
-        case "relu":
-            return 1.0
-        case "silu":
-            return 1.099839320
-        case "gelu":
-            return 1.128904145
 
 
 def _create_linear_layer(

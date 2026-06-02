@@ -16,17 +16,16 @@ from tqdm import tqdm
 from wandb import Run
 
 from scripts.ashared import compute_config_hash, create_logger, set_seed
-from scripts.data.augmentation.ccil.dynamics.checkpoint import _save_dynamics_checkpoint
+from scripts.data.augmentation.ccil.dynamics.checkpoint import save_dynamics_checkpoint
 from scripts.data.augmentation.ccil.dynamics.config import Config
 from scripts.data.augmentation.ccil.dynamics.data import (
-    Transitions,
     build_windows,
     concatenate_episodes,
     load_episodes,
 )
 from scripts.data.augmentation.ccil.dynamics.evaluation import (
     calculate_local_lipschitz_constants,
-    evaluate_rollout,
+    calculate_validation_loss,
 )
 from scripts.data.augmentation.ccil.dynamics.losses import compute_loss
 from scripts.data.augmentation.ccil.dynamics_model import DynamicsModel
@@ -59,24 +58,25 @@ def _run(config: Config) -> None:
         config=asdict(config),
         dir=OUTPUT_DIRECTORY_PATH,
     ) as run:
-        train_episodes, validation_episodes = train_test_split(
+        training_episodes, validation_episodes = train_test_split(
             load_episodes(
-                artifact=run.use_artifact(artifact_or_name=config.dataset_artifact),
+                artifact=run.use_artifact(artifact_or_name=config.data.artifact),
                 logger=logger,
             ),
-            test_size=config.evaluation.data_split.holdout_fraction,
-            random_state=config.evaluation.data_split.seed,
+            test_size=config.data.split.validation_fraction,
+            random_state=config.data.split.seed,
             shuffle=True,
         )
-        logger.info("# Train episodes: %d", len(train_episodes))
+        logger.info("# Training episodes: %d", len(training_episodes))
         logger.info("# Validation episodes: %d", len(validation_episodes))
 
-        train_transitions = concatenate_episodes(episodes=train_episodes)
+        train_transitions = concatenate_episodes(episodes=training_episodes)
+        validation_transitions = concatenate_episodes(episodes=validation_episodes)
+
         dynamics_model = DynamicsModel(
             state_dimensionality=train_transitions.states.shape[1],
             action_dimensionality=train_transitions.actions.shape[1],
             hidden_dimensionalities=config.architecture.hidden_layer_sizes,
-            activation_function_name=config.architecture.activation,
             lipschitz_constant_upper_bound=config.architecture.lipschitz_constant_upper_bound,
         ).to(device=device)
 
@@ -92,19 +92,27 @@ def _run(config: Config) -> None:
             train_state_windows,  # (window_count, window_length + 1, state_dimensionality)
             train_action_windows,  # (window_count, window_length, action_dimensionality)
         ) = build_windows(
-            episodes=train_episodes, window_length=config.training.loss.window_length
+            episodes=training_episodes, window_length=config.data.loader.window_length
+        )
+        (validation_state_windows, validation_action_windows) = build_windows(
+            episodes=validation_episodes, window_length=config.data.loader.window_length
         )
         logger.info(
             "Built %d training windows of length %d.",
             train_action_windows.shape[0],
-            config.training.loss.window_length,
+            config.data.loader.window_length,
         )
 
         best_rollout_error, best_epoch = _train_dynamics_model(
             dynamics_model=dynamics_model,
             training_state_windows=train_state_windows,
             training_action_windows=train_action_windows,
-            validation_episodes=validation_episodes,
+            validation_state_windows=validation_state_windows,
+            validation_action_windows=validation_action_windows,
+            training_states=train_transitions.states,
+            training_actions=train_transitions.actions,
+            validation_states=validation_transitions.states,
+            validation_actions=validation_transitions.actions,
             config=config,
             run=run,
         )
@@ -119,7 +127,20 @@ def _train_dynamics_model(
     dynamics_model: DynamicsModel,
     training_state_windows: npt.NDArray[np.float32],
     training_action_windows: npt.NDArray[np.float32],
-    validation_episodes: list[Transitions],
+    validation_state_windows: npt.NDArray[np.float32],
+    validation_action_windows: npt.NDArray[np.float32],
+    training_states: npt.NDArray[
+        np.float32
+    ],  # (training_sample_count, state_dimensionality)
+    training_actions: npt.NDArray[
+        np.float32
+    ],  # (training_sample_count, action_dimensionality)
+    validation_states: npt.NDArray[
+        np.float32
+    ],  # (validation_sample_count, state_dimensionality)
+    validation_actions: npt.NDArray[
+        np.float32
+    ],  # (validation_sample_count, action_dimensionality)
     config: Config,
     run: Run,
 ) -> tuple[float, int]:
@@ -151,11 +172,11 @@ def _train_dynamics_model(
     ema_dynamics_model = cast(DynamicsModel, ema_model.module)
 
     window_count = train_state_windows_tensor.shape[0]
-    steps_per_epoch = max(window_count // config.training.batch_size, 1)
+    steps_per_epoch = max(window_count // config.data.loader.batch_size, 1)
 
     global_step = 0
 
-    best_rollout_error = float("inf")
+    best_validation_loss = float("inf")
     best_state_dict: dict[str, torch.Tensor] | None = None
     best_epoch_index = -1
 
@@ -168,30 +189,27 @@ def _train_dynamics_model(
 
         for step_index in range(steps_per_epoch):
             batch_window_indices = shuffled_window_indices[
-                step_index * config.training.batch_size : (step_index + 1)
-                * config.training.batch_size
+                step_index * config.data.loader.batch_size : (step_index + 1)
+                * config.data.loader.batch_size
             ]
 
             optimizer.zero_grad()
 
-            total_loss, loss_breakdown = compute_loss(
+            loss = compute_loss(
                 dynamics_model=dynamics_model,
                 state_window_batch=train_state_windows_tensor[batch_window_indices],
                 action_window_batch=train_action_windows_tensor[batch_window_indices],
-                config=config.training.loss,
             )
-            total_loss.backward()
+            loss.backward()
 
             gradient_norm = torch.nn.utils.clip_grad_norm_(
-                parameters=dynamics_model.parameters(), max_norm=10.0
+                parameters=dynamics_model.parameters(), max_norm=1.0
             )
             optimizer.step()
 
             run.log(
                 {
-                    "loss/total": loss_breakdown.total.item(),
-                    "loss/forward": loss_breakdown.forward.item(),
-                    "loss/inverse": loss_breakdown.inverse.item(),
+                    "loss/training": loss.detach().item(),
                     "gradient_norm": gradient_norm.item(),
                 },
                 step=global_step,
@@ -201,34 +219,42 @@ def _train_dynamics_model(
 
         ema_model.update_parameters(model=dynamics_model)
 
-        is_final_epoch = epoch_index == config.training.epoch_count - 1
-        if (
-            epoch_index + 1
-        ) % config.evaluation.epoch_interval != 0 and not is_final_epoch:
-            continue
-
         if config.architecture.lipschitz_constant_upper_bound is not None:
             _refresh_spectral_norm_estimates(ema_dynamics_model=ema_dynamics_model)
 
-        rollout_error, rollout_convergence_rate, lipschitz_violation_rate = (
-            _evaluate_dynamics_model(
-                dynamics_model=ema_dynamics_model,
-                validation_episodes=validation_episodes,
-                config=config,
-            )
+        validation_loss = calculate_validation_loss(
+            dynamics_model=ema_dynamics_model,
+            validation_state_windows=validation_state_windows,
+            validation_action_windows=validation_action_windows,
+            batch_size=config.data.loader.batch_size,
         )
+
+        run.log({"loss/validation": validation_loss}, step=global_step)
 
         run.log(
             {
-                "eval/rollout_error": rollout_error,
-                "eval/rollout_convergence_rate": rollout_convergence_rate,
-                "eval/lipschitz_violation_rate": lipschitz_violation_rate,
+                **_compute_lipschitz_metrics(
+                    dynamics_model=ema_dynamics_model,
+                    states=training_states,
+                    actions=training_actions,
+                    batch_size=config.data.loader.batch_size,
+                    split="training",
+                ),
+                **_compute_lipschitz_metrics(
+                    dynamics_model=ema_dynamics_model,
+                    states=validation_states,
+                    actions=validation_actions,
+                    batch_size=config.data.loader.batch_size,
+                    split="validation",
+                ),
             },
             step=global_step,
         )
 
-        if rollout_error < best_rollout_error:
-            best_rollout_error = rollout_error
+        run.log({"epoch": epoch_index}, step=global_step)
+
+        if validation_loss < best_validation_loss:
+            best_validation_loss = validation_loss
             best_state_dict = copy.deepcopy(ema_dynamics_model.state_dict())
             best_epoch_index = epoch_index
 
@@ -239,9 +265,31 @@ def _train_dynamics_model(
     logger.info(
         "Restored best EMA checkpoint from epoch %d (rollout error %.6f).",
         best_epoch_index,
-        best_rollout_error,
+        best_validation_loss,
     )
-    return best_rollout_error, best_epoch_index
+    return best_validation_loss, best_epoch_index
+
+
+def _compute_lipschitz_metrics(
+    dynamics_model: DynamicsModel,
+    states: npt.NDArray[np.float32],  # (sample_count, state_dimensionality)
+    actions: npt.NDArray[np.float32],  # (sample_count, action_dimensionality)
+    batch_size: int,
+    split: str,
+) -> dict[str, float | wandb.Histogram]:
+    local_lipschitz_constants = calculate_local_lipschitz_constants(
+        dynamics_model=dynamics_model,
+        states=states,
+        actions=actions,
+        batch_size=batch_size,
+    )
+    return {
+        f"lipschitz/distribution_{split}": wandb.Histogram(local_lipschitz_constants),
+        f"lipschitz/mean_{split}": float(np.mean(local_lipschitz_constants)),
+        f"lipschitz/p99_{split}": float(
+            np.percentile(local_lipschitz_constants, q=99.0)
+        ),
+    }
 
 
 @torch.no_grad()
@@ -274,47 +322,13 @@ def _refresh_spectral_norm_estimates(ema_dynamics_model: DynamicsModel) -> None:
     ema_dynamics_model.train(mode=model_was_training)
 
 
-def _evaluate_dynamics_model(
-    dynamics_model: DynamicsModel, validation_episodes: list, config: Config
-) -> tuple[float, float, float]:
-
-    dynamics_model.eval()
-
-    rollout_result = evaluate_rollout(
-        dynamics_model=dynamics_model,
-        episodes=validation_episodes,
-        window_length=config.evaluation.window_length,
-        max_newton_iteration_count=config.evaluation.max_newton_iteration_count,
-    )
-
-    upper_bound = config.architecture.lipschitz_constant_upper_bound
-    if upper_bound is None:
-        lipschitz_violation_rate = float("nan")
-    else:
-        validation_transitions = concatenate_episodes(episodes=validation_episodes)
-        local_lipschitz_constants = calculate_local_lipschitz_constants(
-            dynamics_model=dynamics_model,
-            states=validation_transitions.states,
-            actions=validation_transitions.actions,
-        )
-        lipschitz_violation_rate = float(
-            np.mean(local_lipschitz_constants > upper_bound)
-        )
-
-    return (
-        rollout_result.reconstruction_error,
-        rollout_result.step_convergence_rate,
-        lipschitz_violation_rate,
-    )
-
-
 def _log_model_artifact(
     dynamics_model: DynamicsModel, config: Config, run: Run
 ) -> None:
     config_hash = compute_config_hash(config=asdict(config))
     with tempfile.TemporaryDirectory() as temporary_directory:
         dynamics_checkpoint_path = Path(temporary_directory) / "dynamics.pt"
-        _save_dynamics_checkpoint(
+        save_dynamics_checkpoint(
             dynamics_model=dynamics_model, path=dynamics_checkpoint_path
         )
 

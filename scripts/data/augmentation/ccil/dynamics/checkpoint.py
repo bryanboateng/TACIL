@@ -11,18 +11,16 @@ class CheckpointKeys(StrEnum):
     STATE_DIMENSIONALITY = "state_dimensionality"
     ACTION_DIMENSIONALITY = "action_dimensionality"
     HIDDEN_DIMENSIONALITIES = "hidden_dimensionalities"
-    ACTIVATION_FUNCTION_NAME = "activation_function_name"
     LIPSCHITZ_CONSTANT_UPPER_BOUND = "lipschitz_constant_upper_bound"
 
 
-def _save_dynamics_checkpoint(dynamics_model: DynamicsModel, path: Path) -> None:
+def save_dynamics_checkpoint(dynamics_model: DynamicsModel, path: Path) -> None:
     torch.save(
         obj={
             CheckpointKeys.STATE_DICT: dynamics_model.state_dict(),
             CheckpointKeys.STATE_DIMENSIONALITY: dynamics_model.state_dimensionality,
             CheckpointKeys.ACTION_DIMENSIONALITY: dynamics_model.action_dimensionality,
             CheckpointKeys.HIDDEN_DIMENSIONALITIES: dynamics_model.hidden_dimensionalities,
-            CheckpointKeys.ACTIVATION_FUNCTION_NAME: dynamics_model.activation_function_name,
             CheckpointKeys.LIPSCHITZ_CONSTANT_UPPER_BOUND: dynamics_model.lipschitz_constant_upper_bound,
         },
         f=path,
@@ -37,7 +35,6 @@ def load_dynamics_checkpoint(path: Path, device: torch.device) -> DynamicsModel:
         hidden_dimensionalities=tuple(
             checkpoint[CheckpointKeys.HIDDEN_DIMENSIONALITIES]
         ),
-        activation_function_name=checkpoint[CheckpointKeys.ACTIVATION_FUNCTION_NAME],
         lipschitz_constant_upper_bound=checkpoint[
             CheckpointKeys.LIPSCHITZ_CONSTANT_UPPER_BOUND
         ],

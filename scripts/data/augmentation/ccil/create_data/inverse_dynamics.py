@@ -26,37 +26,8 @@ def solve_inverse_dynamics_state(
         max_iteration_count=max_newton_iteration_count,
     )
 
-    # Freeze the Jacobian at the converged point so gradients flow through
-    # the residual only.
-    with torch.no_grad():
-        frozen_jacobian_batch = (
-            _compute_batched_jacobian_of_normalized_residual_wrt_normalized_state(
-                dynamics_model=dynamics_model,
-                normalized_state_batch=normalized_converged_state_batch,
-                action_batch=action_batch,
-                normalized_target_next_state_batch=normalized_target_next_state_batch,
-            )
-        )
-        regularized_frozen_jacobian_batch = _add_ridge(
-            jacobian_batch=frozen_jacobian_batch
-        )
-
-    normalized_residual_batch = _compute_normalized_residual(
-        dynamics_model=dynamics_model,
-        normalized_state_batch=normalized_converged_state_batch,
-        action_batch=action_batch,
-        normalized_target_next_state_batch=normalized_target_next_state_batch,
-    )
-    differentiable_correction_batch: torch.Tensor = torch.linalg.solve(
-        A=regularized_frozen_jacobian_batch,
-        B=normalized_residual_batch.unsqueeze(dim=-1),
-    ).squeeze(dim=-1)
-
-    normalized_solution_batch = (
-        normalized_converged_state_batch - differentiable_correction_batch
-    )
     return dynamics_model.denormalize_state(
-        normalized_state_batch=normalized_solution_batch
+        normalized_state_batch=normalized_converged_state_batch
     )
 
 

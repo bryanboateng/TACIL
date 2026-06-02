@@ -24,11 +24,11 @@ from scipy.stats import gaussian_kde
 from tqdm import tqdm
 from wandb import Run
 
-from scripts.data.augmentation.ccil.dynamics.checkpoint import load_dynamics_checkpoint
-from scripts.data.augmentation.ccil.dynamics.inverse_dynamics import (
+from scripts.data.augmentation.ccil.create_data.inverse_dynamics import (
     CONVERGENCE_TOLERANCE,
     solve_inverse_dynamics_state,
 )
+from scripts.data.augmentation.ccil.dynamics.checkpoint import load_dynamics_checkpoint
 from scripts.data.augmentation.ccil.dynamics_model import DynamicsModel
 
 logger = create_logger()
