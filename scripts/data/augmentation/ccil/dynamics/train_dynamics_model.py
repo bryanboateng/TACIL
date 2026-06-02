@@ -284,7 +284,9 @@ def _compute_lipschitz_metrics(
         batch_size=batch_size,
     )
     return {
-        f"lipschitz/distribution_{split}": wandb.Histogram(local_lipschitz_constants),
+        f"lipschitz/distribution_{split}": wandb.Histogram(
+            local_lipschitz_constants.tolist()
+        ),
         f"lipschitz/mean_{split}": float(np.mean(local_lipschitz_constants)),
         f"lipschitz/p99_{split}": float(
             np.percentile(local_lipschitz_constants, q=99.0)
