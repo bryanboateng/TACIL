@@ -54,7 +54,7 @@ def _run(config: Config) -> None:
 
     with wandb.init(
         project="abc",
-        job_type="dynamics-train",
+        job_type="train",
         config=asdict(config),
         dir=OUTPUT_DIRECTORY_PATH,
     ) as run:

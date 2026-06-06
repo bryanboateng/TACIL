@@ -1,35 +1,29 @@
-import matplotlib
-from rich.pretty import pretty_repr
-
-from scripts.ashared import compute_config_hash, create_logger, set_seed
-from scripts.data.augmentation.ccil.dynamics.config import _check_unit
-from scripts.data.augmentation.create_noise_augmentation import compute_noise_std
-from scripts.shared.data import load_demonstration_data_from_artifact
-from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
-
-matplotlib.use(backend="Agg")
-
 import tempfile
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-import matplotlib.pyplot as plt
 import numpy as np
 import numpy.typing as npt
 import torch
 import tyro
 import wandb
 import zarr
+from rich.pretty import pretty_repr
 from scipy.stats import gaussian_kde
 from tqdm import tqdm
 from wandb import Run
 
+from scripts.ashared import compute_config_hash, create_logger, set_seed
+from scripts.data.augmentation.ccil.create_data.config import Config
 from scripts.data.augmentation.ccil.create_data.inverse_dynamics import (
     CONVERGENCE_TOLERANCE,
     solve_inverse_dynamics_state,
 )
 from scripts.data.augmentation.ccil.dynamics.checkpoint import load_dynamics_checkpoint
 from scripts.data.augmentation.ccil.dynamics_model import DynamicsModel
+from scripts.data.augmentation.create_noise_augmentation import compute_noise_std
+from scripts.shared.data import load_demonstration_data_from_artifact
+from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
 
 logger = create_logger()
 
@@ -56,24 +50,6 @@ class InversionOutcomes:
     predecessor_actions: torch.Tensor  # (anchor, step, action_dim)
     step_converged: torch.Tensor  # (anchor, step) bool
     step_bounds: torch.Tensor  # (anchor, step) float, normalized
-
-
-@dataclass(frozen=True)
-class Config:
-    model_artifact: str
-    dataset_artifact: str
-
-    seed: int = 42
-    synthetic_length: int = 5
-    expert_length: int = 16
-    action_noise_scale: float = 0.1
-    label_error_bound_quantile: float = 0.5
-    maximum_newton_iterations: int = 30
-
-    def __post_init__(self):
-        _check_unit(
-            name="label_error_bound_quantile", value=self.label_error_bound_quantile
-        )
 
 
 def main():
@@ -175,23 +151,12 @@ def _log_augmentation_to_wandb(
             augmented_episode_ends_relative=result.augmented_episode_ends,
         )
 
-        save_outcomes_plot(
-            result=result, output_directory_path=temporary_directory_path
-        )
-        save_bounds_plot(
-            result=result,
-            quantile=config.label_error_bound_quantile,
-            output_directory_path=temporary_directory_path,
-        )
         _log_summary_to_wandb(
-            run=run,
-            result=result,
-            quantile=config.label_error_bound_quantile,
-            output_directory_path=temporary_directory_path,
+            run=run, result=result, quantile=config.label_error_bound_quantile
         )
 
         dataset_artifact = wandb.Artifact(
-            name=f"augmented-dataset-{compute_config_hash(config=asdict(config))}",
+            name=f"ccil-dataset-{compute_config_hash(config=asdict(config))}",
             type="dataset",
         )
         dataset_artifact.add_dir(
@@ -473,7 +438,7 @@ def write_combined_zarr(
         [episode_ends.astype(np.int64), augmented_ends_absolute], axis=0
     )
 
-    root = zarr.open(str(output_path), mode="w", zarr_format=2)
+    root = zarr.open_group(str(output_path), mode="w", zarr_format=2)
     data = root.create_group("data")
     data.create_array("state", data=all_states)
     data.create_array("action", data=all_actions)
@@ -492,88 +457,8 @@ def write_combined_zarr(
     )
 
 
-def _apply_plot_style() -> None:
-    plt.style.use("seaborn-v0_8-whitegrid")
-    plt.rcParams["figure.dpi"] = 150
-    plt.rcParams["savefig.dpi"] = 300
-
-
-def save_outcomes_plot(result: AugmentationResult, output_directory_path: Path) -> None:
-    _apply_plot_style()
-    figure, plot_area = plt.subplots(figsize=(6, 4))
-
-    counts = [result.num_accepted, result.num_rejected, result.num_not_converged]
-    bars = plot_area.bar(
-        ["Accepted", "Rejected", "Not converged"],
-        counts,
-        color=["tab:green", "tab:orange", "tab:red"],
-    )
-    plot_area.set_ylabel("Count")
-    plot_area.set_title("Augmentation outcomes")
-    for bar, count in zip(bars, counts):
-        plot_area.text(
-            bar.get_x() + bar.get_width() / 2,
-            bar.get_height(),
-            str(count),
-            ha="center",
-            va="bottom",
-        )
-    figure.savefig(output_directory_path / "outcomes.png", bbox_inches="tight")
-    plt.close(figure)
-
-
-def save_bounds_plot(
-    result: AugmentationResult, quantile: float, output_directory_path: Path
-) -> None:
-    """Density of per-step normalized bounds with the sigma threshold marked."""
-    bounds = result.bounds
-    if bounds.size == 0:
-        return
-
-    _apply_plot_style()
-    figure, plot_area = plt.subplots(figsize=(7, 4))
-
-    max_x_value = float(np.percentile(bounds, q=99.5))
-    x_values = np.linspace(start=0.0, stop=max_x_value, num=1_000)
-    y_values = gaussian_kde(bounds)(x_values)
-    accept_rate = float(np.mean(bounds <= result.sigma))
-
-    plot_area.fill_between(
-        x_values,
-        y_values,
-        where=x_values <= result.sigma,
-        color="tab:green",
-        interpolate=True,
-        label=f"Accepted (bound \u2264 \u03c3): {accept_rate:.1%}",
-    )
-    plot_area.fill_between(
-        x_values,
-        y_values,
-        where=x_values >= result.sigma,
-        color="tab:orange",
-        interpolate=True,
-        label=f"Rejected (bound > \u03c3): {1 - accept_rate:.1%}",
-    )
-    plot_area.axvline(
-        result.sigma,
-        color="black",
-        linestyle="--",
-        linewidth=1.5,
-        label=f"\u03c3 = {result.sigma:.4f} (q={quantile})",
-    )
-    plot_area.set_xlabel("Normalized Jacobian-weighted label error bound")
-    plot_area.set_ylabel("Density")
-    plot_area.set_title("Per-step bound distribution (converged steps)")
-    plot_area.set_xlim(left=0.0, right=max_x_value)
-    plot_area.set_ylim(bottom=0.0)
-    plot_area.legend()
-
-    figure.savefig(output_directory_path / "bounds.png", bbox_inches="tight")
-    plt.close(figure)
-
-
 def _log_summary_to_wandb(
-    run: Run, result: AugmentationResult, quantile: float, output_directory_path: Path
+    run: Run, result: AugmentationResult, quantile: float
 ) -> None:
     run.summary["aug/num_accepted_episodes"] = result.num_accepted
     run.summary["aug/num_rejected"] = result.num_rejected
@@ -582,10 +467,43 @@ def _log_summary_to_wandb(
     run.summary["aug/sigma"] = result.sigma
     run.summary["aug/quantile"] = float(quantile)
 
-    for name, file_name in (("outcomes", "outcomes.png"), ("bounds", "bounds.png")):
-        plot_path = output_directory_path / file_name
-        if plot_path.exists():
-            run.summary[f"figures/{name}"] = wandb.Image(str(plot_path))
+    # Outcomes bar chart
+    outcomes_table = wandb.Table(
+        columns=["outcome", "count"],
+        data=[
+            ["Accepted", result.num_accepted],
+            ["Rejected", result.num_rejected],
+            ["Not converged", result.num_not_converged],
+        ],
+    )
+    log_payload: dict = {
+        "figures/outcomes": wandb.plot.bar(
+            outcomes_table,
+            label="outcome",
+            value="count",
+            title="Augmentation outcomes",
+        )
+    }
+
+    # Bounds density line chart
+    bounds = result.bounds
+    if bounds.size > 0:
+        max_x = float(np.percentile(bounds, q=99.5))
+        x_values = np.linspace(0.0, max_x, num=500)
+        y_values = gaussian_kde(bounds)(x_values)
+
+        bounds_table = wandb.Table(
+            columns=["bound", "density"],
+            data=[[float(x), float(y)] for x, y in zip(x_values, y_values)],
+        )
+        log_payload["figures/bounds"] = wandb.plot.line(
+            bounds_table,
+            x="bound",
+            y="density",
+            title=f"Per-step bound distribution — σ={result.sigma:.4f} (q={quantile})",
+        )
+
+    run.log(log_payload)
 
 
 @torch.no_grad()

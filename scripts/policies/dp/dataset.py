@@ -1,20 +1,20 @@
 import torch
 
-from scripts.ashared import load_push_t_zarr
+from scripts.shared.data import DemonstrationData
+from scripts.shared.normalization_range import NormalizationRange
 
 
 class PushTWindowDataset(torch.utils.data.Dataset[tuple[torch.Tensor, torch.Tensor]]):
     def __init__(
         self,
+        demonstration_data: DemonstrationData,
         prediction_horizon_length: int,
         observation_horizon_length: int,
         action_horizon_length: int,
     ) -> None:
-        observations_np, actions_np, episode_ends_np = load_push_t_zarr()
-
-        observations = torch.from_numpy(observations_np).float()
-        actions = torch.from_numpy(actions_np).float()
-        episode_ends = torch.from_numpy(episode_ends_np)
+        observations = torch.from_numpy(demonstration_data.states).float()
+        actions = torch.from_numpy(demonstration_data.actions).float()
+        episode_ends = torch.from_numpy(demonstration_data.episode_end_indices)
 
         self.observation_normalization_range = NormalizationRange.from_values(
             values=observations
@@ -143,31 +143,3 @@ def _extract_window_with_edge_padding(
     output_window[output_write_end_position:] = valid_content[-1]
 
     return output_window
-
-
-class NormalizationRange:
-    """Symmetric min/max normalizer mapping a feature vector to ``[-1, 1]``.
-
-    Guards against zero-range features so constant dimensions stay finite.
-    """
-
-    def __init__(self, minimum: torch.Tensor, maximum: torch.Tensor) -> None:
-        self.minimum = minimum
-        self.maximum = maximum
-
-    @classmethod
-    def from_values(cls, values: torch.Tensor) -> "NormalizationRange":
-        flattened = values.reshape(-1, values.shape[-1])
-
-        return cls(
-            minimum=flattened.min(dim=0).values, maximum=flattened.max(dim=0).values
-        )
-
-    def normalize(self, values: torch.Tensor) -> torch.Tensor:
-        value_range = (self.maximum - self.minimum).clamp(min=1e-8)
-        unit = (values - self.minimum) / value_range
-        return unit * 2.0 - 1.0
-
-    def denormalize(self, values: torch.Tensor) -> torch.Tensor:
-        unit = (values + 1.0) / 2.0
-        return unit * (self.maximum - self.minimum) + self.minimum

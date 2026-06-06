@@ -6,36 +6,6 @@ from typing import Any
 
 import numpy as np
 import torch
-import zarr
-from numpy import typing as npt
-from zarr import Array, Group
-
-from scripts.shared.paths import PROJECT_ROOT_DIRECTORY_PATH
-
-
-def load_push_t_zarr() -> tuple[
-    npt.NDArray[np.float32], npt.NDArray[np.float32], npt.NDArray[np.int64]
-]:
-    zarr_file_path = (
-        PROJECT_ROOT_DIRECTORY_PATH / "expert_data" / "pusht_cchi_v7_replay.zarr"
-    )
-    store = zarr.open(store=zarr_file_path, mode="r")
-    assert isinstance(store, Group)
-
-    def _get(key: str, dtype: type) -> np.ndarray:
-        group_member = store[key]
-        assert isinstance(group_member, Array), f"{key!r} is not an Array"
-        assert group_member.dtype == dtype, (
-            f"{key!r} has dtype {group_member.dtype.name}, expected {dtype.__name__}"
-        )
-        data = group_member[:]
-        assert isinstance(data, np.ndarray)
-        return data
-
-    states = _get(key="data/state", dtype=np.float32)
-    actions = _get(key="data/action", dtype=np.float32)
-    episode_ends = _get(key="meta/episode_ends", dtype=np.int64)
-    return states, actions, episode_ends
 
 
 def create_logger() -> logging.Logger:

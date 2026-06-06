@@ -5,9 +5,9 @@ from typing import Callable
 import numpy as np
 import torch
 
-from scripts.policies.dp.dataset import NormalizationRange
 from scripts.policies.dp.network import ConditionalUnet1d
 from scripts.policies.dp.noise_scheduler import get_noise_scheduler
+from scripts.shared.normalization_range import NormalizationRange
 from scripts.shared.paths import PROJECT_ROOT_DIRECTORY_PATH
 
 Policy = Callable[[np.ndarray], np.ndarray]
@@ -16,9 +16,9 @@ PolicyFactory = Callable[[int], Policy]
 
 def save_diffusion_policy(
     path: Path,
-    noise_prediction_network: "torch.nn.Module",
-    observation_normalization_range: "NormalizationRange",
-    action_normalization_range: "NormalizationRange",
+    noise_prediction_network: torch.nn.Module,
+    observation_normalization_range: NormalizationRange,
+    action_normalization_range: NormalizationRange,
     action_dimensionality: int,
     condition_dimensionality: int,
     hidden_channel_counts: tuple[int, ...],

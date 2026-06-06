@@ -1,109 +1,226 @@
+"""Behavior-Cloning training. Nothing is written to the project tree: the best checkpoint
+is kept in memory and, exactly like the dynamics-model trainer, serialized once at the end
+into a TemporaryDirectory and pushed to W&B as a config-hashed artifact (no metadata).
+
+The periodic eval needs a policy file to roll out, so it writes into a TemporaryDirectory
+that is discarded immediately -- nothing persists locally either way.
+
+Normalization is baked into the policy (see bc/policy.py): the dataset returns RAW
+observations/actions, the model normalizes internally, and the training loss is computed
+in normalized action space. The whole policy (weights + normalization buffers) is what
+gets checkpointed.
+
+One run = one model seed. Run 3x with different `seed` and average the final numbers for
+error bars (that aggregation happens outside this script).
+
+Goes to: scripts/policies/bc/train.py
+"""
+
+import copy
+import tempfile
+from dataclasses import asdict
+from pathlib import Path
+
 import torch
 import tyro
 import wandb
-from torch.nn import Linear, ReLU, Sequential
+from rich.pretty import pretty_repr
 from torch.optim import Adam
-from torch.utils.data import DataLoader, Dataset
-from tqdm import tqdm
+from torch.utils.data import DataLoader
+from tqdm.auto import tqdm
+from wandb import Run
 
-from scripts.ashared import create_logger, load_push_t_zarr, log_device_info, set_seed
-from scripts.shared.paths import POLICY_ROOT
+from scripts.ashared import (
+    compute_config_hash,
+    create_logger,
+    log_device_info,
+    set_seed,
+)
+from scripts.evaluation.bryan.disturbance import DisturberConfig
+from scripts.evaluation.bryan.evaluation import EvaluationResult, evaluate_policy
+from scripts.policies.bc.config import Config
+from scripts.policies.bc.dataset import SingleStepDataset
+from scripts.policies.bc.policy import (
+    BehaviorCloningPolicy,
+    load_behavior_cloning_policy,
+    save_behavior_cloning_policy,
+)
+from scripts.policies.shared.stat import Stat
+from scripts.shared.data import load_demonstration_data_from_artifact
+from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
 
 logger = create_logger()
 
 
-def main(seed: int, epoch_count: int):
-    set_seed(seed=seed)
+def main():
+    config = tyro.cli(f=Config, config=[tyro.conf.UsePythonSyntaxForLiteralCollections])
+    logger.info(pretty_repr(config))
+    _run(config=config)
+
+
+def _run(config: Config) -> None:
+    set_seed(seed=config.seed)
     device = torch.device(device="cuda" if torch.cuda.is_available() else "cpu")
     log_device_info(device=device, logger=logger)
 
-    data_loader = DataLoader(
-        dataset=PushTDataset(),
-        batch_size=64,
-        shuffle=True,
-        pin_memory=device.type == "cuda",
-    )
+    loss_function = torch.nn.MSELoss()
 
-    model = Sequential(
-        Linear(in_features=5, out_features=256),
-        ReLU(),
-        Linear(in_features=256, out_features=256),
-        ReLU(),
-        Linear(in_features=256, out_features=2),
-    ).to(device=device)
+    with (
+        wandb.init(
+            project="asdf",
+            job_type="train-behaviour-cloning",
+            config=asdict(config),
+            dir=OUTPUT_DIRECTORY_PATH,
+        ) as run,
+        tempfile.TemporaryDirectory() as checkpoint_directory,
+    ):
+        checkpoint_directory_path = Path(checkpoint_directory)
 
-    optimizer = Adam(params=model.parameters(), lr=1e-3)
+        dataset = SingleStepDataset(
+            demonstration_data=load_demonstration_data_from_artifact(
+                artifact=run.use_artifact(artifact_or_name=config.dataset_artifact),
+                logger=logger,
+            )
+        )
 
-    wandb.login()
+        data_loader = DataLoader(
+            dataset=dataset,
+            batch_size=config.optimization.batch_size,
+            shuffle=True,
+            pin_memory=device.type == "cuda",
+        )
 
-    with wandb.init(
-        project="asdf",
-        job_type="behaviour_cloning",
-        config={"seed": seed, "epoch_count": epoch_count},
-    ) as run:
-        assert run.name is not None
+        # Built after the dataset because it needs the dataset's fitted (training-split)
+        # normalization ranges, which it bakes in as buffers.
+        policy = BehaviorCloningPolicy(
+            observation_dimensionality=config.dimensionality.observation,
+            action_dimensionality=config.dimensionality.action,
+            hidden_dimensionality=config.dimensionality.hidden,
+            observation_normalization_range=dataset.observation_normalization_range,
+            action_normalization_range=dataset.action_normalization_range,
+        ).to(device=device)
 
-        run_output_directory_path = POLICY_ROOT / "bc" / run.name
-        run_output_directory_path.mkdir(parents=True, exist_ok=True)
+        optimizer = Adam(
+            params=policy.parameters(), lr=config.optimization.learning_rate
+        )
 
-        logger.info("Output directory: %s", run_output_directory_path)
+        best_stat: Stat | None = None
 
-        for _ in tqdm(range(epoch_count), desc="Epoch"):
-            model.train()
-            criterion = torch.nn.MSELoss()
-            for batch_inputs, batch_labels in data_loader:
-                device_batch_inputs = batch_inputs.to(device)
-                device_batch_labels = batch_labels.to(device)
+        for epoch_index in tqdm(
+            iterable=range(config.optimization.epoch_count), desc="Epoch", unit="epoch"
+        ):
+            policy.train()
+            for observation_batch, action_batch in data_loader:
+                observation_batch = observation_batch.to(device=device)
+                action_batch = action_batch.to(device=device)
+
                 optimizer.zero_grad()
 
-                predictions = model(device_batch_inputs)
-
-                batch_loss = criterion(predictions, device_batch_labels)
-
-                batch_loss.backward()
-
-                gradient_norm = torch.norm(
-                    input=torch.stack(
-                        tensors=[
-                            parameter.grad.norm()
-                            for parameter in model.parameters()
-                            if parameter.grad is not None
-                        ]
-                    )
+                # The dataset returns RAW values; the model normalizes the observation,
+                # and we compare its normalized prediction against the normalized target.
+                predicted_normalized_action = policy(
+                    policy.normalize_observation(observation_batch)
                 )
+                target_normalized_action = policy.normalize_action(action_batch)
+                loss = loss_function(
+                    predicted_normalized_action, target_normalized_action
+                )
+
+                loss.backward()
 
                 optimizer.step()
 
-                run.log(
-                    {
-                        "train/loss": batch_loss.item(),
-                        "train/gradient_norm": gradient_norm.item(),
-                    }
+                run.log(data={"train/loss": loss.item()})
+
+            periodic_eval_is_due = (
+                epoch_index + 1
+            ) % config.evaluation.periodic_interval_epoch_count == 0 or (
+                epoch_index + 1
+            ) == config.optimization.epoch_count
+            if not periodic_eval_is_due:
+                continue
+
+            checkpoint_path = (
+                checkpoint_directory_path / f"checkpoint_epoch_{epoch_index}.pt"
+            )
+            validation_result = _evaluate(
+                checkpoint_path=checkpoint_path,
+                episode_seeds=config.evaluation.episode_seeds,
+                device=device,
+            )
+            run.log(
+                data={
+                    "validation/max_coverage_mean": validation_result.max_coverage_mean,
+                    "validation/success_rate": validation_result.success_rate,
+                    "epoch": epoch_index,
+                }
+            )
+
+            if (
+                best_stat is None
+                or validation_result.max_coverage_mean > best_stat.max_coverage
+            ):
+                best_stat = Stat(
+                    max_coverage=validation_result.max_coverage_mean,
+                    epoch=epoch_index,
+                    state_dict=copy.deepcopy(policy.state_dict()),
                 )
 
-        state_dict_file_path = run_output_directory_path / "state_dict.pt"
-        torch.save(obj=model.state_dict(), f=state_dict_file_path)
-        logger.info("Policy saved to %s", state_dict_file_path)
+        if best_stat is None:
+            raise ValueError("No checkpoint was recorded")
 
-        artifact = wandb.Artifact(name=f"{run.name}-checkpoint", type="model")
-        artifact.add_file(str(state_dict_file_path))
-        run.log_artifact(artifact)
+        policy.load_state_dict(state_dict=best_stat.state_dict)
+        logger.info(
+            "Selected best epoch %d (validation max coverage %.4f).",
+            best_stat.epoch,
+            best_stat.max_coverage,
+        )
+
+        _report_final_and_log_artifact(
+            policy=policy,
+            config=config,
+            best_epoch=best_stat.epoch,
+            device=device,
+            run=run,
+        )
 
 
-class PushTDataset(Dataset[tuple[torch.Tensor, torch.Tensor]]):
-    def __init__(self):
-        logger.info("Loading zarr dataset...")
-        states, actions, _ = load_push_t_zarr()
-        self.states = torch.from_numpy(states)
-        self.actions = torch.from_numpy(actions)
-        logger.info("Dataset loaded: %d timesteps", len(self.states))
+def _report_final_and_log_artifact(
+    policy: BehaviorCloningPolicy, config: Config, best_epoch: int, run: Run
+) -> None:
+    """Final report (clean + disturbed on the TEST seeds) and the model artifact, both
+    from a single TemporaryDirectory that holds the selected checkpoint. Nothing persists.
+    """
+    with tempfile.TemporaryDirectory() as temporary_directory:
+        checkpoint_path = Path(temporary_directory) / "policy.pt"
+        save_behavior_cloning_policy(policy=policy, path=checkpoint_path)
 
-    def __len__(self):
-        return len(self.states)
+        run.summary["selected/epoch"] = best_epoch
 
-    def __getitem__(self, index: int):
-        return self.states[index], self.actions[index]
+        config_hash = compute_config_hash(config=asdict(config))
+        model_artifact = wandb.Artifact(name=f"bc-policy-{config_hash}", type="model")
+        model_artifact.add_file(local_path=str(checkpoint_path), name="policy.pt")
+        run.log_artifact(model_artifact).wait()
+
+
+def _evaluate(
+    checkpoint_path: Path, episode_seeds: tuple[int, ...], device: torch.device
+) -> EvaluationResult:
+    policy_factory = load_behavior_cloning_policy(
+        checkpoint_path=checkpoint_path, device=device
+    )
+    return evaluate_policy(
+        policy_factory=policy_factory,
+        episode_seeds=episode_seeds,
+        disturber_config=None,
+    )
+
+
+def _write_final_summary(run: Run, protocol: str, result: EvaluationResult) -> None:
+    run.summary[f"final_{protocol}/max_coverage_mean"] = result.max_coverage_mean
+    run.summary[f"final_{protocol}/max_coverage_std"] = result.max_coverage_std
+    run.summary[f"final_{protocol}/success_rate"] = result.success_rate
 
 
 if __name__ == "__main__":
-    tyro.cli(f=main)
+    main()
