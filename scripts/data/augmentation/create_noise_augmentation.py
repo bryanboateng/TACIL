@@ -23,14 +23,14 @@ logger = create_logger()
 @dataclass
 class Config:
     use_artifact: str
-    # Length of subtrajectories to extract and augment.
-    window_length: int
     # Fraction of all candidate subtrajectories to sample and add as noisy episodes (0, 1].
     # E.g. 0.3 means 30% of all sliding-window subtrajectories become new noisy episodes.
     augmentation_ratio: float
+    # Length of subtrajectories to extract and augment.
+    window_length: int = 21
     # Noise std as a fraction of each state dimension's observed min-max range.
     # E.g. 0.02 = 2% of range per dimension.
-    noise_scale: float = 0.02
+    noise_scale: float = 0.07
     seed: int = 42
 
 
