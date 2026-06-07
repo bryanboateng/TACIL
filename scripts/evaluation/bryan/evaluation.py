@@ -6,6 +6,7 @@ import gymnasium
 import numpy as np
 import torch
 from numpy import typing as npt
+from tqdm import tqdm
 
 from scripts.evaluation.bryan.disturbance import DisturberConfig, setup_disturber
 
@@ -40,7 +41,9 @@ def evaluate_policy(
         per_episode_max_coverage: list[float] = []
         per_episode_success: list[bool] = []
 
-        for episode_seed in episode_seeds:
+        for episode_seed in tqdm(
+            episode_seeds, desc="Evaluating", leave=False, position=1
+        ):
             policy = policy_factory(episode_seed)
 
             observation, _ = environment.reset(seed=episode_seed)
