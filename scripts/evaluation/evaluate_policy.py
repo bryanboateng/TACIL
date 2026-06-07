@@ -10,7 +10,7 @@ from wandb import Run
 
 from scripts.ashared import create_logger, log_device_info, set_seed
 from scripts.evaluation.bryan.evaluation import (
-    EvaluationResult,
+    MaxRewardStatistics,
     PolicyFactory,
     evaluate_policy,
 )
@@ -58,8 +58,10 @@ def _run(config: Config) -> None:
             disturber_config=config.disturbance,
         )
 
-        _write_summary(run=run, protocol="clean", result=clean_result)
-        _write_summary(run=run, protocol="disturbed", result=disturbed_result)
+        _write_summary(run=run, protocol="clean", max_reward_statistics=clean_result)
+        _write_summary(
+            run=run, protocol="disturbed", max_reward_statistics=disturbed_result
+        )
 
 
 def _build_policy_factory(
@@ -74,10 +76,11 @@ def _build_policy_factory(
             )
 
 
-def _write_summary(run: Run, protocol: str, result: EvaluationResult) -> None:
-    run.summary[f"{protocol}/max_coverage_mean"] = result.max_coverage_mean
-    run.summary[f"{protocol}/max_coverage_std"] = result.max_coverage_std
-    run.summary[f"{protocol}/success_rate"] = result.success_rate
+def _write_summary(
+    run: Run, protocol: str, max_reward_statistics: MaxRewardStatistics
+) -> None:
+    run.summary[f"{protocol}/max_reward_mean"] = max_reward_statistics.mean
+    run.summary[f"{protocol}/max_reward_std"] = max_reward_statistics.std
 
 
 if __name__ == "__main__":

@@ -12,7 +12,7 @@ from tqdm.auto import tqdm
 
 from scripts.ashared import create_logger, log_device_info, set_seed
 from scripts.evaluation.bryan.disturbance import DisturberConfig
-from scripts.evaluation.bryan.evaluation import EvaluationResult, evaluate_policy
+from scripts.evaluation.bryan.evaluation import MaxRewardStatistics, evaluate_policy
 from scripts.policies.dp.config import Config, DimensionalityConfig, HorizonLengthConfig
 from scripts.policies.dp.dataset import PushTWindowDataset
 from scripts.policies.dp.loss import _compute_denoising_loss
@@ -186,19 +186,15 @@ def _run(config: Config) -> None:
             )
             run.log(
                 data={
-                    "validation/max_coverage_mean": validation_result.max_coverage_mean,
-                    "validation/max_coverage_std": validation_result.max_coverage_std,
-                    "validation/success_rate": validation_result.success_rate,
+                    "validation/max_reward_mean": validation_result.mean,
+                    "validation/max_reward_std": validation_result.std,
                 },
                 step=global_step,
             )
 
-            if (
-                best_stat is None
-                or validation_result.max_coverage_mean > best_stat.max_coverage_mean
-            ):
+            if best_stat is None or validation_result.mean > best_stat.max_reward_mean:
                 best_stat = Stat(
-                    max_coverage_mean=validation_result.max_coverage_mean,
+                    max_reward_mean=validation_result.mean,
                     epoch=epoch_number,
                     state_dict_path=checkpoint_path,
                 )
@@ -207,9 +203,9 @@ def _run(config: Config) -> None:
             raise ValueError("No checkpoint was recorded")
 
         logger.info(
-            "Selected best epoch %d (validation max coverage %.4f).",
+            "Selected best epoch %d (validation max reward %.4f).",
             best_stat.epoch,
-            best_stat.max_coverage_mean,
+            best_stat.max_reward_mean,
         )
 
         run.summary["selected/epoch"] = best_stat.epoch
@@ -222,7 +218,7 @@ def _run(config: Config) -> None:
 @torch.no_grad()
 def _evaluate(
     checkpoint_path: Path, episode_seeds: tuple[int, ...], device: torch.device
-) -> EvaluationResult:
+) -> MaxRewardStatistics:
     """Load a saved (EMA) checkpoint as a policy and run the shared rollout eval."""
     policy_factory = load_diffusion_policy(
         checkpoint_path=checkpoint_path, device=device

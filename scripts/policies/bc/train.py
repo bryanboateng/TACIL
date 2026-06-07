@@ -37,7 +37,7 @@ from scripts.ashared import (
     set_seed,
 )
 from scripts.evaluation.bryan.disturbance import DisturberConfig
-from scripts.evaluation.bryan.evaluation import EvaluationResult, evaluate_policy
+from scripts.evaluation.bryan.evaluation import MaxRewardStatistics, evaluate_policy
 from scripts.policies.bc.config import Config
 from scripts.policies.bc.dataset import SingleStepDataset
 from scripts.policies.bc.policy import (
@@ -150,18 +150,14 @@ def _run(config: Config) -> None:
             )
             run.log(
                 data={
-                    "validation/max_coverage_mean": validation_result.max_coverage_mean,
-                    "validation/success_rate": validation_result.success_rate,
+                    "validation/max_reward_mean": validation_result.mean,
                     "epoch": epoch_index,
                 }
             )
 
-            if (
-                best_stat is None
-                or validation_result.max_coverage_mean > best_stat.max_coverage
-            ):
+            if best_stat is None or validation_result.mean > best_stat.max_coverage:
                 best_stat = Stat(
-                    max_coverage=validation_result.max_coverage_mean,
+                    max_coverage=validation_result.mean,
                     epoch=epoch_index,
                     state_dict=copy.deepcopy(policy.state_dict()),
                 )
@@ -205,7 +201,7 @@ def _report_final_and_log_artifact(
 
 def _evaluate(
     checkpoint_path: Path, episode_seeds: tuple[int, ...], device: torch.device
-) -> EvaluationResult:
+) -> MaxRewardStatistics:
     policy_factory = load_behavior_cloning_policy(
         checkpoint_path=checkpoint_path, device=device
     )
@@ -216,10 +212,9 @@ def _evaluate(
     )
 
 
-def _write_final_summary(run: Run, protocol: str, result: EvaluationResult) -> None:
-    run.summary[f"final_{protocol}/max_coverage_mean"] = result.max_coverage_mean
-    run.summary[f"final_{protocol}/max_coverage_std"] = result.max_coverage_std
-    run.summary[f"final_{protocol}/success_rate"] = result.success_rate
+def _write_final_summary(run: Run, protocol: str, result: MaxRewardStatistics) -> None:
+    run.summary[f"final_{protocol}/max_reward_mean"] = result.mean
+    run.summary[f"final_{protocol}/max_reward_std"] = result.std
 
 
 if __name__ == "__main__":

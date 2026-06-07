@@ -17,11 +17,9 @@ PolicyFactory = Callable[[int], Policy]
 
 
 @dataclass(frozen=True)
-class EvaluationResult:
-    max_coverage_mean: float
-    max_coverage_std: float
-    success_rate: float
-    per_episode_max_coverage: tuple[float, ...]
+class MaxRewardStatistics:
+    mean: float
+    std: float
 
 
 @torch.no_grad()
@@ -29,7 +27,7 @@ def evaluate_policy(
     policy_factory: PolicyFactory,
     episode_seeds: tuple[int, ...],
     disturber_config: DisturberConfig | None,
-) -> EvaluationResult:
+) -> MaxRewardStatistics:
     environment = gymnasium.make(id="gym_pusht/PushT-v0")
 
     if disturber_config is not None:
@@ -38,8 +36,7 @@ def evaluate_policy(
         setup_disturber(environment=environment, config=disturber_config)
 
     try:
-        per_episode_max_coverage: list[float] = []
-        per_episode_success: list[bool] = []
+        per_episode_max_reward: list[float] = []
 
         for episode_seed in tqdm(
             episode_seeds, desc="Evaluating", leave=False, position=1
@@ -55,25 +52,21 @@ def evaluate_policy(
                     seed=episode_seed
                 )
 
-            maximum_coverage = 0.0
+            maximum_reward = 0.0
             while True:
                 action = policy(observation)
-                observation, _, terminated, truncated, info = environment.step(
+                observation, reward, terminated, truncated, _ = environment.step(
                     action=action
                 )
-                maximum_coverage = max(maximum_coverage, float(info["coverage"]))
+                maximum_reward = max(maximum_reward, float(reward))
                 if terminated or truncated:
                     break
 
-            per_episode_max_coverage.append(maximum_coverage)
-            per_episode_success.append(maximum_coverage >= 0.95)
+            per_episode_max_reward.append(maximum_reward)
     finally:
         environment.close()
 
-    coverage_array = np.array(per_episode_max_coverage)
-    return EvaluationResult(
-        max_coverage_mean=float(coverage_array.mean()),
-        max_coverage_std=float(coverage_array.std()),
-        success_rate=float(np.mean(per_episode_success)),
-        per_episode_max_coverage=tuple(per_episode_max_coverage),
+    max_reward_array = np.array(per_episode_max_reward)
+    return MaxRewardStatistics(
+        mean=float(max_reward_array.mean()), std=float(max_reward_array.std())
     )
