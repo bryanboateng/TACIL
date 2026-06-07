@@ -166,9 +166,7 @@ def _run(config: Config) -> None:
             if not periodic_eval_is_due:
                 continue
 
-            checkpoint_path = (
-                checkpoint_directory_path / f"checkpoint_epoch_{epoch_number}.pt"
-            )
+            checkpoint_path = checkpoint_directory_path / "checkpoint.pt"
             _save_ema_checkpoint(
                 path=checkpoint_path,
                 network=noise_prediction_network,
