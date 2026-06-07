@@ -64,7 +64,7 @@ def _run(config: Config) -> None:
 
     with (
         wandb.init(
-            project="asdf",
+            project="abc",
             job_type="train-diffusion-policy",
             config=asdict(config),
             dir=OUTPUT_DIRECTORY_PATH,
