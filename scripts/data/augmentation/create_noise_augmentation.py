@@ -30,7 +30,7 @@ class Config:
     window_length: int = 21
     # Noise std as a fraction of each state dimension's observed min-max range.
     # E.g. 0.02 = 2% of range per dimension.
-    noise_scale: float = 0.07
+    noise_scale: float = 0.05
     seed: int = 42
 
 
