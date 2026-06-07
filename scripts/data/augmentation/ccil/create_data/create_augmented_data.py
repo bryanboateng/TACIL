@@ -159,9 +159,7 @@ def _log_augmentation_to_wandb(
             name=f"ccil-dataset-{compute_config_hash(config=asdict(config))}",
             type="dataset",
         )
-        dataset_artifact.add_dir(
-            local_path=str(combined_zarr_path), name="combined.zarr"
-        )
+        dataset_artifact.add_dir(str(combined_zarr_path))
         run.log_artifact(dataset_artifact).wait()
 
 
