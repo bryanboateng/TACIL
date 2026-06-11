@@ -97,7 +97,7 @@ def _run(config: Config) -> None:
             config.data.loader.window_length,
         )
 
-        best_rollout_error, best_epoch = _train_dynamics_model(
+        best_validation_loss, best_epoch = _train_dynamics_model(
             dynamics_model=dynamics_model,
             training_state_windows=train_state_windows,
             training_action_windows=train_action_windows,
@@ -112,7 +112,7 @@ def _run(config: Config) -> None:
         )
 
         run.summary["selected/epoch"] = best_epoch
-        run.summary["selected/rollout_error"] = best_rollout_error
+        run.summary["selected/validation_loss"] = best_validation_loss
 
         _log_model_artifact(dynamics_model=dynamics_model, config=config, run=run)
 
@@ -257,7 +257,7 @@ def _train_dynamics_model(
 
     dynamics_model.load_state_dict(best_state_dict)
     logger.info(
-        "Restored best EMA checkpoint from epoch %d (rollout error %.6f).",
+        "Restored best EMA checkpoint from epoch %d (validation loss %.6f).",
         best_epoch_index,
         best_validation_loss,
     )

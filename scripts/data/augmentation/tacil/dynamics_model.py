@@ -1,6 +1,7 @@
-from typing import Literal
-
 import torch
+
+# Maximum factor by which SiLU stretches space, i.e. its (global) Lipschitz constant.
+_SILU_LIPSCHITZ_CONSTANT = 1.099839320
 
 
 class DynamicsModel(torch.nn.Module):
@@ -158,7 +159,7 @@ def _create_network(
     input_dimensionality: int,
     output_dimensionality: int,
     hidden_dimensionalities: tuple[int, ...],
-        lipschitz_constant_upper_bound: float | None,
+    lipschitz_constant_upper_bound: float | None,
 ) -> torch.nn.Sequential:
 
     layer_dimensionalities = (
@@ -191,8 +192,7 @@ def _create_network(
 
 
 def _calculate_lipschitz_constant_upper_bound_per_layer(
-    lipschitz_constant_upper_bound: float | None,
-    linear_layer_count: int,
+    lipschitz_constant_upper_bound: float | None, linear_layer_count: int
 ) -> float | None:
     activation_count = linear_layer_count - 1
 
@@ -201,15 +201,14 @@ def _calculate_lipschitz_constant_upper_bound_per_layer(
     else:
         # We want the whole network's Lipschitz constant to be at most the target bound.
         # Since Lipschitz constants multiply through a composition, the total is
-        # at most c^linear_layer_count * activation_lipschitz_constant^activation_count,
-        # where c is the norm we assign to each linear layer, and activation_lipschitz_constant
-        # is the maximum factor by which the activation function stretches space
-        # (exactly 1.0 for relu, slightly above 1 for silu/gelu).
+        # at most c^linear_layer_count * _SILU_LIPSCHITZ_CONSTANT^activation_count,
+        # where c is the norm we assign to each linear layer.
         # We solve this for c, which is what this function returns.
 
-        return (lipschitz_constant_upper_bound / (1.099839320**activation_count)) ** (
-            1.0 / linear_layer_count
-        )
+        return (
+            lipschitz_constant_upper_bound
+            / (_SILU_LIPSCHITZ_CONSTANT**activation_count)
+        ) ** (1.0 / linear_layer_count)
 
 
 def _create_linear_layer(
