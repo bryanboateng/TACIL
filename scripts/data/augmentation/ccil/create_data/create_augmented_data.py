@@ -13,7 +13,12 @@ from scipy.stats import gaussian_kde
 from tqdm import tqdm
 from wandb import Run
 
-from scripts.ashared import compute_config_hash, create_logger, set_seed
+from scripts.ashared import (
+    compute_config_hash,
+    create_logger,
+    log_device_info,
+    set_seed,
+)
 from scripts.data.augmentation.ccil.create_data.config import Config
 from scripts.data.augmentation.ccil.create_data.inverse_dynamics import (
     CONVERGENCE_TOLERANCE,
@@ -61,12 +66,7 @@ def main():
 def _run(config: Config) -> None:
     set_seed(seed=config.seed)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    if device.type == "cuda":
-        logger.info("GPU: %s", torch.cuda.get_device_name(0))
-        logger.info(
-            "GPU Memory: %.2f GB",
-            torch.cuda.get_device_properties(0).total_memory / 1e9,
-        )
+    log_device_info(device=device, logger=logger)
 
     with wandb.init(
         project="abc",
