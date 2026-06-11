@@ -21,9 +21,7 @@ class StateDatabase:
         self.dataset = dataset
         self.device = torch.device(
             device=(
-                device
-                if device
-                else ("cuda" if torch.cuda.is_available() else "cpu")
+                device if device else ("cuda" if torch.cuda.is_available() else "cpu")
             )
         )
         self._build_full_buffers()
@@ -89,10 +87,7 @@ class StateDatabase:
         return self._actions
 
     def nearest(
-        self,
-        query: np.ndarray,
-        k: int = 1,
-        exclude: Iterable[Key] | None = None,
+        self, query: np.ndarray, k: int = 1, exclude: Iterable[Key] | None = None
     ) -> tuple[torch.Tensor, list[Key]]:
         """Return distances and keys of the top-k demonstrations (Alg.1, lines 4-10)."""
         num_active = len(self._keys)

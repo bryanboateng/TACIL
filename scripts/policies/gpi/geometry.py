@@ -1,9 +1,7 @@
 import torch
 
 
-def se2_to_relative_action(
-    states: torch.Tensor, actions: torch.Tensor
-) -> torch.Tensor:
+def se2_to_relative_action(states: torch.Tensor, actions: torch.Tensor) -> torch.Tensor:
     """Convert global agent targets into the object's local SE(2) frame."""
     object_xy = states[:, 2:4]
     object_theta = states[:, 4]
@@ -17,9 +15,7 @@ def se2_to_relative_action(
         dim=-1,
     )
     translated = actions[:, :2] - object_xy
-    return torch.bmm(
-        input=rotation, mat2=translated.unsqueeze(dim=-1)
-    ).squeeze(dim=-1)
+    return torch.bmm(input=rotation, mat2=translated.unsqueeze(dim=-1)).squeeze(dim=-1)
 
 
 def relative_action_to_global(

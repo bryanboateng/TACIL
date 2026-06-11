@@ -14,10 +14,12 @@ class OptimizationConfig:
     epoch_count: int = 100
     learning_rate: float = 1e-3
 
+
 @dataclass(frozen=True)
 class EvaluationConfig:
     periodic_interval_epoch_count: int = 25
     episode_seeds: tuple[int, ...] = tuple(range(100_000, 100_015))
+
 
 @dataclass(frozen=True)
 class Config:

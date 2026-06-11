@@ -62,8 +62,7 @@ def _run(config: Config):
             )
 
             new_artifact = wandb.Artifact(
-                name=f"subsampled-dataset-{run.name}",
-                type="dataset",
+                name=f"subsampled-dataset-{run.name}", type="dataset"
             )
 
             new_artifact.add_dir(str(output_zarr_path))

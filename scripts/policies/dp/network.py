@@ -124,15 +124,13 @@ class ConditionalUnet1d(torch.nn.Module):
         skip_connection_batches: list[torch.Tensor] = []
         for downsample_level in self._downsample_levels:
             hidden_state_batch, skip_connection_batch = downsample_level(
-                input_batch=hidden_state_batch,
-                condition_batch=combined_condition_batch,
+                input_batch=hidden_state_batch, condition_batch=combined_condition_batch
             )
             skip_connection_batches.append(skip_connection_batch)
 
         for middle_block in self._middle_blocks:
             hidden_state_batch = middle_block(
-                input_batch=hidden_state_batch,
-                condition_batch=combined_condition_batch,
+                input_batch=hidden_state_batch, condition_batch=combined_condition_batch
             )
 
         for upsample_level in self._upsample_levels:
