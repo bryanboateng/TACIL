@@ -7,7 +7,7 @@ import tyro
 import wandb
 from rich.pretty import pretty_repr
 
-from scripts.ashared import compute_config_hash, create_logger
+from scripts.ashared import create_logger
 from scripts.shared.data import (
     DemonstrationData,
     load_demonstration_data_from_artifact,
@@ -35,7 +35,7 @@ def _run(config: Config):
 
     with wandb.init(
         project="abc",
-        job_type="subsample-dataset",
+        job_type="create-subsampled-dataset",
         config=asdict(config),
         dir=OUTPUT_DIRECTORY_PATH,
     ) as run:
@@ -62,7 +62,7 @@ def _run(config: Config):
             )
 
             new_artifact = wandb.Artifact(
-                name=f"subsampled-dataset-{compute_config_hash(config=asdict(config))}",
+                name=f"subsampled-dataset-{run.name}",
                 type="dataset",
             )
 

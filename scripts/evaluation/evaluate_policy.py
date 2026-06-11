@@ -44,7 +44,7 @@ def _run(config: Config) -> None:
 
     with wandb.init(
         project="abc",
-        job_type="policy-eval",
+        job_type="evaluate-policy",
         config=asdict(config),
         dir=OUTPUT_DIRECTORY_PATH,
     ) as run:

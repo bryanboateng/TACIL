@@ -61,8 +61,8 @@ def _run(config: Config) -> None:
 
     with (
         wandb.init(
-            project="asdf",
-            job_type="train-behaviour-cloning",
+            project="abc",
+            job_type="train-behavior-cloning-policy",
             config=asdict(config),
             dir=OUTPUT_DIRECTORY_PATH,
         ) as run,
@@ -182,7 +182,9 @@ def _report_final_and_log_artifact(
 
         run.summary["selected/epoch"] = best_epoch
 
-        model_artifact = wandb.Artifact(name=f"{run.name}-policy", type="model")
+        model_artifact = wandb.Artifact(
+            name=f"behavior-cloning-policy-{run.name}", type="model"
+        )
         model_artifact.add_file(local_path=str(checkpoint_path), name="policy.pt")
         run.log_artifact(model_artifact).wait()
 

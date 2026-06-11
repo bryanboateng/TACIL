@@ -228,7 +228,7 @@ def _run(config: Config) -> None:
             prediction_horizon_length=config.horizon_length.prediction,
             action_horizon_length=config.horizon_length.action,
         )
-        artifact = wandb.Artifact(name=f"{run.name}-policy", type="model")
+        artifact = wandb.Artifact(name=f"diffusion-policy-{run.name}", type="model")
         artifact.add_file(str(final_path))
         run.log_artifact(artifact)
 

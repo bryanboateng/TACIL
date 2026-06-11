@@ -9,7 +9,7 @@ import wandb
 from numpy.random import Generator
 from rich.pretty import pretty_repr
 
-from scripts.ashared import compute_config_hash, create_logger
+from scripts.ashared import create_logger
 from scripts.shared.data import (
     DemonstrationData,
     load_demonstration_data_from_artifact,
@@ -45,7 +45,7 @@ def _run(config: Config):
 
     with wandb.init(
         project="abc",
-        job_type="augmentation-noisy",
+        job_type="create-noisy-dataset",
         config=asdict(config),
         dir=OUTPUT_DIRECTORY_PATH,
     ) as run:
@@ -82,7 +82,7 @@ def _run(config: Config):
             )
 
             new_artifact = wandb.Artifact(
-                name=f"noisy-dataset-{compute_config_hash(config=asdict(config))}",
+                name=f"noisy-dataset-{run.name}",
                 type="dataset",
             )
 

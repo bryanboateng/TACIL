@@ -15,12 +15,7 @@ from torch.optim.swa_utils import AveragedModel
 from tqdm import tqdm
 from wandb import Run
 
-from scripts.ashared import (
-    compute_config_hash,
-    create_logger,
-    log_device_info,
-    set_seed,
-)
+from scripts.ashared import create_logger, log_device_info, set_seed
 from scripts.data.augmentation.ccil.dynamics.checkpoint import save_dynamics_checkpoint
 from scripts.data.augmentation.ccil.dynamics.config import Config
 from scripts.data.augmentation.ccil.dynamics.data import (
@@ -53,7 +48,7 @@ def _run(config: Config) -> None:
 
     with wandb.init(
         project="abc",
-        job_type="train",
+        job_type="train-tacil-dynamics",
         config=asdict(config),
         dir=OUTPUT_DIRECTORY_PATH,
     ) as run:
@@ -326,7 +321,6 @@ def _refresh_spectral_norm_estimates(ema_dynamics_model: DynamicsModel) -> None:
 def _log_model_artifact(
     dynamics_model: DynamicsModel, config: Config, run: Run
 ) -> None:
-    config_hash = compute_config_hash(config=asdict(config))
     with tempfile.TemporaryDirectory() as temporary_directory:
         dynamics_checkpoint_path = Path(temporary_directory) / "dynamics.pt"
         save_dynamics_checkpoint(
@@ -334,7 +328,7 @@ def _log_model_artifact(
         )
 
         model_artifact = wandb.Artifact(
-            name=f"dynamics-model-{config_hash}", type="model"
+            name=f"tacil-dynamics-model-{run.name}", type="model"
         )
         model_artifact.add_file(
             local_path=str(dynamics_checkpoint_path), name="dynamics.pt"

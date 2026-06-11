@@ -13,12 +13,7 @@ from scipy.stats import gaussian_kde
 from tqdm import tqdm
 from wandb import Run
 
-from scripts.ashared import (
-    compute_config_hash,
-    create_logger,
-    log_device_info,
-    set_seed,
-)
+from scripts.ashared import create_logger, log_device_info, set_seed
 from scripts.data.augmentation.ccil.create_data.config import Config
 from scripts.data.augmentation.ccil.create_data.inverse_dynamics import (
     CONVERGENCE_TOLERANCE,
@@ -70,7 +65,7 @@ def _run(config: Config) -> None:
 
     with wandb.init(
         project="abc",
-        job_type="augmentation-ccil",
+        job_type="create-tacil-dataset",
         config=asdict(config),
         dir=OUTPUT_DIRECTORY_PATH,
     ) as run:
@@ -156,7 +151,7 @@ def _log_augmentation_to_wandb(
         )
 
         dataset_artifact = wandb.Artifact(
-            name=f"ccil-dataset-{compute_config_hash(config=asdict(config))}",
+            name=f"tacil-dataset-{run.name}",
             type="dataset",
         )
         dataset_artifact.add_dir(str(combined_zarr_path))
