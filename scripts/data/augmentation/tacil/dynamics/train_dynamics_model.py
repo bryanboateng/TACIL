@@ -16,19 +16,19 @@ from tqdm import tqdm
 from wandb import Run
 
 from scripts.ashared import create_logger, log_device_info, set_seed
-from scripts.data.augmentation.ccil.dynamics.checkpoint import save_dynamics_checkpoint
-from scripts.data.augmentation.ccil.dynamics.config import Config
-from scripts.data.augmentation.ccil.dynamics.data import (
+from scripts.data.augmentation.tacil.dynamics.checkpoint import save_dynamics_checkpoint
+from scripts.data.augmentation.tacil.dynamics.config import Config
+from scripts.data.augmentation.tacil.dynamics.data import (
     build_windows,
     concatenate_episodes,
     load_episodes,
 )
-from scripts.data.augmentation.ccil.dynamics.evaluation import (
+from scripts.data.augmentation.tacil.dynamics.evaluation import (
     calculate_local_lipschitz_constants,
     calculate_validation_loss,
 )
-from scripts.data.augmentation.ccil.dynamics.losses import compute_loss
-from scripts.data.augmentation.ccil.dynamics_model import DynamicsModel
+from scripts.data.augmentation.tacil.dynamics.losses import compute_loss
+from scripts.data.augmentation.tacil.dynamics_model import DynamicsModel
 from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
 
 logger = create_logger()

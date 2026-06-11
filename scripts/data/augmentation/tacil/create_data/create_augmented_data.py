@@ -14,14 +14,14 @@ from tqdm import tqdm
 from wandb import Run
 
 from scripts.ashared import create_logger, log_device_info, set_seed
-from scripts.data.augmentation.ccil.create_data.config import Config
-from scripts.data.augmentation.ccil.create_data.inverse_dynamics import (
+from scripts.data.augmentation.create_noise_augmentation import compute_noise_std
+from scripts.data.augmentation.tacil.create_data.config import Config
+from scripts.data.augmentation.tacil.create_data.inverse_dynamics import (
     CONVERGENCE_TOLERANCE,
     solve_inverse_dynamics_state,
 )
-from scripts.data.augmentation.ccil.dynamics.checkpoint import load_dynamics_checkpoint
-from scripts.data.augmentation.ccil.dynamics_model import DynamicsModel
-from scripts.data.augmentation.create_noise_augmentation import compute_noise_std
+from scripts.data.augmentation.tacil.dynamics.checkpoint import load_dynamics_checkpoint
+from scripts.data.augmentation.tacil.dynamics_model import DynamicsModel
 from scripts.shared.data import load_demonstration_data_from_artifact
 from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
 

@@ -2,8 +2,8 @@ import numpy as np
 import torch
 from numpy import typing as npt
 
-from scripts.data.augmentation.ccil.dynamics.losses import compute_loss
-from scripts.data.augmentation.ccil.dynamics_model import DynamicsModel
+from scripts.data.augmentation.tacil.dynamics.losses import compute_loss
+from scripts.data.augmentation.tacil.dynamics_model import DynamicsModel
 
 
 @torch.no_grad()

@@ -1,6 +1,6 @@
 import torch
 
-from scripts.data.augmentation.ccil.dynamics_model import DynamicsModel
+from scripts.data.augmentation.tacil.dynamics_model import DynamicsModel
 
 CONVERGENCE_TOLERANCE = 1e-4
 

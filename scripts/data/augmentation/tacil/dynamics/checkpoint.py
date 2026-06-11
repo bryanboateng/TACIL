@@ -3,7 +3,7 @@ from pathlib import Path
 
 import torch
 
-from scripts.data.augmentation.ccil.dynamics_model import DynamicsModel
+from scripts.data.augmentation.tacil.dynamics_model import DynamicsModel
 
 
 class CheckpointKeys(StrEnum):
