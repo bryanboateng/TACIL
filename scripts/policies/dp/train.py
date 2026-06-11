@@ -1,3 +1,4 @@
+import copy
 import tempfile
 from dataclasses import asdict
 from pathlib import Path
@@ -11,15 +12,14 @@ from rich.pretty import pretty_repr
 from tqdm.auto import tqdm
 
 from scripts.ashared import create_logger, log_device_info, set_seed
-from scripts.evaluation.bryan.disturbance import DisturberConfig
-from scripts.evaluation.bryan.evaluation import MaxRewardStatistics, evaluate_policy
+from scripts.evaluation.bryan.evaluation import RewardStatistics, evaluate_policy
 from scripts.policies.dp.config import Config, DimensionalityConfig, HorizonLengthConfig
 from scripts.policies.dp.dataset import PushTWindowDataset
 from scripts.policies.dp.loss import _compute_denoising_loss
 from scripts.policies.dp.network import ConditionalUnet1d
 from scripts.policies.dp.noise_scheduler import get_noise_scheduler
 from scripts.policies.dp.policy import load_diffusion_policy, save_diffusion_policy
-from scripts.policies.shared.stat import Stat
+from scripts.policies.shared.stat import Checkpoint
 from scripts.shared.data import load_demonstration_data_from_artifact
 from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
 
@@ -101,7 +101,7 @@ def _run(config: Config) -> None:
 
         global_step = 0
 
-        best_stat: Stat | None = None
+        best_checkpoint: Checkpoint | None = None
 
         for epoch_number in tqdm(
             iterable=range(config.optimization.epoch_count),
@@ -167,7 +167,7 @@ def _run(config: Config) -> None:
                 continue
 
             checkpoint_path = checkpoint_directory_path / "checkpoint.pt"
-            _save_ema_checkpoint(
+            ema_state_dict = _save_ema_checkpoint(
                 path=checkpoint_path,
                 network=noise_prediction_network,
                 ema=noise_prediction_network_ema,
@@ -192,34 +192,51 @@ def _run(config: Config) -> None:
                 step=global_step,
             )
 
-            if best_stat is None or validation_result.mean > best_stat.max_reward_mean:
-                best_stat = Stat(
-                    max_reward_mean=validation_result.mean,
+            if (
+                best_checkpoint is None
+                or validation_result.mean > best_checkpoint.validation_max_reward_mean
+            ):
+                best_checkpoint = Checkpoint(
+                    validation_max_reward_mean=validation_result.mean,
                     epoch=epoch_number,
-                    state_dict_path=checkpoint_path,
+                    state_dict=ema_state_dict,
                 )
 
-        if best_stat is None:
+        if best_checkpoint is None:
             raise ValueError("No checkpoint was recorded")
 
         logger.info(
             "Selected best epoch %d (validation max reward %.4f).",
-            best_stat.epoch,
-            best_stat.max_reward_mean,
+            best_checkpoint.epoch,
+            best_checkpoint.validation_max_reward_mean,
         )
 
-        run.summary["selected/epoch"] = best_stat.epoch
+        run.summary["selected/epoch"] = best_checkpoint.epoch
 
+        noise_prediction_network.load_state_dict(best_checkpoint.state_dict)
+        final_path = checkpoint_directory_path / "checkpoint.pt"
+        save_diffusion_policy(
+            path=final_path,
+            noise_prediction_network=noise_prediction_network,
+            observation_normalization_range=dataset.observation_normalization_range,
+            action_normalization_range=dataset.action_normalization_range,
+            action_dimensionality=config.dimensionality.action,
+            condition_dimensionality=condition_dimensionality,
+            hidden_channel_counts=config.hidden_channel_counts,
+            diffusion_timestep_count=config.diffusion_timestep_count,
+            observation_horizon_length=config.horizon_length.observation,
+            prediction_horizon_length=config.horizon_length.prediction,
+            action_horizon_length=config.horizon_length.action,
+        )
         artifact = wandb.Artifact(name=f"{run.name}-policy", type="model")
-        artifact.add_file(str(checkpoint_path))
+        artifact.add_file(str(final_path))
         run.log_artifact(artifact)
 
 
 @torch.no_grad()
 def _evaluate(
     checkpoint_path: Path, episode_seeds: tuple[int, ...], device: torch.device
-) -> MaxRewardStatistics:
-    """Load a saved (EMA) checkpoint as a policy and run the shared rollout eval."""
+) -> RewardStatistics:
     policy_factory = load_diffusion_policy(
         checkpoint_path=checkpoint_path, device=device
     )
@@ -227,6 +244,7 @@ def _evaluate(
         policy_factory=policy_factory,
         episode_seeds=episode_seeds,
         disturber_config=None,
+        description="Validation",
     )
 
 
@@ -240,11 +258,16 @@ def _save_ema_checkpoint(
     condition_dimensionality: int,
     hidden_channel_counts: tuple[int, ...],
     diffusion_timestep_count: int,
-) -> None:
-    """Save EMA weights to *path* without permanently modifying the network."""
+) -> dict:
+    """Save EMA weights to *path* without permanently modifying the network.
+
+    Returns a deep copy of the EMA state dict so the caller can keep the best
+    checkpoint in memory without re-reading the file.
+    """
     ema.store(parameters=network.parameters())
     ema.copy_to(parameters=network.parameters())
     try:
+        state_dict = copy.deepcopy(network.state_dict())
         save_diffusion_policy(
             path=path,
             noise_prediction_network=network,
@@ -258,6 +281,7 @@ def _save_ema_checkpoint(
             prediction_horizon_length=horizon_length.prediction,
             action_horizon_length=horizon_length.action,
         )
+        return state_dict
     finally:
         ema.restore(parameters=network.parameters())
 

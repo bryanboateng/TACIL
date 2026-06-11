@@ -30,14 +30,8 @@ from torch.utils.data import DataLoader
 from tqdm.auto import tqdm
 from wandb import Run
 
-from scripts.ashared import (
-    compute_config_hash,
-    create_logger,
-    log_device_info,
-    set_seed,
-)
-from scripts.evaluation.bryan.disturbance import DisturberConfig
-from scripts.evaluation.bryan.evaluation import MaxRewardStatistics, evaluate_policy
+from scripts.ashared import create_logger, log_device_info, set_seed
+from scripts.evaluation.bryan.evaluation import RewardStatistics, evaluate_policy
 from scripts.policies.bc.config import Config
 from scripts.policies.bc.dataset import SingleStepDataset
 from scripts.policies.bc.policy import (
@@ -45,7 +39,7 @@ from scripts.policies.bc.policy import (
     load_behavior_cloning_policy,
     save_behavior_cloning_policy,
 )
-from scripts.policies.shared.stat import Stat
+from scripts.policies.shared.stat import Checkpoint
 from scripts.shared.data import load_demonstration_data_from_artifact
 from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
 
@@ -104,7 +98,7 @@ def _run(config: Config) -> None:
             params=policy.parameters(), lr=config.optimization.learning_rate
         )
 
-        best_stat: Stat | None = None
+        best_checkpoint: Checkpoint | None = None
 
         for epoch_index in tqdm(
             iterable=range(config.optimization.epoch_count), desc="Epoch", unit="epoch"
@@ -140,9 +134,8 @@ def _run(config: Config) -> None:
             if not periodic_eval_is_due:
                 continue
 
-            checkpoint_path = (
-                checkpoint_directory_path / f"checkpoint_epoch_{epoch_index}.pt"
-            )
+            checkpoint_path = checkpoint_directory_path / "checkpoint.pt"
+            save_behavior_cloning_policy(policy=policy, path=checkpoint_path)
             validation_result = _evaluate(
                 checkpoint_path=checkpoint_path,
                 episode_seeds=config.evaluation.episode_seeds,
@@ -155,53 +148,48 @@ def _run(config: Config) -> None:
                 }
             )
 
-            if best_stat is None or validation_result.mean > best_stat.max_coverage:
-                best_stat = Stat(
-                    max_coverage=validation_result.mean,
+            if (
+                best_checkpoint is None
+                or validation_result.mean > best_checkpoint.validation_max_reward_mean
+            ):
+                best_checkpoint = Checkpoint(
+                    validation_max_reward_mean=validation_result.mean,
                     epoch=epoch_index,
                     state_dict=copy.deepcopy(policy.state_dict()),
                 )
 
-        if best_stat is None:
+        if best_checkpoint is None:
             raise ValueError("No checkpoint was recorded")
 
-        policy.load_state_dict(state_dict=best_stat.state_dict)
+        policy.load_state_dict(state_dict=best_checkpoint.state_dict)
         logger.info(
-            "Selected best epoch %d (validation max coverage %.4f).",
-            best_stat.epoch,
-            best_stat.max_coverage,
+            "Selected best epoch %d (validation mean %.4f).",
+            best_checkpoint.epoch,
+            best_checkpoint.validation_max_reward_mean,
         )
 
         _report_final_and_log_artifact(
-            policy=policy,
-            config=config,
-            best_epoch=best_stat.epoch,
-            device=device,
-            run=run,
+            policy=policy, best_epoch=best_checkpoint.epoch, run=run
         )
 
 
 def _report_final_and_log_artifact(
-    policy: BehaviorCloningPolicy, config: Config, best_epoch: int, run: Run
+    policy: BehaviorCloningPolicy, best_epoch: int, run: Run
 ) -> None:
-    """Final report (clean + disturbed on the TEST seeds) and the model artifact, both
-    from a single TemporaryDirectory that holds the selected checkpoint. Nothing persists.
-    """
     with tempfile.TemporaryDirectory() as temporary_directory:
         checkpoint_path = Path(temporary_directory) / "policy.pt"
         save_behavior_cloning_policy(policy=policy, path=checkpoint_path)
 
         run.summary["selected/epoch"] = best_epoch
 
-        config_hash = compute_config_hash(config=asdict(config))
-        model_artifact = wandb.Artifact(name=f"bc-policy-{config_hash}", type="model")
+        model_artifact = wandb.Artifact(name=f"{run.name}-policy", type="model")
         model_artifact.add_file(local_path=str(checkpoint_path), name="policy.pt")
         run.log_artifact(model_artifact).wait()
 
 
 def _evaluate(
     checkpoint_path: Path, episode_seeds: tuple[int, ...], device: torch.device
-) -> MaxRewardStatistics:
+) -> RewardStatistics:
     policy_factory = load_behavior_cloning_policy(
         checkpoint_path=checkpoint_path, device=device
     )
@@ -209,10 +197,11 @@ def _evaluate(
         policy_factory=policy_factory,
         episode_seeds=episode_seeds,
         disturber_config=None,
+        description="Validation",
     )
 
 
-def _write_final_summary(run: Run, protocol: str, result: MaxRewardStatistics) -> None:
+def _write_final_summary(run: Run, protocol: str, result: RewardStatistics) -> None:
     run.summary[f"final_{protocol}/max_reward_mean"] = result.mean
     run.summary[f"final_{protocol}/max_reward_std"] = result.std
 

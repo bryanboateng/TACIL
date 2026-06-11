@@ -8,11 +8,7 @@ from rich.pretty import pretty_repr
 from wandb import Run
 
 from scripts.ashared import create_logger, log_device_info, set_seed
-from scripts.evaluation.bryan.evaluation import (
-    MaxRewardStatistics,
-    PolicyFactory,
-    evaluate_policy,
-)
+from scripts.evaluation.bryan.evaluation import RewardStatistics, evaluate_policy
 from scripts.evaluation.config import (
     BehaviorCloningCheckpoint,
     Config,
@@ -24,6 +20,7 @@ from scripts.policies.gpi import config as gpi
 from scripts.policies.gpi.policy import load_geometric_policy
 from scripts.shared.data import load_demonstration_data_from_artifact
 from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
+from scripts.shared.policy_types import PolicyFactory
 
 logger = create_logger()
 
@@ -57,6 +54,7 @@ def _run(config: Config) -> None:
             policy_factory=policy_factory,
             episode_seeds=config.episode_seeds,
             disturber_config=None,
+            description="Undisturbed",
         )
         _write_summary(run=run, protocol="clean", max_reward_statistics=clean_result)
 
@@ -64,6 +62,7 @@ def _run(config: Config) -> None:
             policy_factory=policy_factory,
             episode_seeds=config.episode_seeds,
             disturber_config=config.disturbance,
+            description="Disturbed",
         )
         _write_summary(
             run=run, protocol="disturbed", max_reward_statistics=disturbed_result
@@ -106,7 +105,7 @@ def _download_checkpoint(run: Run, artifact_name: str) -> Path:
 
 
 def _write_summary(
-    run: Run, protocol: str, max_reward_statistics: MaxRewardStatistics
+    run: Run, protocol: str, max_reward_statistics: RewardStatistics
 ) -> None:
     run.summary[f"{protocol}/max_reward_mean"] = max_reward_statistics.mean
     run.summary[f"{protocol}/max_reward_std"] = max_reward_statistics.std

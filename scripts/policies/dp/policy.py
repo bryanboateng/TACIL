@@ -1,6 +1,5 @@
 import collections
 from pathlib import Path
-from typing import Callable
 
 import numpy as np
 import torch
@@ -9,9 +8,7 @@ from scripts.policies.dp.network import ConditionalUnet1d
 from scripts.policies.dp.noise_scheduler import get_noise_scheduler
 from scripts.shared.normalization_range import NormalizationRange
 from scripts.shared.paths import PROJECT_ROOT_DIRECTORY_PATH
-
-Policy = Callable[[np.ndarray], np.ndarray]
-PolicyFactory = Callable[[int], Policy]
+from scripts.shared.policy_types import Policy, PolicyFactory
 
 
 def save_diffusion_policy(

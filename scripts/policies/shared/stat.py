@@ -1,9 +1,8 @@
 from dataclasses import dataclass
-from pathlib import Path
 
 
 @dataclass
-class Stat:
-    max_reward_mean: float
+class Checkpoint:
+    validation_max_reward_mean: float
     epoch: int
-    state_dict_path: Path
+    state_dict: dict

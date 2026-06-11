@@ -1,5 +1,4 @@
 from pathlib import Path
-from typing import Callable
 
 import numpy as np
 import torch
@@ -7,9 +6,7 @@ from torch import nn
 
 from scripts.shared.normalization_range import NormalizationRange
 from scripts.shared.paths import PROJECT_ROOT_DIRECTORY_PATH
-
-Policy = Callable[[np.ndarray], np.ndarray]
-PolicyFactory = Callable[[int], Policy]
+from scripts.shared.policy_types import Policy, PolicyFactory
 
 
 def build_behavior_cloning_network(

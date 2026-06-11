@@ -14,15 +14,11 @@ class SingleStepDataset(torch.utils.data.Dataset):
         )
         self.action_normalization_range = NormalizationRange.from_values(values=actions)
 
-        self._normalized_states = self.observation_normalization_range.normalize(
-            values=states
-        )
-        self._normalized_actions = self.action_normalization_range.normalize(
-            values=actions
-        )
+        self._states = states
+        self._actions = actions
 
     def __len__(self) -> int:
-        return len(self._normalized_states)
+        return len(self._states)
 
     def __getitem__(self, index: int) -> tuple[torch.Tensor, torch.Tensor]:
-        return self._normalized_states[index], self._normalized_actions[index]
+        return self._states[index], self._actions[index]

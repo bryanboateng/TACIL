@@ -1,5 +1,3 @@
-from typing import Callable
-
 import numpy as np
 import torch
 
@@ -9,10 +7,9 @@ from scripts.policies.gpi.dataset import PushTEpisodeDataset
 from scripts.policies.gpi.geometry import relative_action_to_global
 from scripts.policies.gpi.planning import PlanBuffer
 from scripts.shared.data import DemonstrationData
+from scripts.shared.policy_types import Policy, PolicyFactory
 
 Key = tuple[int, int]
-Policy = Callable[[np.ndarray], np.ndarray]
-PolicyFactory = Callable[[int], Policy]
 
 
 def calculate_dynamic_lambda2(step_in_plan: int, total_steps: int) -> float:
