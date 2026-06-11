@@ -1,11 +1,6 @@
 from dataclasses import dataclass
 
 
-def _check_unit(name: str, value: float) -> None:
-    if not 0.0 <= value <= 1.0:
-        raise ValueError(f"{name} must be in [0, 1], got {value}")
-
-
 @dataclass(frozen=True)
 class Config:
     model_artifact: str
@@ -19,6 +14,7 @@ class Config:
     maximum_newton_iterations: int = 30
 
     def __post_init__(self):
-        _check_unit(
-            name="label_error_bound_quantile", value=self.label_error_bound_quantile
-        )
+        if not 0.0 <= self.label_error_bound_quantile <= 1.0:
+            raise ValueError(
+                f"label_error_bound_quantile must be in [0, 1], got {self.label_error_bound_quantile}"
+            )
