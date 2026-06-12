@@ -9,7 +9,6 @@ import tyro
 import wandb
 import zarr
 from rich.pretty import pretty_repr
-from scipy.stats import gaussian_kde
 from tqdm import tqdm
 from wandb import Run
 
@@ -42,10 +41,11 @@ class AugmentationResult:
         np.int64
     ]  # exclusive ends into augmented_states
     bounds: npt.NDArray[np.float32]  # per-step normalized bounds over converged steps
-    sigma: float
+    bound_threshold: float
     accepted_count: int
     rejected_count: int
     not_converged_count: int
+    synthetic_part_length: int  # synthetic transitions per accepted episode
 
 
 @dataclass(frozen=True)
@@ -153,7 +153,10 @@ def _log_augmentation_to_wandb(
         )
 
         _log_summary_to_wandb(
-            run=run, result=result, quantile=config.label_error_bound_quantile
+            run=run,
+            result=result,
+            source_episode_count=len(episode_ends),
+            source_transition_count=len(states),
         )
 
         dataset_artifact = wandb.Artifact(
@@ -227,10 +230,11 @@ def _create_augmented_episodes(
         augmented_actions=augmented_actions,
         augmented_episode_ends=augmented_episode_ends,
         bounds=converged_step_bounds.cpu().numpy(),
-        sigma=sigma,
+        bound_threshold=sigma,
         accepted_count=accepted_count,
         rejected_count=rejected_count,
         not_converged_count=not_converged_count,
+        synthetic_part_length=inversion_outcomes.predecessor_states.shape[1],
     )
 
 
@@ -445,53 +449,141 @@ def _write_combined_zarr(
     )
 
 
-def _log_summary_to_wandb(
-    run: Run, result: AugmentationResult, quantile: float
-) -> None:
-    run.summary["aug/num_accepted_episodes"] = result.accepted_count
-    run.summary["aug/num_rejected"] = result.rejected_count
-    run.summary["aug/num_not_converged"] = result.not_converged_count
-    run.summary["aug/num_augmented_states"] = int(result.augmented_states.shape[0])
-    run.summary["aug/sigma"] = result.sigma
-    run.summary["aug/quantile"] = float(quantile)
+def _fraction(part: int, whole: int) -> float:
+    return part / whole if whole else 0.0
 
-    # Outcomes bar chart
-    outcomes_table = wandb.Table(
-        columns=["outcome", "count"],
-        data=[
-            ["Accepted", result.accepted_count],
-            ["Rejected", result.rejected_count],
-            ["Not converged", result.not_converged_count],
-        ],
+
+def _candidate_episodes_summary(augmentation_result: AugmentationResult) -> dict:
+    anchor_count = (
+        augmentation_result.accepted_count
+        + augmentation_result.rejected_count
+        + augmentation_result.not_converged_count
     )
-    log_payload: dict = {
-        "figures/outcomes": wandb.plot.bar(
-            outcomes_table,
-            label="outcome",
-            value="count",
-            title="Augmentation outcomes",
-        )
+    return {
+        "anchor_count": anchor_count,
+        "count": {
+            "not_converged": augmentation_result.not_converged_count,
+            "rejected": augmentation_result.rejected_count,
+            "accepted": augmentation_result.accepted_count,
+        },
+        "fraction": {
+            "not_converged": _fraction(
+                augmentation_result.not_converged_count, anchor_count
+            ),
+            "rejected": _fraction(augmentation_result.rejected_count, anchor_count),
+            "accepted": _fraction(augmentation_result.accepted_count, anchor_count),
+        },
     }
 
-    # Bounds density line chart
+
+def _added_summary(
+    result: AugmentationResult, source_episode_count: int, source_transition_count: int
+) -> dict:
+    """Accepted episodes that enter the augmented dataset.
+
+    Each accepted anchor yields exactly one episode, so added episodes ==
+    accepted episodes. `ratio_of_original` is the added size divided by the
+    original size and may exceed 1. `by_source` partitions the added
+    transitions (a fixed synthetic prefix per episode, the rest verbatim
+    expert copies), so its two fractions sum to 1.
+    """
+    added_episode_count = len(result.augmented_episode_ends)
+    added_transition_count = int(result.augmented_states.shape[0])
+    added_synthetic_count = result.accepted_count * result.synthetic_part_length
+    added_expert_count = added_transition_count - added_synthetic_count
+
+    return {
+        "episodes": {
+            "count": added_episode_count,
+            "ratio_of_original": _fraction(added_episode_count, source_episode_count),
+        },
+        "transitions": {
+            "count": added_transition_count,
+            "ratio_of_original": _fraction(
+                added_transition_count, source_transition_count
+            ),
+            "by_source": {
+                "count": {
+                    "synthetic": added_synthetic_count,
+                    "expert": added_expert_count,
+                },
+                "fraction": {
+                    "synthetic": _fraction(
+                        added_synthetic_count, added_transition_count
+                    ),
+                    "expert": _fraction(added_expert_count, added_transition_count),
+                },
+            },
+        },
+    }
+
+
+def _dataset_summary(
+    result: AugmentationResult, source_episode_count: int, source_transition_count: int
+) -> dict:
+    """Composition of the final dataset (original + added).
+
+    The only synthetic transitions are the synthetic prefixes; everything else
+    (original + duplicated expert parts) is expert data. The `by_source`
+    fractions sum to 1.
+    """
+    added_episode_count = len(result.augmented_episode_ends)
+    added_transition_count = int(result.augmented_states.shape[0])
+    added_synthetic_count = result.accepted_count * result.synthetic_part_length
+
+    dataset_transition_count = source_transition_count + added_transition_count
+    dataset_expert_count = dataset_transition_count - added_synthetic_count
+
+    return {
+        "episodes": {"count": source_episode_count + added_episode_count},
+        "transitions": {
+            "count": dataset_transition_count,
+            "by_source": {
+                "count": {
+                    "synthetic": added_synthetic_count,
+                    "expert": dataset_expert_count,
+                },
+                "fraction": {
+                    "synthetic": _fraction(
+                        added_synthetic_count, dataset_transition_count
+                    ),
+                    "expert": _fraction(dataset_expert_count, dataset_transition_count),
+                },
+            },
+        },
+    }
+
+
+def _log_summary_to_wandb(
+    run: Run,
+    result: AugmentationResult,
+    source_episode_count: int,
+    source_transition_count: int,
+) -> None:
+    run.summary["candidate_episodes"] = _candidate_episodes_summary(
+        augmentation_result=result
+    )
+    run.summary["added"] = _added_summary(
+        result=result,
+        source_episode_count=source_episode_count,
+        source_transition_count=source_transition_count,
+    )
+    run.summary["dataset"] = _dataset_summary(
+        result=result,
+        source_episode_count=source_episode_count,
+        source_transition_count=source_transition_count,
+    )
+    run.summary["bound_threshold"] = result.bound_threshold
+
     bounds = result.bounds
-    if bounds.size > 0:
-        max_x = float(np.percentile(bounds, q=99.5))
-        x_values = np.linspace(0.0, max_x, num=500)
-        y_values = gaussian_kde(bounds)(x_values)
-
-        bounds_table = wandb.Table(
-            columns=["bound", "density"],
-            data=[[float(x), float(y)] for x, y in zip(x_values, y_values)],
-        )
-        log_payload["figures/bounds"] = wandb.plot.line(
-            bounds_table,
-            x="bound",
-            y="density",
-            title=f"Per-step bound distribution — σ={result.sigma:.4f} (q={quantile})",
-        )
-
-    run.log(log_payload)
+    clipped_bounds = bounds[bounds <= float(np.percentile(bounds, q=99.5))]
+    run.log(
+        {
+            "figures/bounds": wandb.Histogram(
+                np_histogram=np.histogram(clipped_bounds, bins="auto")
+            )
+        }
+    )
 
 
 @torch.no_grad()

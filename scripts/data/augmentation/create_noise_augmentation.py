@@ -73,6 +73,24 @@ def _run(config: Config):
             "# Episodes: %d", len(augmented_demonstration_data.episode_end_indices)
         )
 
+        source_episode_count = len(demonstration_data.episode_end_indices)
+        source_transition_count = len(demonstration_data.states)
+        new_episode_count = (
+            len(augmented_demonstration_data.episode_end_indices) - source_episode_count
+        )
+        new_transition_count = (
+            len(augmented_demonstration_data.states) - source_transition_count
+        )
+
+        run.summary["aug/new_episodes_count"] = new_episode_count
+        run.summary["aug/new_episodes_percentage"] = (
+            100 * new_episode_count / source_episode_count
+        )
+        run.summary["aug/new_transitions_count"] = new_transition_count
+        run.summary["aug/new_transitions_percentage"] = (
+            100 * new_transition_count / source_transition_count
+        )
+
         with tempfile.TemporaryDirectory() as tmpdir:
             output_zarr_path = Path(tmpdir) / "dataset.zarr"
 
