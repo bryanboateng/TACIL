@@ -16,7 +16,9 @@ from tqdm import tqdm
 from wandb import Run
 
 from scripts.ashared import create_logger, log_device_info, set_seed
-from scripts.data.augmentation.tacil.dynamics.checkpoint import save_dynamics_checkpoint
+from scripts.data.augmentation.tacil.dynamics.checkpoint import (
+    save_dynamics_model_checkpoint,
+)
 from scripts.data.augmentation.tacil.dynamics.config import Config
 from scripts.data.augmentation.tacil.dynamics.data import (
     build_windows,
@@ -325,7 +327,7 @@ def _log_model_artifact(
 ) -> None:
     with tempfile.TemporaryDirectory() as temporary_directory:
         dynamics_checkpoint_path = Path(temporary_directory) / "dynamics.pt"
-        save_dynamics_checkpoint(
+        save_dynamics_model_checkpoint(
             dynamics_model=dynamics_model, path=dynamics_checkpoint_path
         )
 

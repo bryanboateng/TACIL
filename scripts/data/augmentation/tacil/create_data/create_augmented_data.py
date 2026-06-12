@@ -19,7 +19,7 @@ from scripts.data.augmentation.tacil.create_data.inverse_dynamics import (
     CONVERGENCE_TOLERANCE,
     solve_inverse_dynamics_state,
 )
-from scripts.data.augmentation.tacil.dynamics.checkpoint import load_dynamics_checkpoint
+from scripts.data.augmentation.tacil.dynamics.checkpoint import load_dynamics_model
 from scripts.data.augmentation.tacil.dynamics_model import DynamicsModel
 from scripts.shared.data import load_demonstration_data_from_artifact
 from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
@@ -75,8 +75,8 @@ def _run(*, config: Config) -> None:
         config=asdict(config),
         dir=OUTPUT_DIRECTORY_PATH,
     ) as run:
-        dynamics_model = load_dynamics_checkpoint(
-            path=Path(
+        dynamics_model = load_dynamics_model(
+            checkpoint_file_path=Path(
                 run.use_artifact(artifact_or_name=config.model_artifact).download()
             )
             / "dynamics.pt",
