@@ -14,7 +14,7 @@ class CheckpointKeys(StrEnum):
     LIPSCHITZ_CONSTANT_UPPER_BOUND = "lipschitz_constant_upper_bound"
 
 
-def save_dynamics_checkpoint(dynamics_model: DynamicsModel, path: Path) -> None:
+def save_dynamics_checkpoint(*, dynamics_model: DynamicsModel, path: Path) -> None:
     torch.save(
         obj={
             CheckpointKeys.STATE_DICT: dynamics_model.state_dict(),
@@ -27,7 +27,7 @@ def save_dynamics_checkpoint(dynamics_model: DynamicsModel, path: Path) -> None:
     )
 
 
-def load_dynamics_checkpoint(path: Path, device: torch.device) -> DynamicsModel:
+def load_dynamics_checkpoint(*, path: Path, device: torch.device) -> DynamicsModel:
     checkpoint = torch.load(f=path, map_location=device, weights_only=False)
     dynamics_model = DynamicsModel(
         state_dimensionality=checkpoint[CheckpointKeys.STATE_DIMENSIONALITY],

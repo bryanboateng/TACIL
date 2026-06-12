@@ -6,7 +6,7 @@ from scripts.policies.gpi.dataset import PushTEpisodeDataset
 class PlanBuffer:
     """A rolling window of demonstration actions/states, popped one step at a time."""
 
-    def __init__(self, dataset: PushTEpisodeDataset, horizon: int) -> None:
+    def __init__(self, *, dataset: PushTEpisodeDataset, horizon: int) -> None:
         self.dataset = dataset
         self.horizon_length = horizon
         self.clear()
@@ -18,7 +18,7 @@ class PlanBuffer:
         self.actions: np.ndarray = np.empty((0,))
         self.states: np.ndarray = np.empty((0,))
 
-    def load(self, episode_index: int, timestep: int) -> None:
+    def load(self, *, episode_index: int, timestep: int) -> None:
         episode = self.dataset[episode_index]
         end = timestep + self.horizon_length
         self.actions = np.asarray(episode["action"][timestep:end])

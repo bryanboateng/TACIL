@@ -14,6 +14,7 @@ class StateDatabase:
 
     def __init__(
         self,
+        *,
         dataset: PushTEpisodeDataset,
         device: str | None = None,
         subset_size: int | None = None,
@@ -52,7 +53,7 @@ class StateDatabase:
         self._actions_full = torch.from_numpy(all_actions).to(device=self.device)
         self._keys_full: tuple[Key, ...] = tuple(keys)
 
-    def resample_subset(self, subset_size: int | None = None) -> None:
+    def resample_subset(self, *, subset_size: int | None = None) -> None:
         total = self._states_full.shape[0]
         size = subset_size if subset_size is not None else self._subset_size
         if size is None or size >= total:
@@ -87,7 +88,7 @@ class StateDatabase:
         return self._actions
 
     def nearest(
-        self, query: np.ndarray, k: int = 1, exclude: Iterable[Key] | None = None
+        self, *, query: np.ndarray, k: int = 1, exclude: Iterable[Key] | None = None
     ) -> tuple[torch.Tensor, list[Key]]:
         """Return distances and keys of the top-k demonstrations (Alg.1, lines 4-10)."""
         num_active = len(self._keys)

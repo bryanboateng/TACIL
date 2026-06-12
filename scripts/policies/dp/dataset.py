@@ -7,6 +7,7 @@ from scripts.shared.normalization_range import NormalizationRange
 class PushTWindowDataset(torch.utils.data.Dataset[tuple[torch.Tensor, torch.Tensor]]):
     def __init__(
         self,
+        *,
         demonstration_data: DemonstrationData,
         prediction_horizon_length: int,
         observation_horizon_length: int,
@@ -72,6 +73,7 @@ class PushTWindowDataset(torch.utils.data.Dataset[tuple[torch.Tensor, torch.Tens
 
 
 def _build_window_indices(
+    *,
     episode_ends: torch.Tensor,
     prediction_horizon_length: int,
     observation_padding_length: int,
@@ -114,6 +116,7 @@ def _build_window_indices(
 
 
 def _extract_window_with_edge_padding(
+    *,
     source_tensor: torch.Tensor,
     output_length: int,
     source_read_start_position: int,

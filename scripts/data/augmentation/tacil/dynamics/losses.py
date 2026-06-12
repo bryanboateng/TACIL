@@ -4,6 +4,7 @@ from scripts.data.augmentation.tacil.dynamics_model import DynamicsModel
 
 
 def compute_loss(
+    *,
     dynamics_model: DynamicsModel,
     state_window_batch: torch.Tensor,  # (batch_size, window_length + 1, state_dimensionality)
     action_window_batch: torch.Tensor,  # (batch_size, window_length, action_dimensionality)

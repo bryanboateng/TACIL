@@ -6,6 +6,7 @@ from scripts.policies.dp.network import ConditionalUnet1d
 
 
 def _compute_denoising_loss(
+    *,
     noise_prediction_network: ConditionalUnet1d,
     training_batch: tuple[torch.Tensor, torch.Tensor],
     noise_scheduler: DDPMScheduler,

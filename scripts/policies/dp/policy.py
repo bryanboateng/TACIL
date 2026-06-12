@@ -12,6 +12,7 @@ from scripts.shared.policy_types import Policy, PolicyFactory
 
 
 def save_diffusion_policy(
+    *,
     path: Path,
     noise_prediction_network: torch.nn.Module,
     observation_normalization_range: NormalizationRange,
@@ -47,7 +48,7 @@ def save_diffusion_policy(
     )
 
 
-def load_diffusion_policy(checkpoint_path: Path, device: torch.device) -> PolicyFactory:
+def load_diffusion_policy(*, checkpoint_path: Path, device: torch.device) -> PolicyFactory:
     checkpoint = torch.load(
         f=PROJECT_ROOT_DIRECTORY_PATH / checkpoint_path, map_location=device
     )
@@ -79,14 +80,14 @@ def load_diffusion_policy(checkpoint_path: Path, device: torch.device) -> Policy
     )
     noise_prediction_network.eval()
 
-    def make_policy(seed: int) -> Policy:
+    def make_policy(*, seed: int) -> Policy:
         diffusion_noise_generator = torch.Generator(device=device).manual_seed(seed)
         observation_deque: collections.deque = collections.deque(
             maxlen=observation_horizon_length
         )
         action_queue: collections.deque = collections.deque()
 
-        def policy(observation: np.ndarray) -> np.ndarray:
+        def policy(*, observation: np.ndarray) -> np.ndarray:
             observation_deque.append(observation)
             # Pad on first call so we always condition on
             # `observation_horizon_length` frames.

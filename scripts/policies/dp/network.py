@@ -6,6 +6,7 @@ import torch
 class ConditionalUnet1d(torch.nn.Module):
     def __init__(
         self,
+        *,
         input_channel_count: int,
         condition_dimensionality: int,
         hidden_channel_counts: tuple[int, ...],
@@ -103,6 +104,7 @@ class ConditionalUnet1d(torch.nn.Module):
 
     def forward(
         self,
+        *,
         noisy_sample_batch: torch.Tensor,
         diffusion_timestep: torch.Tensor,
         condition_batch: torch.Tensor,
@@ -147,6 +149,7 @@ class ConditionalUnet1d(torch.nn.Module):
 class _DownsampleLevel(torch.nn.Module):
     def __init__(
         self,
+        *,
         input_channel_count: int,
         output_channel_count: int,
         condition_dimensionality: int,
@@ -173,7 +176,7 @@ class _DownsampleLevel(torch.nn.Module):
         )
 
     def forward(
-        self, input_batch: torch.Tensor, condition_batch: torch.Tensor
+        self, *, input_batch: torch.Tensor, condition_batch: torch.Tensor
     ) -> tuple[torch.Tensor, torch.Tensor]:
         hidden_state_batch = self._first_residual_block(
             input_batch=input_batch, condition_batch=condition_batch
@@ -190,6 +193,7 @@ class _DownsampleLevel(torch.nn.Module):
 class _UpsampleLevel(torch.nn.Module):
     def __init__(
         self,
+        *,
         input_channel_count: int,
         output_channel_count: int,
         condition_dimensionality: int,
@@ -220,6 +224,7 @@ class _UpsampleLevel(torch.nn.Module):
 
     def forward(
         self,
+        *,
         input_batch: torch.Tensor,
         skip_connection_batch: torch.Tensor,
         condition_batch: torch.Tensor,
@@ -237,7 +242,7 @@ class _UpsampleLevel(torch.nn.Module):
 
 
 def _broadcast_to_batch(
-    values: torch.Tensor, reference_batch: torch.Tensor
+    *, values: torch.Tensor, reference_batch: torch.Tensor
 ) -> torch.Tensor:
     if values.ndim == 0:
         values = values[None]
@@ -245,7 +250,7 @@ def _broadcast_to_batch(
 
 
 class SinusoidalPositionalEmbedding(torch.nn.Module):
-    def __init__(self, dimensionality: int) -> None:
+    def __init__(self, *, dimensionality: int) -> None:
         super().__init__()
         self._dimensionality = dimensionality
 
@@ -265,6 +270,7 @@ class SinusoidalPositionalEmbedding(torch.nn.Module):
 class ConditionalResidualBlock1d(torch.nn.Module):
     def __init__(
         self,
+        *,
         input_channel_count: int,
         output_channel_count: int,
         condition_dimensionality: int,
@@ -304,7 +310,7 @@ class ConditionalResidualBlock1d(torch.nn.Module):
         )
 
     def forward(
-        self, input_batch: torch.Tensor, condition_batch: torch.Tensor
+        self, *, input_batch: torch.Tensor, condition_batch: torch.Tensor
     ) -> torch.Tensor:
         hidden_state_batch = self._first_convolution_block(input_batch=input_batch)
         modulation_parameter_batch = self._feature_modulation_encoder(
@@ -320,7 +326,7 @@ class ConditionalResidualBlock1d(torch.nn.Module):
 
 
 class Downsample1d(torch.nn.Module):
-    def __init__(self, channel_count: int) -> None:
+    def __init__(self, *, channel_count: int) -> None:
         super().__init__()
         self._convolution = torch.nn.Conv1d(
             in_channels=channel_count,
@@ -335,7 +341,7 @@ class Downsample1d(torch.nn.Module):
 
 
 class Upsample1d(torch.nn.Module):
-    def __init__(self, channel_count: int) -> None:
+    def __init__(self, *, channel_count: int) -> None:
         super().__init__()
         self._transposed_convolution = torch.nn.ConvTranspose1d(
             in_channels=channel_count,
@@ -351,7 +357,7 @@ class Upsample1d(torch.nn.Module):
 
 class Conv1dBlock(torch.nn.Module):
     def __init__(
-        self, input_channel_count: int, output_channel_count: int, kernel_size: int
+        self, *, input_channel_count: int, output_channel_count: int, kernel_size: int
     ) -> None:
         super().__init__()
         self._layers = torch.nn.Sequential(

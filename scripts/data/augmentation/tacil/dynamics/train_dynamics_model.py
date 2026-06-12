@@ -40,7 +40,7 @@ def main():
     _run(config=config)
 
 
-def _run(config: Config) -> None:
+def _run(*, config: Config) -> None:
     set_seed(seed=config.seed)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -118,6 +118,7 @@ def _run(config: Config) -> None:
 
 
 def _train_dynamics_model(
+    *,
     dynamics_model: DynamicsModel,
     training_state_windows: npt.NDArray[np.float32],
     training_action_windows: npt.NDArray[np.float32],
@@ -265,6 +266,7 @@ def _train_dynamics_model(
 
 
 def _compute_lipschitz_metrics(
+    *,
     dynamics_model: DynamicsModel,
     states: npt.NDArray[np.float32],  # (sample_count, state_dimensionality)
     actions: npt.NDArray[np.float32],  # (sample_count, action_dimensionality)
@@ -289,7 +291,7 @@ def _compute_lipschitz_metrics(
 
 
 @torch.no_grad()
-def _refresh_spectral_norm_estimates(ema_dynamics_model: DynamicsModel) -> None:
+def _refresh_spectral_norm_estimates(*, ema_dynamics_model: DynamicsModel) -> None:
     """Recompute the spectral-norm vectors for the EMA model's averaged weights.
 
     These vectors only update during train-mode forward passes, and the EMA model is
@@ -319,7 +321,7 @@ def _refresh_spectral_norm_estimates(ema_dynamics_model: DynamicsModel) -> None:
 
 
 def _log_model_artifact(
-    dynamics_model: DynamicsModel, config: Config, run: Run
+    *, dynamics_model: DynamicsModel, config: Config, run: Run
 ) -> None:
     with tempfile.TemporaryDirectory() as temporary_directory:
         dynamics_checkpoint_path = Path(temporary_directory) / "dynamics.pt"

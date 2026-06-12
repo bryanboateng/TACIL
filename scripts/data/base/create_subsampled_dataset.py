@@ -30,7 +30,7 @@ def main():
     _run(config=config)
 
 
-def _run(config: Config):
+def _run(*, config: Config):
     rng = np.random.default_rng(seed=config.seed)
 
     with wandb.init(
@@ -71,7 +71,7 @@ def _run(config: Config):
 
 
 def _subsample_episodes(
-    demonstration_data: DemonstrationData, fraction: float, rng: np.random.Generator
+    *, demonstration_data: DemonstrationData, fraction: float, rng: np.random.Generator
 ) -> DemonstrationData:
     if not (0.0 < fraction <= 1.0):
         raise ValueError(f"fraction must be in (0, 1], got {fraction}")

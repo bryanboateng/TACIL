@@ -64,7 +64,7 @@ def main():
     _run(config=config)
 
 
-def _run(config: Config) -> None:
+def _run(*, config: Config) -> None:
     set_seed(seed=config.seed)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     log_device_info(device=device, logger=logger)
@@ -131,6 +131,7 @@ def _run(config: Config) -> None:
 
 
 def _log_augmentation_to_wandb(
+    *,
     run: Run,
     config: Config,
     result: AugmentationResult,
@@ -168,6 +169,7 @@ def _log_augmentation_to_wandb(
 
 @torch.no_grad()
 def _create_augmented_episodes(
+    *,
     inversion_outcomes: InversionOutcomes,
     states: npt.NDArray[np.float32],
     actions: npt.NDArray[np.float32],
@@ -240,6 +242,7 @@ def _create_augmented_episodes(
 
 @torch.no_grad()
 def _run_synthetic_inversions(
+    *,
     dynamics_model: DynamicsModel,
     state_batch: torch.Tensor,  # (anchor_count, state_dimensionality)
     action_batch: torch.Tensor,  # (anchor_count, action_dimensionality)
@@ -282,7 +285,7 @@ def _run_synthetic_inversions(
                     state_batch=predecessor_state_batch, action_batch=noisy_action_batch
                 )
             )
-            - dynamics_model.normalize_state(anchor_state_batch)
+            - dynamics_model.normalize_state(state_batch=anchor_state_batch)
         ).norm(dim=-1)  # (anchor_count,)
 
         step_has_converged_batch = reconstruction_error_batch <= CONVERGENCE_TOLERANCE
@@ -310,6 +313,7 @@ def _run_synthetic_inversions(
 
 
 def _assemble_episodes(
+    *,
     predecessor_states: npt.NDArray[np.float32],  # (anchor, L, state_dim)
     predecessor_actions: npt.NDArray[np.float32],  # (anchor, L, action_dim)
     episode_accepted: npt.NDArray[np.bool_],  # (anchor,)
@@ -375,6 +379,7 @@ def _assemble_episodes(
 
 
 def _get_non_terminal_timestep_indices(
+    *,
     episode_end_indices: npt.NDArray[np.int64],  # (episode_count,)
 ) -> npt.NDArray[np.int64]:
 
@@ -384,6 +389,7 @@ def _get_non_terminal_timestep_indices(
 
 
 def _compute_expert_part_lengths(
+    *,
     anchor_positions: npt.NDArray[np.int64],
     episode_ends: npt.NDArray[np.int64],
     target_expert_part_length: int,
@@ -400,6 +406,7 @@ def _compute_expert_part_lengths(
 
 
 def _write_combined_zarr(
+    *,
     output_path: Path,
     states: npt.NDArray[np.float32],
     actions: npt.NDArray[np.float32],
@@ -449,11 +456,11 @@ def _write_combined_zarr(
     )
 
 
-def _fraction(part: int, whole: int) -> float:
+def _fraction(*, part: int, whole: int) -> float:
     return part / whole if whole else 0.0
 
 
-def _candidate_episodes_summary(augmentation_result: AugmentationResult) -> dict:
+def _candidate_episodes_summary(*, augmentation_result: AugmentationResult) -> dict:
     anchor_count = (
         augmentation_result.accepted_count
         + augmentation_result.rejected_count
@@ -468,16 +475,16 @@ def _candidate_episodes_summary(augmentation_result: AugmentationResult) -> dict
         },
         "fraction": {
             "not_converged": _fraction(
-                augmentation_result.not_converged_count, anchor_count
+                part=augmentation_result.not_converged_count, whole=anchor_count
             ),
-            "rejected": _fraction(augmentation_result.rejected_count, anchor_count),
-            "accepted": _fraction(augmentation_result.accepted_count, anchor_count),
+            "rejected": _fraction(part=augmentation_result.rejected_count, whole=anchor_count),
+            "accepted": _fraction(part=augmentation_result.accepted_count, whole=anchor_count),
         },
     }
 
 
 def _added_summary(
-    result: AugmentationResult, source_episode_count: int, source_transition_count: int
+    *, result: AugmentationResult, source_episode_count: int, source_transition_count: int
 ) -> dict:
     """Accepted episodes that enter the augmented dataset.
 
@@ -495,12 +502,12 @@ def _added_summary(
     return {
         "episodes": {
             "count": added_episode_count,
-            "ratio_of_original": _fraction(added_episode_count, source_episode_count),
+            "ratio_of_original": _fraction(part=added_episode_count, whole=source_episode_count),
         },
         "transitions": {
             "count": added_transition_count,
             "ratio_of_original": _fraction(
-                added_transition_count, source_transition_count
+                part=added_transition_count, whole=source_transition_count
             ),
             "by_source": {
                 "count": {
@@ -509,9 +516,9 @@ def _added_summary(
                 },
                 "fraction": {
                     "synthetic": _fraction(
-                        added_synthetic_count, added_transition_count
+                        part=added_synthetic_count, whole=added_transition_count
                     ),
-                    "expert": _fraction(added_expert_count, added_transition_count),
+                    "expert": _fraction(part=added_expert_count, whole=added_transition_count),
                 },
             },
         },
@@ -519,7 +526,7 @@ def _added_summary(
 
 
 def _dataset_summary(
-    result: AugmentationResult, source_episode_count: int, source_transition_count: int
+    *, result: AugmentationResult, source_episode_count: int, source_transition_count: int
 ) -> dict:
     """Composition of the final dataset (original + added).
 
@@ -545,9 +552,9 @@ def _dataset_summary(
                 },
                 "fraction": {
                     "synthetic": _fraction(
-                        added_synthetic_count, dataset_transition_count
+                        part=added_synthetic_count, whole=dataset_transition_count
                     ),
-                    "expert": _fraction(dataset_expert_count, dataset_transition_count),
+                    "expert": _fraction(part=dataset_expert_count, whole=dataset_transition_count),
                 },
             },
         },
@@ -555,6 +562,7 @@ def _dataset_summary(
 
 
 def _log_summary_to_wandb(
+    *,
     run: Run,
     result: AugmentationResult,
     source_episode_count: int,
@@ -588,6 +596,7 @@ def _log_summary_to_wandb(
 
 @torch.no_grad()
 def _compute_label_error_bound(
+    *,
     dynamics_model: DynamicsModel,
     anchor_state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
     action_batch: torch.Tensor,  # (batch_size, action_dimensionality)

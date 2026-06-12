@@ -8,6 +8,7 @@ from scripts.data.augmentation.tacil.dynamics_model import DynamicsModel
 
 @torch.no_grad()
 def calculate_validation_loss(
+    *,
     dynamics_model: DynamicsModel,
     validation_state_windows: npt.NDArray[
         np.float32
@@ -46,6 +47,7 @@ def calculate_validation_loss(
 
 @torch.no_grad()
 def calculate_local_lipschitz_constants(
+    *,
     dynamics_model: DynamicsModel,
     states: npt.NDArray[np.float32],  # (sample_count, state_dimensionality)
     actions: npt.NDArray[np.float32],  # (sample_count, action_dimensionality)

@@ -1,7 +1,7 @@
 import torch
 
 
-def se2_to_relative_action(states: torch.Tensor, actions: torch.Tensor) -> torch.Tensor:
+def se2_to_relative_action(*, states: torch.Tensor, actions: torch.Tensor) -> torch.Tensor:
     """Convert global agent targets into the object's local SE(2) frame."""
     object_xy = states[:, 2:4]
     object_theta = states[:, 4]
@@ -19,7 +19,7 @@ def se2_to_relative_action(states: torch.Tensor, actions: torch.Tensor) -> torch
 
 
 def relative_action_to_global(
-    observation: torch.Tensor, action: torch.Tensor
+    *, observation: torch.Tensor, action: torch.Tensor
 ) -> torch.Tensor:
     """Inverse of ``se2_to_relative_action``: object-centric -> world coords."""
     object_xy = observation[:, 2:4]
@@ -39,7 +39,7 @@ def relative_action_to_global(
     return rotated + object_xy
 
 
-def distance(states: torch.Tensor, query: torch.Tensor) -> torch.Tensor:
+def distance(*, states: torch.Tensor, query: torch.Tensor) -> torch.Tensor:
     """Euclidean distance in ``(x, y, obj_x, obj_y)`` plus wrapped angle."""
     position_difference = states[:, :4] - query[:, :4]
     position_distance_squared = torch.sum(input=position_difference**2, dim=1)

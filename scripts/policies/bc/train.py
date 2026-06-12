@@ -52,7 +52,7 @@ def main():
     _run(config=config)
 
 
-def _run(config: Config) -> None:
+def _run(*, config: Config) -> None:
     set_seed(seed=config.seed)
     device = torch.device(device="cuda" if torch.cuda.is_available() else "cpu")
     log_device_info(device=device, logger=logger)
@@ -113,9 +113,9 @@ def _run(config: Config) -> None:
                 # The dataset returns RAW values; the model normalizes the observation,
                 # and we compare its normalized prediction against the normalized target.
                 predicted_normalized_action = policy(
-                    policy.normalize_observation(observation_batch)
+                    normalized_observation=policy.normalize_observation(observation=observation_batch)
                 )
-                target_normalized_action = policy.normalize_action(action_batch)
+                target_normalized_action = policy.normalize_action(action=action_batch)
                 loss = loss_function(
                     predicted_normalized_action, target_normalized_action
                 )
@@ -174,7 +174,7 @@ def _run(config: Config) -> None:
 
 
 def _report_final_and_log_artifact(
-    policy: BehaviorCloningPolicy, best_epoch: int, run: Run
+    *, policy: BehaviorCloningPolicy, best_epoch: int, run: Run
 ) -> None:
     with tempfile.TemporaryDirectory() as temporary_directory:
         checkpoint_path = Path(temporary_directory) / "policy.pt"
@@ -190,7 +190,7 @@ def _report_final_and_log_artifact(
 
 
 def _evaluate(
-    checkpoint_path: Path, episode_seeds: tuple[int, ...], device: torch.device
+    *, checkpoint_path: Path, episode_seeds: tuple[int, ...], device: torch.device
 ) -> RewardStatistics:
     policy_factory = load_behavior_cloning_policy(
         checkpoint_path=checkpoint_path, device=device
@@ -203,7 +203,7 @@ def _evaluate(
     )
 
 
-def _write_final_summary(run: Run, protocol: str, result: RewardStatistics) -> None:
+def _write_final_summary(*, run: Run, protocol: str, result: RewardStatistics) -> None:
     run.summary[f"final_{protocol}/max_reward_mean"] = result.mean
     run.summary[f"final_{protocol}/max_reward_std"] = result.std
 

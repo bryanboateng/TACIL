@@ -37,7 +37,7 @@ def main():
     _run(config=config)
 
 
-def _run(config: Config) -> None:
+def _run(*, config: Config) -> None:
     set_seed(seed=config.seed)
     device = torch.device(device="cuda" if torch.cuda.is_available() else "cpu")
     log_device_info(device=device, logger=logger)
@@ -70,7 +70,7 @@ def _run(config: Config) -> None:
 
 
 def _build_policy_factory(
-    config: Config, run: Run, device: torch.device
+    *, config: Config, run: Run, device: torch.device
 ) -> PolicyFactory:
     match config.policy:
         case DiffusionPolicyCheckpoint(checkpoint_artifact=artifact_name):
@@ -97,7 +97,7 @@ def _build_policy_factory(
             )
 
 
-def _download_checkpoint(run: Run, artifact_name: str) -> Path:
+def _download_checkpoint(*, run: Run, artifact_name: str) -> Path:
     return (
         Path(run.use_artifact(artifact_or_name=artifact_name).download())
         / "checkpoint.pt"
@@ -105,7 +105,7 @@ def _download_checkpoint(run: Run, artifact_name: str) -> Path:
 
 
 def _write_summary(
-    run: Run, protocol: str, max_reward_statistics: RewardStatistics
+    *, run: Run, protocol: str, max_reward_statistics: RewardStatistics
 ) -> None:
     run.summary[f"{protocol}/max_reward_mean"] = max_reward_statistics.mean
     run.summary[f"{protocol}/max_reward_std"] = max_reward_statistics.std

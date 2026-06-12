@@ -18,6 +18,7 @@ class RewardStatistics:
 
 @torch.no_grad()
 def evaluate_policy(
+    *,
     policy_factory: PolicyFactory,
     episode_seeds: tuple[int, ...],
     disturber_config: DisturberConfig | None,

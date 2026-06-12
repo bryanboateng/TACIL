@@ -10,6 +10,7 @@ from scripts.shared.policy_types import Policy, PolicyFactory
 
 
 def build_behavior_cloning_network(
+    *,
     observation_dimensionality: int,
     action_dimensionality: int,
     hidden_dimensionality: int,
@@ -32,6 +33,7 @@ class BehaviorCloningPolicy(nn.Module):
 
     def __init__(
         self,
+        *,
         observation_dimensionality: int,
         action_dimensionality: int,
         hidden_dimensionality: int,
@@ -88,24 +90,24 @@ class BehaviorCloningPolicy(nn.Module):
             minimum=self.action_minimum, maximum=self.action_maximum
         )
 
-    def normalize_observation(self, observation: torch.Tensor) -> torch.Tensor:
+    def normalize_observation(self, *, observation: torch.Tensor) -> torch.Tensor:
         return self.observation_normalization_range().normalize(values=observation)
 
-    def normalize_action(self, action: torch.Tensor) -> torch.Tensor:
+    def normalize_action(self, *, action: torch.Tensor) -> torch.Tensor:
         return self.action_normalization_range().normalize(values=action)
 
-    def forward(self, normalized_observation: torch.Tensor) -> torch.Tensor:
+    def forward(self, *, normalized_observation: torch.Tensor) -> torch.Tensor:
         """Normalized observation -> normalized action (use this for the training loss)."""
         return self.network(normalized_observation)
 
     @torch.no_grad()
-    def act(self, observation: torch.Tensor) -> torch.Tensor:
+    def act(self, *, observation: torch.Tensor) -> torch.Tensor:
         """Raw observation -> raw action (use this for rollout / evaluation)."""
-        normalized_action = self.network(self.normalize_observation(observation))
+        normalized_action = self.network(self.normalize_observation(observation=observation))
         return self.action_normalization_range().denormalize(values=normalized_action)
 
 
-def save_behavior_cloning_policy(policy: BehaviorCloningPolicy, path: Path) -> None:
+def save_behavior_cloning_policy(*, policy: BehaviorCloningPolicy, path: Path) -> None:
     """Save the policy. The normalization ranges ride along inside state_dict()."""
     torch.save(
         obj={
@@ -119,7 +121,7 @@ def save_behavior_cloning_policy(policy: BehaviorCloningPolicy, path: Path) -> N
 
 
 def load_behavior_cloning_policy(
-    checkpoint_path: Path, device: torch.device
+    *, checkpoint_path: Path, device: torch.device
 ) -> PolicyFactory:
     checkpoint = torch.load(
         f=PROJECT_ROOT_DIRECTORY_PATH / checkpoint_path, map_location=device
@@ -150,14 +152,14 @@ def load_behavior_cloning_policy(
     policy_model.load_state_dict(state_dict=checkpoint["policy_state_dict"])
     policy_model.eval()
 
-    def make_policy(seed: int) -> Policy:  # seed unused: BC is deterministic
+    def make_policy(*, seed: int) -> Policy:  # seed unused: BC is deterministic
         del seed
 
-        def policy(observation: np.ndarray) -> np.ndarray:
+        def policy(*, observation: np.ndarray) -> np.ndarray:
             observation_tensor = torch.from_numpy(np.asarray(observation)).to(
                 device=device, dtype=torch.float32
             )
-            action_tensor = policy_model.act(observation_tensor.unsqueeze(dim=0))
+            action_tensor = policy_model.act(observation=observation_tensor.unsqueeze(dim=0))
             return action_tensor.squeeze(dim=0).cpu().numpy()
 
         return policy

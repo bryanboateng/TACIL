@@ -1,7 +1,7 @@
 from diffusers.schedulers.scheduling_ddpm import DDPMScheduler
 
 
-def get_noise_scheduler(diffusion_timestep_count: int) -> DDPMScheduler:
+def get_noise_scheduler(*, diffusion_timestep_count: int) -> DDPMScheduler:
     return DDPMScheduler(
         num_train_timesteps=diffusion_timestep_count,
         # squared-cosine schedule gave the best results in experiments

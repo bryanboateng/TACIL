@@ -6,6 +6,7 @@ CONVERGENCE_TOLERANCE = 1e-4
 
 
 def solve_inverse_dynamics_state(
+    *,
     dynamics_model: DynamicsModel,
     initial_state_estimate_batch: torch.Tensor,  # (batch_size, state_dimensionality)
     action_batch: torch.Tensor,  # (batch_size, action_dimensionality)
@@ -33,6 +34,7 @@ def solve_inverse_dynamics_state(
 
 @torch.no_grad()
 def _run_newton_iterations_until_convergence(
+    *,
     dynamics_model: DynamicsModel,
     normalized_initial_state_estimate: torch.Tensor,  # (batch_size, state_dimensionality)
     action: torch.Tensor,  # (batch_size, action_dimensionality)
@@ -71,6 +73,7 @@ def _run_newton_iterations_until_convergence(
 
 
 def _compute_batched_jacobian_of_normalized_residual_wrt_normalized_state(
+    *,
     dynamics_model: DynamicsModel,
     normalized_state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
     action_batch: torch.Tensor,  # (batch_size, action_dimensionality)
@@ -97,6 +100,7 @@ def _compute_batched_jacobian_of_normalized_residual_wrt_normalized_state(
 
 
 def _compute_normalized_residual(
+    *,
     dynamics_model: DynamicsModel,
     normalized_state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
     action_batch: torch.Tensor,  # (batch_size, action_dimensionality)
@@ -116,6 +120,7 @@ def _compute_normalized_residual(
 
 
 def _add_ridge(
+    *,
     jacobian_batch: torch.Tensor,  # (batch_size, state_dimensionality, state_dimensionality)
 ) -> torch.Tensor:  # (batch_size, state_dimensionality, state_dimensionality)
     state_dimensionality = jacobian_batch.shape[-1]

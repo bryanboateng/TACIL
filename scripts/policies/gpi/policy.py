@@ -12,7 +12,7 @@ from scripts.shared.policy_types import Policy, PolicyFactory
 Key = tuple[int, int]
 
 
-def calculate_dynamic_lambda2(step_in_plan: int, total_steps: int) -> float:
+def calculate_dynamic_lambda2(*, step_in_plan: int, total_steps: int) -> float:
     if total_steps <= 1:
         return 1.0
     progress = min(step_in_plan / (total_steps - 1), 1.0)
@@ -25,6 +25,7 @@ class StateGPIPolicy:
 
     def __init__(
         self,
+        *,
         dataset: PushTEpisodeDataset,
         database: StateDatabase,
         config: Config,
@@ -47,7 +48,7 @@ class StateGPIPolicy:
         self.recent_set.clear()
 
     # --------------------------------------------------------------- query
-    def get_action(self, observation: np.ndarray) -> np.ndarray:
+    def get_action(self, *, observation: np.ndarray) -> np.ndarray:
         current_observation = np.asarray(observation[-1], dtype=np.float32)
         normalized_observation = self.dataset.normalize_observations(
             observations=current_observation
@@ -68,7 +69,7 @@ class StateGPIPolicy:
         )
         return _to_global(observation=current_observation, action=denormalized)
 
-    def _compute_action(self, normalized_observation: np.ndarray) -> np.ndarray | None:
+    def _compute_action(self, *, normalized_observation: np.ndarray) -> np.ndarray | None:
         if self.plan.is_empty():
             # Steps 5-6: pick the demonstration/time with minimal combined distance.
             _, keys = self.database.nearest(
@@ -109,7 +110,7 @@ class StateGPIPolicy:
         return local_policy
 
     # --------------------------------------------------------------- noise
-    def _add_observation_noise(self, normalized_observation: np.ndarray) -> np.ndarray:
+    def _add_observation_noise(self, *, normalized_observation: np.ndarray) -> np.ndarray:
         noise = self.rng.normal(
             loc=0.0, scale=self.current_noise_std, size=normalized_observation.shape
         )
@@ -122,7 +123,7 @@ class StateGPIPolicy:
 
 
 def load_geometric_policy(
-    demonstration_data: DemonstrationData, config: Config, device: torch.device
+    *, demonstration_data: DemonstrationData, config: Config, device: torch.device
 ) -> PolicyFactory:
     """Build the demonstration index once, then return a per-seed policy factory.
 
@@ -135,12 +136,12 @@ def load_geometric_policy(
         dataset=dataset, device=str(device), subset_size=config.retrieval.subset_size
     )
 
-    def make_policy(seed: int) -> Policy:
+    def make_policy(*, seed: int) -> Policy:
         policy = StateGPIPolicy(
             dataset=dataset, database=database, config=config, seed=seed
         )
 
-        def act(observation: np.ndarray) -> np.ndarray:
+        def act(*, observation: np.ndarray) -> np.ndarray:
             return policy.get_action(observation=observation[np.newaxis])
 
         return act
@@ -148,7 +149,7 @@ def load_geometric_policy(
     return make_policy
 
 
-def _to_global(observation: np.ndarray, action: np.ndarray) -> np.ndarray:
+def _to_global(*, observation: np.ndarray, action: np.ndarray) -> np.ndarray:
     return (
         relative_action_to_global(
             observation=torch.from_numpy(observation).unsqueeze(dim=0),

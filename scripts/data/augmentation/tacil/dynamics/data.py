@@ -19,7 +19,7 @@ class NoValidWindowsError(ValueError):
     pass
 
 
-def load_episodes(artifact: Artifact, logger: Logger) -> list[Transitions]:
+def load_episodes(*, artifact: Artifact, logger: Logger) -> list[Transitions]:
 
     demonstration_data = load_demonstration_data_from_artifact(
         artifact=artifact, logger=logger
@@ -60,7 +60,7 @@ def load_episodes(artifact: Artifact, logger: Logger) -> list[Transitions]:
     return episodes
 
 
-def concatenate_episodes(episodes: list[Transitions]) -> Transitions:
+def concatenate_episodes(*, episodes: list[Transitions]) -> Transitions:
     return Transitions(
         states=np.concatenate([episode.states for episode in episodes], axis=0),
         actions=np.concatenate([episode.actions for episode in episodes], axis=0),
@@ -71,7 +71,7 @@ def concatenate_episodes(episodes: list[Transitions]) -> Transitions:
 
 
 def build_windows(
-    episodes: list[Transitions], window_length: int
+    *, episodes: list[Transitions], window_length: int
 ) -> tuple[
     npt.NDArray[
         np.float32
@@ -121,6 +121,7 @@ def build_windows(
 
 
 def _build_sliding_windows(
+    *,
     array: npt.NDArray[np.float32],  # (array_length, sample_dimensionality)
     window_length: int,
 ) -> npt.NDArray[np.float32]:  # (window_count, window_length, sample_dimensionality)

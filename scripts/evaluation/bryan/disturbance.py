@@ -14,7 +14,7 @@ class DisturberConfig:
     attack_duration: int = 8
 
 
-def setup_disturber(environment: Env, config: DisturberConfig) -> None:
+def setup_disturber(*, environment: Env, config: DisturberConfig) -> None:
     """Add the disturber body and patch step/reset onto the env.
 
     Reset the env ONCE before calling this so block/agent/space exist. Then, before
@@ -30,7 +30,7 @@ def setup_disturber(environment: Env, config: DisturberConfig) -> None:
     _patch_reset_for_disturber(environment=environment)
 
 
-def _add_disturber(environment: Env) -> None:
+def _add_disturber(*, environment: Env) -> None:
     body = pymunk.Body(body_type=pymunk.Body.KINEMATIC)
     body.position = OFF_SCREEN_POSITION
 
@@ -44,7 +44,7 @@ def _add_disturber(environment: Env) -> None:
 
 
 def _patch_step_with_disturber(
-    environment: Env, attack_interval: int, attack_duration: int
+    *, environment: Env, attack_interval: int, attack_duration: int
 ) -> None:
     unwrapped_environment = environment.unwrapped
     original_step_function = unwrapped_environment.step
@@ -90,7 +90,7 @@ def _patch_step_with_disturber(
     unwrapped_environment.step = types.MethodType(disturbed_step, unwrapped_environment)  # ty:ignore[invalid-assignment]
 
 
-def _patch_reset_for_disturber(environment: Env) -> None:
+def _patch_reset_for_disturber(*, environment: Env) -> None:
     unwrapped_environment = environment.unwrapped
     original_reset_function = unwrapped_environment.reset
 
@@ -112,7 +112,7 @@ def _patch_reset_for_disturber(environment: Env) -> None:
     unwrapped_environment.reset = types.MethodType(new_reset, unwrapped_environment)  # ty:ignore[invalid-assignment]
 
 
-def _sample_random_block_point(env, rng: np.random.Generator) -> np.ndarray:
+def _sample_random_block_point(*, env, rng: np.random.Generator) -> np.ndarray:
     vertices = []
     for shape in env.block.shapes:
         if hasattr(shape, "get_vertices"):
@@ -123,7 +123,7 @@ def _sample_random_block_point(env, rng: np.random.Generator) -> np.ndarray:
 
 
 def _sample_random_direction_away_from_goal(
-    block_point, env, rng: np.random.Generator
+    *, block_point, env, rng: np.random.Generator
 ) -> np.ndarray:
     goal_position = np.array(env.goal_pose[:2])
 
@@ -145,7 +145,7 @@ def _sample_random_direction_away_from_goal(
     return random_unit_vector
 
 
-def _compute_push_direction(env, target_position) -> np.ndarray:
+def _compute_push_direction(*, env, target_position) -> np.ndarray:
     push_direction = target_position - np.array(env.disturber.position)
     push_distance = np.linalg.norm(push_direction)
 

@@ -40,7 +40,7 @@ def main():
     _run(config=config)
 
 
-def _run(config: Config):
+def _run(*, config: Config):
     rng = np.random.default_rng(seed=config.seed)
 
     with wandb.init(
@@ -109,6 +109,7 @@ def _run(config: Config):
 
 
 def _augment_with_noisy_episodes(
+    *,
     demonstration_data: DemonstrationData,
     window_length: int,
     augmentation_ratio: float,
@@ -184,7 +185,7 @@ def _augment_with_noisy_episodes(
 
 
 def _sample_random_indices(
-    population_size: int, sampling_ratio: float, rng: Generator
+    *, population_size: int, sampling_ratio: float, rng: Generator
 ) -> npt.NDArray[np.int64]:  # (sample_size,)
     sample_size = int(population_size * sampling_ratio)
 
@@ -198,6 +199,7 @@ def _sample_random_indices(
 
 
 def _get_sliding_window_slices(
+    *,
     episode_end_indices: npt.NDArray[np.int64],  # (episode_count,)
     window_length: int,
 ) -> list[slice]:  # len == total_window_count
@@ -237,6 +239,7 @@ def _get_sliding_window_slices(
 
 
 def compute_noise_std(
+    *,
     samples: npt.NDArray[np.float32],  # (N, dimensionality)
     noise_scale: float,
 ) -> npt.NDArray[np.float32]:  # (dimensionality,)

@@ -6,7 +6,7 @@ import wandb
 from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
 
 
-def main(expert_data_file_path: Path):
+def main(*, expert_data_file_path: Path):
     with wandb.init(
         project="abc", job_type="ingest-expert-data", dir=OUTPUT_DIRECTORY_PATH
     ) as run:

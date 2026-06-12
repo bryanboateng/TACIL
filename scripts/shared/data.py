@@ -16,7 +16,7 @@ class DemonstrationData:
     episode_end_indices: npt.NDArray[np.int64]
 
 
-def write_zarr(zarr_file_path: Path, demonstration_data: DemonstrationData):
+def write_zarr(*, zarr_file_path: Path, demonstration_data: DemonstrationData):
     root = zarr.open(store=zarr_file_path, mode="w")
 
     assert isinstance(root, Group)
@@ -46,7 +46,7 @@ def write_zarr(zarr_file_path: Path, demonstration_data: DemonstrationData):
     )
 
 
-def load_zarr(zarr_file_path: Path) -> DemonstrationData:
+def load_zarr(*, zarr_file_path: Path) -> DemonstrationData:
     store = zarr.open(store=zarr_file_path, mode="r")
 
     if not isinstance(store, Group):
@@ -54,7 +54,7 @@ def load_zarr(zarr_file_path: Path) -> DemonstrationData:
             f"Expected zarr.Group at {zarr_file_path}, got {type(store).__name__}"
         )
 
-    def _get(key: str, dtype: object) -> np.ndarray:
+    def _get(*, key: str, dtype: object) -> np.ndarray:
         try:
             group_member = store[key]
         except KeyError as exc:
@@ -87,7 +87,7 @@ def load_zarr(zarr_file_path: Path) -> DemonstrationData:
 
 
 def load_demonstration_data_from_artifact(
-    artifact: Artifact, logger: logging.Logger
+    *, artifact: Artifact, logger: logging.Logger
 ) -> DemonstrationData:
     artifact_content_path = Path(artifact.download())
 

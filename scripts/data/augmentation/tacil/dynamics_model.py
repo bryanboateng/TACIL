@@ -14,6 +14,7 @@ class DynamicsModel(torch.nn.Module):
 
     def __init__(
         self,
+        *,
         state_dimensionality: int,
         action_dimensionality: int,
         hidden_dimensionalities: tuple[int, ...],
@@ -54,6 +55,7 @@ class DynamicsModel(torch.nn.Module):
     @torch.no_grad()
     def compute_normalization_stats(
         self,
+        *,
         state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
         action_batch: torch.Tensor,  # (batch_size, action_dimensionality)
         next_state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
@@ -70,6 +72,7 @@ class DynamicsModel(torch.nn.Module):
 
     def normalize_state(
         self,
+        *,
         state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
     ) -> torch.Tensor:  # (batch_size, state_dimensionality)
         return self._normalize(
@@ -80,6 +83,7 @@ class DynamicsModel(torch.nn.Module):
 
     def denormalize_state(
         self,
+        *,
         normalized_state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
     ) -> torch.Tensor:  # (batch_size, state_dimensionality)
         return self._denormalize(
@@ -90,6 +94,7 @@ class DynamicsModel(torch.nn.Module):
 
     def predict_next_state(
         self,
+        *,
         state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
         action_batch: torch.Tensor,  # (batch_size, action_dimensionality)
     ) -> torch.Tensor:
@@ -112,6 +117,7 @@ class DynamicsModel(torch.nn.Module):
 
     def local_lipschitz_constants(
         self,
+        *,
         state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
         action_batch: torch.Tensor,  # (batch_size, action_dimensionality)
     ) -> torch.Tensor:
@@ -130,6 +136,7 @@ class DynamicsModel(torch.nn.Module):
 
     def _normalize_action(
         self,
+        *,
         action_batch: torch.Tensor,  # (batch_size, action_dimensionality)
     ) -> torch.Tensor:  # (batch_size, action_dimensionality)
         return self._normalize(
@@ -140,6 +147,7 @@ class DynamicsModel(torch.nn.Module):
 
     @staticmethod
     def _normalize(
+        *,
         input_batch: torch.Tensor,  # (batch_size, dimensionality)
         mean_batch: torch.Tensor,  # (dimensionality,)
         std_batch: torch.Tensor,  # (dimensionality,)
@@ -148,6 +156,7 @@ class DynamicsModel(torch.nn.Module):
 
     @staticmethod
     def _denormalize(
+        *,
         input_batch: torch.Tensor,  # (batch_size, dimensionality)
         mean_batch: torch.Tensor,  # (dimensionality,)
         std_batch: torch.Tensor,  # (dimensionality,)
@@ -156,6 +165,7 @@ class DynamicsModel(torch.nn.Module):
 
 
 def _create_network(
+    *,
     input_dimensionality: int,
     output_dimensionality: int,
     hidden_dimensionalities: tuple[int, ...],
@@ -192,7 +202,7 @@ def _create_network(
 
 
 def _calculate_lipschitz_constant_upper_bound_per_layer(
-    lipschitz_constant_upper_bound: float | None, linear_layer_count: int
+    *, lipschitz_constant_upper_bound: float | None, linear_layer_count: int
 ) -> float | None:
     activation_count = linear_layer_count - 1
 
@@ -212,6 +222,7 @@ def _calculate_lipschitz_constant_upper_bound_per_layer(
 
 
 def _create_linear_layer(
+    *,
     input_dimensionality: int,
     output_dimensionality: int,
     lipschitz_constant_upper_bound_per_layer: float | None,
@@ -230,6 +241,7 @@ def _create_linear_layer(
 class _SpectralNormalizedLinear(torch.nn.Module):
     def __init__(
         self,
+        *,
         input_dimensionality: int,
         output_dimensionality: int,
         lipschitz_constant_upper_bound: float,

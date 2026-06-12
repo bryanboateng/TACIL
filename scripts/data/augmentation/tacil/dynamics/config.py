@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 
 
-def _check_unit(name: str, value: float) -> None:
+def _check_unit(*, name: str, value: float) -> None:
     if not 0.0 <= value <= 1.0:
         raise ValueError(f"{name} must be in [0, 1], got {value}")
 

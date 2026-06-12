@@ -32,7 +32,7 @@ def main():
     _run(config=config)
 
 
-def _run(config: Config) -> None:
+def _run(*, config: Config) -> None:
     set_seed(seed=config.seed)
     device = torch.device(device="cuda" if torch.cuda.is_available() else "cpu")
     log_device_info(device=device, logger=logger)
@@ -235,7 +235,7 @@ def _run(config: Config) -> None:
 
 @torch.no_grad()
 def _evaluate(
-    checkpoint_path: Path, episode_seeds: tuple[int, ...], device: torch.device
+    *, checkpoint_path: Path, episode_seeds: tuple[int, ...], device: torch.device
 ) -> RewardStatistics:
     policy_factory = load_diffusion_policy(
         checkpoint_path=checkpoint_path, device=device
@@ -249,6 +249,7 @@ def _evaluate(
 
 
 def _save_ema_checkpoint(
+    *,
     path: Path,
     network: ConditionalUnet1d,
     ema: EMAModel,
