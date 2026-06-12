@@ -69,7 +69,9 @@ class StateGPIPolicy:
         )
         return _to_global(observation=current_observation, action=denormalized)
 
-    def _compute_action(self, *, normalized_observation: np.ndarray) -> np.ndarray | None:
+    def _compute_action(
+        self, *, normalized_observation: np.ndarray
+    ) -> np.ndarray | None:
         if self.plan.is_empty():
             # Steps 5-6: pick the demonstration/time with minimal combined distance.
             _, keys = self.database.nearest(
@@ -110,7 +112,9 @@ class StateGPIPolicy:
         return local_policy
 
     # --------------------------------------------------------------- noise
-    def _add_observation_noise(self, *, normalized_observation: np.ndarray) -> np.ndarray:
+    def _add_observation_noise(
+        self, *, normalized_observation: np.ndarray
+    ) -> np.ndarray:
         noise = self.rng.normal(
             loc=0.0, scale=self.current_noise_std, size=normalized_observation.shape
         )

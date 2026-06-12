@@ -477,14 +477,21 @@ def _candidate_episodes_summary(*, augmentation_result: AugmentationResult) -> d
             "not_converged": _fraction(
                 part=augmentation_result.not_converged_count, whole=anchor_count
             ),
-            "rejected": _fraction(part=augmentation_result.rejected_count, whole=anchor_count),
-            "accepted": _fraction(part=augmentation_result.accepted_count, whole=anchor_count),
+            "rejected": _fraction(
+                part=augmentation_result.rejected_count, whole=anchor_count
+            ),
+            "accepted": _fraction(
+                part=augmentation_result.accepted_count, whole=anchor_count
+            ),
         },
     }
 
 
 def _added_summary(
-    *, result: AugmentationResult, source_episode_count: int, source_transition_count: int
+    *,
+    result: AugmentationResult,
+    source_episode_count: int,
+    source_transition_count: int,
 ) -> dict:
     """Accepted episodes that enter the augmented dataset.
 
@@ -502,7 +509,9 @@ def _added_summary(
     return {
         "episodes": {
             "count": added_episode_count,
-            "ratio_of_original": _fraction(part=added_episode_count, whole=source_episode_count),
+            "ratio_of_original": _fraction(
+                part=added_episode_count, whole=source_episode_count
+            ),
         },
         "transitions": {
             "count": added_transition_count,
@@ -518,7 +527,9 @@ def _added_summary(
                     "synthetic": _fraction(
                         part=added_synthetic_count, whole=added_transition_count
                     ),
-                    "expert": _fraction(part=added_expert_count, whole=added_transition_count),
+                    "expert": _fraction(
+                        part=added_expert_count, whole=added_transition_count
+                    ),
                 },
             },
         },
@@ -526,7 +537,10 @@ def _added_summary(
 
 
 def _dataset_summary(
-    *, result: AugmentationResult, source_episode_count: int, source_transition_count: int
+    *,
+    result: AugmentationResult,
+    source_episode_count: int,
+    source_transition_count: int,
 ) -> dict:
     """Composition of the final dataset (original + added).
 
@@ -554,7 +568,9 @@ def _dataset_summary(
                     "synthetic": _fraction(
                         part=added_synthetic_count, whole=dataset_transition_count
                     ),
-                    "expert": _fraction(part=dataset_expert_count, whole=dataset_transition_count),
+                    "expert": _fraction(
+                        part=dataset_expert_count, whole=dataset_transition_count
+                    ),
                 },
             },
         },

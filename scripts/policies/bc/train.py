@@ -113,7 +113,9 @@ def _run(*, config: Config) -> None:
                 # The dataset returns RAW values; the model normalizes the observation,
                 # and we compare its normalized prediction against the normalized target.
                 predicted_normalized_action = policy(
-                    normalized_observation=policy.normalize_observation(observation=observation_batch)
+                    normalized_observation=policy.normalize_observation(
+                        observation=observation_batch
+                    )
                 )
                 target_normalized_action = policy.normalize_action(action=action_batch)
                 loss = loss_function(

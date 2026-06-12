@@ -1,7 +1,9 @@
 import torch
 
 
-def se2_to_relative_action(*, states: torch.Tensor, actions: torch.Tensor) -> torch.Tensor:
+def se2_to_relative_action(
+    *, states: torch.Tensor, actions: torch.Tensor
+) -> torch.Tensor:
     """Convert global agent targets into the object's local SE(2) frame."""
     object_xy = states[:, 2:4]
     object_theta = states[:, 4]

@@ -50,7 +50,9 @@ class PushTEpisodeDataset(Dataset):
         return self.normalization_ranges["action"].normalize(values=actions)
 
     def denormalize_actions(self, *, normalized_actions: np.ndarray) -> np.ndarray:
-        return self.normalization_ranges["action"].denormalize(values=normalized_actions)
+        return self.normalization_ranges["action"].denormalize(
+            values=normalized_actions
+        )
 
 
 class NormalizationRange:

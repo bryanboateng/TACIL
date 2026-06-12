@@ -103,7 +103,9 @@ class BehaviorCloningPolicy(nn.Module):
     @torch.no_grad()
     def act(self, *, observation: torch.Tensor) -> torch.Tensor:
         """Raw observation -> raw action (use this for rollout / evaluation)."""
-        normalized_action = self.network(self.normalize_observation(observation=observation))
+        normalized_action = self.network(
+            self.normalize_observation(observation=observation)
+        )
         return self.action_normalization_range().denormalize(values=normalized_action)
 
 
@@ -159,7 +161,9 @@ def load_behavior_cloning_policy(
             observation_tensor = torch.from_numpy(np.asarray(observation)).to(
                 device=device, dtype=torch.float32
             )
-            action_tensor = policy_model.act(observation=observation_tensor.unsqueeze(dim=0))
+            action_tensor = policy_model.act(
+                observation=observation_tensor.unsqueeze(dim=0)
+            )
             return action_tensor.squeeze(dim=0).cpu().numpy()
 
         return policy
