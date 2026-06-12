@@ -342,8 +342,8 @@ def _assemble_episodes(
     episode_lengths: list[int] = []
 
     for anchor_index in np.nonzero(episode_accepted)[0]:
-        anchor_position = int(anchor_positions[anchor_index])
-        expert_part_length = int(expert_part_length_per_anchor[anchor_index])
+        anchor_position: int = anchor_positions[anchor_index]
+        expert_part_length: int = expert_part_length_per_anchor[anchor_index]
 
         # Synthetic prefix in temporal order = predecessors reversed.
         synthetic_states = predecessor_states[anchor_index][::-1]  # (L, state_dim)
