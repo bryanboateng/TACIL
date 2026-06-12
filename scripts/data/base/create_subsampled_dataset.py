@@ -9,9 +9,9 @@ from rich.pretty import pretty_repr
 
 from scripts.ashared import create_logger
 from scripts.shared.data import (
-    EpisodeDataset,
-    load_episode_dataset_from_artifact,
-    write_zarr,
+    DemonstrationData,
+    load_demonstration_data_from_artifact,
+    save_episode_dataset,
 )
 from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
 
@@ -41,13 +41,13 @@ def _run(*, config: Config):
     ) as run:
         artifact = run.use_artifact(artifact_or_name="expert-dataset:latest")
 
-        episode_dataset = load_episode_dataset_from_artifact(
+        demonstration_data = load_demonstration_data_from_artifact(
             artifact=artifact, logger=logger
         )
 
         logger.info("Subsampling dataset with %g%% ...", config.fraction * 100)
         subsampled_episodes = _subsample_episodes(
-            episode_dataset=episode_dataset, fraction=config.fraction, rng=rng
+            demonstration_data=demonstration_data, fraction=config.fraction, rng=rng
         )
 
         logger.info("Subsampling dataset completed.")
@@ -57,9 +57,7 @@ def _run(*, config: Config):
         with tempfile.TemporaryDirectory() as tmpdir:
             output_zarr_path = Path(tmpdir) / "dataset.zarr"
 
-            write_zarr(
-                zarr_file_path=output_zarr_path, episode_dataset=subsampled_episodes
-            )
+            save_episode_dataset(episode_dataset=, save_file_path=output_zarr_path)
 
             new_artifact = wandb.Artifact(
                 name=f"subsampled-dataset-{run.name}", type="dataset"
@@ -71,12 +69,12 @@ def _run(*, config: Config):
 
 
 def _subsample_episodes(
-    *, episode_dataset: EpisodeDataset, fraction: float, rng: np.random.Generator
-) -> EpisodeDataset:
+    *, demonstration_data: DemonstrationData, fraction: float, rng: np.random.Generator
+) -> DemonstrationData:
     if not (0.0 < fraction <= 1.0):
         raise ValueError(f"fraction must be in (0, 1], got {fraction}")
 
-    episode_count = len(episode_dataset.episode_end_indices)
+    episode_count = len(demonstration_data.episode_end_indices)
 
     selected_episodes_count = int(episode_count * fraction)
 
@@ -93,8 +91,8 @@ def _subsample_episodes(
 
     episode_start_indices = np.concatenate(
         (
-            np.zeros(shape=1, dtype=episode_dataset.episode_end_indices.dtype),
-            episode_dataset.episode_end_indices[:-1],
+            np.zeros(shape=1, dtype=demonstration_data.episode_end_indices.dtype),
+            demonstration_data.episode_end_indices[:-1],
         )
     )
 
@@ -107,7 +105,7 @@ def _subsample_episodes(
     for selected_episode_index in selected_episode_indices:
         selected_episode_index: int
         start_index: int = episode_start_indices[selected_episode_index]
-        end_index: int = episode_dataset.episode_end_indices[selected_episode_index]
+        end_index: int = demonstration_data.episode_end_indices[selected_episode_index]
 
         episode_transition_indices = np.arange(start_index, stop=end_index)
 
@@ -120,9 +118,9 @@ def _subsample_episodes(
         selected_transition_indices_list
     )
 
-    return EpisodeDataset(
-        states=episode_dataset.states[selected_transition_indices_np_array],
-        actions=episode_dataset.actions[selected_transition_indices_np_array],
+    return DemonstrationData(
+        states=demonstration_data.states[selected_transition_indices_np_array],
+        actions=demonstration_data.actions[selected_transition_indices_np_array],
         episode_end_indices=np.asarray(subsampled_episode_end_indices),
     )
 

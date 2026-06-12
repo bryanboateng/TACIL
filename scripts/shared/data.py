@@ -16,8 +16,8 @@ class EpisodeDataset:
     episode_end_indices: npt.NDArray[np.int64]
 
 
-def write_zarr(*, zarr_file_path: Path, episode_dataset: EpisodeDataset):
-    root = zarr.open(store=zarr_file_path, mode="w")
+def save_episode_dataset(*, episode_dataset: EpisodeDataset, save_file_path: Path):
+    root = zarr.open(store=save_file_path, mode="w")
 
     assert isinstance(root, Group)
 
@@ -46,12 +46,12 @@ def write_zarr(*, zarr_file_path: Path, episode_dataset: EpisodeDataset):
     )
 
 
-def load_zarr(*, zarr_file_path: Path) -> EpisodeDataset:
-    store = zarr.open(store=zarr_file_path, mode="r")
+def load_episode_dataset(*, episode_file_path: Path) -> EpisodeDataset:
+    store = zarr.open(store=episode_file_path, mode="r")
 
     if not isinstance(store, Group):
         raise TypeError(
-            f"Expected zarr.Group at {zarr_file_path}, got {type(store).__name__}"
+            f"Expected zarr.Group at {episode_file_path}, got {type(store).__name__}"
         )
 
     def _get(*, key: str, dtype: object) -> np.ndarray:
@@ -93,7 +93,7 @@ def load_episode_dataset_from_artifact(
 
     logger.info("Loading dataset from path %s ...", artifact_content_path)
 
-    episode_dataset = load_zarr(zarr_file_path=artifact_content_path)
+    episode_dataset = load_episode_dataset(episode_file_path=artifact_content_path)
 
     logger.info("Loading dataset completed.")
     logger.info("# Transitions: %d", len(episode_dataset.states))

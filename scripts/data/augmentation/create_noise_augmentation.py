@@ -13,7 +13,7 @@ from scripts.ashared import create_logger
 from scripts.shared.data import (
     EpisodeDataset,
     load_episode_dataset_from_artifact,
-    write_zarr,
+    save_episode_dataset,
 )
 from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
 
@@ -94,9 +94,9 @@ def _run(*, config: Config):
         with tempfile.TemporaryDirectory() as tmpdir:
             output_zarr_path = Path(tmpdir) / "dataset.zarr"
 
-            write_zarr(
-                zarr_file_path=output_zarr_path,
+            save_episode_dataset(
                 episode_dataset=augmented_episode_dataset,
+                save_file_path=output_zarr_path,
             )
 
             new_artifact = wandb.Artifact(
