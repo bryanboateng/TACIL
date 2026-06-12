@@ -249,12 +249,12 @@ def _create_augmented_episodes(
     if converged_step_bounds.numel() == 0:
         raise RuntimeError("No backward steps converged. ")
 
-    sigma = float(
+    bound_threshold = float(
         torch.quantile(input=converged_step_bounds, q=label_error_bound_quantile).item()
     )
 
     step_accepted = inversion_outcomes.step_converged & (
-        inversion_outcomes.step_bounds <= sigma
+        inversion_outcomes.step_bounds <= bound_threshold
     )
     episode_accepted = step_accepted.all(dim=1)  # (anchor_count,)
     episode_converged = inversion_outcomes.step_converged.all(dim=1)
@@ -285,7 +285,7 @@ def _create_augmented_episodes(
         actions=augmented_actions,
         episode_end_indices=augmented_episode_ends,
         bounds=converged_step_bounds.cpu().numpy(),
-        bound_threshold=sigma,
+        bound_threshold=bound_threshold,
         counts=Counts(
             not_converged=not_converged_count,
             rejected=rejected_count,
