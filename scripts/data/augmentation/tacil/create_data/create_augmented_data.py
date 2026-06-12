@@ -22,7 +22,7 @@ from scripts.data.augmentation.tacil.create_data.wandb_logging import (
 )
 from scripts.data.augmentation.tacil.dynamics.checkpoint import load_dynamics_model
 from scripts.data.augmentation.tacil.dynamics_model import DynamicsModel
-from scripts.shared.data import load_episode_dataset_from_artifact
+from scripts.shared.data import EpisodeDataset, load_episode_dataset_from_artifact
 from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
 
 logger = create_logger()
@@ -110,22 +110,22 @@ def _run(*, config: Config) -> None:
             max_newton_iteration_count=config.maximum_newton_iterations,
         )
 
-        result = _create_augmented_episodes(
+        augmentation_result = _create_augmented_episodes(
             inversion_outcomes=inversion_outcomes,
-            states=np.asarray(episode_dataset.states),
-            actions=np.asarray(episode_dataset.actions),
-            episode_ends=np.asarray(episode_dataset.episode_end_indices),
+            episode_dataset=episode_dataset,
             anchor_positions=non_terminal_timestep_indices,
             expert_part_length=config.expert_part_length,
             label_error_bound_quantile=config.label_error_bound_quantile,
         )
 
         _log_augmentation_to_wandb(
-            run=run, augmentation_result=result, episode_dataset=episode_dataset
+            run=run,
+            augmentation_result=augmentation_result,
+            episode_dataset=episode_dataset,
         )
         _log_summary_to_wandb(
             run=run,
-            augmentation_result=result,
+            augmentation_result=augmentation_result,
             source_episode_count=len(episode_dataset.episode_end_indices),
             source_transition_count=len(episode_dataset.states),
         )
@@ -237,9 +237,7 @@ def _compute_label_error_bound(
 def _create_augmented_episodes(
     *,
     inversion_outcomes: InversionOutcomes,
-    states: npt.NDArray[np.float32],
-    actions: npt.NDArray[np.float32],
-    episode_ends: npt.NDArray[np.int64],
+    episode_dataset: EpisodeDataset,
     anchor_positions: npt.NDArray[np.int64],
     expert_part_length: int,
     label_error_bound_quantile: float,
@@ -263,7 +261,7 @@ def _create_augmented_episodes(
 
     expert_part_length_per_anchor = _compute_expert_part_lengths(
         anchor_positions=anchor_positions,
-        episode_ends=episode_ends,
+        episode_ends=episode_dataset.episode_end_indices,
         target_expert_part_length=expert_part_length,
     )
 
@@ -273,8 +271,8 @@ def _create_augmented_episodes(
         episode_accepted=episode_accepted.cpu().numpy(),
         anchor_positions=np.asarray(anchor_positions, dtype=np.int64),
         expert_part_length_per_anchor=expert_part_length_per_anchor,
-        states=states,
-        actions=actions,
+        states=episode_dataset.states,
+        actions=episode_dataset.actions,
     )
 
     anchor_count = inversion_outcomes.predecessor_actions.shape[0]
