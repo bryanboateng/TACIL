@@ -122,7 +122,6 @@ def _run(*, config: Config) -> None:
 
         _log_augmentation_to_wandb(
             run=run,
-            config=config,
             result=result,
             states=demonstration_data.states,
             actions=demonstration_data.actions,
@@ -133,7 +132,6 @@ def _run(*, config: Config) -> None:
 def _log_augmentation_to_wandb(
     *,
     run: Run,
-    config: Config,
     result: AugmentationResult,
     states: np.ndarray,
     actions: np.ndarray,
