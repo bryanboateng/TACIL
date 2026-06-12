@@ -38,8 +38,12 @@ class StateDatabase:
         keys: list[Key] = []
         for episode_index in range(len(self.dataset)):
             episode = self.dataset[episode_index]
-            normalized_observations = np.asarray(episode["obs"], dtype=np.float32)
-            normalized_actions = np.asarray(episode["action"], dtype=np.float32)
+            normalized_observations = np.asarray(
+                episode["observation"], dtype=np.float32
+            )  # (episode_length, observation_dimensionality)
+            normalized_actions = np.asarray(
+                episode["action"], dtype=np.float32
+            )  # (episode_length, action_dimensionality)
             states_per_ep.append(normalized_observations)
             actions_per_ep.append(normalized_actions)
             keys.extend(
@@ -47,10 +51,18 @@ class StateDatabase:
                 for timestep in range(len(normalized_observations))
             )
 
-        all_states = np.concatenate(states_per_ep, axis=0)
-        all_actions = np.concatenate(actions_per_ep, axis=0)
-        self._states_full = torch.from_numpy(all_states).to(device=self.device)
-        self._actions_full = torch.from_numpy(all_actions).to(device=self.device)
+        all_states = np.concatenate(
+            states_per_ep, axis=0
+        )  # (total_timestep_count, observation_dimensionality)
+        all_actions = np.concatenate(
+            actions_per_ep, axis=0
+        )  # (total_timestep_count, action_dimensionality)
+        self._states_full = torch.from_numpy(all_states).to(
+            device=self.device
+        )  # (total_timestep_count, observation_dimensionality)
+        self._actions_full = torch.from_numpy(all_actions).to(
+            device=self.device
+        )  # (total_timestep_count, action_dimensionality)
         self._keys_full: tuple[Key, ...] = tuple(keys)
 
     def resample_subset(self, *, subset_size: int | None = None) -> None:
@@ -67,29 +79,37 @@ class StateDatabase:
         if not self._active_indices:
             self._states = torch.empty(
                 (0, self._states_full.shape[1]), device=self.device, dtype=torch.float32
-            )
+            )  # (0, observation_dimensionality)
             self._actions = torch.empty(
                 (0, self._actions_full.shape[1]),
                 device=self.device,
                 dtype=torch.float32,
-            )
+            )  # (0, action_dimensionality)
             self._keys: list[Key] = []
         else:
             active = torch.tensor(
                 self._active_indices, dtype=torch.long, device=self.device
-            )
-            self._states = self._states_full.index_select(dim=0, index=active)
-            self._actions = self._actions_full.index_select(dim=0, index=active)
+            )  # (active_count,)
+            self._states = self._states_full.index_select(
+                dim=0, index=active
+            )  # (active_count, observation_dimensionality)
+            self._actions = self._actions_full.index_select(
+                dim=0, index=active
+            )  # (active_count, action_dimensionality)
             self._keys = [self._keys_full[i] for i in self._active_indices]
         self._key_to_active_index = {key: idx for idx, key in enumerate(self._keys)}
 
     @property
-    def actions(self) -> torch.Tensor:
+    def actions(self) -> torch.Tensor:  # (active_count, action_dimensionality)
         return self._actions
 
     def nearest(
-        self, *, query: np.ndarray, k: int = 1, exclude: Iterable[Key] | None = None
-    ) -> tuple[torch.Tensor, list[Key]]:
+        self,
+        *,
+        query: np.ndarray,  # (observation_dimensionality,)
+        k: int = 1,
+        exclude: Iterable[Key] | None = None,
+    ) -> tuple[torch.Tensor, list[Key]]:  # distances (k,), keys list of length k
         """Return distances and keys of the top-k demonstrations (Alg.1, lines 4-10)."""
         num_active = len(self._keys)
         if num_active == 0:
@@ -97,8 +117,8 @@ class StateDatabase:
 
         query_tensor = torch.as_tensor(
             query, dtype=torch.float32, device=self.device
-        ).unsqueeze(dim=0)
-        distances = distance(states=self._states, query=query_tensor)
+        ).unsqueeze(dim=0)  # (1, observation_dimensionality)
+        distances = distance(states=self._states, query=query_tensor)  # (active_count,)
 
         num_excluded = 0
         if exclude:
@@ -118,6 +138,6 @@ class StateDatabase:
 
         values, indices = torch.topk(
             input=distances, k=min(k, available), largest=False
-        )
+        )  # values (k,), indices (k,)
         selected_keys = [self._keys[i] for i in indices.cpu().tolist()]
         return values, selected_keys

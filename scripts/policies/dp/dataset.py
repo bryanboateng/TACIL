@@ -13,9 +13,15 @@ class PushTWindowDataset(torch.utils.data.Dataset[tuple[torch.Tensor, torch.Tens
         observation_horizon_length: int,
         action_horizon_length: int,
     ) -> None:
-        observations = torch.from_numpy(episode_dataset.states).float()
-        actions = torch.from_numpy(episode_dataset.actions).float()
-        episode_ends = torch.from_numpy(episode_dataset.episode_end_indices)
+        observations = torch.from_numpy(
+            episode_dataset.states
+        ).float()  # (total_timestep_count, observation_dimensionality)
+        actions = torch.from_numpy(
+            episode_dataset.actions
+        ).float()  # (total_timestep_count, action_dimensionality)
+        episode_ends = torch.from_numpy(
+            episode_dataset.episode_end_indices
+        )  # (episode_count,)
 
         self.observation_normalization_range = NormalizationRange.from_values(
             values=observations
@@ -24,17 +30,17 @@ class PushTWindowDataset(torch.utils.data.Dataset[tuple[torch.Tensor, torch.Tens
 
         self._normalized_observations = self.observation_normalization_range.normalize(
             values=observations
-        )
+        )  # (total_timestep_count, observation_dimensionality)
         self._normalized_actions = self.action_normalization_range.normalize(
             values=actions
-        )
+        )  # (total_timestep_count, action_dimensionality)
 
         self._window_indices = _build_window_indices(
             episode_ends=episode_ends,
             prediction_horizon_length=prediction_horizon_length,
             observation_padding_length=observation_horizon_length - 1,
             action_padding_length=action_horizon_length - 1,
-        )
+        )  # (window_count, 4)
 
         self._prediction_horizon_length = prediction_horizon_length
         self._observation_horizon_length = observation_horizon_length
@@ -42,7 +48,11 @@ class PushTWindowDataset(torch.utils.data.Dataset[tuple[torch.Tensor, torch.Tens
     def __len__(self) -> int:
         return len(self._window_indices)
 
-    def __getitem__(self, index: int) -> tuple[torch.Tensor, torch.Tensor]:
+    def __getitem__(
+        self, index: int
+    ) -> tuple[
+        torch.Tensor, torch.Tensor
+    ]:  # (observation_horizon_length, observation_dimensionality), (prediction_horizon_length, action_dimensionality)
         (
             source_read_start_position,
             source_read_end_position,
@@ -57,7 +67,7 @@ class PushTWindowDataset(torch.utils.data.Dataset[tuple[torch.Tensor, torch.Tens
             source_read_end_position=source_read_end_position,
             output_write_start_position=output_write_start_position,
             output_write_end_position=output_write_end_position,
-        )
+        )  # (prediction_horizon_length, observation_dimensionality)
         actions = _extract_window_with_edge_padding(
             source_tensor=self._normalized_actions,
             output_length=self._prediction_horizon_length,
@@ -65,20 +75,22 @@ class PushTWindowDataset(torch.utils.data.Dataset[tuple[torch.Tensor, torch.Tens
             source_read_end_position=source_read_end_position,
             output_write_start_position=output_write_start_position,
             output_write_end_position=output_write_end_position,
-        )
+        )  # (prediction_horizon_length, action_dimensionality)
 
-        observations = observations[: self._observation_horizon_length]
+        observations = observations[
+            : self._observation_horizon_length
+        ]  # (observation_horizon_length, observation_dimensionality)
 
         return observations, actions
 
 
 def _build_window_indices(
     *,
-    episode_ends: torch.Tensor,
+    episode_ends: torch.Tensor,  # (episode_count,)
     prediction_horizon_length: int,
     observation_padding_length: int,
     action_padding_length: int,
-) -> torch.Tensor:
+) -> torch.Tensor:  # (window_count, 4) — columns: source_read_start, source_read_end, output_write_start, output_write_end
     window_indices: list[list[int]] = []
 
     for episode_index, episode_end_position in enumerate(episode_ends):
@@ -112,25 +124,27 @@ def _build_window_indices(
                 ]
             )
 
-    return torch.tensor(window_indices, dtype=torch.long)
+    return torch.tensor(window_indices, dtype=torch.long)  # (window_count, 4)
 
 
 def _extract_window_with_edge_padding(
     *,
-    source_tensor: torch.Tensor,
+    source_tensor: torch.Tensor,  # (total_timestep_count, feature_dimensionality)
     output_length: int,
     source_read_start_position: int,
     source_read_end_position: int,
     output_write_start_position: int,
     output_write_end_position: int,
-) -> torch.Tensor:
+) -> torch.Tensor:  # (output_length, feature_dimensionality)
     """Read a slice from `source_tensor` and place it inside an output window
     of length `output_length`. Any positions in the output window before
     `output_write_start_position` or after `output_write_end_position` are
     filled by repeating the first / last value of the read slice (edge
     padding).
     """
-    valid_content = source_tensor[source_read_start_position:source_read_end_position]
+    valid_content = source_tensor[
+        source_read_start_position:source_read_end_position
+    ]  # (read_length, feature_dimensionality)
 
     if output_write_start_position == 0 and output_write_end_position == output_length:
         return valid_content
@@ -139,10 +153,10 @@ def _extract_window_with_edge_padding(
         (output_length,) + source_tensor.shape[1:],
         dtype=source_tensor.dtype,
         device=source_tensor.device,
-    )
+    )  # (output_length, feature_dimensionality)
 
     output_window[output_write_start_position:output_write_end_position] = valid_content
     output_window[:output_write_start_position] = valid_content[0]
     output_window[output_write_end_position:] = valid_content[-1]
 
-    return output_window
+    return output_window  # (output_length, feature_dimensionality)

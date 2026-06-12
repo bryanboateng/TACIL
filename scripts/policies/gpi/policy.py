@@ -48,30 +48,38 @@ class StateGPIPolicy:
         self.recent_set.clear()
 
     # --------------------------------------------------------------- query
-    def get_action(self, *, observation: np.ndarray) -> np.ndarray:
-        current_observation = np.asarray(observation[-1], dtype=np.float32)
+    def get_action(
+        self,
+        *,
+        observation: np.ndarray,  # (1, observation_dimensionality)
+    ) -> np.ndarray:  # (action_dimensionality,)
+        current_observation = np.asarray(
+            observation[-1], dtype=np.float32
+        )  # (observation_dimensionality,)
         normalized_observation = self.dataset.normalize_observations(
             observations=current_observation
-        )
+        )  # (observation_dimensionality,)
         noisy_normalized_observation = self._add_observation_noise(
             normalized_observation=normalized_observation
-        )
+        )  # (observation_dimensionality,)
 
         # Steps 2-11: geometry-aware policy synthesis in normalised space.
         normalized_action = self._compute_action(
             normalized_observation=noisy_normalized_observation
-        )
+        )  # (action_dimensionality,) or None
         if normalized_action is None:
             return np.zeros(shape=2, dtype=np.float32)
 
         denormalized = self.dataset.denormalize_actions(
             normalized_actions=normalized_action
-        )
-        return _to_global(observation=current_observation, action=denormalized)
+        )  # (action_dimensionality,)
+        return _to_global(observation=current_observation, action=denormalized)  # (2,)
 
     def _compute_action(
-        self, *, normalized_observation: np.ndarray
-    ) -> np.ndarray | None:
+        self,
+        *,
+        normalized_observation: np.ndarray,  # (observation_dimensionality,)
+    ) -> np.ndarray | None:  # (action_dimensionality,) or None
         if self.plan.is_empty():
             # Steps 5-6: pick the demonstration/time with minimal combined distance.
             _, keys = self.database.nearest(
@@ -84,6 +92,7 @@ class StateGPIPolicy:
 
         total_steps = len(self.plan.actions)
         action_norm, state_norm, timestep = self.plan.pop()
+        # action_norm: (action_dimensionality,), state_norm: (observation_dimensionality,)
         step_in_plan = self.plan.pointer - 1
 
         if self.config.guidance.fixed_lambda2 is not None:
@@ -93,32 +102,36 @@ class StateGPIPolicy:
                 step_in_plan=step_in_plan, total_steps=total_steps
             )
 
-        query_agent = normalized_observation[:2]
-        neighbor_agent = state_norm[:2]
+        query_agent = normalized_observation[:2]  # (2,) — agent (x, y)
+        neighbor_agent = state_norm[:2]  # (2,) — nearest neighbor's agent (x, y)
 
         # Step 6: progression flow u_prog = ẋ κ (x₀) following the local tangent.
-        u_prog = action_norm[:2] - neighbor_agent
+        u_prog = action_norm[:2] - neighbor_agent  # (2,)
         # Step 7: attraction flow u_att = -∇ d_rob that steers toward the demo.
-        u_att = neighbor_agent - query_agent
+        u_att = neighbor_agent - query_agent  # (2,)
         # Steps 8-11: local policy π_i(x₀) = λ₁ u_prog + λ₂ u_att.
         agent_flow = (
             query_agent + self.config.guidance.lambda1 * u_prog + lambda2 * u_att
-        )
+        )  # (2,)
 
-        local_policy = action_norm.copy()
+        local_policy = action_norm.copy()  # (action_dimensionality,)
         local_policy[:2] = agent_flow
 
         self.recent_set.add((self.plan.episode_index, timestep))
-        return local_policy
+        return local_policy  # (action_dimensionality,)
 
     # --------------------------------------------------------------- noise
     def _add_observation_noise(
-        self, *, normalized_observation: np.ndarray
-    ) -> np.ndarray:
+        self,
+        *,
+        normalized_observation: np.ndarray,  # (observation_dimensionality,)
+    ) -> np.ndarray:  # (observation_dimensionality,)
         noise = self.rng.normal(
             loc=0.0, scale=self.current_noise_std, size=normalized_observation.shape
-        )
-        noisy = np.clip(normalized_observation + noise, -1.0, 1.0)
+        )  # (observation_dimensionality,)
+        noisy = np.clip(
+            normalized_observation + noise, -1.0, 1.0
+        )  # (observation_dimensionality,)
         self.current_noise_std = max(
             self.current_noise_std * self.config.noise.decay_rate,
             self.config.noise.minimum_std,
@@ -153,7 +166,11 @@ def load_geometric_policy(
     return make_policy
 
 
-def _to_global(*, observation: np.ndarray, action: np.ndarray) -> np.ndarray:
+def _to_global(
+    *,
+    observation: np.ndarray,  # (observation_dimensionality,)
+    action: np.ndarray,  # (action_dimensionality,)
+) -> np.ndarray:  # (2,)
     return (
         relative_action_to_global(
             observation=torch.from_numpy(observation).unsqueeze(dim=0),

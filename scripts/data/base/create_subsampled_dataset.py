@@ -54,8 +54,8 @@ def _run(*, config: Config):
         logger.info("# Transitions: %d", len(subsampled_episodes.states))
         logger.info("# Episodes: %d", len(subsampled_episodes.episode_end_indices))
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            output_zarr_path = Path(tmpdir) / "dataset.zarr"
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            output_zarr_path = Path(temporary_directory) / "dataset.zarr"
 
             save_episode_dataset(episode_dataset=, save_file_path=output_zarr_path)
 

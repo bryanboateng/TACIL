@@ -41,7 +41,8 @@ class AugmentationResult:
     actions: npt.NDArray[
         np.float32
     ]  # (augmented_timestep_count, action_dimensionality)
-    episode_end_indices: npt.NDArray[np.int64]  # exclusive ends into augmented_states
+    episode_end_indices: npt.NDArray[np.int64]
+
     bounds: npt.NDArray[np.float32]  # per-step normalized bounds over converged steps
     bound_threshold: float
     counts: Counts
@@ -134,7 +135,7 @@ def _run(*, config: Config) -> None:
 def _get_non_terminal_timestep_indices(
     *,
     episode_end_indices: npt.NDArray[np.int64],  # (episode_count,)
-) -> npt.NDArray[np.int64]:
+) -> npt.NDArray[np.int64]:  # (non_terminal_timestep_count,)
     mask = np.ones(shape=episode_end_indices[-1], dtype=bool)
     mask[episode_end_indices - 1] = False
     return np.flatnonzero(mask).astype(episode_end_indices.dtype, copy=False)
@@ -158,18 +159,24 @@ def _run_synthetic_inversions(
 
     predecessor_states = torch.empty(
         size=(anchor_count, synthetic_part_length, state_dimensionality), device=device
-    )
+    )  # (anchor_count, synthetic_part_length, state_dimensionality)
     predecessor_actions = torch.empty(
         size=(anchor_count, synthetic_part_length, action_dimensionality), device=device
-    )
+    )  # (anchor_count, synthetic_part_length, action_dimensionality)
     step_converged = torch.empty(
         size=(anchor_count, synthetic_part_length), dtype=torch.bool, device=device
-    )
-    step_bounds = torch.empty(size=(anchor_count, synthetic_part_length), device=device)
+    )  # (anchor_count, synthetic_part_length)
+    step_bounds = torch.empty(
+        size=(anchor_count, synthetic_part_length), device=device
+    )  # (anchor_count, synthetic_part_length)
 
     for step in tqdm(range(synthetic_part_length), desc="synthetic step", unit="step"):
-        noise = torch.normal(mean=0.0, std=action_noise_std.expand_as(action_batch))
-        noisy_action_batch = action_batch + noise
+        noise = torch.normal(
+            mean=0.0, std=action_noise_std.expand_as(action_batch)
+        )  # (anchor_count, action_dimensionality)
+        noisy_action_batch = (
+            action_batch + noise
+        )  # (anchor_count, action_dimensionality)
 
         predecessor_state_batch = solve_inverse_dynamics_state(
             dynamics_model=dynamics_model,
@@ -188,7 +195,9 @@ def _run_synthetic_inversions(
             - dynamics_model.normalize_state(state_batch=anchor_state_batch)
         ).norm(dim=-1)  # (anchor_count,)
 
-        step_has_converged_batch = reconstruction_error_batch <= CONVERGENCE_TOLERANCE
+        step_has_converged_batch = (
+            reconstruction_error_batch <= CONVERGENCE_TOLERANCE
+        )  # (anchor_count,)
 
         bound_batch = _compute_label_error_bound(
             dynamics_model=dynamics_model,
@@ -222,15 +231,17 @@ def _compute_label_error_bound(
 ) -> torch.Tensor:  # (batch_size,)
     local_lipschitz_constant_batch = dynamics_model.local_lipschitz_constants(
         state_batch=anchor_state_batch, action_batch=action_batch
-    )
+    )  # (batch_size,)
 
     normalized_step_distance_batch: torch.Tensor = torch.linalg.norm(
         dynamics_model.normalize_state(state_batch=predecessor_state_batch)
         - dynamics_model.normalize_state(state_batch=anchor_state_batch),
         dim=-1,
-    )
+    )  # (batch_size,)
 
-    return local_lipschitz_constant_batch * normalized_step_distance_batch
+    return (
+        local_lipschitz_constant_batch * normalized_step_distance_batch
+    )  # (batch_size,)
 
 
 @torch.no_grad()
@@ -257,7 +268,7 @@ def _create_augmented_episodes(
         inversion_outcomes.step_bounds <= bound_threshold
     )
     episode_accepted = step_accepted.all(dim=1)  # (anchor_count,)
-    episode_converged = inversion_outcomes.step_converged.all(dim=1)
+    episode_converged = inversion_outcomes.step_converged.all(dim=1)  # (anchor_count,)
 
     expert_part_length_per_anchor = _compute_expert_part_lengths(
         anchor_positions=anchor_positions,
@@ -300,7 +311,7 @@ def _compute_expert_part_lengths(
     anchor_positions: npt.NDArray[np.int64],
     episode_ends: npt.NDArray[np.int64],
     target_expert_part_length: int,
-) -> npt.NDArray[np.int64]:
+) -> npt.NDArray[np.int64]:  # (anchor_count,)
     anchor_positions = np.asarray(anchor_positions, dtype=np.int64)
     episode_ends = np.asarray(episode_ends, dtype=np.int64)
 
@@ -321,7 +332,9 @@ def _assemble_episodes(
     expert_part_length_per_anchor: npt.NDArray[np.int64],  # (anchor,)
     states: npt.NDArray[np.float32],  # (expert_timestep_count, state_dim)
     actions: npt.NDArray[np.float32],  # (expert_timestep_count, action_dim)
-) -> tuple[npt.NDArray[np.float32], npt.NDArray[np.float32], npt.NDArray[np.int64]]:
+) -> tuple[
+    npt.NDArray[np.float32], npt.NDArray[np.float32], npt.NDArray[np.int64]
+]:  # augmented_states (total_timestep_count, state_dim), augmented_actions (total_timestep_count, action_dim), episode_ends (episode_count,)
     """Stitch accepted anchors into flattened episodes (raw units).
 
     For accepted anchor at expert position p with synthetic predecessors
@@ -346,12 +359,20 @@ def _assemble_episodes(
         expert_part_length: int = expert_part_length_per_anchor[anchor_index]
 
         # Synthetic prefix in temporal order = predecessors reversed.
-        synthetic_states = predecessor_states[anchor_index][::-1]  # (L, state_dim)
-        synthetic_actions = predecessor_actions[anchor_index][::-1]  # (L, action_dim)
+        synthetic_states = predecessor_states[anchor_index][
+            ::-1
+        ]  # (synthetic_part_length, state_dim)
+        synthetic_actions = predecessor_actions[anchor_index][
+            ::-1
+        ]  # (synthetic_part_length, action_dim)
 
         expert_part_slice = slice(anchor_position, anchor_position + expert_part_length)
-        expert_part_states = states[expert_part_slice]  # (M, state_dim)
-        expert_part_actions = actions[expert_part_slice]  # (M, action_dim)
+        expert_part_states = states[
+            expert_part_slice
+        ]  # (expert_part_length, state_dim)
+        expert_part_actions = actions[
+            expert_part_slice
+        ]  # (expert_part_length, action_dim)
 
         episode_states = np.concatenate([synthetic_states, expert_part_states], axis=0)
         episode_actions = np.concatenate(
@@ -371,9 +392,15 @@ def _assemble_episodes(
             np.zeros((0,), dtype=np.int64),
         )
 
-    augmented_states = np.concatenate(episode_state_chunks, axis=0).astype(np.float32)
-    augmented_actions = np.concatenate(episode_action_chunks, axis=0).astype(np.float32)
-    augmented_episode_ends = np.cumsum(np.asarray(episode_lengths, dtype=np.int64))
+    augmented_states = np.concatenate(episode_state_chunks, axis=0).astype(
+        np.float32
+    )  # (total_timestep_count, state_dim)
+    augmented_actions = np.concatenate(episode_action_chunks, axis=0).astype(
+        np.float32
+    )  # (total_timestep_count, action_dim)
+    augmented_episode_ends = np.cumsum(
+        np.asarray(episode_lengths, dtype=np.int64)
+    )  # (episode_count,)
 
     return augmented_states, augmented_actions, augmented_episode_ends
 

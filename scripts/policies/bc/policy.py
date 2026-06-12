@@ -25,12 +25,6 @@ def build_behavior_cloning_network(
 
 
 class BehaviorCloningPolicy(nn.Module):
-    """MLP policy with normalization baked in as buffers.
-
-    forward() operates in normalized space and is what the training loss uses. act()
-    maps a raw observation to a raw action and is what rollout / evaluation uses.
-    """
-
     def __init__(
         self,
         *,
@@ -96,17 +90,25 @@ class BehaviorCloningPolicy(nn.Module):
     def normalize_action(self, *, action: torch.Tensor) -> torch.Tensor:
         return self.action_normalization_range().normalize(values=action)
 
-    def forward(self, *, normalized_observation: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self,
+        *,
+        normalized_observation: torch.Tensor,  # batch_size, observation_dimensionality
+    ) -> torch.Tensor:  # (batch_size, action_dimensionality)
         """Normalized observation -> normalized action (use this for the training loss)."""
         return self.network(normalized_observation)
 
     @torch.no_grad()
     def act(self, *, observation: torch.Tensor) -> torch.Tensor:
         """Raw observation -> raw action (use this for rollout / evaluation)."""
+        # observation: (batch_size, observation_dimensionality)
+        # return: (batch_size, action_dimensionality)
         normalized_action = self.network(
             self.normalize_observation(observation=observation)
-        )
-        return self.action_normalization_range().denormalize(values=normalized_action)
+        )  # (batch_size, action_dimensionality)
+        return self.action_normalization_range().denormalize(
+            values=normalized_action
+        )  # (batch_size, action_dimensionality)
 
 
 def save_behavior_cloning_policy(*, policy: BehaviorCloningPolicy, path: Path) -> None:
@@ -160,11 +162,13 @@ def load_behavior_cloning_policy(
         def policy(*, observation: np.ndarray) -> np.ndarray:
             observation_tensor = torch.from_numpy(np.asarray(observation)).to(
                 device=device, dtype=torch.float32
-            )
+            )  # (observation_dimensionality,)
             action_tensor = policy_model.act(
                 observation=observation_tensor.unsqueeze(dim=0)
-            )
-            return action_tensor.squeeze(dim=0).cpu().numpy()
+            )  # (1, action_dimensionality)
+            return (
+                action_tensor.squeeze(dim=0).cpu().numpy()
+            )  # (action_dimensionality,)
 
         return policy
 

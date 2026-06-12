@@ -105,24 +105,26 @@ class ConditionalUnet1d(torch.nn.Module):
     def forward(
         self,
         *,
-        noisy_sample_batch: torch.Tensor,
-        diffusion_timestep: torch.Tensor,
-        condition_batch: torch.Tensor,
-    ) -> torch.Tensor:
-        noisy_sample_batch = noisy_sample_batch.moveaxis(source=-1, destination=-2)
+        noisy_sample_batch: torch.Tensor,  # (batch_size, prediction_horizon_length, action_dimensionality)
+        diffusion_timestep: torch.Tensor,  # (batch_size,) or scalar
+        condition_batch: torch.Tensor,  # (batch_size, condition_dimensionality)
+    ) -> torch.Tensor:  # (batch_size, prediction_horizon_length, action_dimensionality)
+        noisy_sample_batch = noisy_sample_batch.moveaxis(
+            source=-1, destination=-2
+        )  # (batch_size, action_dimensionality, prediction_horizon_length)
 
         diffusion_timestep_batch = _broadcast_to_batch(
             values=diffusion_timestep, reference_batch=noisy_sample_batch
-        )
+        )  # (batch_size,)
         combined_condition_batch = torch.cat(
             tensors=[
                 self._diffusion_timestep_encoder(input=diffusion_timestep_batch),
                 condition_batch,
             ],
             dim=-1,
-        )
+        )  # (batch_size, diffusion_timestep_embedding_dimensionality + condition_dimensionality)
 
-        hidden_state_batch = noisy_sample_batch
+        hidden_state_batch = noisy_sample_batch  # (batch_size, action_dimensionality, prediction_horizon_length)
         skip_connection_batches: list[torch.Tensor] = []
         for downsample_level in self._downsample_levels:
             hidden_state_batch, skip_connection_batch = downsample_level(
@@ -142,8 +144,12 @@ class ConditionalUnet1d(torch.nn.Module):
                 condition_batch=combined_condition_batch,
             )
 
-        hidden_state_batch = self._final_convolution(input=hidden_state_batch)
-        return hidden_state_batch.moveaxis(source=-1, destination=-2)
+        hidden_state_batch = self._final_convolution(
+            input=hidden_state_batch
+        )  # (batch_size, action_dimensionality, prediction_horizon_length)
+        return hidden_state_batch.moveaxis(
+            source=-1, destination=-2
+        )  # (batch_size, prediction_horizon_length, action_dimensionality)
 
 
 class _DownsampleLevel(torch.nn.Module):
@@ -176,17 +182,26 @@ class _DownsampleLevel(torch.nn.Module):
         )
 
     def forward(
-        self, *, input_batch: torch.Tensor, condition_batch: torch.Tensor
-    ) -> tuple[torch.Tensor, torch.Tensor]:
+        self,
+        *,
+        input_batch: torch.Tensor,  # (batch_size, input_channel_count, sequence_length)
+        condition_batch: torch.Tensor,  # (batch_size, condition_dimensionality)
+    ) -> tuple[
+        torch.Tensor, torch.Tensor
+    ]:  # (batch_size, output_channel_count, sequence_length // 2), (batch_size, output_channel_count, sequence_length)
         hidden_state_batch = self._first_residual_block(
             input_batch=input_batch, condition_batch=condition_batch
-        )
+        )  # (batch_size, output_channel_count, sequence_length)
         hidden_state_batch = self._second_residual_block(
             input_batch=hidden_state_batch, condition_batch=condition_batch
+        )  # (batch_size, output_channel_count, sequence_length)
+        skip_connection_batch = (
+            hidden_state_batch  # (batch_size, output_channel_count, sequence_length)
         )
-        skip_connection_batch = hidden_state_batch
 
-        hidden_state_batch = self._downsample(hidden_state_batch)
+        hidden_state_batch = self._downsample(
+            hidden_state_batch
+        )  # (batch_size, output_channel_count, sequence_length // 2)
         return hidden_state_batch, skip_connection_batch
 
 
@@ -225,25 +240,29 @@ class _UpsampleLevel(torch.nn.Module):
     def forward(
         self,
         *,
-        input_batch: torch.Tensor,
-        skip_connection_batch: torch.Tensor,
-        condition_batch: torch.Tensor,
-    ) -> torch.Tensor:
+        input_batch: torch.Tensor,  # (batch_size, input_channel_count, sequence_length)
+        skip_connection_batch: torch.Tensor,  # (batch_size, input_channel_count, sequence_length)
+        condition_batch: torch.Tensor,  # (batch_size, condition_dimensionality)
+    ) -> torch.Tensor:  # (batch_size, output_channel_count, sequence_length * 2)
         hidden_state_batch = torch.cat(
             tensors=(input_batch, skip_connection_batch), dim=1
-        )
+        )  # (batch_size, input_channel_count * 2, sequence_length)
         hidden_state_batch = self._first_residual_block(
             input_batch=hidden_state_batch, condition_batch=condition_batch
-        )
+        )  # (batch_size, output_channel_count, sequence_length)
         hidden_state_batch = self._second_residual_block(
             input_batch=hidden_state_batch, condition_batch=condition_batch
-        )
-        return self._upsample(hidden_state_batch)
+        )  # (batch_size, output_channel_count, sequence_length)
+        return self._upsample(
+            hidden_state_batch
+        )  # (batch_size, output_channel_count, sequence_length * 2)
 
 
 def _broadcast_to_batch(
-    *, values: torch.Tensor, reference_batch: torch.Tensor
-) -> torch.Tensor:
+    *,
+    values: torch.Tensor,  # scalar or (batch_size,)
+    reference_batch: torch.Tensor,  # (batch_size, ...)
+) -> torch.Tensor:  # (batch_size,)
     if values.ndim == 0:
         values = values[None]
     return values.to(device=reference_batch.device).expand(reference_batch.shape[0])
@@ -254,17 +273,22 @@ class SinusoidalPositionalEmbedding(torch.nn.Module):
         super().__init__()
         self._dimensionality = dimensionality
 
-    def forward(self, input_batch: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self,
+        input_batch: torch.Tensor,  # (batch_size,)
+    ) -> torch.Tensor:  # (batch_size, dimensionality)
         half_dimensionality = self._dimensionality // 2
         log_frequency_spacing = math.log(10000) / (half_dimensionality - 1)
         frequencies = torch.exp(
             input=torch.arange(end=half_dimensionality, device=input_batch.device)
             * -log_frequency_spacing
-        )
-        phase_angle_batch = input_batch[:, None] * frequencies[None, :]
+        )  # (half_dimensionality,)
+        phase_angle_batch = (
+            input_batch[:, None] * frequencies[None, :]
+        )  # (batch_size, half_dimensionality)
         return torch.cat(
             tensors=(phase_angle_batch.sin(), phase_angle_batch.cos()), dim=-1
-        )
+        )  # (batch_size, dimensionality)
 
 
 class ConditionalResidualBlock1d(torch.nn.Module):
@@ -310,19 +334,34 @@ class ConditionalResidualBlock1d(torch.nn.Module):
         )
 
     def forward(
-        self, *, input_batch: torch.Tensor, condition_batch: torch.Tensor
-    ) -> torch.Tensor:
-        hidden_state_batch = self._first_convolution_block(input_batch=input_batch)
+        self,
+        *,
+        input_batch: torch.Tensor,  # (batch_size, input_channel_count, sequence_length)
+        condition_batch: torch.Tensor,  # (batch_size, condition_dimensionality)
+    ) -> torch.Tensor:  # (batch_size, output_channel_count, sequence_length)
+        hidden_state_batch = self._first_convolution_block(
+            input_batch=input_batch
+        )  # (batch_size, output_channel_count, sequence_length)
         modulation_parameter_batch = self._feature_modulation_encoder(
             input=condition_batch
-        ).reshape(-1, 2, self._output_channel_count, 1)
-        scale_batch = modulation_parameter_batch[:, 0]
-        shift_batch = modulation_parameter_batch[:, 1]
-        hidden_state_batch = scale_batch * hidden_state_batch + shift_batch
+        ).reshape(
+            -1, 2, self._output_channel_count, 1
+        )  # (batch_size, 2, output_channel_count, 1)
+        scale_batch = modulation_parameter_batch[
+            :, 0
+        ]  # (batch_size, output_channel_count, 1)
+        shift_batch = modulation_parameter_batch[
+            :, 1
+        ]  # (batch_size, output_channel_count, 1)
+        hidden_state_batch = (
+            scale_batch * hidden_state_batch + shift_batch
+        )  # (batch_size, output_channel_count, sequence_length)
         hidden_state_batch = self._second_convolution_block(
             input_batch=hidden_state_batch
-        )
-        return hidden_state_batch + self._residual_projection(input=input_batch)
+        )  # (batch_size, output_channel_count, sequence_length)
+        return hidden_state_batch + self._residual_projection(
+            input=input_batch
+        )  # (batch_size, output_channel_count, sequence_length)
 
 
 class Downsample1d(torch.nn.Module):
@@ -336,7 +375,10 @@ class Downsample1d(torch.nn.Module):
             padding=1,
         )
 
-    def forward(self, input_batch: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self,
+        input_batch: torch.Tensor,  # (batch_size, channel_count, sequence_length)
+    ) -> torch.Tensor:  # (batch_size, channel_count, sequence_length // 2)
         return self._convolution(input=input_batch)
 
 
@@ -351,7 +393,10 @@ class Upsample1d(torch.nn.Module):
             padding=1,
         )
 
-    def forward(self, input_batch: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self,
+        input_batch: torch.Tensor,  # (batch_size, channel_count, sequence_length)
+    ) -> torch.Tensor:  # (batch_size, channel_count, sequence_length * 2)
         return self._transposed_convolution(input=input_batch)
 
 
@@ -371,5 +416,8 @@ class Conv1dBlock(torch.nn.Module):
             torch.nn.Mish(),
         )
 
-    def forward(self, input_batch: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self,
+        input_batch: torch.Tensor,  # (batch_size, input_channel_count, sequence_length)
+    ) -> torch.Tensor:  # (batch_size, output_channel_count, sequence_length)
         return self._layers(input=input_batch)

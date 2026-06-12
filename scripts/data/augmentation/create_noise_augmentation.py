@@ -91,8 +91,8 @@ def _run(*, config: Config):
             100 * new_transition_count / source_transition_count
         )
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            output_zarr_path = Path(tmpdir) / "dataset.zarr"
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            output_zarr_path = Path(temporary_directory) / "dataset.zarr"
 
             save_episode_dataset(
                 episode_dataset=augmented_episode_dataset,

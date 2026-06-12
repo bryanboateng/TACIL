@@ -23,10 +23,10 @@ def calculate_validation_loss(
 
     state_windows_tensor = torch.from_numpy(validation_state_windows).to(
         device=model_device
-    )
+    )  # (window_count, window_length + 1, state_dimensionality)
     action_windows_tensor = torch.from_numpy(validation_action_windows).to(
         device=model_device
-    )
+    )  # (window_count, window_length, action_dimensionality)
 
     window_count = state_windows_tensor.shape[0]
     total_loss = 0.0
@@ -34,7 +34,9 @@ def calculate_validation_loss(
     dynamics_model.eval()
     for batch_start in range(0, window_count, batch_size):
         batch_slice = slice(batch_start, batch_start + batch_size)
-        batch_state_windows = state_windows_tensor[batch_slice]
+        batch_state_windows = state_windows_tensor[
+            batch_slice
+        ]  # (batch_size, window_length + 1, state_dimensionality)
         batch_loss = compute_loss(
             dynamics_model=dynamics_model,
             state_window_batch=batch_state_windows,

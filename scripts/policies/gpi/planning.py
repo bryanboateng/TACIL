@@ -15,26 +15,38 @@ class PlanBuffer:
         self.episode_index: int | None = None
         self.start_timestep: int | None = None
         self.pointer: int = 0
-        self.actions: np.ndarray = np.empty((0,))
-        self.states: np.ndarray = np.empty((0,))
+        self.actions: np.ndarray = np.empty(
+            (0,)
+        )  # (horizon_length, action_dimensionality)
+        self.states: np.ndarray = np.empty(
+            (0,)
+        )  # (horizon_length, observation_dimensionality)
 
     def load(self, *, episode_index: int, timestep: int) -> None:
         episode = self.dataset[episode_index]
         end = timestep + self.horizon_length
-        self.actions = np.asarray(episode["action"][timestep:end])
-        self.states = np.asarray(episode["obs"][timestep:end])
+        self.actions = np.asarray(
+            episode["action"][timestep:end]
+        )  # (horizon_length, action_dimensionality)
+        self.states = np.asarray(
+            episode["observation"][timestep:end]
+        )  # (horizon_length, observation_dimensionality)
         self.episode_index = episode_index
         self.start_timestep = timestep
         self.pointer = 0
 
-    def pop(self) -> tuple[np.ndarray, np.ndarray, int]:
+    def pop(
+        self,
+    ) -> tuple[
+        np.ndarray, np.ndarray, int
+    ]:  # (action_dimensionality,), (observation_dimensionality,), timestep
         if self.episode_index is None:
             raise RuntimeError("Buffer has not been loaded")
         if self.is_empty():
             raise RuntimeError("Buffer is empty")
 
-        action = self.actions[self.pointer]
-        state = self.states[self.pointer]
+        action = self.actions[self.pointer]  # (action_dimensionality,)
+        state = self.states[self.pointer]  # (observation_dimensionality,)
         timestep = self.start_timestep + self.pointer
         self.pointer += 1
         return action, state, timestep

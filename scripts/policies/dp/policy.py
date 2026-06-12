@@ -102,24 +102,26 @@ def load_diffusion_policy(
 
             observation_history = torch.from_numpy(np.stack(observation_deque)).to(
                 device=device, dtype=torch.float32
-            )
+            )  # (observation_horizon_length, observation_dimensionality)
             normalized_observation_history = observation_normalization_range.normalize(
                 values=observation_history
-            )
-            condition_batch = normalized_observation_history.unsqueeze(dim=0).flatten(1)
+            )  # (observation_horizon_length, observation_dimensionality)
+            condition_batch = normalized_observation_history.unsqueeze(dim=0).flatten(
+                1
+            )  # (1, observation_horizon_length * observation_dimensionality)
 
             with torch.no_grad():
                 denoising_state = torch.randn(
                     size=(1, prediction_horizon_length, action_dimensionality),
                     device=device,
                     generator=diffusion_noise_generator,
-                )
+                )  # (1, prediction_horizon_length, action_dimensionality)
                 for diffusion_timestep in noise_scheduler.timesteps:
                     predicted_noise = noise_prediction_network(
                         noisy_sample_batch=denoising_state,
                         diffusion_timestep=diffusion_timestep,
                         condition_batch=condition_batch,
-                    )
+                    )  # (1, prediction_horizon_length, action_dimensionality)
                     step_output = noise_scheduler.step(
                         model_output=predicted_noise,
                         timestep=diffusion_timestep,
@@ -128,14 +130,14 @@ def load_diffusion_policy(
                     )
 
                     # noinspection PyUnresolvedReferences
-                    denoising_state = step_output.prev_sample  # ty:ignore[unresolved-attribute]
+                    denoising_state = step_output.prev_sample  # (1, prediction_horizon_length, action_dimensionality) # ty:ignore[unresolved-attribute]
 
                 # Loop has finished: denoising_state is now the predicted normalized action sequence.
                 predicted_action_sequence = (
                     action_normalization_range.denormalize(values=denoising_state[0])
                     .cpu()
                     .numpy()
-                )
+                )  # (prediction_horizon_length, action_dimensionality)
 
             # Queue the action-horizon slice that begins at the present control
             # step (skipping outputs aligned with past observations).

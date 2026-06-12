@@ -11,9 +11,9 @@ from zarr import Array, Group
 
 @dataclass
 class EpisodeDataset:
-    states: npt.NDArray[np.float32]
-    actions: npt.NDArray[np.float32]
-    episode_end_indices: npt.NDArray[np.int64]
+    states: npt.NDArray[np.float32]  # (total_timestep_count, state_dimensionality)
+    actions: npt.NDArray[np.float32]  # (total_timestep_count, action_dimensionality)
+    episode_end_indices: npt.NDArray[np.int64]  # (episode_count,)
 
 
 def save_episode_dataset(*, episode_dataset: EpisodeDataset, save_file_path: Path):

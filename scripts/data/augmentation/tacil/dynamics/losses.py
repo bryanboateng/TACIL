@@ -8,7 +8,7 @@ def compute_loss(
     dynamics_model: DynamicsModel,
     state_window_batch: torch.Tensor,  # (batch_size, window_length + 1, state_dimensionality)
     action_window_batch: torch.Tensor,  # (batch_size, window_length, action_dimensionality)
-) -> torch.Tensor:
+) -> torch.Tensor:  # (scalar)
 
     window_length = action_window_batch.shape[1]
 
@@ -25,7 +25,7 @@ def compute_loss(
 
         current_state_batch = dynamics_model.predict_next_state(
             state_batch=current_state_batch, action_batch=current_action_batch
-        )
+        )  # (window_count, state_dimensionality)
         predicted_state_batches.append(current_state_batch)
 
     predicted_state_trajectory_batch = torch.stack(

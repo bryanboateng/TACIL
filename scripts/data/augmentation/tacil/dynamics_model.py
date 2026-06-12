@@ -97,7 +97,7 @@ class DynamicsModel(torch.nn.Module):
         *,
         state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
         action_batch: torch.Tensor,  # (batch_size, action_dimensionality)
-    ) -> torch.Tensor:
+    ) -> torch.Tensor:  # (batch_size, state_dimensionality)
         normalized_residual: torch.Tensor = self._network(
             torch.cat(
                 tensors=[
@@ -106,33 +106,35 @@ class DynamicsModel(torch.nn.Module):
                 ],
                 dim=-1,
             )
-        )
+        )  # (batch_size, state_dimensionality)
 
         raw_residual = self._denormalize(
             input_batch=normalized_residual,
             mean_batch=self._next_state_residual_mean,
             std_batch=self._next_state_residual_std,
-        )
-        return state_batch + raw_residual
+        )  # (batch_size, state_dimensionality)
+        return state_batch + raw_residual  # (batch_size, state_dimensionality)
 
     def local_lipschitz_constants(
         self,
         *,
         state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
         action_batch: torch.Tensor,  # (batch_size, action_dimensionality)
-    ) -> torch.Tensor:
+    ) -> torch.Tensor:  # (batch_size,)
         normalized_input_batch = torch.cat(
             tensors=[
                 self.normalize_state(state_batch=state_batch),
                 self._normalize_action(action_batch=action_batch),
             ],
             dim=-1,
-        )
+        )  # (batch_size, state_dimensionality + action_dimensionality)
         jacobian_batch: torch.Tensor = torch.vmap(
             func=torch.func.jacrev(func=self._network)
-        )(normalized_input_batch)
+        )(
+            normalized_input_batch
+        )  # (batch_size, state_dimensionality, state_dimensionality + action_dimensionality)
 
-        return torch.linalg.matrix_norm(jacobian_batch, ord=2)
+        return torch.linalg.matrix_norm(jacobian_batch, ord=2)  # (batch_size,)
 
     def _normalize_action(
         self,
