@@ -6,12 +6,14 @@ class Config:
     model_artifact: str
     dataset_artifact: str
 
-    seed: int = 42
     synthetic_part_length: int = 5
     expert_part_length: int = 16
+
     action_noise_scale: float = 0.1
-    label_error_bound_quantile: float = 0.5
     maximum_newton_iterations: int = 30
+    label_error_bound_quantile: float = 0.5
+
+    seed: int = 42
 
     def __post_init__(self):
         if self.synthetic_part_length < 1:

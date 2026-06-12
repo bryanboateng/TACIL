@@ -46,7 +46,23 @@ def save_episode_dataset(*, episode_dataset: EpisodeDataset, save_file_path: Pat
     )
 
 
-def load_episode_dataset(*, episode_file_path: Path) -> EpisodeDataset:
+def load_episode_dataset_from_artifact(
+    *, artifact: Artifact, logger: logging.Logger
+) -> EpisodeDataset:
+    artifact_content_path = Path(artifact.download())
+
+    logger.info("Loading dataset from path %s ...", artifact_content_path)
+
+    episode_dataset = _load_episode_dataset(episode_file_path=artifact_content_path)
+
+    logger.info("Loading dataset completed.")
+    logger.info("# Transitions: %d", len(episode_dataset.states))
+    logger.info("# Episodes: %d", len(episode_dataset.episode_end_indices))
+
+    return episode_dataset
+
+
+def _load_episode_dataset(*, episode_file_path: Path) -> EpisodeDataset:
     store = zarr.open(store=episode_file_path, mode="r")
 
     if not isinstance(store, Group):
@@ -84,19 +100,3 @@ def load_episode_dataset(*, episode_file_path: Path) -> EpisodeDataset:
         actions=_get(key="data/action", dtype=np.float32),
         episode_end_indices=_get(key="meta/episode_ends", dtype=np.int64),
     )
-
-
-def load_episode_dataset_from_artifact(
-    *, artifact: Artifact, logger: logging.Logger
-) -> EpisodeDataset:
-    artifact_content_path = Path(artifact.download())
-
-    logger.info("Loading dataset from path %s ...", artifact_content_path)
-
-    episode_dataset = load_episode_dataset(episode_file_path=artifact_content_path)
-
-    logger.info("Loading dataset completed.")
-    logger.info("# Transitions: %d", len(episode_dataset.states))
-    logger.info("# Episodes: %d", len(episode_dataset.episode_end_indices))
-
-    return episode_dataset
