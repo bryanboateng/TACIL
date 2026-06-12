@@ -40,7 +40,7 @@ from scripts.policies.bc.policy import (
     save_behavior_cloning_policy,
 )
 from scripts.policies.shared.stat import Checkpoint
-from scripts.shared.data import load_demonstration_data_from_artifact
+from scripts.shared.data import load_episode_dataset_from_artifact
 from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
 
 logger = create_logger()
@@ -71,7 +71,7 @@ def _run(*, config: Config) -> None:
         checkpoint_directory_path = Path(checkpoint_directory)
 
         dataset = SingleStepDataset(
-            demonstration_data=load_demonstration_data_from_artifact(
+            episode_dataset=load_episode_dataset_from_artifact(
                 artifact=run.use_artifact(artifact_or_name=config.dataset_artifact),
                 logger=logger,
             )

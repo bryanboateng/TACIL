@@ -1,13 +1,13 @@
 import torch
 
-from scripts.shared.data import DemonstrationData
+from scripts.shared.data import EpisodeDataset
 from scripts.shared.normalization_range import NormalizationRange
 
 
 class SingleStepDataset(torch.utils.data.Dataset):
-    def __init__(self, *, demonstration_data: DemonstrationData) -> None:
-        states = torch.from_numpy(demonstration_data.states).float()
-        actions = torch.from_numpy(demonstration_data.actions).float()
+    def __init__(self, *, episode_dataset: EpisodeDataset) -> None:
+        states = torch.from_numpy(episode_dataset.states).float()
+        actions = torch.from_numpy(episode_dataset.actions).float()
 
         self.observation_normalization_range = NormalizationRange.from_values(
             values=states

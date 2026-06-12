@@ -10,43 +10,43 @@ from zarr import Array, Group
 
 
 @dataclass
-class DemonstrationData:
+class EpisodeDataset:
     states: npt.NDArray[np.float32]
     actions: npt.NDArray[np.float32]
     episode_end_indices: npt.NDArray[np.int64]
 
 
-def write_zarr(*, zarr_file_path: Path, demonstration_data: DemonstrationData):
+def write_zarr(*, zarr_file_path: Path, episode_dataset: EpisodeDataset):
     root = zarr.open(store=zarr_file_path, mode="w")
 
     assert isinstance(root, Group)
 
     root.create_array(
         "data/state",
-        data=demonstration_data.states,
+        data=episode_dataset.states,
         chunks=(
-            min(1024, len(demonstration_data.states)),
-            demonstration_data.states.shape[1],
+            min(1024, len(episode_dataset.states)),
+            episode_dataset.states.shape[1],
         ),
     )
 
     root.create_array(
         "data/action",
-        data=demonstration_data.actions,
+        data=episode_dataset.actions,
         chunks=(
-            min(1024, len(demonstration_data.actions)),
-            demonstration_data.actions.shape[1],
+            min(1024, len(episode_dataset.actions)),
+            episode_dataset.actions.shape[1],
         ),
     )
 
     root.create_array(
         "meta/episode_ends",
-        data=demonstration_data.episode_end_indices,
-        chunks=(min(1024, len(demonstration_data.episode_end_indices)),),
+        data=episode_dataset.episode_end_indices,
+        chunks=(min(1024, len(episode_dataset.episode_end_indices)),),
     )
 
 
-def load_zarr(*, zarr_file_path: Path) -> DemonstrationData:
+def load_zarr(*, zarr_file_path: Path) -> EpisodeDataset:
     store = zarr.open(store=zarr_file_path, mode="r")
 
     if not isinstance(store, Group):
@@ -79,24 +79,24 @@ def load_zarr(*, zarr_file_path: Path) -> DemonstrationData:
 
         return data
 
-    return DemonstrationData(
+    return EpisodeDataset(
         states=_get(key="data/state", dtype=np.float32),
         actions=_get(key="data/action", dtype=np.float32),
         episode_end_indices=_get(key="meta/episode_ends", dtype=np.int64),
     )
 
 
-def load_demonstration_data_from_artifact(
+def load_episode_dataset_from_artifact(
     *, artifact: Artifact, logger: logging.Logger
-) -> DemonstrationData:
+) -> EpisodeDataset:
     artifact_content_path = Path(artifact.download())
 
     logger.info("Loading dataset from path %s ...", artifact_content_path)
 
-    demonstration_data = load_zarr(zarr_file_path=artifact_content_path)
+    episode_dataset = load_zarr(zarr_file_path=artifact_content_path)
 
     logger.info("Loading dataset completed.")
-    logger.info("# Transitions: %d", len(demonstration_data.states))
-    logger.info("# Episodes: %d", len(demonstration_data.episode_end_indices))
+    logger.info("# Transitions: %d", len(episode_dataset.states))
+    logger.info("# Episodes: %d", len(episode_dataset.episode_end_indices))
 
-    return demonstration_data
+    return episode_dataset

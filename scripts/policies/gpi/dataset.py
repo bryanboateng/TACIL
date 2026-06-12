@@ -3,16 +3,16 @@ import torch
 from torch.utils.data import Dataset
 
 from scripts.policies.gpi.geometry import se2_to_relative_action
-from scripts.shared.data import DemonstrationData
+from scripts.shared.data import EpisodeDataset
 
 
 class PushTEpisodeDataset(Dataset):
     """One demonstration episode per index"""
 
-    def __init__(self, *, demonstration_data: DemonstrationData) -> None:
-        states = demonstration_data.states
-        raw_actions = demonstration_data.actions
-        episode_ends = demonstration_data.episode_end_indices
+    def __init__(self, *, episode_dataset: EpisodeDataset) -> None:
+        states = episode_dataset.states
+        raw_actions = episode_dataset.actions
+        episode_ends = episode_dataset.episode_end_indices
         relative_actions = (
             se2_to_relative_action(
                 states=torch.from_numpy(states), actions=torch.from_numpy(raw_actions)

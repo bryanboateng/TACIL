@@ -11,8 +11,8 @@ from rich.pretty import pretty_repr
 
 from scripts.ashared import create_logger
 from scripts.shared.data import (
-    DemonstrationData,
-    load_demonstration_data_from_artifact,
+    EpisodeDataset,
+    load_episode_dataset_from_artifact,
     write_zarr,
 )
 from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
@@ -51,7 +51,7 @@ def _run(*, config: Config):
     ) as run:
         artifact = run.use_artifact(artifact_or_name=config.use_artifact)
 
-        demonstration_data = load_demonstration_data_from_artifact(
+        episode_dataset = load_episode_dataset_from_artifact(
             artifact=artifact, logger=logger
         )
 
@@ -59,8 +59,8 @@ def _run(*, config: Config):
             "Extracting all sliding-windows of length %d ...", config.window_length
         )
 
-        augmented_demonstration_data = _augment_with_noisy_episodes(
-            demonstration_data=demonstration_data,
+        augmented_episode_dataset = _augment_with_noisy_episodes(
+            episode_dataset=episode_dataset,
             window_length=config.window_length,
             augmentation_ratio=config.augmentation_ratio,
             noise_scale=config.noise_scale,
@@ -68,18 +68,18 @@ def _run(*, config: Config):
         )
 
         logger.info("Noise augmentation completed.")
-        logger.info("# Transitions: %d", len(augmented_demonstration_data.states))
+        logger.info("# Transitions: %d", len(augmented_episode_dataset.states))
         logger.info(
-            "# Episodes: %d", len(augmented_demonstration_data.episode_end_indices)
+            "# Episodes: %d", len(augmented_episode_dataset.episode_end_indices)
         )
 
-        source_episode_count = len(demonstration_data.episode_end_indices)
-        source_transition_count = len(demonstration_data.states)
+        source_episode_count = len(episode_dataset.episode_end_indices)
+        source_transition_count = len(episode_dataset.states)
         new_episode_count = (
-            len(augmented_demonstration_data.episode_end_indices) - source_episode_count
+            len(augmented_episode_dataset.episode_end_indices) - source_episode_count
         )
         new_transition_count = (
-            len(augmented_demonstration_data.states) - source_transition_count
+            len(augmented_episode_dataset.states) - source_transition_count
         )
 
         run.summary["aug/new_episodes_count"] = new_episode_count
@@ -96,7 +96,7 @@ def _run(*, config: Config):
 
             write_zarr(
                 zarr_file_path=output_zarr_path,
-                demonstration_data=augmented_demonstration_data,
+                episode_dataset=augmented_episode_dataset,
             )
 
             new_artifact = wandb.Artifact(
@@ -110,19 +110,19 @@ def _run(*, config: Config):
 
 def _augment_with_noisy_episodes(
     *,
-    demonstration_data: DemonstrationData,
+    episode_dataset: EpisodeDataset,
     window_length: int,
     augmentation_ratio: float,
     noise_scale: float,
     rng: Generator,
-) -> DemonstrationData:
+) -> EpisodeDataset:
 
     noise_std = compute_noise_std(
-        samples=demonstration_data.states, noise_scale=noise_scale
+        samples=episode_dataset.states, noise_scale=noise_scale
     )  # (state_dimensionality,)
 
     sliding_window_slices = _get_sliding_window_slices(
-        episode_end_indices=demonstration_data.episode_end_indices,
+        episode_end_indices=episode_dataset.episode_end_indices,
         window_length=window_length,
     )
 
@@ -133,30 +133,30 @@ def _augment_with_noisy_episodes(
     )  # (sampled_window_count,)
 
     augmented_states: list[npt.NDArray[np.float32]] = [
-        demonstration_data.states
+        episode_dataset.states
     ]  # (original_transition_count, state_dimensionality)
     augmented_actions: list[npt.NDArray[np.float32]] = [
-        demonstration_data.actions
+        episode_dataset.actions
     ]  # (original_transition_count, action_dimensionality)
     augmented_episode_end_indices: list[int] = []
 
     # End indices continue from the original data, since the noisy episodes are appended after it.
-    cumulative_end_index = int(demonstration_data.episode_end_indices[-1])
+    cumulative_end_index = int(episode_dataset.episode_end_indices[-1])
 
     for sampled_window_index in sampled_window_indices:
         window_slice = sliding_window_slices[int(sampled_window_index)]
 
-        window_states = demonstration_data.states[
+        window_states = episode_dataset.states[
             window_slice
         ]  # (window_length, state_dimensionality)
-        window_actions = demonstration_data.actions[
+        window_actions = episode_dataset.actions[
             window_slice
         ]  # (window_length, action_dimensionality)
 
         state_noise = rng.normal(
             loc=0.0,
             scale=noise_std,
-            size=(window_length, demonstration_data.states.shape[1]),
+            size=(window_length, episode_dataset.states.shape[1]),
         ).astype(dtype=window_states.dtype)  # (window_length, state_dimensionality)
 
         augmented_states.append(window_states + state_noise)
@@ -165,7 +165,7 @@ def _augment_with_noisy_episodes(
         cumulative_end_index += window_length
         augmented_episode_end_indices.append(cumulative_end_index)
 
-    return DemonstrationData(
+    return EpisodeDataset(
         states=np.concatenate(
             augmented_states, axis=0
         ),  # (original_transition_count + sampled_window_count * window_length, state_dimensionality)
@@ -174,10 +174,10 @@ def _augment_with_noisy_episodes(
         ),  # (original_transition_count + sampled_window_count * window_length, action_dimensionality)
         episode_end_indices=np.concatenate(
             [
-                demonstration_data.episode_end_indices,
+                episode_dataset.episode_end_indices,
                 np.asarray(
                     augmented_episode_end_indices,
-                    dtype=demonstration_data.episode_end_indices.dtype,
+                    dtype=episode_dataset.episode_end_indices.dtype,
                 ),
             ]
         ),  # (original_episode_count + sampled_window_count,)

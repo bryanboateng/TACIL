@@ -22,7 +22,7 @@ from scripts.data.augmentation.tacil.create_data.wandb_logging import (
 )
 from scripts.data.augmentation.tacil.dynamics.checkpoint import load_dynamics_model
 from scripts.data.augmentation.tacil.dynamics_model import DynamicsModel
-from scripts.shared.data import load_demonstration_data_from_artifact
+from scripts.shared.data import load_episode_dataset_from_artifact
 from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
 
 logger = create_logger()
@@ -83,26 +83,26 @@ def _run(*, config: Config) -> None:
         )
         dynamics_model.eval()
 
-        demonstration_data = load_demonstration_data_from_artifact(
+        episode_dataset = load_episode_dataset_from_artifact(
             artifact=run.use_artifact(artifact_or_name=config.dataset_artifact),
             logger=logger,
         )
 
         non_terminal_timestep_indices = _get_non_terminal_timestep_indices(
-            episode_end_indices=demonstration_data.episode_end_indices
+            episode_end_indices=episode_dataset.episode_end_indices
         )
 
         action_noise_std = compute_noise_std(
-            samples=demonstration_data.actions, noise_scale=config.action_noise_scale
+            samples=episode_dataset.actions, noise_scale=config.action_noise_scale
         )  # (action_dimensionality,)
 
         inversion_outcomes = _run_synthetic_inversions(
             dynamics_model=dynamics_model,
             state_batch=torch.as_tensor(
-                demonstration_data.states[non_terminal_timestep_indices]
+                episode_dataset.states[non_terminal_timestep_indices]
             ).to(device=device),
             action_batch=torch.as_tensor(
-                demonstration_data.actions[non_terminal_timestep_indices]
+                episode_dataset.actions[non_terminal_timestep_indices]
             ).to(device=device),
             synthetic_part_length=config.synthetic_part_length,
             action_noise_std=torch.as_tensor(action_noise_std).to(device=device),
@@ -111,22 +111,22 @@ def _run(*, config: Config) -> None:
 
         result = _create_augmented_episodes(
             inversion_outcomes=inversion_outcomes,
-            states=np.asarray(demonstration_data.states),
-            actions=np.asarray(demonstration_data.actions),
-            episode_ends=np.asarray(demonstration_data.episode_end_indices),
+            states=np.asarray(episode_dataset.states),
+            actions=np.asarray(episode_dataset.actions),
+            episode_ends=np.asarray(episode_dataset.episode_end_indices),
             anchor_positions=non_terminal_timestep_indices,
             expert_part_length=config.expert_part_length,
             label_error_bound_quantile=config.label_error_bound_quantile,
         )
 
         _log_augmentation_to_wandb(
-            run=run, augmentation_result=result, demonstration_data=demonstration_data
+            run=run, augmentation_result=result, episode_dataset=episode_dataset
         )
         _log_summary_to_wandb(
             run=run,
             augmentation_result=result,
-            source_episode_count=len(demonstration_data.episode_end_indices),
-            source_transition_count=len(demonstration_data.states),
+            source_episode_count=len(episode_dataset.episode_end_indices),
+            source_transition_count=len(episode_dataset.states),
         )
 
 

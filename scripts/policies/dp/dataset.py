@@ -1,6 +1,6 @@
 import torch
 
-from scripts.shared.data import DemonstrationData
+from scripts.shared.data import EpisodeDataset
 from scripts.shared.normalization_range import NormalizationRange
 
 
@@ -8,14 +8,14 @@ class PushTWindowDataset(torch.utils.data.Dataset[tuple[torch.Tensor, torch.Tens
     def __init__(
         self,
         *,
-        demonstration_data: DemonstrationData,
+        episode_dataset: EpisodeDataset,
         prediction_horizon_length: int,
         observation_horizon_length: int,
         action_horizon_length: int,
     ) -> None:
-        observations = torch.from_numpy(demonstration_data.states).float()
-        actions = torch.from_numpy(demonstration_data.actions).float()
-        episode_ends = torch.from_numpy(demonstration_data.episode_end_indices)
+        observations = torch.from_numpy(episode_dataset.states).float()
+        actions = torch.from_numpy(episode_dataset.actions).float()
+        episode_ends = torch.from_numpy(episode_dataset.episode_end_indices)
 
         self.observation_normalization_range = NormalizationRange.from_values(
             values=observations

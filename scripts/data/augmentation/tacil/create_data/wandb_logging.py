@@ -4,13 +4,12 @@ from pathlib import Path
 import numpy as np
 import wandb
 import zarr
-from numpy import typing as npt
 from wandb import Run
 
 from scripts.data.augmentation.tacil.create_data.create_augmented_data import (
     AugmentationResult,
 )
-from scripts.shared.data import DemonstrationData
+from scripts.shared.data import EpisodeDataset
 
 
 def _log_summary_to_wandb(
@@ -171,7 +170,7 @@ def _log_augmentation_to_wandb(
     *,
     run: Run,
     augmentation_result: AugmentationResult,
-    demonstration_data: DemonstrationData,
+    episode_dataset: EpisodeDataset,
 ) -> None:
     with tempfile.TemporaryDirectory() as temporary_directory:
         temporary_directory_path = Path(temporary_directory)
@@ -180,7 +179,7 @@ def _log_augmentation_to_wandb(
         _write_combined_zarr(
             output_path=combined_zarr_path,
             augmentation_result=augmentation_result,
-            demonstration_data=demonstration_data,
+            episode_dataset=episode_dataset,
         )
 
         dataset_artifact = wandb.Artifact(
@@ -194,49 +193,48 @@ def _write_combined_zarr(
     *,
     output_path: Path,
     augmentation_result: AugmentationResult,
-    demonstration_data: DemonstrationData,
+    episode_dataset: EpisodeDataset,
 ) -> None:
-    combined_data = combine_demonstrations(
-        demonstration_data=demonstration_data, augmentation_result=augmentation_result
+    combined_data = combine_episode_datasets(
+        episode_dataset=episode_dataset, augmentation_result=augmentation_result
     )
 
-    write_demonstration_data(output_path=output_path, demonstration_data=combined_data)
+    write_episode_dataset(output_path=output_path, episode_dataset=combined_data)
 
 
-def combine_demonstrations(
-    *, demonstration_data: DemonstrationData, augmentation_result: AugmentationResult
-) -> DemonstrationData:
+def combine_episode_datasets(
+    *, episode_dataset: EpisodeDataset, augmentation_result: AugmentationResult
+) -> EpisodeDataset:
     states = np.concatenate(
-        [demonstration_data.states, augmentation_result.augmented_states], axis=0
+        [episode_dataset.states, augmentation_result.augmented_states], axis=0
     )
 
     actions = np.concatenate(
-        [demonstration_data.actions, augmentation_result.augmented_actions], axis=0
+        [episode_dataset.actions, augmentation_result.augmented_actions], axis=0
     )
 
-    original_timestep_count = demonstration_data.states.shape[0]
+    original_timestep_count = episode_dataset.states.shape[0]
     augmented_episode_ends_absolute = (
         original_timestep_count + augmentation_result.augmented_episode_ends
     )
 
     episode_end_indices = np.concatenate(
-        [demonstration_data.episode_end_indices, augmented_episode_ends_absolute],
-        axis=0,
+        [episode_dataset.episode_end_indices, augmented_episode_ends_absolute], axis=0
     )
 
-    return DemonstrationData(
+    return EpisodeDataset(
         states=states, actions=actions, episode_end_indices=episode_end_indices
     )
 
 
-def write_demonstration_data(
-    *, output_path: Path, demonstration_data: DemonstrationData
+def write_episode_dataset(
+    *, output_path: Path, episode_dataset: EpisodeDataset
 ) -> None:
     root = zarr.open_group(str(output_path), mode="w", zarr_format=2)
 
     data_group = root.create_group("data")
-    data_group.create_array("state", data=demonstration_data.states)
-    data_group.create_array("action", data=demonstration_data.actions)
+    data_group.create_array("state", data=episode_dataset.states)
+    data_group.create_array("action", data=episode_dataset.actions)
 
     meta_group = root.create_group("meta")
-    meta_group.create_array("episode_ends", data=demonstration_data.episode_end_indices)
+    meta_group.create_array("episode_ends", data=episode_dataset.episode_end_indices)
