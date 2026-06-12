@@ -1,0 +1,242 @@
+import tempfile
+from pathlib import Path
+
+import numpy as np
+import wandb
+import zarr
+from numpy import typing as npt
+from wandb import Run
+
+from scripts.data.augmentation.tacil.create_data.create_augmented_data import (
+    AugmentationResult,
+)
+from scripts.shared.data import DemonstrationData
+
+
+def _log_summary_to_wandb(
+    *,
+    run: Run,
+    augmentation_result: AugmentationResult,
+    source_episode_count: int,
+    source_transition_count: int,
+) -> None:
+    run.summary["candidate_episodes"] = _candidate_episodes_summary(
+        augmentation_result=augmentation_result
+    )
+    run.summary["added"] = _added_summary(
+        result=augmentation_result,
+        source_episode_count=source_episode_count,
+        source_transition_count=source_transition_count,
+    )
+    run.summary["dataset"] = _dataset_summary(
+        result=augmentation_result,
+        source_episode_count=source_episode_count,
+        source_transition_count=source_transition_count,
+    )
+    run.summary["bound_threshold"] = augmentation_result.bound_threshold
+
+    bounds = augmentation_result.bounds
+    clipped_bounds = bounds[bounds <= float(np.percentile(bounds, q=99.5))]
+    run.log(
+        {
+            "figures/bounds": wandb.Histogram(
+                np_histogram=np.histogram(clipped_bounds, bins="auto")
+            )
+        }
+    )
+
+
+def _fraction(*, part: int, whole: int) -> float:
+    return part / whole if whole else 0.0
+
+
+def _candidate_episodes_summary(*, augmentation_result: AugmentationResult) -> dict:
+    anchor_count = (
+        augmentation_result.accepted_count
+        + augmentation_result.rejected_count
+        + augmentation_result.not_converged_count
+    )
+    return {
+        "anchor_count": anchor_count,
+        "count": {
+            "not_converged": augmentation_result.not_converged_count,
+            "rejected": augmentation_result.rejected_count,
+            "accepted": augmentation_result.accepted_count,
+        },
+        "fraction": {
+            "not_converged": _fraction(
+                part=augmentation_result.not_converged_count, whole=anchor_count
+            ),
+            "rejected": _fraction(
+                part=augmentation_result.rejected_count, whole=anchor_count
+            ),
+            "accepted": _fraction(
+                part=augmentation_result.accepted_count, whole=anchor_count
+            ),
+        },
+    }
+
+
+def _added_summary(
+    *,
+    result: AugmentationResult,
+    source_episode_count: int,
+    source_transition_count: int,
+) -> dict:
+    """Accepted episodes that enter the augmented dataset.
+
+    Each accepted anchor yields exactly one episode, so added episodes ==
+    accepted episodes. `ratio_of_original` is the added size divided by the
+    original size and may exceed 1. `by_source` partitions the added
+    transitions (a fixed synthetic prefix per episode, the rest verbatim
+    expert copies), so its two fractions sum to 1.
+    """
+    added_episode_count = len(result.augmented_episode_ends)
+    added_transition_count = int(result.augmented_states.shape[0])
+    added_synthetic_count = result.accepted_count * result.synthetic_part_length
+    added_expert_count = added_transition_count - added_synthetic_count
+
+    return {
+        "episodes": {
+            "count": added_episode_count,
+            "ratio_of_original": _fraction(
+                part=added_episode_count, whole=source_episode_count
+            ),
+        },
+        "transitions": {
+            "count": added_transition_count,
+            "ratio_of_original": _fraction(
+                part=added_transition_count, whole=source_transition_count
+            ),
+            "by_source": {
+                "count": {
+                    "synthetic": added_synthetic_count,
+                    "expert": added_expert_count,
+                },
+                "fraction": {
+                    "synthetic": _fraction(
+                        part=added_synthetic_count, whole=added_transition_count
+                    ),
+                    "expert": _fraction(
+                        part=added_expert_count, whole=added_transition_count
+                    ),
+                },
+            },
+        },
+    }
+
+
+def _dataset_summary(
+    *,
+    result: AugmentationResult,
+    source_episode_count: int,
+    source_transition_count: int,
+) -> dict:
+    """Composition of the final dataset (original + added).
+
+    The only synthetic transitions are the synthetic prefixes; everything else
+    (original + duplicated expert parts) is expert data. The `by_source`
+    fractions sum to 1.
+    """
+    added_episode_count = len(result.augmented_episode_ends)
+    added_transition_count = int(result.augmented_states.shape[0])
+    added_synthetic_count = result.accepted_count * result.synthetic_part_length
+
+    dataset_transition_count = source_transition_count + added_transition_count
+    dataset_expert_count = dataset_transition_count - added_synthetic_count
+
+    return {
+        "episodes": {"count": source_episode_count + added_episode_count},
+        "transitions": {
+            "count": dataset_transition_count,
+            "by_source": {
+                "count": {
+                    "synthetic": added_synthetic_count,
+                    "expert": dataset_expert_count,
+                },
+                "fraction": {
+                    "synthetic": _fraction(
+                        part=added_synthetic_count, whole=dataset_transition_count
+                    ),
+                    "expert": _fraction(
+                        part=dataset_expert_count, whole=dataset_transition_count
+                    ),
+                },
+            },
+        },
+    }
+
+
+def _log_augmentation_to_wandb(
+    *,
+    run: Run,
+    augmentation_result: AugmentationResult,
+    demonstration_data: DemonstrationData,
+) -> None:
+    with tempfile.TemporaryDirectory() as temporary_directory:
+        temporary_directory_path = Path(temporary_directory)
+        combined_zarr_path = temporary_directory_path / "combined.zarr"
+
+        _write_combined_zarr(
+            output_path=combined_zarr_path,
+            augmentation_result=augmentation_result,
+            demonstration_data=demonstration_data,
+        )
+
+        dataset_artifact = wandb.Artifact(
+            name=f"tacil-dataset-{run.name}", type="dataset"
+        )
+        dataset_artifact.add_dir(str(combined_zarr_path))
+        run.log_artifact(dataset_artifact).wait()
+
+
+def _write_combined_zarr(
+    *,
+    output_path: Path,
+    augmentation_result: AugmentationResult,
+    demonstration_data: DemonstrationData,
+) -> None:
+    combined_data = combine_demonstrations(
+        demonstration_data=demonstration_data, augmentation_result=augmentation_result
+    )
+
+    write_demonstration_data(output_path=output_path, demonstration_data=combined_data)
+
+
+def combine_demonstrations(
+    *, demonstration_data: DemonstrationData, augmentation_result: AugmentationResult
+) -> DemonstrationData:
+    states = np.concatenate(
+        [demonstration_data.states, augmentation_result.augmented_states], axis=0
+    )
+
+    actions = np.concatenate(
+        [demonstration_data.actions, augmentation_result.augmented_actions], axis=0
+    )
+
+    original_timestep_count = demonstration_data.states.shape[0]
+    augmented_episode_ends_absolute = (
+        original_timestep_count + augmentation_result.augmented_episode_ends
+    )
+
+    episode_end_indices = np.concatenate(
+        [demonstration_data.episode_end_indices, augmented_episode_ends_absolute],
+        axis=0,
+    )
+
+    return DemonstrationData(
+        states=states, actions=actions, episode_end_indices=episode_end_indices
+    )
+
+
+def write_demonstration_data(
+    *, output_path: Path, demonstration_data: DemonstrationData
+) -> None:
+    root = zarr.open_group(str(output_path), mode="w", zarr_format=2)
+
+    data_group = root.create_group("data")
+    data_group.create_array("state", data=demonstration_data.states)
+    data_group.create_array("action", data=demonstration_data.actions)
+
+    meta_group = root.create_group("meta")
+    meta_group.create_array("episode_ends", data=demonstration_data.episode_end_indices)
