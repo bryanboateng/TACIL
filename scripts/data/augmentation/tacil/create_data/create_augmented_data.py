@@ -29,21 +29,22 @@ logger = create_logger()
 
 
 @dataclass(frozen=True)
+class Counts:
+    not_converged: int
+    rejected: int
+    accepted: int
+
+
+@dataclass(frozen=True)
 class AugmentationResult:
-    augmented_states: npt.NDArray[
-        np.float32
-    ]  # (augmented_timestep_count, state_dimensionality)
-    augmented_actions: npt.NDArray[
+    states: npt.NDArray[np.float32]  # (augmented_timestep_count, state_dimensionality)
+    actions: npt.NDArray[
         np.float32
     ]  # (augmented_timestep_count, action_dimensionality)
-    augmented_episode_ends: npt.NDArray[
-        np.int64
-    ]  # exclusive ends into augmented_states
+    episode_end_indices: npt.NDArray[np.int64]  # exclusive ends into augmented_states
     bounds: npt.NDArray[np.float32]  # per-step normalized bounds over converged steps
     bound_threshold: float
-    accepted_count: int
-    rejected_count: int
-    not_converged_count: int
+    counts: Counts
     synthetic_part_length: int  # synthetic transitions per accepted episode
 
 
@@ -281,26 +282,17 @@ def _create_augmented_episodes(
     not_converged_count = int((~episode_converged).sum().item())
     rejected_count = anchor_count - accepted_count - not_converged_count
 
-    logger.info(
-        "Anchors: %d | accepted: %d | rejected (converged, bound>sigma): %d | "
-        "not converged: %d | sigma=%.4g (q=%.2f)",
-        anchor_count,
-        accepted_count,
-        rejected_count,
-        not_converged_count,
-        sigma,
-        label_error_bound_quantile,
-    )
-
     return AugmentationResult(
-        augmented_states=augmented_states,
-        augmented_actions=augmented_actions,
-        augmented_episode_ends=augmented_episode_ends,
+        states=augmented_states,
+        actions=augmented_actions,
+        episode_end_indices=augmented_episode_ends,
         bounds=converged_step_bounds.cpu().numpy(),
         bound_threshold=sigma,
-        accepted_count=accepted_count,
-        rejected_count=rejected_count,
-        not_converged_count=not_converged_count,
+        counts=Counts(
+            not_converged=not_converged_count,
+            rejected=rejected_count,
+            accepted=accepted_count,
+        ),
         synthetic_part_length=inversion_outcomes.predecessor_states.shape[1],
     )
 

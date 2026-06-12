@@ -51,26 +51,26 @@ def _fraction(*, part: int, whole: int) -> float:
 
 def _candidate_episodes_summary(*, augmentation_result: AugmentationResult) -> dict:
     anchor_count = (
-        augmentation_result.accepted_count
-        + augmentation_result.rejected_count
-        + augmentation_result.not_converged_count
+        augmentation_result.counts.accepted
+        + augmentation_result.counts.rejected
+        + augmentation_result.counts.not_converged
     )
     return {
         "anchor_count": anchor_count,
         "count": {
-            "not_converged": augmentation_result.not_converged_count,
-            "rejected": augmentation_result.rejected_count,
-            "accepted": augmentation_result.accepted_count,
+            "not_converged": augmentation_result.counts.not_converged,
+            "rejected": augmentation_result.counts.rejected,
+            "accepted": augmentation_result.counts.accepted,
         },
         "fraction": {
             "not_converged": _fraction(
-                part=augmentation_result.not_converged_count, whole=anchor_count
+                part=augmentation_result.counts.not_converged, whole=anchor_count
             ),
             "rejected": _fraction(
-                part=augmentation_result.rejected_count, whole=anchor_count
+                part=augmentation_result.counts.rejected, whole=anchor_count
             ),
             "accepted": _fraction(
-                part=augmentation_result.accepted_count, whole=anchor_count
+                part=augmentation_result.counts.accepted, whole=anchor_count
             ),
         },
     }
@@ -90,9 +90,9 @@ def _added_summary(
     transitions (a fixed synthetic prefix per episode, the rest verbatim
     expert copies), so its two fractions sum to 1.
     """
-    added_episode_count = len(result.augmented_episode_ends)
-    added_transition_count = int(result.augmented_states.shape[0])
-    added_synthetic_count = result.accepted_count * result.synthetic_part_length
+    added_episode_count = len(result.episode_end_indices)
+    added_transition_count = int(result.states.shape[0])
+    added_synthetic_count = result.counts.accepted * result.synthetic_part_length
     added_expert_count = added_transition_count - added_synthetic_count
 
     return {
@@ -137,9 +137,9 @@ def _dataset_summary(
     (original + duplicated expert parts) is expert data. The `by_source`
     fractions sum to 1.
     """
-    added_episode_count = len(result.augmented_episode_ends)
-    added_transition_count = int(result.augmented_states.shape[0])
-    added_synthetic_count = result.accepted_count * result.synthetic_part_length
+    added_episode_count = len(result.episode_end_indices)
+    added_transition_count = int(result.states.shape[0])
+    added_synthetic_count = result.counts.accepted * result.synthetic_part_length
 
     dataset_transition_count = source_transition_count + added_transition_count
     dataset_expert_count = dataset_transition_count - added_synthetic_count
@@ -206,16 +206,16 @@ def combine_episode_datasets(
     *, episode_dataset: EpisodeDataset, augmentation_result: AugmentationResult
 ) -> EpisodeDataset:
     states = np.concatenate(
-        [episode_dataset.states, augmentation_result.augmented_states], axis=0
+        [episode_dataset.states, augmentation_result.states], axis=0
     )
 
     actions = np.concatenate(
-        [episode_dataset.actions, augmentation_result.augmented_actions], axis=0
+        [episode_dataset.actions, augmentation_result.actions], axis=0
     )
 
     original_timestep_count = episode_dataset.states.shape[0]
     augmented_episode_ends_absolute = (
-        original_timestep_count + augmentation_result.augmented_episode_ends
+        original_timestep_count + augmentation_result.episode_end_indices
     )
 
     episode_end_indices = np.concatenate(
