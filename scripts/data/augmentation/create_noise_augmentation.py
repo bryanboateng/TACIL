@@ -174,15 +174,12 @@ def _get_sliding_window_slices(
 
     all_window_slices: list[slice] = []
 
-    skipped_episode_count = 0
-
     for episode_start_index, episode_end_index in zip(
         episode_start_indices, episode_end_indices
     ):
         episode_length: int = episode_end_index - episode_start_index
 
         if episode_length < window_length:
-            skipped_episode_count += 1
             continue
 
         window_count = episode_length - window_length + 1
@@ -192,13 +189,6 @@ def _get_sliding_window_slices(
             window_end_index = window_start_index + window_length
 
             all_window_slices.append(slice(window_start_index, window_end_index))
-
-    if skipped_episode_count > 0:
-        logger.info(
-            "Skipped %d episodes shorter than subtrajectory_length=%d.",
-            skipped_episode_count,
-            window_length,
-        )
 
     return all_window_slices
 
