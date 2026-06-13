@@ -22,7 +22,7 @@ from scripts.data.augmentation.tacil.create_data.wandb_logging import (
 )
 from scripts.data.augmentation.tacil.dynamics.checkpoint import load_dynamics_model
 from scripts.data.augmentation.tacil.dynamics_model import DynamicsModel
-from scripts.shared.data import EpisodeDataset, load_episode_dataset_from_artifact
+from scripts.shared.data import EpisodeDataset, load_episode_dataset
 from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
 
 logger = create_logger()
@@ -37,11 +37,7 @@ class Counts:
 
 @dataclass(frozen=True)
 class AugmentationResult:
-    states: npt.NDArray[np.float32]  # (augmented_timestep_count, state_dimensionality)
-    actions: npt.NDArray[
-        np.float32
-    ]  # (augmented_timestep_count, action_dimensionality)
-    episode_end_indices: npt.NDArray[np.int64]
+    episode_dataset: EpisodeDataset
 
     bounds: npt.NDArray[np.float32]  # per-step normalized bounds over converged steps
     bound_threshold: float
@@ -51,12 +47,13 @@ class AugmentationResult:
 
 @dataclass(frozen=True)
 class InversionOutcomes:
-    """Dense per-(anchor, step) outcomes. step indexes backward from the anchor."""
+    anchor_alive: torch.Tensor  # (anchor,) bool — True iff all steps converged
 
     predecessor_states: torch.Tensor  # (anchor, step, state_dim)
     predecessor_actions: torch.Tensor  # (anchor, step, action_dim)
-    step_converged: torch.Tensor  # (anchor, step) bool
-    step_bounds: torch.Tensor  # (anchor, step) float, normalized
+    step_bounds: (
+        torch.Tensor
+    )  # (anchor, step) float, normalized; valid only for alive anchors
 
 
 def main():
@@ -85,7 +82,7 @@ def _run(*, config: Config) -> None:
         )
         dynamics_model.eval()
 
-        episode_dataset = load_episode_dataset_from_artifact(
+        episode_dataset = load_episode_dataset(
             artifact=run.use_artifact(artifact_or_name=config.dataset_artifact),
             logger=logger,
         )
@@ -121,8 +118,8 @@ def _run(*, config: Config) -> None:
 
         _log_augmentation_to_wandb(
             run=run,
-            augmentation_result=augmentation_result,
-            episode_dataset=episode_dataset,
+            expert_episode_dataset=episode_dataset,
+            augmentation_episode_dataset=augmentation_result.episode_dataset,
         )
         _log_summary_to_wandb(
             run=run,
@@ -163,62 +160,87 @@ def _run_synthetic_inversions(
     predecessor_actions = torch.empty(
         size=(anchor_count, synthetic_part_length, action_dimensionality), device=device
     )  # (anchor_count, synthetic_part_length, action_dimensionality)
-    step_converged = torch.empty(
-        size=(anchor_count, synthetic_part_length), dtype=torch.bool, device=device
-    )  # (anchor_count, synthetic_part_length)
     step_bounds = torch.empty(
         size=(anchor_count, synthetic_part_length), device=device
     )  # (anchor_count, synthetic_part_length)
+    alive_mask = torch.ones(
+        anchor_count, dtype=torch.bool, device=device
+    )  # (anchor_count,)
 
     for step in tqdm(range(synthetic_part_length), desc="synthetic step", unit="step"):
-        noise = torch.normal(
-            mean=0.0, std=action_noise_std.expand_as(action_batch)
-        )  # (anchor_count, action_dimensionality)
-        noisy_action_batch = (
-            action_batch + noise
-        )  # (anchor_count, action_dimensionality)
+        alive_anchor_index_batch = alive_mask.nonzero(as_tuple=False).squeeze(
+            1
+        )  # (alive_count,)
+
+        alive_state_batch = anchor_state_batch[
+            alive_anchor_index_batch
+        ]  # (alive_count, state_dimensionality)
+
+        alive_action_batch = action_batch[
+            alive_anchor_index_batch
+        ]  # (alive_count, action_dimensionality)
+        alive_noisy_action_batch = alive_action_batch + torch.normal(
+            mean=0.0, std=action_noise_std.expand_as(alive_action_batch)
+        )  # (alive_count, action_dimensionality)
 
         predecessor_state_batch = solve_inverse_dynamics_state(
             dynamics_model=dynamics_model,
-            initial_state_estimate_batch=anchor_state_batch,
-            action_batch=noisy_action_batch,
-            target_next_state_batch=anchor_state_batch,
+            initial_state_estimate_batch=alive_state_batch,
+            action_batch=alive_noisy_action_batch,
+            target_next_state_batch=alive_state_batch,
             max_newton_iteration_count=max_newton_iteration_count,
-        )  # (anchor_count, state_dimensionality)
+        )  # (alive_count, state_dimensionality)
 
-        reconstruction_error_batch: torch.Tensor = (
-            dynamics_model.normalize_state(
-                state_batch=dynamics_model.predict_next_state(
-                    state_batch=predecessor_state_batch, action_batch=noisy_action_batch
-                )
-            )
-            - dynamics_model.normalize_state(state_batch=anchor_state_batch)
-        ).norm(dim=-1)  # (anchor_count,)
-
-        step_has_converged_batch = (
-            reconstruction_error_batch <= CONVERGENCE_TOLERANCE
-        )  # (anchor_count,)
-
-        bound_batch = _compute_label_error_bound(
-            dynamics_model=dynamics_model,
-            anchor_state_batch=anchor_state_batch,
-            action_batch=noisy_action_batch,
+        step_converged_batch = _check_inverse_dynamics_convergence(
             predecessor_state_batch=predecessor_state_batch,
-        )  # (anchor_count,)
+            action_batch=alive_noisy_action_batch,
+            state_batch=alive_state_batch,
+            dynamics_model=dynamics_model,
+        )
 
-        predecessor_states[:, step, :] = predecessor_state_batch
-        predecessor_actions[:, step, :] = noisy_action_batch
-        step_converged[:, step] = step_has_converged_batch
-        step_bounds[:, step] = bound_batch
+        error_bound_batch = _compute_label_error_bound(
+            dynamics_model=dynamics_model,
+            anchor_state_batch=alive_state_batch,
+            action_batch=alive_noisy_action_batch,
+            predecessor_state_batch=predecessor_state_batch,
+        )  # (alive_count,)
 
-        anchor_state_batch = predecessor_state_batch
+        predecessor_states[alive_anchor_index_batch, step, :] = predecessor_state_batch
+        predecessor_actions[alive_anchor_index_batch, step, :] = (
+            alive_noisy_action_batch
+        )
+        step_bounds[alive_anchor_index_batch, step] = error_bound_batch
+
+        alive_mask[alive_anchor_index_batch[~step_converged_batch]] = False
+        anchor_state_batch[alive_anchor_index_batch[step_converged_batch]] = (
+            predecessor_state_batch[step_converged_batch]
+        )
 
     return InversionOutcomes(
         predecessor_states=predecessor_states,
         predecessor_actions=predecessor_actions,
-        step_converged=step_converged,
+        anchor_alive=alive_mask,
         step_bounds=step_bounds,
     )
+
+
+def _check_inverse_dynamics_convergence(
+    *,
+    predecessor_state_batch: torch.Tensor,  # (N, state_dimensionality)
+    action_batch: torch.Tensor,  # (N, action_dimensionality)
+    state_batch: torch.Tensor,  # (N, state_dimensionality)
+    dynamics_model: DynamicsModel,
+) -> torch.Tensor:  # (N,)
+    reconstruction_error_batch: torch.Tensor = (
+        dynamics_model.normalize_state(
+            state_batch=dynamics_model.predict_next_state(
+                state_batch=predecessor_state_batch, action_batch=action_batch
+            )
+        )
+        - dynamics_model.normalize_state(state_batch=state_batch)
+    ).norm(dim=-1)  # (N,)
+
+    return reconstruction_error_batch <= CONVERGENCE_TOLERANCE  # (N,)
 
 
 @torch.no_grad()
@@ -255,8 +277,8 @@ def _create_augmented_episodes(
 ) -> AugmentationResult:
 
     converged_step_bounds = inversion_outcomes.step_bounds[
-        inversion_outcomes.step_converged
-    ]
+        inversion_outcomes.anchor_alive
+    ].flatten()  # (alive_count * step,)
     if converged_step_bounds.numel() == 0:
         raise RuntimeError("No backward steps converged. ")
 
@@ -264,11 +286,10 @@ def _create_augmented_episodes(
         torch.quantile(input=converged_step_bounds, q=label_error_bound_quantile).item()
     )
 
-    step_accepted = inversion_outcomes.step_converged & (
+    episode_accepted = inversion_outcomes.anchor_alive & (
         inversion_outcomes.step_bounds <= bound_threshold
-    )
-    episode_accepted = step_accepted.all(dim=1)  # (anchor_count,)
-    episode_converged = inversion_outcomes.step_converged.all(dim=1)  # (anchor_count,)
+    ).all(dim=1)  # (anchor_count,)
+    episode_converged = inversion_outcomes.anchor_alive  # (anchor_count,)
 
     expert_part_length_per_anchor = _compute_expert_part_lengths(
         anchor_positions=anchor_positions,
@@ -276,7 +297,7 @@ def _create_augmented_episodes(
         target_expert_part_length=expert_part_length,
     )
 
-    augmented_states, augmented_actions, augmented_episode_ends = _assemble_episodes(
+    augmented_episode_dataset = _assemble_episodes(
         predecessor_states=inversion_outcomes.predecessor_states.cpu().numpy(),
         predecessor_actions=inversion_outcomes.predecessor_actions.cpu().numpy(),
         episode_accepted=episode_accepted.cpu().numpy(),
@@ -292,9 +313,7 @@ def _create_augmented_episodes(
     rejected_count = anchor_count - accepted_count - not_converged_count
 
     return AugmentationResult(
-        states=augmented_states,
-        actions=augmented_actions,
-        episode_end_indices=augmented_episode_ends,
+        episode_dataset=augmented_episode_dataset,
         bounds=converged_step_bounds.cpu().numpy(),
         bound_threshold=bound_threshold,
         counts=Counts(
@@ -332,9 +351,7 @@ def _assemble_episodes(
     expert_part_length_per_anchor: npt.NDArray[np.int64],  # (anchor,)
     states: npt.NDArray[np.float32],  # (expert_timestep_count, state_dim)
     actions: npt.NDArray[np.float32],  # (expert_timestep_count, action_dim)
-) -> tuple[
-    npt.NDArray[np.float32], npt.NDArray[np.float32], npt.NDArray[np.int64]
-]:  # augmented_states (total_timestep_count, state_dim), augmented_actions (total_timestep_count, action_dim), episode_ends (episode_count,)
+) -> EpisodeDataset:
     """Stitch accepted anchors into flattened episodes (raw units).
 
     For accepted anchor at expert position p with synthetic predecessors

@@ -46,7 +46,7 @@ def save_episode_dataset(*, episode_dataset: EpisodeDataset, save_file_path: Pat
     )
 
 
-def load_episode_dataset_from_artifact(
+def load_episode_dataset(
     *, artifact: Artifact, logger: logging.Logger
 ) -> EpisodeDataset:
     artifact_content_path = Path(artifact.download())

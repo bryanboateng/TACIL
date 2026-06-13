@@ -12,7 +12,7 @@ from rich.pretty import pretty_repr
 from scripts.ashared import create_logger
 from scripts.shared.data import (
     EpisodeDataset,
-    load_episode_dataset_from_artifact,
+    load_episode_dataset,
     save_episode_dataset,
 )
 from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
@@ -51,9 +51,7 @@ def _run(*, config: Config):
     ) as run:
         artifact = run.use_artifact(artifact_or_name=config.use_artifact)
 
-        episode_dataset = load_episode_dataset_from_artifact(
-            artifact=artifact, logger=logger
-        )
+        episode_dataset = load_episode_dataset(artifact=artifact, logger=logger)
 
         logger.info(
             "Extracting all sliding-windows of length %d ...", config.window_length

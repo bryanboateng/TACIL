@@ -5,7 +5,7 @@ import numpy as np
 from numpy import typing as npt
 from wandb import Artifact
 
-from scripts.shared.data import load_episode_dataset_from_artifact
+from scripts.shared.data import load_episode_dataset
 
 
 @dataclass
@@ -21,9 +21,7 @@ class NoValidWindowsError(ValueError):
 
 def load_episodes(*, artifact: Artifact, logger: Logger) -> list[Episode]:
 
-    episode_dataset = load_episode_dataset_from_artifact(
-        artifact=artifact, logger=logger
-    )
+    episode_dataset = load_episode_dataset(artifact=artifact, logger=logger)
 
     episode_start_indices = np.concatenate(
         [[0], episode_dataset.episode_end_indices[:-1]]
