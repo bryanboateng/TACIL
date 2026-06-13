@@ -8,6 +8,7 @@ import tyro
 import wandb
 from numpy.random import Generator
 from rich.pretty import pretty_repr
+from wandb import Run
 
 from scripts.ashared import create_logger
 from scripts.shared.data import (
@@ -49,75 +50,27 @@ def _run(*, config: Config):
         config=asdict(config),
         dir=OUTPUT_DIRECTORY_PATH,
     ) as run:
-        episode_dataset = load_episode_dataset(
+        source_episode_dataset = load_episode_dataset(
             episode_file_path=Path(
                 run.use_artifact(artifact_or_name=config.use_artifact).download()
             )
         )
 
         augmented_episode_dataset = _augment_with_noisy_episodes(
-            episode_dataset=episode_dataset,
+            episode_dataset=source_episode_dataset,
             window_length=config.window_length,
             augmentation_ratio=config.augmentation_ratio,
             noise_scale=config.noise_scale,
             rng=rng,
         )
 
-        source_episode_count = len(episode_dataset.episode_end_indices)
-        source_transition_count = len(episode_dataset.states)
-
-        run.summary["source_dataset"] = {
-            "episode_count": source_episode_count,
-            "transition_count": source_transition_count,
-        }
-
-        new_episode_count = (
-            len(augmented_episode_dataset.episode_end_indices) - source_episode_count
-        )
-        new_transition_count = (
-            len(augmented_episode_dataset.states) - source_transition_count
+        _log_dataset_statistics(
+            source_episode_dataset=source_episode_dataset,
+            augmented_episode_dataset=augmented_episode_dataset,
+            run=run,
         )
 
-        run.summary["added"] = {
-            "episodes": {
-                "count": new_episode_count,
-                "fraction_of_source": new_episode_count / source_episode_count,
-            },
-            "transitions": {
-                "count": new_transition_count,
-                "fraction_of_source": new_transition_count / source_transition_count,
-            },
-        }
-
-        dataset_episode_count = len(augmented_episode_dataset.episode_end_indices)
-        dataset_transition_count = len(augmented_episode_dataset.states)
-
-        run.summary["augmented_dataset"] = {
-            "episodes": {
-                "count": dataset_episode_count,
-                "fraction_of_source": dataset_episode_count / source_episode_count,
-            },
-            "transitions": {
-                "count": dataset_transition_count,
-                "fraction_of_source": dataset_transition_count / source_transition_count,
-            },
-        }
-
-        with tempfile.TemporaryDirectory() as temporary_directory:
-            output_zarr_path = Path(temporary_directory) / "dataset.zarr"
-
-            save_episode_dataset(
-                episode_dataset=augmented_episode_dataset,
-                save_file_path=output_zarr_path,
-            )
-
-            new_artifact = wandb.Artifact(
-                name=f"noisy-dataset-{run.name}", type="dataset"
-            )
-
-            new_artifact.add_dir(str(output_zarr_path))
-
-            run.log_artifact(new_artifact)
+        _upload_dataset(augmented_episode_dataset, run)
 
 
 def _augment_with_noisy_episodes(
@@ -263,6 +216,67 @@ def compute_noise_std(
     )  # (dimensionality,)
     range_per_dimension = max_per_dimension - min_per_dimension  # (dimensionality,)
     return noise_scale * range_per_dimension
+
+
+def _log_dataset_statistics(
+    source_episode_dataset: EpisodeDataset,
+    augmented_episode_dataset: EpisodeDataset,
+    run: Run,
+):
+    source_episode_count = len(source_episode_dataset.episode_end_indices)
+    source_transition_count = len(source_episode_dataset.states)
+
+    run.summary["source_dataset"] = {
+        "episode_count": source_episode_count,
+        "transition_count": source_transition_count,
+    }
+
+    new_episode_count = (
+        len(augmented_episode_dataset.episode_end_indices) - source_episode_count
+    )
+    new_transition_count = (
+        len(augmented_episode_dataset.states) - source_transition_count
+    )
+
+    run.summary["added"] = {
+        "episodes": {
+            "count": new_episode_count,
+            "fraction_of_source": new_episode_count / source_episode_count,
+        },
+        "transitions": {
+            "count": new_transition_count,
+            "fraction_of_source": new_transition_count / source_transition_count,
+        },
+    }
+
+    dataset_episode_count = len(augmented_episode_dataset.episode_end_indices)
+    dataset_transition_count = len(augmented_episode_dataset.states)
+
+    run.summary["augmented_dataset"] = {
+        "episodes": {
+            "count": dataset_episode_count,
+            "fraction_of_source": dataset_episode_count / source_episode_count,
+        },
+        "transitions": {
+            "count": dataset_transition_count,
+            "fraction_of_source": dataset_transition_count / source_transition_count,
+        },
+    }
+
+
+def _upload_dataset(augmented_episode_dataset: EpisodeDataset, run: Run):
+    with tempfile.TemporaryDirectory() as temporary_directory:
+        output_zarr_path = Path(temporary_directory) / "dataset.zarr"
+
+        save_episode_dataset(
+            episode_dataset=augmented_episode_dataset, save_file_path=output_zarr_path
+        )
+
+        new_artifact = wandb.Artifact(name=f"noisy-dataset-{run.name}", type="dataset")
+
+        new_artifact.add_dir(str(output_zarr_path))
+
+        run.log_artifact(new_artifact)
 
 
 if __name__ == "__main__":

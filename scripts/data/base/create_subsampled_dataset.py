@@ -60,9 +60,7 @@ def _run(*, config: Config):
             run=run,
         )
 
-        _save_and_upload_dataset(
-            subsampled_episode_dataset=subsampled_episode_dataset, run=run
-        )
+        _upload_dataset(subsampled_episode_dataset=subsampled_episode_dataset, run=run)
 
 
 def _subsample_episodes(
@@ -147,7 +145,7 @@ def _log_dataset_statistics(
     }
 
 
-def _save_and_upload_dataset(subsampled_episode_dataset: EpisodeDataset, run: Run):
+def _upload_dataset(subsampled_episode_dataset: EpisodeDataset, run: Run):
     with tempfile.TemporaryDirectory() as temporary_directory:
         output_zarr_path = Path(temporary_directory) / "dataset.zarr"
 
