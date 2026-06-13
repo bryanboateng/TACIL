@@ -86,7 +86,7 @@ def _added_summary(
     """Accepted episodes that enter the augmented dataset.
 
     Each accepted anchor yields exactly one episode, so added episodes ==
-    accepted episodes. `ratio_of_original` is the added size divided by the
+    accepted episodes. `fraction_of_source` is the added size divided by the
     original size and may exceed 1. `by_source` partitions the added
     transitions (a fixed synthetic prefix per episode, the rest verbatim
     expert copies), so its two fractions sum to 1.
@@ -99,13 +99,13 @@ def _added_summary(
     return {
         "episodes": {
             "count": added_episode_count,
-            "ratio_of_original": _fraction(
+            "fraction_of_source": _fraction(
                 part=added_episode_count, whole=source_episode_count
             ),
         },
         "transitions": {
             "count": added_transition_count,
-            "ratio_of_original": _fraction(
+            "fraction_of_source": _fraction(
                 part=added_transition_count, whole=source_transition_count
             ),
             "by_source": {
@@ -139,8 +139,15 @@ def _dataset_summary(
     dataset_transition_count = source_transition_count + added_transition_count
     dataset_expert_count = dataset_transition_count - added_synthetic_count
 
+    dataset_episode_count = source_episode_count + added_episode_count
+
     return {
-        "episodes": {"count": source_episode_count + added_episode_count},
+        "episodes": {
+            "count": dataset_episode_count,
+            "fraction_of_source": _fraction(
+                part=dataset_episode_count, whole=source_episode_count
+            ),
+        },
         "transitions": {
             "count": dataset_transition_count,
             "by_source": {

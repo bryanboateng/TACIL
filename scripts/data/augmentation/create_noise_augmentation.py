@@ -49,12 +49,10 @@ def _run(*, config: Config):
         config=asdict(config),
         dir=OUTPUT_DIRECTORY_PATH,
     ) as run:
-        artifact = run.use_artifact(artifact_or_name=config.use_artifact)
-
-        episode_dataset = load_episode_dataset(artifact=artifact, logger=logger)
-
-        logger.info(
-            "Extracting all sliding-windows of length %d ...", config.window_length
+        episode_dataset = load_episode_dataset(
+            episode_file_path=Path(
+                run.use_artifact(artifact_or_name=config.use_artifact).download()
+            )
         )
 
         augmented_episode_dataset = _augment_with_noisy_episodes(
@@ -65,14 +63,14 @@ def _run(*, config: Config):
             rng=rng,
         )
 
-        logger.info("Noise augmentation completed.")
-        logger.info("# Transitions: %d", len(augmented_episode_dataset.states))
-        logger.info(
-            "# Episodes: %d", len(augmented_episode_dataset.episode_end_indices)
-        )
-
         source_episode_count = len(episode_dataset.episode_end_indices)
         source_transition_count = len(episode_dataset.states)
+
+        run.summary["source_dataset"] = {
+            "episode_count": source_episode_count,
+            "transition_count": source_transition_count,
+        }
+
         new_episode_count = (
             len(augmented_episode_dataset.episode_end_indices) - source_episode_count
         )
@@ -80,14 +78,30 @@ def _run(*, config: Config):
             len(augmented_episode_dataset.states) - source_transition_count
         )
 
-        run.summary["aug/new_episodes_count"] = new_episode_count
-        run.summary["aug/new_episodes_percentage"] = (
-            100 * new_episode_count / source_episode_count
-        )
-        run.summary["aug/new_transitions_count"] = new_transition_count
-        run.summary["aug/new_transitions_percentage"] = (
-            100 * new_transition_count / source_transition_count
-        )
+        run.summary["added"] = {
+            "episodes": {
+                "count": new_episode_count,
+                "fraction_of_source": new_episode_count / source_episode_count,
+            },
+            "transitions": {
+                "count": new_transition_count,
+                "fraction_of_source": new_transition_count / source_transition_count,
+            },
+        }
+
+        dataset_episode_count = len(augmented_episode_dataset.episode_end_indices)
+        dataset_transition_count = len(augmented_episode_dataset.states)
+
+        run.summary["augmented_dataset"] = {
+            "episodes": {
+                "count": dataset_episode_count,
+                "fraction_of_source": dataset_episode_count / source_episode_count,
+            },
+            "transitions": {
+                "count": dataset_transition_count,
+                "fraction_of_source": dataset_transition_count / source_transition_count,
+            },
+        }
 
         with tempfile.TemporaryDirectory() as temporary_directory:
             output_zarr_path = Path(temporary_directory) / "dataset.zarr"

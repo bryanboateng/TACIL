@@ -43,14 +43,39 @@ def _run(*, config: Config):
         config=asdict(config),
         dir=OUTPUT_DIRECTORY_PATH,
     ) as run:
-        episode_dataset = load_episode_dataset(
-            artifact=run.use_artifact(artifact_or_name="expert-dataset:latest"),
-            logger=logger,
+        expert_episode_dataset = load_episode_dataset(
+            episode_file_path=Path(
+                run.use_artifact(artifact_or_name="expert-dataset:latest").download()
+            )
         )
 
         subsampled_episode_dataset = _subsample_episodes(
-            episode_dataset=episode_dataset, fraction=config.fraction, rng=rng
+            episode_dataset=expert_episode_dataset, fraction=config.fraction, rng=rng
         )
+
+        expert_episode_count = len(expert_episode_dataset.episode_end_indices)
+        expert_transition_count = len(expert_episode_dataset.states)
+
+        run.summary["source_dataset"] = {
+            "episode_count": expert_episode_count,
+            "transitions_count": expert_transition_count,
+        }
+
+        selected_episode_count = len(subsampled_episode_dataset.episode_end_indices)
+        selected_transition_count = len(subsampled_episode_dataset.states)
+
+        run.summary["subsampled_dataset"] = {
+            "episodes": {
+                "count": selected_episode_count,
+                "fraction_of_source": selected_episode_count / expert_episode_count,
+            },
+            "transitions": {
+                "count": selected_transition_count,
+                "fraction_of_source": (
+                    selected_transition_count / expert_transition_count
+                ),
+            },
+        }
 
         with tempfile.TemporaryDirectory() as temporary_directory:
             output_zarr_path = Path(temporary_directory) / "dataset.zarr"
@@ -75,14 +100,14 @@ def _subsample_episodes(
 
     selected_episode_indices = np.sort(
         a=rng.choice(a=episode_count, size=int(episode_count * fraction), replace=False)
-    )
+    )  # (selected_episode_count,)
 
     episode_start_indices = np.concatenate(
         (
             np.zeros(shape=1, dtype=episode_dataset.episode_end_indices.dtype),
             episode_dataset.episode_end_indices[:-1],
         )
-    )
+    )  # (episode_count,)
 
     selected_transition_indices_list = []
 
@@ -95,7 +120,9 @@ def _subsample_episodes(
         start_index: int = episode_start_indices[selected_episode_index]
         end_index: int = episode_dataset.episode_end_indices[selected_episode_index]
 
-        episode_transition_indices = np.arange(start_index, stop=end_index)
+        episode_transition_indices = np.arange(
+            start_index, stop=end_index
+        )  # (episode_length,)
 
         selected_transition_indices_list.append(episode_transition_indices)
 
@@ -104,12 +131,18 @@ def _subsample_episodes(
 
     selected_transition_indices_np_array = np.concatenate(
         selected_transition_indices_list
-    )
+    )  # (selected_transition_count,)
 
     return EpisodeDataset(
-        states=episode_dataset.states[selected_transition_indices_np_array],
-        actions=episode_dataset.actions[selected_transition_indices_np_array],
-        episode_end_indices=np.asarray(subsampled_episode_end_indices),
+        states=episode_dataset.states[
+            selected_transition_indices_np_array
+        ],  # (selected_transition_count, state_dimensionality)
+        actions=episode_dataset.actions[
+            selected_transition_indices_np_array
+        ],  # (selected_transition_count, action_dimensionality)
+        episode_end_indices=np.asarray(
+            subsampled_episode_end_indices
+        ),  # (selected_episode_count,)
     )
 
 
