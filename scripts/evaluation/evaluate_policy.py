@@ -7,7 +7,6 @@ import wandb
 from rich.pretty import pretty_repr
 from wandb import Run
 
-from scripts.ashared import create_logger, log_device_info, set_seed
 from scripts.evaluation.bryan.evaluation import RewardStatistics, evaluate_policy
 from scripts.evaluation.config import (
     BehaviorCloningCheckpoint,
@@ -19,8 +18,10 @@ from scripts.policies.dp.policy import load_diffusion_policy
 from scripts.policies.gpi import config as gpi
 from scripts.policies.gpi.policy import load_geometric_policy
 from scripts.shared.data import load_episode_dataset
+from scripts.shared.logging import create_logger, log_device_info
 from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
 from scripts.shared.policy_types import PolicyFactory
+from scripts.shared.seed import set_seed
 
 logger = create_logger()
 

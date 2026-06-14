@@ -6,7 +6,6 @@ import tyro
 import wandb
 from rich.pretty import pretty_repr
 
-from scripts.ashared import create_logger, log_device_info, set_seed
 from scripts.data.augmentation.create_noise_augmentation import compute_noise_std
 from scripts.data.augmentation.tacil.create_data.backward_rollout import (
     roll_out_backward,
@@ -22,7 +21,9 @@ from scripts.data.augmentation.tacil.create_data.statistics_logging import (
 )
 from scripts.data.augmentation.tacil.dynamics.checkpoint import load_dynamics_model
 from scripts.shared.data import load_episode_dataset, upload_episode_dataset
+from scripts.shared.logging import create_logger, log_device_info
 from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
+from scripts.shared.seed import set_seed
 
 logger = create_logger()
 

@@ -30,7 +30,6 @@ from torch.utils.data import DataLoader
 from tqdm.auto import tqdm
 from wandb import Run
 
-from scripts.ashared import create_logger, log_device_info, set_seed
 from scripts.evaluation.bryan.evaluation import RewardStatistics, evaluate_policy
 from scripts.policies.bc.config import Config
 from scripts.policies.bc.dataset import SingleStepDataset
@@ -41,7 +40,9 @@ from scripts.policies.bc.policy import (
 )
 from scripts.policies.shared.stat import Checkpoint
 from scripts.shared.data import load_episode_dataset
+from scripts.shared.logging import create_logger, log_device_info
 from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
+from scripts.shared.seed import set_seed
 
 logger = create_logger()
 

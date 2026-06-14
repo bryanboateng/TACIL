@@ -10,13 +10,13 @@ from numpy.random import Generator
 from rich.pretty import pretty_repr
 from wandb import Run
 
-from scripts.ashared import create_logger
 from scripts.shared.data import (
     EpisodeDataset,
     load_episode_dataset,
     save_episode_dataset,
     upload_episode_dataset,
 )
+from scripts.shared.logging import create_logger
 from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
 
 logger = create_logger()

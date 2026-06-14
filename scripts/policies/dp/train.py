@@ -11,7 +11,6 @@ from diffusers.training_utils import EMAModel
 from rich.pretty import pretty_repr
 from tqdm.auto import tqdm
 
-from scripts.ashared import create_logger, log_device_info, set_seed
 from scripts.evaluation.bryan.evaluation import RewardStatistics, evaluate_policy
 from scripts.policies.dp.config import Config, DimensionalityConfig, HorizonLengthConfig
 from scripts.policies.dp.dataset import PushTWindowDataset
@@ -21,7 +20,9 @@ from scripts.policies.dp.noise_scheduler import get_noise_scheduler
 from scripts.policies.dp.policy import load_diffusion_policy, save_diffusion_policy
 from scripts.policies.shared.stat import Checkpoint
 from scripts.shared.data import load_episode_dataset
+from scripts.shared.logging import create_logger, log_device_info
 from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
+from scripts.shared.seed import set_seed
 
 logger = create_logger()
 
