@@ -1,11 +1,13 @@
 import logging
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
+import wandb
 import zarr
 from numpy import typing as npt
-from wandb import Artifact
+from wandb import Artifact, Run
 from zarr import Array, Group
 
 
@@ -17,33 +19,14 @@ class EpisodeDataset:
 
 
 def save_episode_dataset(*, episode_dataset: EpisodeDataset, save_file_path: Path):
-    root = zarr.open(store=save_file_path, mode="w")
+    root = zarr.open_group(str(save_file_path), mode="w")
 
-    assert isinstance(root, Group)
+    data_group = root.create_group("data")
+    data_group.create_array("state", data=episode_dataset.states)
+    data_group.create_array("action", data=episode_dataset.actions)
 
-    root.create_array(
-        "data/state",
-        data=episode_dataset.states,
-        chunks=(
-            min(1024, len(episode_dataset.states)),
-            episode_dataset.states.shape[1],
-        ),
-    )
-
-    root.create_array(
-        "data/action",
-        data=episode_dataset.actions,
-        chunks=(
-            min(1024, len(episode_dataset.actions)),
-            episode_dataset.actions.shape[1],
-        ),
-    )
-
-    root.create_array(
-        "meta/episode_ends",
-        data=episode_dataset.episode_end_indices,
-        chunks=(min(1024, len(episode_dataset.episode_end_indices)),),
-    )
+    meta_group = root.create_group("meta")
+    meta_group.create_array("episode_ends", data=episode_dataset.episode_end_indices)
 
 
 def load_episode_dataset(*, episode_file_path: Path) -> EpisodeDataset:
@@ -84,3 +67,16 @@ def load_episode_dataset(*, episode_file_path: Path) -> EpisodeDataset:
         actions=_get(key="data/action", dtype=np.float32),
         episode_end_indices=_get(key="meta/episode_ends", dtype=np.int64),
     )
+
+
+def upload_episode_dataset(episode_dataset: EpisodeDataset, name: str, run: Run):
+    with tempfile.TemporaryDirectory() as temporary_directory:
+        output_zarr_path = Path(temporary_directory) / "dataset.zarr"
+
+        save_episode_dataset(
+            episode_dataset=episode_dataset, save_file_path=output_zarr_path
+        )
+
+        new_artifact = wandb.Artifact(name=f"{name}-{run.name}", type="dataset")
+        new_artifact.add_dir(local_path=str(output_zarr_path))
+        run.log_artifact(artifact_or_path=new_artifact)

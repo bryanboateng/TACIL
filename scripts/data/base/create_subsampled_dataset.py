@@ -13,6 +13,7 @@ from scripts.shared.data import (
     EpisodeDataset,
     load_episode_dataset,
     save_episode_dataset,
+    upload_episode_dataset,
 )
 from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
 
@@ -60,7 +61,11 @@ def _run(*, config: Config):
             run=run,
         )
 
-        _upload_dataset(subsampled_episode_dataset=subsampled_episode_dataset, run=run)
+        upload_episode_dataset(
+            episode_dataset=subsampled_episode_dataset,
+            name="subsampled-dataset",
+            run=run,
+        )
 
 
 def _subsample_episodes(
@@ -143,21 +148,6 @@ def _log_dataset_statistics(
             "fraction_of_source": (selected_transition_count / expert_transition_count),
         },
     }
-
-
-def _upload_dataset(subsampled_episode_dataset: EpisodeDataset, run: Run):
-    with tempfile.TemporaryDirectory() as temporary_directory:
-        output_zarr_path = Path(temporary_directory) / "dataset.zarr"
-
-        save_episode_dataset(
-            episode_dataset=subsampled_episode_dataset, save_file_path=output_zarr_path
-        )
-
-        new_artifact = wandb.Artifact(
-            name=f"subsampled-dataset-{run.name}", type="dataset"
-        )
-        new_artifact.add_dir(local_path=str(output_zarr_path))
-        run.log_artifact(artifact_or_path=new_artifact)
 
 
 if __name__ == "__main__":
