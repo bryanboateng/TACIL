@@ -2,7 +2,7 @@ import numpy as np
 import wandb
 from wandb import Run
 
-from scripts.data.augmentation.tacil.create_data.create_augmented_data import (
+from scripts.data.augmentation.tacil.create_data.episode_assembly import (
     AugmentationResult,
 )
 
