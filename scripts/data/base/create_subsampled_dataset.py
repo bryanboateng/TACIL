@@ -12,7 +12,7 @@ from scripts.shared.data import (
     load_episode_dataset,
     upload_episode_dataset,
 )
-from scripts.shared.logging import create_logger
+from scripts.shared.log import create_logger
 from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
 
 logger = create_logger()

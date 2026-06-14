@@ -21,7 +21,7 @@ from scripts.data.augmentation.tacil.create_data.statistics_logging import (
 )
 from scripts.data.augmentation.tacil.dynamics.checkpoint import load_dynamics_model
 from scripts.shared.data import load_episode_dataset, upload_episode_dataset
-from scripts.shared.logging import create_logger, log_device_info
+from scripts.shared.log import create_logger, log_device_info
 from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
 from scripts.shared.seed import set_seed
 
