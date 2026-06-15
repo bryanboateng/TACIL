@@ -52,7 +52,7 @@ class BehaviorCloningPolicy(torch.nn.Module):
             hidden_dimensionality=hidden_dimensionality,
         )
 
-        # Placeholders, overwritten by compute_normalization_ranges() or load_state_dict().
+        # Placeholders, overwritten later
         self.observation_normalizer = MinMaxNormalizer(
             minimum=torch.zeros(observation_dimensionality),
             maximum=torch.ones(observation_dimensionality),

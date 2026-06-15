@@ -2,12 +2,11 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
-import log
 import numpy as np
 import wandb
 import zarr
 from numpy import typing as npt
-from wandb import Artifact, Run
+from wandb import Run
 from zarr import Array, Group
 
 

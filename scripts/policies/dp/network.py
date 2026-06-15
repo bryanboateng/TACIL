@@ -111,7 +111,7 @@ class ConditionalUnet1d(torch.nn.Module):
             ),
         )
 
-        # Placeholders, overwritten by set_normalization_ranges() or load_state_dict().
+        # Placeholders, overwritten later
         self.observation_normalizer = MinMaxNormalizer(
             minimum=torch.zeros(observation_dimensionality),
             maximum=torch.ones(observation_dimensionality),

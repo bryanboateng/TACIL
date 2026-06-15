@@ -32,10 +32,20 @@ def get_anchor_indices(
     episode_end_indices: npt.NDArray[np.int64],  # (episode_count,)
     expert_part_length: int,
 ) -> npt.NDArray[np.int64]:  # (anchor_count,)
-    mask = np.ones(
+    episode_start_indices = np.concatenate(
+        (np.zeros(shape=1, dtype=episode_end_indices.dtype), episode_end_indices[:-1])
+    )  # (episode_count,)
+
+    mask = np.zeros(
         shape=episode_end_indices[-1], dtype=bool
     )  # (total_transition_count,)
-    mask[episode_end_indices - expert_part_length] = False
+    for episode_start_index, episode_end_index in zip(
+        episode_start_indices, episode_end_indices
+    ):
+        last_anchor_index = episode_end_index - expert_part_length
+        if last_anchor_index >= episode_start_index:
+            mask[episode_start_index : last_anchor_index + 1] = True
+
     return np.flatnonzero(mask).astype(episode_end_indices.dtype, copy=False)
 
 

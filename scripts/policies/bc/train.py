@@ -160,13 +160,13 @@ def _run(*, config: Config) -> None:
 
 def _upload_policy(*, policy: BehaviorCloningPolicy, run: Run) -> None:
     with tempfile.TemporaryDirectory() as temporary_directory:
-        checkpoint_path = Path(temporary_directory) / "policy.pt"
+        checkpoint_path = Path(temporary_directory) / "checkpoint.pt"
         save_behavior_cloning_policy(policy=policy, path=checkpoint_path)
 
         model_artifact = wandb.Artifact(
             name=f"behavior-cloning-policy-{run.name}", type="model"
         )
-        model_artifact.add_file(local_path=str(checkpoint_path), name="policy.pt")
+        model_artifact.add_file(local_path=str(checkpoint_path), name="checkpoint.pt")
         run.log_artifact(model_artifact).wait()
 
 
