@@ -101,11 +101,11 @@ def _run(*, config: Config) -> None:
 
                 optimizer.zero_grad()
 
-                predicted_raw_action = policy.predict_action(
+                predicted_action_batch = policy.predict_action(
                     observation=observation_batch
                 )  # (batch_size, action_dimensionality)
                 loss = loss_function(
-                    policy.normalize_action(action=predicted_raw_action),
+                    policy.normalize_action(action=predicted_action_batch),
                     policy.normalize_action(action=action_batch),
                 )
 
@@ -116,10 +116,8 @@ def _run(*, config: Config) -> None:
                 run.log(data={"train/loss": loss.item()})
 
             periodic_eval_is_due = (
-                epoch_index + 1
-            ) % config.evaluation.periodic_interval_epoch_count == 0 or (
-                epoch_index + 1
-            ) == config.optimization.epoch_count
+                (epoch_index + 1) % config.evaluation.periodic_interval_epoch_count == 0
+            ) or ((epoch_index + 1) == config.optimization.epoch_count)
             if not periodic_eval_is_due:
                 continue
 
@@ -152,16 +150,11 @@ def _run(*, config: Config) -> None:
         if best_checkpoint is None:
             raise ValueError("No checkpoint was recorded")
 
-        policy.load_state_dict(state_dict=best_checkpoint.state_dict)
-        logger.info(
-            "Selected best epoch %d (validation mean %.4f).",
-            best_checkpoint.epoch,
-            best_checkpoint.validation_reward_mean,
-        )
         run.summary["selected/epoch"] = best_checkpoint.epoch
         run.summary["selected/reward_mean"] = best_checkpoint.validation_reward_mean
         run.summary["selected/reward_std"] = best_checkpoint.validation_reward_std
 
+        policy.load_state_dict(state_dict=best_checkpoint.state_dict)
         _upload_policy(policy=policy, run=run)
 
 
