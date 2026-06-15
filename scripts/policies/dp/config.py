@@ -26,8 +26,8 @@ class OptimizationConfig:
 
 @dataclass(frozen=True)
 class EvaluationConfig:
-    periodic_interval_epoch_count: int = 25
-    episode_seeds: tuple[int, ...] = tuple(range(100_000, 100_015))
+    periodic_interval_epoch_count: int = 20
+    episode_count: int = 30
 
 
 @dataclass(frozen=True)

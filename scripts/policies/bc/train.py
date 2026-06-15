@@ -130,7 +130,7 @@ def _run(*, config: Config) -> None:
             save_behavior_cloning_policy(policy=policy, path=checkpoint_path)
             validation_result = _evaluate(
                 checkpoint_path=checkpoint_path,
-                episode_seeds=config.evaluation.episode_seeds,
+                episode_count=config.evaluation.episode_count,
                 device=device,
             )
             run.log(
@@ -180,14 +180,15 @@ def _upload_policy(*, policy: BehaviorCloningPolicy, run: Run) -> None:
 
 
 def _evaluate(
-    *, checkpoint_path: Path, episode_seeds: tuple[int, ...], device: torch.device
+    *, checkpoint_path: Path, episode_count: int, device: torch.device
 ) -> RewardStatistics:
     policy_factory = load_behavior_cloning_policy(
         checkpoint_path=checkpoint_path, device=device
     )
     return evaluate_policy(
         policy_factory=policy_factory,
-        episode_seeds=episode_seeds,
+        something=100_000,
+        episode_count=episode_count,
         disturber_config=None,
         description="Validation",
     )

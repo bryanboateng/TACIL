@@ -25,6 +25,5 @@ class Config:
         | Annotated[gpi.Config, tyro.conf.subcommand(name="gpi")]
     )
     disturbance: DisturberConfig
-
-    episode_seeds: tuple[int, ...] = tuple(range(1_000_000, 1_000_050))
+    episode_count: int = 100
     seed: int = 42

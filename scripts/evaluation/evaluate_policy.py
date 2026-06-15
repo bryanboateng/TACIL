@@ -49,11 +49,13 @@ def _run(*, config: Config) -> None:
         config=asdict(config),
         dir=OUTPUT_DIRECTORY_PATH,
     ) as run:
+        something = 1_000_000
         policy_factory = _build_policy_factory(config=config, run=run, device=device)
 
         clean_result = evaluate_policy(
             policy_factory=policy_factory,
-            episode_seeds=config.episode_seeds,
+            something=something,
+            episode_count=config.episode_count,
             disturber_config=None,
             description="Undisturbed",
         )
@@ -61,7 +63,8 @@ def _run(*, config: Config) -> None:
 
         disturbed_result = evaluate_policy(
             policy_factory=policy_factory,
-            episode_seeds=config.episode_seeds,
+            something=something,
+            episode_count=config.episode_count,
             disturber_config=config.disturbance,
             description="Disturbed",
         )
