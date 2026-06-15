@@ -74,9 +74,12 @@ def _run(*, config: Config) -> None:
             observation_dimensionality=config.dimensionality.observation,
             action_dimensionality=config.dimensionality.action,
             hidden_dimensionality=config.dimensionality.hidden,
-            observation_normalization_range=dataset.observation_normalization_range,
-            action_normalization_range=dataset.action_normalization_range,
         ).to(device=device)
+
+        policy.compute_normalization_ranges(
+            observation_batch=dataset.states.to(device=device),
+            action_batch=dataset.actions.to(device=device),
+        )
 
         optimizer = Adam(
             params=policy.parameters(), lr=config.optimization.learning_rate
@@ -98,18 +101,12 @@ def _run(*, config: Config) -> None:
 
                 optimizer.zero_grad()
 
-                # The dataset returns RAW values; the model normalizes the observation,
-                # and we compare its normalized prediction against the normalized target.
-                predicted_normalized_action = policy(
-                    normalized_observation=policy.normalize_observation(
-                        observation=observation_batch
-                    )
-                )  # (batch_size, action_dimensionality)
-                target_normalized_action = policy.normalize_action(
-                    action=action_batch
+                predicted_raw_action = policy.predict_action(
+                    observation=observation_batch
                 )  # (batch_size, action_dimensionality)
                 loss = loss_function(
-                    predicted_normalized_action, target_normalized_action
+                    policy.normalize_action(action=predicted_raw_action),
+                    policy.normalize_action(action=action_batch),
                 )
 
                 loss.backward()

@@ -6,7 +6,6 @@ import torch
 
 from scripts.policies.dp.network import ConditionalUnet1d
 from scripts.policies.dp.noise_scheduler import get_noise_scheduler
-from scripts.shared.normalization_range import NormalizationRange
 from scripts.shared.paths import PROJECT_ROOT_DIRECTORY_PATH
 from scripts.shared.policy_types import Policy, PolicyFactory
 
@@ -14,9 +13,7 @@ from scripts.shared.policy_types import Policy, PolicyFactory
 def save_diffusion_policy(
     *,
     path: Path,
-    noise_prediction_network: torch.nn.Module,
-    observation_normalization_range: NormalizationRange,
-    action_normalization_range: NormalizationRange,
+    noise_prediction_network: ConditionalUnet1d,
     action_dimensionality: int,
     condition_dimensionality: int,
     hidden_channel_counts: tuple[int, ...],
@@ -28,14 +25,7 @@ def save_diffusion_policy(
     torch.save(
         obj={
             "noise_prediction_network_state_dict": noise_prediction_network.state_dict(),
-            "observation_normalization_range": {
-                "minimum": observation_normalization_range.minimum,
-                "maximum": observation_normalization_range.maximum,
-            },
-            "action_normalization_range": {
-                "minimum": action_normalization_range.minimum,
-                "maximum": action_normalization_range.maximum,
-            },
+            "observation_dimensionality": noise_prediction_network.observation_dimensionality,
             "action_dimensionality": action_dimensionality,
             "condition_dimensionality": condition_dimensionality,
             "hidden_channel_counts": hidden_channel_counts,
@@ -65,15 +55,9 @@ def load_diffusion_policy(
         diffusion_timestep_count=diffusion_timestep_count
     )
 
-    observation_normalization_range = NormalizationRange(
-        **checkpoint["observation_normalization_range"]
-    )
-    action_normalization_range = NormalizationRange(
-        **checkpoint["action_normalization_range"]
-    )
-
     noise_prediction_network = ConditionalUnet1d(
         input_channel_count=action_dimensionality,
+        observation_dimensionality=checkpoint["observation_dimensionality"],
         condition_dimensionality=checkpoint["condition_dimensionality"],
         hidden_channel_counts=checkpoint["hidden_channel_counts"],
     ).to(device)
@@ -103,8 +87,10 @@ def load_diffusion_policy(
             observation_history = torch.from_numpy(np.stack(observation_deque)).to(
                 device=device, dtype=torch.float32
             )  # (observation_horizon_length, observation_dimensionality)
-            normalized_observation_history = observation_normalization_range.normalize(
-                values=observation_history
+            normalized_observation_history = (
+                noise_prediction_network.observation_normalization_range().normalize(
+                    values=observation_history
+                )
             )  # (observation_horizon_length, observation_dimensionality)
             condition_batch = normalized_observation_history.unsqueeze(dim=0).flatten(
                 1
@@ -134,7 +120,8 @@ def load_diffusion_policy(
 
                 # Loop has finished: denoising_state is now the predicted normalized action sequence.
                 predicted_action_sequence = (
-                    action_normalization_range.denormalize(values=denoising_state[0])
+                    noise_prediction_network.action_normalization_range()
+                    .denormalize(values=denoising_state[0])
                     .cpu()
                     .numpy()
                 )  # (prediction_horizon_length, action_dimensionality)

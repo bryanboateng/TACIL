@@ -48,6 +48,7 @@ def _run(*, config: Config) -> None:
 
     noise_prediction_network = ConditionalUnet1d(
         input_channel_count=config.dimensionality.action,
+        observation_dimensionality=config.dimensionality.observation,
         condition_dimensionality=condition_dimensionality,
         hidden_channel_counts=config.hidden_channel_counts,
     ).to(device=device)
@@ -85,6 +86,11 @@ def _run(*, config: Config) -> None:
             prediction_horizon_length=config.horizon_length.prediction,
             observation_horizon_length=config.horizon_length.observation,
             action_horizon_length=config.horizon_length.action,
+        )
+
+        noise_prediction_network.set_normalization_ranges(
+            observation_normalization_range=dataset.observation_normalization_range,
+            action_normalization_range=dataset.action_normalization_range,
         )
 
         dataloader = torch.utils.data.DataLoader(
@@ -175,7 +181,6 @@ def _run(*, config: Config) -> None:
                 path=checkpoint_path,
                 network=noise_prediction_network,
                 ema=noise_prediction_network_ema,
-                dataset=dataset,
                 horizon_length=config.horizon_length,
                 dimensionality=config.dimensionality,
                 condition_dimensionality=condition_dimensionality,
@@ -223,8 +228,6 @@ def _run(*, config: Config) -> None:
         save_diffusion_policy(
             path=final_path,
             noise_prediction_network=noise_prediction_network,
-            observation_normalization_range=dataset.observation_normalization_range,
-            action_normalization_range=dataset.action_normalization_range,
             action_dimensionality=config.dimensionality.action,
             condition_dimensionality=condition_dimensionality,
             hidden_channel_counts=config.hidden_channel_counts,
@@ -259,7 +262,6 @@ def _save_ema_checkpoint(
     path: Path,
     network: ConditionalUnet1d,
     ema: EMAModel,
-    dataset: PushTWindowDataset,
     horizon_length: HorizonLengthConfig,
     dimensionality: DimensionalityConfig,
     condition_dimensionality: int,
@@ -278,8 +280,6 @@ def _save_ema_checkpoint(
         save_diffusion_policy(
             path=path,
             noise_prediction_network=network,
-            observation_normalization_range=dataset.observation_normalization_range,
-            action_normalization_range=dataset.action_normalization_range,
             action_dimensionality=dimensionality.action,
             condition_dimensionality=condition_dimensionality,
             hidden_channel_counts=hidden_channel_counts,

@@ -2,16 +2,27 @@ import math
 
 import torch
 
+from scripts.shared.normalization_range import NormalizationRange
+
 
 class ConditionalUnet1d(torch.nn.Module):
+    _observation_minimum: torch.Tensor  # (observation_dimensionality,)
+    _observation_maximum: torch.Tensor  # (observation_dimensionality,)
+    _action_minimum: torch.Tensor  # (action_dimensionality,)
+    _action_maximum: torch.Tensor  # (action_dimensionality,)
+
     def __init__(
         self,
         *,
         input_channel_count: int,
+        observation_dimensionality: int,
         condition_dimensionality: int,
         hidden_channel_counts: tuple[int, ...],
     ) -> None:
         super().__init__()
+
+        self.observation_dimensionality = observation_dimensionality
+        self.action_dimensionality = input_channel_count
 
         kernel_size = 5
         channel_counts = [input_channel_count, *hidden_channel_counts]
@@ -100,6 +111,38 @@ class ConditionalUnet1d(torch.nn.Module):
                 out_channels=input_channel_count,
                 kernel_size=1,
             ),
+        )
+
+        # Placeholders; overwritten by set_normalization_ranges() or load_state_dict().
+        self.register_buffer(
+            "_observation_minimum", torch.zeros(observation_dimensionality)
+        )
+        self.register_buffer(
+            "_observation_maximum", torch.ones(observation_dimensionality)
+        )
+        self.register_buffer("_action_minimum", torch.zeros(input_channel_count))
+        self.register_buffer("_action_maximum", torch.ones(input_channel_count))
+
+    @torch.no_grad()
+    def set_normalization_ranges(
+        self,
+        *,
+        observation_normalization_range: NormalizationRange,
+        action_normalization_range: NormalizationRange,
+    ) -> None:
+        self._observation_minimum.copy_(observation_normalization_range.minimum)
+        self._observation_maximum.copy_(observation_normalization_range.maximum)
+        self._action_minimum.copy_(action_normalization_range.minimum)
+        self._action_maximum.copy_(action_normalization_range.maximum)
+
+    def observation_normalization_range(self) -> NormalizationRange:
+        return NormalizationRange(
+            minimum=self._observation_minimum, maximum=self._observation_maximum
+        )
+
+    def action_normalization_range(self) -> NormalizationRange:
+        return NormalizationRange(
+            minimum=self._action_minimum, maximum=self._action_maximum
         )
 
     def forward(

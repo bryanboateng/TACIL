@@ -35,8 +35,6 @@ class BehaviorCloningPolicy(torch.nn.Module):
         observation_dimensionality: int,
         action_dimensionality: int,
         hidden_dimensionality: int,
-        observation_normalization_range: NormalizationRange,
-        action_normalization_range: NormalizationRange,
     ) -> None:
         super().__init__()
 
@@ -50,40 +48,36 @@ class BehaviorCloningPolicy(torch.nn.Module):
             hidden_dimensionality=hidden_dimensionality,
         )
 
-        # Buffers: saved in state_dict(), moved by .to(device), never receive gradients.
+        # Placeholders; overwritten by compute_normalization_ranges() or load_state_dict().
         self.register_buffer(
-            "_observation_minimum",
-            torch.as_tensor(
-                observation_normalization_range.minimum, dtype=torch.float32
-            ).clone(),
-        )  # (observation_dimensionality,)
+            "_observation_minimum", torch.zeros(observation_dimensionality)
+        )
         self.register_buffer(
-            "_observation_maximum",
-            torch.as_tensor(
-                observation_normalization_range.maximum, dtype=torch.float32
-            ).clone(),
-        )  # (observation_dimensionality,)
-        self.register_buffer(
-            "_action_minimum",
-            torch.as_tensor(
-                action_normalization_range.minimum, dtype=torch.float32
-            ).clone(),
-        )  # (action_dimensionality,)
-        self.register_buffer(
-            "_action_maximum",
-            torch.as_tensor(
-                action_normalization_range.maximum, dtype=torch.float32
-            ).clone(),
-        )  # (action_dimensionality,)
+            "_observation_maximum", torch.ones(observation_dimensionality)
+        )
+        self.register_buffer("_action_minimum", torch.zeros(action_dimensionality))
+        self.register_buffer("_action_maximum", torch.ones(action_dimensionality))
+
+    @torch.no_grad()
+    def compute_normalization_ranges(
+        self,
+        *,
+        observation_batch: torch.Tensor,  # (N, observation_dimensionality)
+        action_batch: torch.Tensor,  # (N, action_dimensionality)
+    ) -> None:
+        obs_range = NormalizationRange.from_values(values=observation_batch)
+        action_range = NormalizationRange.from_values(values=action_batch)
+        self._observation_minimum.copy_(obs_range.minimum)
+        self._observation_maximum.copy_(obs_range.maximum)
+        self._action_minimum.copy_(action_range.minimum)
+        self._action_maximum.copy_(action_range.maximum)
 
     def observation_normalization_range(self) -> NormalizationRange:
-        """The fitted observation range, reconstructed from the buffers."""
         return NormalizationRange(
             minimum=self._observation_minimum, maximum=self._observation_maximum
         )
 
     def action_normalization_range(self) -> NormalizationRange:
-        """The fitted action range, reconstructed from the buffers."""
         return NormalizationRange(
             minimum=self._action_minimum, maximum=self._action_maximum
         )
@@ -102,19 +96,12 @@ class BehaviorCloningPolicy(torch.nn.Module):
     ) -> torch.Tensor:  # (batch_size, action_dimensionality)
         return self.action_normalization_range().normalize(values=action)
 
-    def forward(
+    def predict_action(
         self,
         *,
-        normalized_observation: torch.Tensor,  # (batch_size, observation_dimensionality)
+        observation: torch.Tensor,  # (batch_size, observation_dimensionality)
     ) -> torch.Tensor:  # (batch_size, action_dimensionality)
-        """Normalized observation -> normalized action (use this for the training loss)."""
-        return self.network(normalized_observation)
-
-    @torch.no_grad()
-    def act(self, *, observation: torch.Tensor) -> torch.Tensor:
-        """Raw observation -> raw action (use this for rollout / evaluation)."""
-        # observation: (batch_size, observation_dimensionality)
-        # return: (batch_size, action_dimensionality)
+        """Raw observation -> raw action."""
         normalized_action = self.network(
             self.normalize_observation(observation=observation)
         )  # (batch_size, action_dimensionality)
@@ -143,27 +130,10 @@ def load_behavior_cloning_policy(
         f=PROJECT_ROOT_DIRECTORY_PATH / checkpoint_path, map_location=device
     )
 
-    observation_dimensionality = checkpoint["observation_dimensionality"]
-    action_dimensionality = checkpoint["action_dimensionality"]
-    hidden_dimensionality = checkpoint["hidden_dimensionality"]
-
-    # The real range values come from the state_dict below; these are just correctly
-    # shaped placeholders so the buffers exist before load_state_dict overwrites them.
-    placeholder_observation_range = NormalizationRange(
-        minimum=torch.zeros(observation_dimensionality),
-        maximum=torch.ones(observation_dimensionality),
-    )
-    placeholder_action_range = NormalizationRange(
-        minimum=torch.zeros(action_dimensionality),
-        maximum=torch.ones(action_dimensionality),
-    )
-
     policy_model = BehaviorCloningPolicy(
-        observation_dimensionality=observation_dimensionality,
-        action_dimensionality=action_dimensionality,
-        hidden_dimensionality=hidden_dimensionality,
-        observation_normalization_range=placeholder_observation_range,
-        action_normalization_range=placeholder_action_range,
+        observation_dimensionality=checkpoint["observation_dimensionality"],
+        action_dimensionality=checkpoint["action_dimensionality"],
+        hidden_dimensionality=checkpoint["hidden_dimensionality"],
     ).to(device=device)
     policy_model.load_state_dict(state_dict=checkpoint["policy_state_dict"])
     policy_model.eval()
@@ -175,9 +145,10 @@ def load_behavior_cloning_policy(
             observation_tensor = torch.from_numpy(np.asarray(observation)).to(
                 device=device, dtype=torch.float32
             )  # (observation_dimensionality,)
-            action_tensor = policy_model.act(
-                observation=observation_tensor.unsqueeze(dim=0)
-            )  # (1, action_dimensionality)
+            with torch.no_grad():
+                action_tensor = policy_model.predict_action(
+                    observation=observation_tensor.unsqueeze(dim=0)
+                )  # (1, action_dimensionality)
             return (
                 action_tensor.squeeze(dim=0).cpu().numpy()
             )  # (action_dimensionality,)
