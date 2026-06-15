@@ -11,10 +11,10 @@ from rich.pretty import pretty_repr
 from wandb import Run
 
 from scripts.shared.data import (
-    EpisodeDataset,
-    load_episode_dataset,
-    save_episode_dataset,
-    upload_episode_dataset,
+    EpisodeStore,
+    load_episode_store,
+    save_episode_store,
+    upload_episode_store,
 )
 from scripts.shared.log import create_logger
 from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
@@ -51,14 +51,14 @@ def _run(*, config: Config):
         config=asdict(config),
         dir=OUTPUT_DIRECTORY_PATH,
     ) as run:
-        source_episode_dataset = load_episode_dataset(
+        source_episode_store = load_episode_store(
             episode_file_path=Path(
                 run.use_artifact(artifact_or_name=config.dataset_artifact).download()
             )
         )
 
-        augmented_episode_dataset = _augment_with_noisy_episodes(
-            episode_dataset=source_episode_dataset,
+        augmented_episode_store = _augment_with_noisy_episodes(
+            episode_store=source_episode_store,
             window_length=config.window_length,
             augmentation_ratio=config.augmentation_ratio,
             noise_scale=config.noise_scale,
@@ -66,31 +66,31 @@ def _run(*, config: Config):
         )
 
         _log_dataset_statistics(
-            source_episode_dataset=source_episode_dataset,
-            augmented_episode_dataset=augmented_episode_dataset,
+            source_episode_store=source_episode_store,
+            augmented_episode_store=augmented_episode_store,
             run=run,
         )
 
-        upload_episode_dataset(
-            episode_dataset=augmented_episode_dataset, name="noisy-dataset", run=run
+        upload_episode_store(
+            episode_store=augmented_episode_store, name="noisy-dataset", run=run
         )
 
 
 def _augment_with_noisy_episodes(
     *,
-    episode_dataset: EpisodeDataset,
+    episode_store: EpisodeStore,
     window_length: int,
     augmentation_ratio: float,
     noise_scale: float,
     rng: Generator,
-) -> EpisodeDataset:
+) -> EpisodeStore:
 
     noise_std = compute_noise_std(
-        samples=episode_dataset.states, noise_scale=noise_scale
+        samples=episode_store.states, noise_scale=noise_scale
     )  # (state_dimensionality,)
 
     sliding_window_slices = _get_sliding_window_slices(
-        episode_end_indices=episode_dataset.episode_end_indices,
+        episode_end_indices=episode_store.episode_end_indices,
         window_length=window_length,
     )
 
@@ -101,30 +101,30 @@ def _augment_with_noisy_episodes(
     )  # (sampled_window_count,)
 
     augmented_states: list[npt.NDArray[np.float32]] = [
-        episode_dataset.states
+        episode_store.states
     ]  # (original_transition_count, state_dimensionality)
     augmented_actions: list[npt.NDArray[np.float32]] = [
-        episode_dataset.actions
+        episode_store.actions
     ]  # (original_transition_count, action_dimensionality)
     augmented_episode_end_indices: list[int] = []
 
     # End indices continue from the original data, since the noisy episodes are appended after it.
-    cumulative_end_index = int(episode_dataset.episode_end_indices[-1])
+    cumulative_end_index = int(episode_store.episode_end_indices[-1])
 
     for sampled_window_index in sampled_window_indices:
         window_slice = sliding_window_slices[int(sampled_window_index)]
 
-        window_states = episode_dataset.states[
+        window_states = episode_store.states[
             window_slice
         ]  # (window_length, state_dimensionality)
-        window_actions = episode_dataset.actions[
+        window_actions = episode_store.actions[
             window_slice
         ]  # (window_length, action_dimensionality)
 
         state_noise = rng.normal(
             loc=0.0,
             scale=noise_std,
-            size=(window_length, episode_dataset.states.shape[1]),
+            size=(window_length, episode_store.states.shape[1]),
         ).astype(dtype=window_states.dtype)  # (window_length, state_dimensionality)
 
         augmented_states.append(window_states + state_noise)
@@ -133,7 +133,7 @@ def _augment_with_noisy_episodes(
         cumulative_end_index += window_length
         augmented_episode_end_indices.append(cumulative_end_index)
 
-    return EpisodeDataset(
+    return EpisodeStore(
         states=np.concatenate(
             augmented_states, axis=0
         ),  # (original_transition_count + sampled_window_count * window_length, state_dimensionality)
@@ -142,10 +142,10 @@ def _augment_with_noisy_episodes(
         ),  # (original_transition_count + sampled_window_count * window_length, action_dimensionality)
         episode_end_indices=np.concatenate(
             [
-                episode_dataset.episode_end_indices,
+                episode_store.episode_end_indices,
                 np.asarray(
                     augmented_episode_end_indices,
-                    dtype=episode_dataset.episode_end_indices.dtype,
+                    dtype=episode_store.episode_end_indices.dtype,
                 ),
             ]
         ),  # (original_episode_count + sampled_window_count,)
@@ -212,12 +212,10 @@ def compute_noise_std(
 
 
 def _log_dataset_statistics(
-    source_episode_dataset: EpisodeDataset,
-    augmented_episode_dataset: EpisodeDataset,
-    run: Run,
+    source_episode_store: EpisodeStore, augmented_episode_store: EpisodeStore, run: Run
 ):
-    source_episode_count = len(source_episode_dataset.episode_end_indices)
-    source_transition_count = len(source_episode_dataset.states)
+    source_episode_count = len(source_episode_store.episode_end_indices)
+    source_transition_count = len(source_episode_store.states)
 
     run.summary["source_dataset"] = {
         "episode_count": source_episode_count,
@@ -225,11 +223,9 @@ def _log_dataset_statistics(
     }
 
     new_episode_count = (
-        len(augmented_episode_dataset.episode_end_indices) - source_episode_count
+        len(augmented_episode_store.episode_end_indices) - source_episode_count
     )
-    new_transition_count = (
-        len(augmented_episode_dataset.states) - source_transition_count
-    )
+    new_transition_count = len(augmented_episode_store.states) - source_transition_count
 
     run.summary["added"] = {
         "episodes": {
@@ -242,8 +238,8 @@ def _log_dataset_statistics(
         },
     }
 
-    dataset_episode_count = len(augmented_episode_dataset.episode_end_indices)
-    dataset_transition_count = len(augmented_episode_dataset.states)
+    dataset_episode_count = len(augmented_episode_store.episode_end_indices)
+    dataset_transition_count = len(augmented_episode_store.states)
 
     run.summary["augmented_dataset"] = {
         "episodes": {

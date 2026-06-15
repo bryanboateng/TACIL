@@ -7,11 +7,7 @@ import wandb
 from rich.pretty import pretty_repr
 from wandb import Run
 
-from scripts.shared.data import (
-    EpisodeDataset,
-    load_episode_dataset,
-    upload_episode_dataset,
-)
+from scripts.shared.data import EpisodeStore, load_episode_store, upload_episode_store
 from scripts.shared.log import create_logger
 from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
 
@@ -43,34 +39,32 @@ def _run(*, config: Config):
         config=asdict(config),
         dir=OUTPUT_DIRECTORY_PATH,
     ) as run:
-        expert_episode_dataset = load_episode_dataset(
+        expert_episode_store = load_episode_store(
             episode_file_path=Path(
                 run.use_artifact(artifact_or_name="expert-dataset:latest").download()
             )
         )
 
-        subsampled_episode_dataset = _subsample_episodes(
-            episode_dataset=expert_episode_dataset, fraction=config.fraction, rng=rng
+        subsampled_episode_store = _subsample_episodes(
+            episode_store=expert_episode_store, fraction=config.fraction, rng=rng
         )
 
         _log_dataset_statistics(
-            expert_episode_dataset=expert_episode_dataset,
-            subsampled_episode_dataset=subsampled_episode_dataset,
+            expert_episode_store=expert_episode_store,
+            subsampled_episode_store=subsampled_episode_store,
             run=run,
         )
 
-        upload_episode_dataset(
-            episode_dataset=subsampled_episode_dataset,
-            name="subsampled-dataset",
-            run=run,
+        upload_episode_store(
+            episode_store=subsampled_episode_store, name="subsampled-dataset", run=run
         )
 
 
 def _subsample_episodes(
-    *, episode_dataset: EpisodeDataset, fraction: float, rng: np.random.Generator
-) -> EpisodeDataset:
+    *, episode_store: EpisodeStore, fraction: float, rng: np.random.Generator
+) -> EpisodeStore:
 
-    episode_count = len(episode_dataset.episode_end_indices)
+    episode_count = len(episode_store.episode_end_indices)
 
     selected_episode_indices = np.sort(
         a=rng.choice(a=episode_count, size=int(episode_count * fraction), replace=False)
@@ -78,8 +72,8 @@ def _subsample_episodes(
 
     episode_start_indices = np.concatenate(
         (
-            np.zeros(shape=1, dtype=episode_dataset.episode_end_indices.dtype),
-            episode_dataset.episode_end_indices[:-1],
+            np.zeros(shape=1, dtype=episode_store.episode_end_indices.dtype),
+            episode_store.episode_end_indices[:-1],
         )
     )  # (episode_count,)
 
@@ -92,7 +86,7 @@ def _subsample_episodes(
     for selected_episode_index in selected_episode_indices:
         selected_episode_index: int
         start_index: int = episode_start_indices[selected_episode_index]
-        end_index: int = episode_dataset.episode_end_indices[selected_episode_index]
+        end_index: int = episode_store.episode_end_indices[selected_episode_index]
 
         episode_transition_indices = np.arange(
             start_index, stop=end_index
@@ -107,11 +101,11 @@ def _subsample_episodes(
         selected_transition_indices_list
     )  # (selected_transition_count,)
 
-    return EpisodeDataset(
-        states=episode_dataset.states[
+    return EpisodeStore(
+        states=episode_store.states[
             selected_transition_indices_np_array
         ],  # (selected_transition_count, state_dimensionality)
-        actions=episode_dataset.actions[
+        actions=episode_store.actions[
             selected_transition_indices_np_array
         ],  # (selected_transition_count, action_dimensionality)
         episode_end_indices=np.asarray(
@@ -121,20 +115,18 @@ def _subsample_episodes(
 
 
 def _log_dataset_statistics(
-    expert_episode_dataset: EpisodeDataset,
-    subsampled_episode_dataset: EpisodeDataset,
-    run: Run,
+    expert_episode_store: EpisodeStore, subsampled_episode_store: EpisodeStore, run: Run
 ):
-    expert_episode_count = len(expert_episode_dataset.episode_end_indices)
-    expert_transition_count = len(expert_episode_dataset.states)
+    expert_episode_count = len(expert_episode_store.episode_end_indices)
+    expert_transition_count = len(expert_episode_store.states)
 
     run.summary["source_dataset"] = {
         "episode_count": expert_episode_count,
         "transitions_count": expert_transition_count,
     }
 
-    selected_episode_count = len(subsampled_episode_dataset.episode_end_indices)
-    selected_transition_count = len(subsampled_episode_dataset.states)
+    selected_episode_count = len(subsampled_episode_store.episode_end_indices)
+    selected_transition_count = len(subsampled_episode_store.states)
 
     run.summary["subsampled_dataset"] = {
         "episodes": {

@@ -9,7 +9,7 @@ _SILU_LIPSCHITZ_CONSTANT = 1.099839320
 class DynamicsModel(torch.nn.Module):
     state_normalizer: ZScoreNormalizer
     action_normalizer: ZScoreNormalizer
-    next_state_residual_normalizer: ZScoreNormalizer
+    state_displacement_normalizer: ZScoreNormalizer
 
     def __init__(
         self,
@@ -33,7 +33,8 @@ class DynamicsModel(torch.nn.Module):
             lipschitz_constant_upper_bound=lipschitz_constant_upper_bound,
         )
 
-        # Placeholders; overwritten by compute_normalization_stats() or load_state_dict().
+        # Placeholder normalizers
+        # They are overwritten later
         self.state_normalizer = ZScoreNormalizer(
             mean=torch.zeros(state_dimensionality), std=torch.ones(state_dimensionality)
         )
@@ -41,7 +42,7 @@ class DynamicsModel(torch.nn.Module):
             mean=torch.zeros(action_dimensionality),
             std=torch.ones(action_dimensionality),
         )
-        self.next_state_residual_normalizer = ZScoreNormalizer(
+        self.state_displacement_normalizer = ZScoreNormalizer(
             mean=torch.zeros(state_dimensionality), std=torch.ones(state_dimensionality)
         )
 
@@ -53,11 +54,10 @@ class DynamicsModel(torch.nn.Module):
         action_batch: torch.Tensor,  # (batch_size, action_dimensionality)
         next_state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
     ) -> None:
-        next_state_residual_batch = next_state_batch - state_batch
         self.state_normalizer = ZScoreNormalizer.from_values(value_batch=state_batch)
         self.action_normalizer = ZScoreNormalizer.from_values(value_batch=action_batch)
-        self.next_state_residual_normalizer = ZScoreNormalizer.from_values(
-            value_batch=next_state_residual_batch
+        self.state_displacement_normalizer = ZScoreNormalizer.from_values(
+            value_batch=next_state_batch - state_batch
         )
 
     def normalize_state(
@@ -80,7 +80,7 @@ class DynamicsModel(torch.nn.Module):
         state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
         action_batch: torch.Tensor,  # (batch_size, action_dimensionality)
     ) -> torch.Tensor:  # (batch_size, state_dimensionality)
-        normalized_residual_batch: torch.Tensor = self._network(
+        normalized_state_displacement_batch: torch.Tensor = self._network(
             torch.cat(
                 tensors=[
                     self.normalize_state(state_batch=state_batch),
@@ -90,10 +90,12 @@ class DynamicsModel(torch.nn.Module):
             )
         )  # (batch_size, state_dimensionality)
 
-        raw_residual = self.next_state_residual_normalizer.denormalize(
-            value_batch=normalized_residual_batch
+        state_displacement_batch = self.state_displacement_normalizer.denormalize(
+            value_batch=normalized_state_displacement_batch
         )  # (batch_size, state_dimensionality)
-        return state_batch + raw_residual  # (batch_size, state_dimensionality)
+        return (
+            state_batch + state_displacement_batch
+        )  # (batch_size, state_dimensionality)
 
     def local_lipschitz_constants(
         self,
@@ -140,7 +142,9 @@ def _create_network(
     linear_layer_count = len(layer_dimensionalities) - 1
 
     lipschitz_constant_upper_bound_per_layer = (
-        _calculate_lipschitz_constant_upper_bound_per_layer(
+        None
+        if lipschitz_constant_upper_bound is None
+        else _calculate_lipschitz_constant_upper_bound_per_layer(
             lipschitz_constant_upper_bound=lipschitz_constant_upper_bound,
             linear_layer_count=linear_layer_count,
         )
@@ -162,23 +166,19 @@ def _create_network(
 
 
 def _calculate_lipschitz_constant_upper_bound_per_layer(
-    *, lipschitz_constant_upper_bound: float | None, linear_layer_count: int
+    *, lipschitz_constant_upper_bound: float, linear_layer_count: int
 ) -> float | None:
     activation_count = linear_layer_count - 1
 
-    if lipschitz_constant_upper_bound is None:
-        return None
-    else:
-        # We want the whole network's Lipschitz constant to be at most the target bound.
-        # Since Lipschitz constants multiply through a composition, the total is
-        # at most c^linear_layer_count * _SILU_LIPSCHITZ_CONSTANT^activation_count,
-        # where c is the norm we assign to each linear layer.
-        # We solve this for c, which is what this function returns.
+    # We want the whole network's Lipschitz constant to be at most the target bound.
+    # Since Lipschitz constants multiply through a composition, the total is
+    # at most c^linear_layer_count * _SILU_LIPSCHITZ_CONSTANT^activation_count,
+    # where c is the norm we assign to each linear layer.
+    # We solve this for c, which is what this function returns.
 
-        return (
-            lipschitz_constant_upper_bound
-            / (_SILU_LIPSCHITZ_CONSTANT**activation_count)
-        ) ** (1.0 / linear_layer_count)
+    return (
+        lipschitz_constant_upper_bound / (_SILU_LIPSCHITZ_CONSTANT**activation_count)
+    ) ** (1.0 / linear_layer_count)
 
 
 def _create_linear_layer(
@@ -208,11 +208,14 @@ class _SpectralNormalizedLinear(torch.nn.Module):
     ):
         super().__init__()
         self._linear = torch.nn.utils.parametrizations.spectral_norm(
-            torch.nn.Linear(
+            module=torch.nn.Linear(
                 in_features=input_dimensionality, out_features=output_dimensionality
             )
         )
         self._lipschitz_constant_upper_bound = lipschitz_constant_upper_bound
 
-    def forward(self, input_batch: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self,
+        input_batch: torch.Tensor,  # (batch_size, input_dimensionality)
+    ) -> torch.Tensor:  # (batch_size, output_dimensionality)
         return self._linear(input_batch) * self._lipschitz_constant_upper_bound

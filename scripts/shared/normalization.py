@@ -23,13 +23,9 @@ class MinMaxNormalizer(torch.nn.Module):
         *,
         value_batch: torch.Tensor,  # (batch_size, dimensionality)
     ) -> Self:
-        flattened = value_batch.reshape(
-            -1, value_batch.shape[-1]
-        )  # (total_count, dimensionality)
-
         return cls(
-            minimum=flattened.min(dim=0).values,  # (dimensionality,)
-            maximum=flattened.max(dim=0).values,  # (dimensionality,)
+            minimum=value_batch.min(dim=0).values,  # (dimensionality,)
+            maximum=value_batch.max(dim=0).values,  # (dimensionality,)
         )
 
     def normalize(
@@ -37,8 +33,8 @@ class MinMaxNormalizer(torch.nn.Module):
         *,
         value_batch: torch.Tensor,  # (batch_size, dimensionality)
     ) -> torch.Tensor:  # (batch_size, dimensionality)
-        value_range = (self.maximum - self.minimum).clamp(min=1e-8)  # (dimensionality,)
-        unit_batch = (value_batch - self.minimum) / value_range
+        value_range = self.maximum - self.minimum  # (dimensionality,)
+        unit_batch = (value_batch - self.minimum) / value_range.clamp(min=1e-8)
         return unit_batch * 2.0 - 1.0
 
     def denormalize(
@@ -72,7 +68,7 @@ class ZScoreNormalizer(torch.nn.Module):
     ) -> Self:
         return cls(
             mean=value_batch.mean(dim=0),  # (dimensionality,)
-            std=value_batch.std(dim=0),  # (dimensionality,)
+            std=value_batch.std(dim=0).clamp(min=1e-8),  # (dimensionality,)
         )
 
     def normalize(

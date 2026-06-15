@@ -15,14 +15,12 @@ from torch.optim.swa_utils import AveragedModel
 from tqdm import tqdm
 from wandb import Run
 
-from scripts.data.augmentation.tacil.dynamics.checkpoint import (
-    save_dynamics_model_checkpoint,
-)
+from scripts.data.augmentation.tacil.dynamics.checkpoint import save_dynamics_model
 from scripts.data.augmentation.tacil.dynamics.config import Config
 from scripts.data.augmentation.tacil.dynamics.data import (
-    build_episodes,
     build_windows,
     concatenate_episodes,
+    extract_transitions,
 )
 from scripts.data.augmentation.tacil.dynamics.evaluation import (
     calculate_local_lipschitz_constants,
@@ -30,7 +28,7 @@ from scripts.data.augmentation.tacil.dynamics.evaluation import (
 )
 from scripts.data.augmentation.tacil.dynamics.losses import compute_loss
 from scripts.data.augmentation.tacil.dynamics_model import DynamicsModel
-from scripts.shared.data import load_episode_dataset
+from scripts.shared.data import load_episode_store
 from scripts.shared.log import create_logger, log_device_info
 from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
 from scripts.shared.seed import set_seed
@@ -64,8 +62,8 @@ def _run(*, config: Config) -> None:
         dir=OUTPUT_DIRECTORY_PATH,
     ) as run:
         training_episodes, validation_episodes = train_test_split(
-            build_episodes(
-                episode_dataset=load_episode_dataset(
+            extract_transitions(
+                episode_store=load_episode_store(
                     episode_file_path=Path(
                         run.use_artifact(
                             artifact_or_name=config.data.artifact
@@ -78,20 +76,22 @@ def _run(*, config: Config) -> None:
             shuffle=True,
         )
 
-        train_transitions = concatenate_episodes(episodes=training_episodes)
+        training_transitions = concatenate_episodes(episodes=training_episodes)
         validation_transitions = concatenate_episodes(episodes=validation_episodes)
 
         dynamics_model = DynamicsModel(
-            state_dimensionality=train_transitions.states.shape[1],
-            action_dimensionality=train_transitions.actions.shape[1],
+            state_dimensionality=training_transitions.states.shape[1],
+            action_dimensionality=training_transitions.actions.shape[1],
             hidden_dimensionalities=config.architecture.hidden_layer_sizes,
             lipschitz_constant_upper_bound=config.architecture.lipschitz_constant_upper_bound,
         ).to(device=device)
 
         dynamics_model.initialize_normalizers(
-            state_batch=torch.from_numpy(train_transitions.states).to(device=device),
-            action_batch=torch.from_numpy(train_transitions.actions).to(device=device),
-            next_state_batch=torch.from_numpy(train_transitions.next_states).to(
+            state_batch=torch.from_numpy(training_transitions.states).to(device=device),
+            action_batch=torch.from_numpy(training_transitions.actions).to(
+                device=device
+            ),
+            next_state_batch=torch.from_numpy(training_transitions.next_states).to(
                 device=device
             ),
         )
@@ -193,8 +193,8 @@ def _run(*, config: Config) -> None:
                 {
                     **_compute_lipschitz_metrics(
                         dynamics_model=ema_dynamics_model,
-                        states=train_transitions.states,
-                        actions=train_transitions.actions,
+                        states=training_transitions.states,
+                        actions=training_transitions.actions,
                         batch_size=config.data.loader.batch_size,
                         split="training",
                     ),
@@ -227,7 +227,7 @@ def _run(*, config: Config) -> None:
         run.summary["selected/epoch"] = best_checkpoint.epoch
         run.summary["selected/validation_loss"] = best_checkpoint.validation_loss
 
-        _upload_model(dynamics_model=dynamics_model, run=run)
+        _upload_dynamics_model(dynamics_model=dynamics_model, run=run)
 
 
 def _compute_lipschitz_metrics(
@@ -285,10 +285,10 @@ def _refresh_spectral_norm_estimates(*, ema_dynamics_model: DynamicsModel) -> No
     ema_dynamics_model.train(mode=model_was_training)
 
 
-def _upload_model(*, dynamics_model: DynamicsModel, run: Run) -> None:
+def _upload_dynamics_model(*, dynamics_model: DynamicsModel, run: Run) -> None:
     with tempfile.TemporaryDirectory() as temporary_directory:
         dynamics_checkpoint_path = Path(temporary_directory) / "dynamics.pt"
-        save_dynamics_model_checkpoint(
+        save_dynamics_model(
             dynamics_model=dynamics_model, path=dynamics_checkpoint_path
         )
         model_artifact = wandb.Artifact(

@@ -2,7 +2,12 @@ import torch
 
 from scripts.data.augmentation.tacil.dynamics_model import DynamicsModel
 
-CONVERGENCE_TOLERANCE = 1e-4
+
+def reached_target_next_state(
+    *,
+    next_state_gap_batch: torch.Tensor,  # (batch_size, state_dimensionality)
+) -> torch.Tensor:  # (batch_size,)
+    return next_state_gap_batch.abs().amax(dim=1) <= 1e-4
 
 
 def solve_inverse_dynamics_state(
@@ -11,7 +16,6 @@ def solve_inverse_dynamics_state(
     initial_state_estimate_batch: torch.Tensor,  # (batch_size, state_dimensionality)
     action_batch: torch.Tensor,  # (batch_size, action_dimensionality)
     target_next_state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
-    max_newton_iteration_count: int,
 ) -> torch.Tensor:  # (batch_size, state_dimensionality)
     normalized_target_next_state_batch = dynamics_model.normalize_state(
         state_batch=target_next_state_batch
@@ -19,12 +23,11 @@ def solve_inverse_dynamics_state(
 
     normalized_converged_state_batch = _run_newton_iterations_until_convergence(
         dynamics_model=dynamics_model,
-        normalized_initial_state_estimate=dynamics_model.normalize_state(
+        normalized_initial_state_estimate_batch=dynamics_model.normalize_state(
             state_batch=initial_state_estimate_batch
         ),
-        action=action_batch,
+        action_batch=action_batch,
         normalized_target_next_state_batch=normalized_target_next_state_batch,
-        max_iteration_count=max_newton_iteration_count,
     )  # (batch_size, state_dimensionality)
 
     return dynamics_model.denormalize_state(
@@ -36,37 +39,39 @@ def solve_inverse_dynamics_state(
 def _run_newton_iterations_until_convergence(
     *,
     dynamics_model: DynamicsModel,
-    normalized_initial_state_estimate: torch.Tensor,  # (batch_size, state_dimensionality)
-    action: torch.Tensor,  # (batch_size, action_dimensionality)
+    normalized_initial_state_estimate_batch: torch.Tensor,  # (batch_size, state_dimensionality)
+    action_batch: torch.Tensor,  # (batch_size, action_dimensionality)
     normalized_target_next_state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
-    max_iteration_count: int,
 ) -> torch.Tensor:  # (batch_size, state_dimensionality)
+    max_iteration_count = 30
     normalized_state_estimate_batch = (
-        normalized_initial_state_estimate.clone()
+        normalized_initial_state_estimate_batch.clone()
     )  # (batch_size, state_dimensionality)
 
     for _ in range(max_iteration_count):
-        normalized_residual_batch = _compute_normalized_residual(
+        next_state_gap_batch = _compute_next_state_gap(
             dynamics_model=dynamics_model,
             normalized_state_batch=normalized_state_estimate_batch,
-            action_batch=action,
+            action_batch=action_batch,
             normalized_target_next_state_batch=normalized_target_next_state_batch,
         )  # (batch_size, state_dimensionality)
-        if (normalized_residual_batch.norm(dim=-1) <= CONVERGENCE_TOLERANCE).all():
+        if reached_target_next_state(next_state_gap_batch=next_state_gap_batch).all():
             break
 
         jacobian_batch = (
-            _compute_batched_jacobian_of_normalized_residual_wrt_normalized_state(
+            _compute_batched_jacobian_of_next_state_gap_wrt_normalized_state(
                 dynamics_model=dynamics_model,
                 normalized_state_batch=normalized_state_estimate_batch,
-                action_batch=action,
+                action_batch=action_batch,
                 normalized_target_next_state_batch=normalized_target_next_state_batch,
             )
         )  # (batch_size, state_dimensionality, state_dimensionality)
+
         newton_step_batch: torch.Tensor = torch.linalg.solve(
             A=_add_ridge(jacobian_batch=jacobian_batch),
-            B=normalized_residual_batch.unsqueeze(dim=-1),
+            B=next_state_gap_batch.unsqueeze(dim=-1),
         ).squeeze(-1)  # (batch_size, state_dimensionality)
+
         normalized_state_estimate_batch = (
             normalized_state_estimate_batch - newton_step_batch
         )  # (batch_size, state_dimensionality)
@@ -74,7 +79,7 @@ def _run_newton_iterations_until_convergence(
     return normalized_state_estimate_batch
 
 
-def _compute_batched_jacobian_of_normalized_residual_wrt_normalized_state(
+def _compute_batched_jacobian_of_next_state_gap_wrt_normalized_state(
     *,
     dynamics_model: DynamicsModel,
     normalized_state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
@@ -82,33 +87,38 @@ def _compute_batched_jacobian_of_normalized_residual_wrt_normalized_state(
     normalized_target_next_state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
 ) -> torch.Tensor:  # (batch_size, state_dimensionality, state_dimensionality)
 
-    def normalized_residual_for_single_element(
-        single_normalized_state: torch.Tensor,
-        single_action: torch.Tensor,
-        single_normalized_target_next_state: torch.Tensor,
-    ) -> torch.Tensor:
-        return _compute_normalized_residual(
+    def next_state_gap_for_single_element(
+        single_normalized_state: torch.Tensor,  # (state_dimensionality,)
+        single_action: torch.Tensor,  # (action_dimensionality,)
+        single_normalized_target_next_state: torch.Tensor,  # (state_dimensionality,)
+    ) -> torch.Tensor:  # (state_dimensionality,)
+        return _compute_next_state_gap(
             dynamics_model=dynamics_model,
-            normalized_state_batch=single_normalized_state.unsqueeze(dim=0),
-            action_batch=single_action.unsqueeze(dim=0),
+            normalized_state_batch=single_normalized_state.unsqueeze(
+                dim=0
+            ),  # (1, state_dimensionality)
+            action_batch=single_action.unsqueeze(dim=0),  # (1, action_dimensionality)
             normalized_target_next_state_batch=single_normalized_target_next_state.unsqueeze(
                 dim=0
-            ),
-        ).squeeze(dim=0)
+            ),  # (1, state_dimensionality)
+        ).squeeze(dim=0)  # (state_dimensionality,)
 
     return torch.vmap(
-        func=torch.func.jacrev(func=normalized_residual_for_single_element, argnums=0)
-    )(normalized_state_batch, action_batch, normalized_target_next_state_batch)
+        func=torch.func.jacrev(func=next_state_gap_for_single_element, argnums=0)
+    )(
+        normalized_state_batch,  # (batch_size, state_dimensionality)
+        action_batch,  # (batch_size, action_dimensionality)
+        normalized_target_next_state_batch,  # (batch_size, state_dimensionality)
+    )  # (batch_size, state_dimensionality, state_dimensionality)
 
 
-def _compute_normalized_residual(
+def _compute_next_state_gap(
     *,
     dynamics_model: DynamicsModel,
     normalized_state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
     action_batch: torch.Tensor,  # (batch_size, action_dimensionality)
     normalized_target_next_state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
 ) -> torch.Tensor:  # (batch_size, state_dimensionality)
-
     predicted_next_state_batch = dynamics_model.predict_next_state(
         state_batch=dynamics_model.denormalize_state(
             normalized_state_batch=normalized_state_batch

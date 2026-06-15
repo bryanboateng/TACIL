@@ -17,7 +17,7 @@ from scripts.policies.bc.policy import load_behavior_cloning_policy
 from scripts.policies.dp.policy import load_diffusion_policy
 from scripts.policies.gpi import config as gpi
 from scripts.policies.gpi.policy import load_geometric_policy
-from scripts.shared.data import load_episode_dataset
+from scripts.shared.data import load_episode_store
 from scripts.shared.log import create_logger, log_device_info
 from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
 from scripts.shared.policy_types import PolicyFactory
@@ -90,7 +90,7 @@ def _build_policy_factory(
                 device=device,
             )
         case gpi.Config() as gpi_config:
-            episode_dataset = load_episode_dataset(
+            episode_store = load_episode_store(
                 episode_file_path=Path(
                     run.use_artifact(
                         artifact_or_name=gpi_config.dataset_artifact
@@ -98,7 +98,7 @@ def _build_policy_factory(
                 )
             )
             return load_geometric_policy(
-                episode_dataset=episode_dataset, config=gpi_config, device=device
+                episode_store=episode_store, config=gpi_config, device=device
             )
 
 

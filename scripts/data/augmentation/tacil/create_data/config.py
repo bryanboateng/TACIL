@@ -10,7 +10,6 @@ class Config:
     expert_part_length: int = 16
 
     action_noise_scale: float = 0.1
-    maximum_newton_iterations: int = 30
     label_error_bound_quantile: float = 0.5
 
     seed: int = 42

@@ -1,6 +1,6 @@
 import torch
 
-from scripts.shared.data import EpisodeDataset
+from scripts.shared.data import EpisodeStore
 from scripts.shared.normalization import MinMaxNormalizer
 
 
@@ -8,19 +8,19 @@ class Dataset(torch.utils.data.Dataset[tuple[torch.Tensor, torch.Tensor]]):
     def __init__(
         self,
         *,
-        episode_dataset: EpisodeDataset,
+        episode_store: EpisodeStore,
         prediction_horizon_length: int,
         observation_horizon_length: int,
         action_horizon_length: int,
     ) -> None:
         observation_batch = torch.from_numpy(
-            episode_dataset.states
+            episode_store.states
         ).float()  # (total_timestep_count, observation_dimensionality)
         action_batch = torch.from_numpy(
-            episode_dataset.actions
+            episode_store.actions
         ).float()  # (total_timestep_count, action_dimensionality)
         episode_ends = torch.from_numpy(
-            episode_dataset.episode_end_indices
+            episode_store.episode_end_indices
         )  # (episode_count,)
 
         self.observation_normalizer = MinMaxNormalizer.from_values(

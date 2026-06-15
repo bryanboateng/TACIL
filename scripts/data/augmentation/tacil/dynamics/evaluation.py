@@ -19,13 +19,13 @@ def calculate_validation_loss(
     batch_size: int,
 ) -> float:
 
-    model_device = next(dynamics_model.parameters()).device
+    device = next(dynamics_model.parameters()).device
 
     state_windows_tensor = torch.from_numpy(validation_state_windows).to(
-        device=model_device
+        device=device
     )  # (window_count, window_length + 1, state_dimensionality)
     action_windows_tensor = torch.from_numpy(validation_action_windows).to(
-        device=model_device
+        device=device
     )  # (window_count, window_length, action_dimensionality)
 
     window_count = state_windows_tensor.shape[0]
@@ -59,9 +59,9 @@ def calculate_local_lipschitz_constants(
 
     dynamics_model.eval()
 
-    model_device = next(dynamics_model.parameters()).device
-    states_tensor = torch.from_numpy(states).to(device=model_device)
-    actions_tensor = torch.from_numpy(actions).to(device=model_device)
+    device = next(dynamics_model.parameters()).device
+    states_tensor = torch.from_numpy(states).to(device=device)
+    actions_tensor = torch.from_numpy(actions).to(device=device)
 
     spectral_norm_batches: list[npt.NDArray[np.float32]] = []
     for batch_start in range(0, states_tensor.shape[0], batch_size):

@@ -1,16 +1,16 @@
 import torch
 
-from scripts.shared.data import EpisodeDataset
+from scripts.shared.data import EpisodeStore
 
 
 class Dataset(torch.utils.data.Dataset):
-    def __init__(self, *, episode_dataset: EpisodeDataset) -> None:
+    def __init__(self, *, episode_store: EpisodeStore) -> None:
         self.states = torch.from_numpy(
-            episode_dataset.states
+            episode_store.states
         ).float()  # (total_timestep_count, state_dimensionality)
 
         self.actions = torch.from_numpy(
-            episode_dataset.actions
+            episode_store.actions
         ).float()  # (total_timestep_count, action_dimensionality)
 
     def __len__(self) -> int:

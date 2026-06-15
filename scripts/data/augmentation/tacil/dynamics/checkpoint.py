@@ -7,19 +7,17 @@ from scripts.data.augmentation.tacil.dynamics_model import DynamicsModel
 
 
 class CheckpointKeys(StrEnum):
-    STATE_DICT = "state_dict"
+    STATE_DICTIONARY = "state_dictionary"
     STATE_DIMENSIONALITY = "state_dimensionality"
     ACTION_DIMENSIONALITY = "action_dimensionality"
     HIDDEN_DIMENSIONALITIES = "hidden_dimensionalities"
     LIPSCHITZ_CONSTANT_UPPER_BOUND = "lipschitz_constant_upper_bound"
 
 
-def save_dynamics_model_checkpoint(
-    *, dynamics_model: DynamicsModel, path: Path
-) -> None:
+def save_dynamics_model(*, dynamics_model: DynamicsModel, path: Path) -> None:
     torch.save(
         obj={
-            CheckpointKeys.STATE_DICT: dynamics_model.state_dict(),
+            CheckpointKeys.STATE_DICTIONARY: dynamics_model.state_dict(),
             CheckpointKeys.STATE_DIMENSIONALITY: dynamics_model.state_dimensionality,
             CheckpointKeys.ACTION_DIMENSIONALITY: dynamics_model.action_dimensionality,
             CheckpointKeys.HIDDEN_DIMENSIONALITIES: dynamics_model.hidden_dimensionalities,
@@ -45,5 +43,5 @@ def load_dynamics_model(
             CheckpointKeys.LIPSCHITZ_CONSTANT_UPPER_BOUND
         ],
     )
-    dynamics_model.load_state_dict(checkpoint[CheckpointKeys.STATE_DICT])
+    dynamics_model.load_state_dict(checkpoint[CheckpointKeys.STATE_DICTIONARY])
     return dynamics_model.to(device=device)

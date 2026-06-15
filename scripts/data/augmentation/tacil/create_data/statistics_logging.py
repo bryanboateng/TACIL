@@ -10,6 +10,7 @@ from scripts.data.augmentation.tacil.create_data.episode_assembly import (
 def log_dataset_statistics(
     *,
     augmentation_result: AugmentationResult,
+    synthetic_part_length: int,
     source_episode_count: int,
     source_transition_count: int,
     run: Run,
@@ -19,24 +20,29 @@ def log_dataset_statistics(
     )
     run.summary["added"] = _added_summary(
         augmentation_report=augmentation_result,
+        synthetic_part_length=synthetic_part_length,
         source_episode_count=source_episode_count,
         source_transition_count=source_transition_count,
     )
     run.summary["dataset"] = _dataset_summary(
         augmentation_report=augmentation_result,
+        synthetic_part_length=synthetic_part_length,
         source_episode_count=source_episode_count,
         source_transition_count=source_transition_count,
     )
-    run.summary["bound_threshold"] = augmentation_result.bound_threshold
+    run.summary["bound_threshold"] = augmentation_result.error_bound_threshold
 
-    bounds = augmentation_result.bounds  # (converged_step_count,)
-    clipped_bounds = bounds[
-        bounds <= float(np.percentile(bounds, q=99.5))
-    ]  # (clipped_step_count,)
+    error_bound_batch = augmentation_result.error_bounds  # (converged_step_count,)
     run.log(
         {
-            "figures/bounds": wandb.Histogram(
-                np_histogram=np.histogram(clipped_bounds, bins="auto")
+            "figures/error_bounds": wandb.Histogram(
+                np_histogram=np.histogram(
+                    a=error_bound_batch[
+                        error_bound_batch
+                        <= float(np.percentile(a=error_bound_batch, q=99.5))
+                    ],
+                    bins="auto",
+                )
             )
         }
     )
@@ -52,12 +58,12 @@ def _candidate_episodes_summary(
     )
     return {
         "anchor_count": anchor_count,
-        "count": {
+        "counts": {
             "not_converged": augmentation_counts.not_converged,
             "rejected": augmentation_counts.rejected,
             "accepted": augmentation_counts.accepted,
         },
-        "fraction": {
+        "fractions": {
             "not_converged": augmentation_counts.not_converged / anchor_count,
             "rejected": augmentation_counts.rejected / anchor_count,
             "accepted": augmentation_counts.accepted / anchor_count,
@@ -68,13 +74,14 @@ def _candidate_episodes_summary(
 def _added_summary(
     *,
     augmentation_report: AugmentationResult,
+    synthetic_part_length: int,
     source_episode_count: int,
     source_transition_count: int,
 ) -> dict:
-    added_episode_count = len(augmentation_report.episode_dataset.episode_end_indices)
-    added_transition_count = int(augmentation_report.episode_dataset.states.shape[0])
+    added_episode_count = len(augmentation_report.episode_store.episode_end_indices)
+    added_transition_count = int(augmentation_report.episode_store.states.shape[0])
     added_synthetic_count = (
-        augmentation_report.counts.accepted * augmentation_report.synthetic_part_length
+        augmentation_report.counts.accepted * synthetic_part_length
     )
     added_expert_count = added_transition_count - added_synthetic_count
 
@@ -86,15 +93,12 @@ def _added_summary(
         "transitions": {
             "count": added_transition_count,
             "fraction_of_source": added_transition_count / source_transition_count,
-            "by_source": {
-                "count": {
-                    "synthetic": added_synthetic_count,
-                    "expert": added_expert_count,
-                },
-                "fraction": {
-                    "synthetic": added_synthetic_count / added_transition_count,
-                    "expert": added_expert_count / added_transition_count,
-                },
+        },
+        "composition": {
+            "count": {"synthetic": added_synthetic_count, "expert": added_expert_count},
+            "fraction": {
+                "synthetic": added_synthetic_count / added_transition_count,
+                "expert": added_expert_count / added_transition_count,
             },
         },
     }
@@ -103,14 +107,15 @@ def _added_summary(
 def _dataset_summary(
     *,
     augmentation_report: AugmentationResult,
+    synthetic_part_length: int,
     source_episode_count: int,
     source_transition_count: int,
 ) -> dict:
-    added_episode_count = len(augmentation_report.episode_dataset.episode_end_indices)
-    added_transition_count = int(augmentation_report.episode_dataset.states.shape[0])
+    added_episode_count = len(augmentation_report.episode_store.episode_end_indices)
+    added_transition_count = int(augmentation_report.episode_store.states.shape[0])
 
     added_synthetic_count = (
-        augmentation_report.counts.accepted * augmentation_report.synthetic_part_length
+        augmentation_report.counts.accepted * synthetic_part_length
     )
     dataset_transition_count = source_transition_count + added_transition_count
     dataset_expert_count = dataset_transition_count - added_synthetic_count
@@ -124,15 +129,16 @@ def _dataset_summary(
         },
         "transitions": {
             "count": dataset_transition_count,
-            "by_source": {
-                "count": {
-                    "synthetic": added_synthetic_count,
-                    "expert": dataset_expert_count,
-                },
-                "fraction": {
-                    "synthetic": added_synthetic_count / dataset_transition_count,
-                    "expert": dataset_expert_count / dataset_transition_count,
-                },
+            "fraction_of_source": dataset_transition_count / source_transition_count,
+        },
+        "composition": {
+            "count": {
+                "synthetic": added_synthetic_count,
+                "expert": dataset_expert_count,
+            },
+            "fraction": {
+                "synthetic": added_synthetic_count / dataset_transition_count,
+                "expert": dataset_expert_count / dataset_transition_count,
             },
         },
     }

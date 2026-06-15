@@ -1,11 +1,6 @@
 from dataclasses import dataclass
 
 
-def _check_unit(*, name: str, value: float) -> None:
-    if not 0.0 <= value <= 1.0:
-        raise ValueError(f"{name} must be in [0, 1], got {value}")
-
-
 @dataclass(frozen=True)
 class TrainingConfig:
     learning_rate: float = 1e-3
@@ -14,7 +9,8 @@ class TrainingConfig:
     ema_decay: float = 0.9
 
     def __post_init__(self) -> None:
-        _check_unit(name="ema_decay", value=self.ema_decay)
+        if not 0.0 <= self.ema_decay <= 1.0:
+            raise ValueError(f"ema_decay must be in [0, 1], got {self.ema_decay}")
 
 
 @dataclass(frozen=True)
@@ -29,7 +25,10 @@ class DataSplitConfig:
     validation_fraction: float = 0.2
 
     def __post_init__(self) -> None:
-        _check_unit(name="validation_fraction", value=self.validation_fraction)
+        if not 0.0 <= self.validation_fraction <= 1.0:
+            raise ValueError(
+                f"validation_fraction must be in [0, 1], got {self.validation_fraction}"
+            )
 
 
 @dataclass(frozen=True)

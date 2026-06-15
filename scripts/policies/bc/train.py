@@ -21,7 +21,7 @@ from scripts.policies.bc.policy import (
     save_behavior_cloning_policy,
 )
 from scripts.policies.shared.stat import Checkpoint
-from scripts.shared.data import load_episode_dataset
+from scripts.shared.data import load_episode_store
 from scripts.shared.log import create_logger, log_device_info
 from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
 from scripts.shared.seed import set_seed
@@ -54,7 +54,7 @@ def _run(*, config: Config) -> None:
         checkpoint_directory_path = Path(checkpoint_directory)
 
         dataset = Dataset(
-            episode_dataset=load_episode_dataset(
+            episode_store=load_episode_store(
                 episode_file_path=Path(
                     run.use_artifact(
                         artifact_or_name=config.dataset_artifact

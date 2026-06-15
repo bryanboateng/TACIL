@@ -6,7 +6,7 @@ from scripts.policies.gpi.database import StateDatabase
 from scripts.policies.gpi.dataset import PushTEpisodeDataset
 from scripts.policies.gpi.geometry import relative_action_to_global
 from scripts.policies.gpi.planning import PlanBuffer
-from scripts.shared.data import EpisodeDataset
+from scripts.shared.data import EpisodeStore
 from scripts.shared.policy_types import Policy, PolicyFactory
 
 Key = tuple[int, int]
@@ -140,7 +140,7 @@ class StateGPIPolicy:
 
 
 def load_geometric_policy(
-    *, episode_dataset: EpisodeDataset, config: Config, device: torch.device
+    *, episode_store: EpisodeStore, config: Config, device: torch.device
 ) -> PolicyFactory:
     """Build the demonstration index once, then return a per-seed policy factory.
 
@@ -148,7 +148,7 @@ def load_geometric_policy(
     database, including any random subset) is built a single time; each rollout
     seed gets a fresh policy that shares it, varying only the observation-noise RNG.
     """
-    dataset = PushTEpisodeDataset(episode_dataset=episode_dataset)
+    dataset = PushTEpisodeDataset(episode_store=episode_store)
     database = StateDatabase(
         dataset=dataset, device=str(device), subset_size=config.retrieval.subset_size
     )

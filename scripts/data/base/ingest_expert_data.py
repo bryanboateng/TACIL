@@ -5,7 +5,7 @@ import tyro
 import wandb
 from rich.pretty import pretty_repr
 
-from scripts.shared.data import load_episode_dataset
+from scripts.shared.data import load_episode_store
 from scripts.shared.log import create_logger
 from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
 
@@ -31,11 +31,11 @@ def _run(*, expert_data_file_path: Path) -> None:
         artifact.add_dir(local_path=str(expert_data_file_path))
         run.log_artifact(artifact_or_path=artifact)
 
-        episode_dataset = load_episode_dataset(episode_file_path=expert_data_file_path)
-        run.summary["episode_count"] = len(episode_dataset.episode_end_indices)
-        run.summary["transition_count"] = len(episode_dataset.states)
-        run.summary["state_dimensionality"] = episode_dataset.states.shape[1]
-        run.summary["action_dimensionality"] = episode_dataset.actions.shape[1]
+        episode_store = load_episode_store(episode_file_path=expert_data_file_path)
+        run.summary["episode_count"] = len(episode_store.episode_end_indices)
+        run.summary["transition_count"] = len(episode_store.states)
+        run.summary["state_dimensionality"] = episode_store.states.shape[1]
+        run.summary["action_dimensionality"] = episode_store.actions.shape[1]
 
 
 if __name__ == "__main__":
