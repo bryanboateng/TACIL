@@ -7,7 +7,7 @@ class Dataset(torch.utils.data.Dataset):
     def __init__(self, *, episode_dataset: EpisodeDataset) -> None:
         self.states = torch.from_numpy(
             episode_dataset.states
-        ).float()  # (total_timestep_count, observation_dimensionality)
+        ).float()  # (total_timestep_count, state_dimensionality)
 
         self.actions = torch.from_numpy(
             episode_dataset.actions
@@ -20,5 +20,5 @@ class Dataset(torch.utils.data.Dataset):
         self, index: int
     ) -> tuple[
         torch.Tensor, torch.Tensor
-    ]:  # (observation_dimensionality,), (action_dimensionality,)
+    ]:  # (state_dimensionality,), (action_dimensionality,)
         return self.states[index], self.actions[index]
