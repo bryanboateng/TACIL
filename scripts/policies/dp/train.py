@@ -202,6 +202,7 @@ def _run(*, config: Config) -> None:
             ):
                 best_checkpoint = Checkpoint(
                     validation_reward_mean=validation_result.mean,
+                    validation_reward_std=validation_result.std,
                     epoch=epoch_number,
                     state_dict=ema_state_dict,
                 )
