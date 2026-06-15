@@ -76,8 +76,11 @@ def _run(*, config: Config) -> None:
 
         dataset = PushTWindowDataset(
             episode_dataset=load_episode_dataset(
-                artifact=run.use_artifact(artifact_or_name=config.dataset_artifact),
-                logger=logger,
+                episode_file_path=Path(
+                    run.use_artifact(
+                        artifact_or_name=config.dataset_artifact
+                    ).download()
+                )
             ),
             prediction_horizon_length=config.horizon_length.prediction,
             observation_horizon_length=config.horizon_length.observation,

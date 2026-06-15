@@ -93,8 +93,11 @@ def _build_policy_factory(
             )
         case gpi.Config() as gpi_config:
             episode_dataset = load_episode_dataset(
-                artifact=run.use_artifact(artifact_or_name=gpi_config.dataset_artifact),
-                logger=logger,
+                episode_file_path=Path(
+                    run.use_artifact(
+                        artifact_or_name=gpi_config.dataset_artifact
+                    ).download()
+                )
             )
             return load_geometric_policy(
                 episode_dataset=episode_dataset, config=gpi_config, device=device
