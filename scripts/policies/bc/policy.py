@@ -8,18 +8,24 @@ from scripts.shared.paths import PROJECT_ROOT_DIRECTORY_PATH
 from scripts.shared.policy_types import Policy, PolicyFactory
 
 
-def build_behavior_cloning_network(
+def _create_network(
     *,
     observation_dimensionality: int,
     action_dimensionality: int,
     hidden_dimensionality: int,
 ) -> torch.nn.Module:
     return torch.nn.Sequential(
-        torch.nn.Linear(observation_dimensionality, hidden_dimensionality),
+        torch.nn.Linear(
+            in_features=observation_dimensionality, out_features=hidden_dimensionality
+        ),
         torch.nn.ReLU(),
-        torch.nn.Linear(hidden_dimensionality, hidden_dimensionality),
+        torch.nn.Linear(
+            in_features=hidden_dimensionality, out_features=hidden_dimensionality
+        ),
         torch.nn.ReLU(),
-        torch.nn.Linear(hidden_dimensionality, action_dimensionality),
+        torch.nn.Linear(
+            in_features=hidden_dimensionality, out_features=action_dimensionality
+        ),
     )
 
 
@@ -42,21 +48,25 @@ class BehaviorCloningPolicy(torch.nn.Module):
         self.action_dimensionality = action_dimensionality
         self.hidden_dimensionality = hidden_dimensionality
 
-        self.network = build_behavior_cloning_network(
+        self.network = _create_network(
             observation_dimensionality=observation_dimensionality,
             action_dimensionality=action_dimensionality,
             hidden_dimensionality=hidden_dimensionality,
         )
 
-        # Placeholders; overwritten by compute_normalization_ranges() or load_state_dict().
+        # Placeholders, overwritten by compute_normalization_ranges() or load_state_dict().
         self.register_buffer(
-            "_observation_minimum", torch.zeros(observation_dimensionality)
+            name="_observation_minimum", tensor=torch.zeros(observation_dimensionality)
         )
         self.register_buffer(
-            "_observation_maximum", torch.ones(observation_dimensionality)
+            name="_observation_maximum", tensor=torch.ones(observation_dimensionality)
         )
-        self.register_buffer("_action_minimum", torch.zeros(action_dimensionality))
-        self.register_buffer("_action_maximum", torch.ones(action_dimensionality))
+        self.register_buffer(
+            name="_action_minimum", tensor=torch.zeros(action_dimensionality)
+        )
+        self.register_buffer(
+            name="_action_maximum", tensor=torch.ones(action_dimensionality)
+        )
 
     @torch.no_grad()
     def compute_normalization_ranges(
@@ -65,10 +75,10 @@ class BehaviorCloningPolicy(torch.nn.Module):
         observation_batch: torch.Tensor,  # (N, observation_dimensionality)
         action_batch: torch.Tensor,  # (N, action_dimensionality)
     ) -> None:
-        obs_range = NormalizationRange.from_values(values=observation_batch)
+        observation_range = NormalizationRange.from_values(values=observation_batch)
         action_range = NormalizationRange.from_values(values=action_batch)
-        self._observation_minimum.copy_(obs_range.minimum)
-        self._observation_maximum.copy_(obs_range.maximum)
+        self._observation_minimum.copy_(observation_range.minimum)
+        self._observation_maximum.copy_(observation_range.maximum)
         self._action_minimum.copy_(action_range.minimum)
         self._action_maximum.copy_(action_range.maximum)
 
