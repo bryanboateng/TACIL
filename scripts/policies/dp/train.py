@@ -13,7 +13,7 @@ from tqdm.auto import tqdm
 
 from scripts.evaluation.bryan.evaluation import RewardStatistics, evaluate_policy
 from scripts.policies.dp.config import Config, DimensionalityConfig, HorizonLengthConfig
-from scripts.policies.dp.dataset import PushTWindowDataset
+from scripts.policies.dp.dataset import Dataset
 from scripts.policies.dp.loss import _compute_denoising_loss
 from scripts.policies.dp.network import ConditionalUnet1d
 from scripts.policies.dp.noise_scheduler import get_noise_scheduler
@@ -75,7 +75,7 @@ def _run(*, config: Config) -> None:
     ):
         checkpoint_directory_path = Path(checkpoint_directory)
 
-        dataset = PushTWindowDataset(
+        dataset = Dataset(
             episode_dataset=load_episode_dataset(
                 episode_file_path=Path(
                     run.use_artifact(

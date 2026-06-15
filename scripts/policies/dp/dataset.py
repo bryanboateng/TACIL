@@ -4,7 +4,7 @@ from scripts.shared.data import EpisodeDataset
 from scripts.shared.normalization import MinMaxNormalizer
 
 
-class PushTWindowDataset(torch.utils.data.Dataset[tuple[torch.Tensor, torch.Tensor]]):
+class Dataset(torch.utils.data.Dataset[tuple[torch.Tensor, torch.Tensor]]):
     def __init__(
         self,
         *,
@@ -90,7 +90,7 @@ def _build_window_indices(
     prediction_horizon_length: int,
     observation_padding_length: int,
     action_padding_length: int,
-) -> torch.Tensor:  # (window_count, 4) — columns: source_read_start, source_read_end, output_write_start, output_write_end
+) -> torch.Tensor:  # (window_count, 4) columns: source_read_start, source_read_end, output_write_start, output_write_end
     window_indices: list[list[int]] = []
 
     for episode_index, episode_end_position in enumerate(episode_ends):

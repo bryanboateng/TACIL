@@ -7,8 +7,6 @@ from scripts.shared.data import EpisodeDataset
 
 
 class PushTEpisodeDataset(Dataset):
-    """One demonstration episode per index"""
-
     def __init__(self, *, episode_dataset: EpisodeDataset) -> None:
         states = (
             episode_dataset.states
