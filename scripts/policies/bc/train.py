@@ -76,7 +76,7 @@ def _run(*, config: Config) -> None:
             hidden_dimensionality=config.dimensionality.hidden,
         ).to(device=device)
 
-        policy.compute_normalization_ranges(
+        policy.initialize_normalizers(
             observation_batch=dataset.states.to(device=device),
             action_batch=dataset.actions.to(device=device),
         )

@@ -88,7 +88,7 @@ def _run(*, config: Config) -> None:
             lipschitz_constant_upper_bound=config.architecture.lipschitz_constant_upper_bound,
         ).to(device=device)
 
-        dynamics_model.compute_normalization_stats(
+        dynamics_model.initialize_normalizers(
             state_batch=torch.from_numpy(train_transitions.states).to(device=device),
             action_batch=torch.from_numpy(train_transitions.actions).to(device=device),
             next_state_batch=torch.from_numpy(train_transitions.next_states).to(

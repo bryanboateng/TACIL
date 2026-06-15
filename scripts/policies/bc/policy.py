@@ -3,7 +3,7 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from scripts.shared.normalization import NormalizationRange
+from scripts.shared.normalization import MinMaxNormalizer
 from scripts.shared.paths import PROJECT_ROOT_DIRECTORY_PATH
 from scripts.shared.policy_types import Policy, PolicyFactory
 
@@ -30,8 +30,8 @@ def _create_network(
 
 
 class BehaviorCloningPolicy(torch.nn.Module):
-    observation_range: NormalizationRange
-    action_range: NormalizationRange
+    observation_normalizer: MinMaxNormalizer
+    action_normalizer: MinMaxNormalizer
 
     def __init__(
         self,
@@ -53,40 +53,40 @@ class BehaviorCloningPolicy(torch.nn.Module):
         )
 
         # Placeholders, overwritten by compute_normalization_ranges() or load_state_dict().
-        self.observation_range = NormalizationRange(
+        self.observation_normalizer = MinMaxNormalizer(
             minimum=torch.zeros(observation_dimensionality),
             maximum=torch.ones(observation_dimensionality),
         )
-        self.action_range = NormalizationRange(
+        self.action_normalizer = MinMaxNormalizer(
             minimum=torch.zeros(action_dimensionality),
             maximum=torch.ones(action_dimensionality),
         )
 
     @torch.no_grad()
-    def compute_normalization_ranges(
+    def initialize_normalizers(
         self,
         *,
         observation_batch: torch.Tensor,  # (N, observation_dimensionality)
         action_batch: torch.Tensor,  # (N, action_dimensionality)
     ) -> None:
-        self.observation_range = NormalizationRange.from_values(
+        self.observation_normalizer = MinMaxNormalizer.from_values(
             value_batch=observation_batch
         )
-        self.action_range = NormalizationRange.from_values(value_batch=action_batch)
+        self.action_normalizer = MinMaxNormalizer.from_values(value_batch=action_batch)
 
     def normalize_observation(
         self,
         *,
         observation: torch.Tensor,  # (batch_size, observation_dimensionality)
     ) -> torch.Tensor:  # (batch_size, observation_dimensionality)
-        return self.observation_range.normalize(value_batch=observation)
+        return self.observation_normalizer.normalize(value_batch=observation)
 
     def normalize_action(
         self,
         *,
         action: torch.Tensor,  # (batch_size, action_dimensionality)
     ) -> torch.Tensor:  # (batch_size, action_dimensionality)
-        return self.action_range.normalize(value_batch=action)
+        return self.action_normalizer.normalize(value_batch=action)
 
     def predict_action(
         self,
@@ -97,7 +97,7 @@ class BehaviorCloningPolicy(torch.nn.Module):
         normalized_action = self.network(
             self.normalize_observation(observation=observation)
         )  # (batch_size, action_dimensionality)
-        return self.action_range.denormalize(
+        return self.action_normalizer.denormalize(
             value_batch=normalized_action
         )  # (batch_size, action_dimensionality)
 

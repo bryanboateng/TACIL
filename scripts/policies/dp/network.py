@@ -121,7 +121,8 @@ class ConditionalUnet1d(torch.nn.Module):
             maximum=torch.ones(input_channel_count),
         )
 
-    def set_normalization_ranges(
+    @torch.no_grad()
+    def initialize_normalizers(
         self,
         *,
         observation_normalizer: MinMaxNormalizer,

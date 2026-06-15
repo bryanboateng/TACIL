@@ -46,7 +46,7 @@ class DynamicsModel(torch.nn.Module):
         )
 
     @torch.no_grad()
-    def compute_normalization_stats(
+    def initialize_normalizers(
         self,
         *,
         state_batch: torch.Tensor,  # (batch_size, state_dimensionality)

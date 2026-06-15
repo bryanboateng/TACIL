@@ -88,7 +88,7 @@ def _run(*, config: Config) -> None:
             action_horizon_length=config.horizon_length.action,
         )
 
-        noise_prediction_network.set_normalization_ranges(
+        noise_prediction_network.initialize_normalizers(
             observation_normalizer=dataset.observation_normalizer,
             action_normalizer=dataset.action_normalizer,
         )
