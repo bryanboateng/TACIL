@@ -3,7 +3,7 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from scripts.shared.normalization_range import NormalizationRange
+from scripts.shared.normalization import NormalizationRange
 from scripts.shared.paths import PROJECT_ROOT_DIRECTORY_PATH
 from scripts.shared.policy_types import Policy, PolicyFactory
 

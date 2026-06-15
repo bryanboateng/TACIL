@@ -1,7 +1,7 @@
 import torch
 
 from scripts.shared.data import EpisodeDataset
-from scripts.shared.normalization_range import MinMaxNormalizer
+from scripts.shared.normalization import MinMaxNormalizer
 
 
 class PushTWindowDataset(torch.utils.data.Dataset[tuple[torch.Tensor, torch.Tensor]]):

@@ -1,6 +1,6 @@
 import torch
 
-from scripts.shared.normalization_range import ZScoreNormalizer
+from scripts.shared.normalization import ZScoreNormalizer
 
 # Maximum factor by which SiLU stretches space, i.e. its (global) Lipschitz constant.
 _SILU_LIPSCHITZ_CONSTANT = 1.099839320

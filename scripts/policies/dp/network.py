@@ -2,7 +2,7 @@ import math
 
 import torch
 
-from scripts.shared.normalization_range import MinMaxNormalizer
+from scripts.shared.normalization import MinMaxNormalizer
 
 
 class ConditionalUnet1d(torch.nn.Module):
