@@ -3,7 +3,7 @@ import torch
 from scripts.shared.data import EpisodeDataset
 
 
-class SingleStepDataset(torch.utils.data.Dataset):
+class Dataset(torch.utils.data.Dataset):
     def __init__(self, *, episode_dataset: EpisodeDataset) -> None:
         self.states = torch.from_numpy(
             episode_dataset.states

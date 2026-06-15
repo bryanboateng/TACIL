@@ -14,7 +14,7 @@ from wandb import Run
 
 from scripts.evaluation.bryan.evaluation import RewardStatistics, evaluate_policy
 from scripts.policies.bc.config import Config
-from scripts.policies.bc.dataset import SingleStepDataset
+from scripts.policies.bc.dataset import Dataset
 from scripts.policies.bc.policy import (
     BehaviorCloningPolicy,
     load_behavior_cloning_policy,
@@ -53,7 +53,7 @@ def _run(*, config: Config) -> None:
     ):
         checkpoint_directory_path = Path(checkpoint_directory)
 
-        dataset = SingleStepDataset(
+        dataset = Dataset(
             episode_dataset=load_episode_dataset(
                 episode_file_path=Path(
                     run.use_artifact(
