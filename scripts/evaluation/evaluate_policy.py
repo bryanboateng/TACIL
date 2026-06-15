@@ -55,17 +55,23 @@ def _run(*, config: Config) -> None:
         policy_factory = _build_policy_factory(config=config, run=run, device=device)
 
         conditions = [
-            EvalCondition(name="baseline", damping=None, disturber=None),
-            EvalCondition(name="slidy", damping=0.4, disturber=None),
+            EvalCondition(
+                name="baseline", damping=None, disturber=None, bg_color=(210, 210, 210)
+            ),
+            EvalCondition(
+                name="slidy", damping=0.4, disturber=None, bg_color=(155, 188, 228)
+            ),
             EvalCondition(
                 name="disturbed",
                 damping=None,
                 disturber=DisturberConfig(attack_interval=80, attack_duration=8),
+                bg_color=(228, 208, 100),
             ),
             EvalCondition(
                 name="slidy+disturbed",
                 damping=0.4,
                 disturber=DisturberConfig(attack_interval=80, attack_duration=8),
+                bg_color=(218, 128, 128),
             ),
         ]
 
@@ -75,6 +81,7 @@ def _run(*, config: Config) -> None:
                 start_episode_seed=start_episode_seed,
                 episode_count=config.episode_count,
                 condition=condition,
+                run=run,
             )
             _write_summary(run=run, protocol=condition.name, reward=reward)
 
