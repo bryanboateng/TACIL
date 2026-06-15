@@ -1,21 +1,3 @@
-"""Behavior-Cloning training. Nothing is written to the project tree: the best checkpoint
-is kept in memory and, exactly like the dynamics-model trainer, serialized once at the end
-into a TemporaryDirectory and pushed to W&B as a config-hashed artifact (no metadata).
-
-The periodic eval needs a policy file to roll out, so it writes into a TemporaryDirectory
-that is discarded immediately -- nothing persists locally either way.
-
-Normalization is baked into the policy (see bc/policy.py): the dataset returns RAW
-observations/actions, the model normalizes internally, and the training loss is computed
-in normalized action space. The whole policy (weights + normalization buffers) is what
-gets checkpointed.
-
-One run = one model seed. Run 3x with different `seed` and average the final numbers for
-error bars (that aggregation happens outside this script).
-
-Goes to: scripts/policies/bc/train.py
-"""
-
 import copy
 import tempfile
 from dataclasses import asdict
@@ -73,8 +55,11 @@ def _run(*, config: Config) -> None:
 
         dataset = SingleStepDataset(
             episode_dataset=load_episode_dataset(
-                artifact=run.use_artifact(artifact_or_name=config.dataset_artifact),
-                logger=logger,
+                episode_file_path=Path(
+                    run.use_artifact(
+                        artifact_or_name=config.dataset_artifact
+                    ).download()
+                )
             )
         )
 
@@ -85,8 +70,6 @@ def _run(*, config: Config) -> None:
             pin_memory=device.type == "cuda",
         )
 
-        # Built after the dataset because it needs the dataset's fitted (training-split)
-        # normalization ranges, which it bakes in as buffers.
         policy = BehaviorCloningPolicy(
             observation_dimensionality=config.dimensionality.observation,
             action_dimensionality=config.dimensionality.action,
