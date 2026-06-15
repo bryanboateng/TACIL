@@ -52,25 +52,25 @@ class BehaviorCloningPolicy(nn.Module):
             torch.as_tensor(
                 observation_normalization_range.minimum, dtype=torch.float32
             ).clone(),
-        )
+        )  # (observation_dimensionality,)
         self.register_buffer(
             "observation_maximum",
             torch.as_tensor(
                 observation_normalization_range.maximum, dtype=torch.float32
             ).clone(),
-        )
+        )  # (observation_dimensionality,)
         self.register_buffer(
             "action_minimum",
             torch.as_tensor(
                 action_normalization_range.minimum, dtype=torch.float32
             ).clone(),
-        )
+        )  # (action_dimensionality,)
         self.register_buffer(
             "action_maximum",
             torch.as_tensor(
                 action_normalization_range.maximum, dtype=torch.float32
             ).clone(),
-        )
+        )  # (action_dimensionality,)
 
     def observation_normalization_range(self) -> NormalizationRange:
         """The fitted observation range, reconstructed from the buffers."""
@@ -84,16 +84,24 @@ class BehaviorCloningPolicy(nn.Module):
             minimum=self.action_minimum, maximum=self.action_maximum
         )
 
-    def normalize_observation(self, *, observation: torch.Tensor) -> torch.Tensor:
+    def normalize_observation(
+        self,
+        *,
+        observation: torch.Tensor,  # (batch_size, observation_dimensionality)
+    ) -> torch.Tensor:  # (batch_size, observation_dimensionality)
         return self.observation_normalization_range().normalize(values=observation)
 
-    def normalize_action(self, *, action: torch.Tensor) -> torch.Tensor:
+    def normalize_action(
+        self,
+        *,
+        action: torch.Tensor,  # (batch_size, action_dimensionality)
+    ) -> torch.Tensor:  # (batch_size, action_dimensionality)
         return self.action_normalization_range().normalize(values=action)
 
     def forward(
         self,
         *,
-        normalized_observation: torch.Tensor,  # batch_size, observation_dimensionality
+        normalized_observation: torch.Tensor,  # (batch_size, observation_dimensionality)
     ) -> torch.Tensor:  # (batch_size, action_dimensionality)
         """Normalized observation -> normalized action (use this for the training loss)."""
         return self.network(normalized_observation)

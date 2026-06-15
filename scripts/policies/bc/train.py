@@ -89,8 +89,12 @@ def _run(*, config: Config) -> None:
         ):
             policy.train()
             for observation_batch, action_batch in data_loader:
-                observation_batch = observation_batch.to(device=device)
-                action_batch = action_batch.to(device=device)
+                observation_batch = observation_batch.to(
+                    device=device
+                )  # (batch_size, observation_dimensionality)
+                action_batch = action_batch.to(
+                    device=device
+                )  # (batch_size, action_dimensionality)
 
                 optimizer.zero_grad()
 
@@ -100,8 +104,10 @@ def _run(*, config: Config) -> None:
                     normalized_observation=policy.normalize_observation(
                         observation=observation_batch
                     )
-                )
-                target_normalized_action = policy.normalize_action(action=action_batch)
+                )  # (batch_size, action_dimensionality)
+                target_normalized_action = policy.normalize_action(
+                    action=action_batch
+                )  # (batch_size, action_dimensionality)
                 loss = loss_function(
                     predicted_normalized_action, target_normalized_action
                 )
@@ -136,10 +142,11 @@ def _run(*, config: Config) -> None:
 
             if (
                 best_checkpoint is None
-                or validation_result.mean > best_checkpoint.validation_max_reward_mean
+                or validation_result.mean > best_checkpoint.validation_reward_mean
             ):
                 best_checkpoint = Checkpoint(
-                    validation_max_reward_mean=validation_result.mean,
+                    validation_reward_mean=validation_result.mean,
+                    validation_reward_std=validation_result.std,
                     epoch=epoch_index,
                     state_dict=copy.deepcopy(policy.state_dict()),
                 )
@@ -151,22 +158,19 @@ def _run(*, config: Config) -> None:
         logger.info(
             "Selected best epoch %d (validation mean %.4f).",
             best_checkpoint.epoch,
-            best_checkpoint.validation_max_reward_mean,
+            best_checkpoint.validation_reward_mean,
         )
+        run.summary["selected/epoch"] = best_checkpoint.epoch
+        run.summary["selected/reward_mean"] = best_checkpoint.validation_reward_mean
+        run.summary["selected/reward_std"] = best_checkpoint.validation_reward_std
 
-        _report_final_and_log_artifact(
-            policy=policy, best_epoch=best_checkpoint.epoch, run=run
-        )
+        _upload_policy(policy=policy, run=run)
 
 
-def _report_final_and_log_artifact(
-    *, policy: BehaviorCloningPolicy, best_epoch: int, run: Run
-) -> None:
+def _upload_policy(*, policy: BehaviorCloningPolicy, run: Run) -> None:
     with tempfile.TemporaryDirectory() as temporary_directory:
         checkpoint_path = Path(temporary_directory) / "policy.pt"
         save_behavior_cloning_policy(policy=policy, path=checkpoint_path)
-
-        run.summary["selected/epoch"] = best_epoch
 
         model_artifact = wandb.Artifact(
             name=f"behavior-cloning-policy-{run.name}", type="model"
@@ -187,11 +191,6 @@ def _evaluate(
         disturber_config=None,
         description="Validation",
     )
-
-
-def _write_final_summary(*, run: Run, protocol: str, result: RewardStatistics) -> None:
-    run.summary[f"final_{protocol}/max_reward_mean"] = result.mean
-    run.summary[f"final_{protocol}/max_reward_std"] = result.std
 
 
 if __name__ == "__main__":

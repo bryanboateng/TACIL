@@ -195,10 +195,10 @@ def _run(*, config: Config) -> None:
 
             if (
                 best_checkpoint is None
-                or validation_result.mean > best_checkpoint.validation_max_reward_mean
+                or validation_result.mean > best_checkpoint.validation_reward_mean
             ):
                 best_checkpoint = Checkpoint(
-                    validation_max_reward_mean=validation_result.mean,
+                    validation_reward_mean=validation_result.mean,
                     epoch=epoch_number,
                     state_dict=ema_state_dict,
                 )
@@ -209,7 +209,7 @@ def _run(*, config: Config) -> None:
         logger.info(
             "Selected best epoch %d (validation max reward %.4f).",
             best_checkpoint.epoch,
-            best_checkpoint.validation_max_reward_mean,
+            best_checkpoint.validation_reward_mean,
         )
 
         run.summary["selected/epoch"] = best_checkpoint.epoch
