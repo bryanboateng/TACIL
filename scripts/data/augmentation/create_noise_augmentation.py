@@ -24,7 +24,7 @@ logger = create_logger()
 
 @dataclass
 class Config:
-    use_artifact: str
+    dataset_artifact: str
     # Fraction of all candidate subtrajectories to sample and add as noisy episodes (0, 1].
     # E.g. 0.3 means 30% of all sliding-window subtrajectories become new noisy episodes.
     augmentation_ratio: float
@@ -53,7 +53,7 @@ def _run(*, config: Config):
     ) as run:
         source_episode_dataset = load_episode_dataset(
             episode_file_path=Path(
-                run.use_artifact(artifact_or_name=config.use_artifact).download()
+                run.use_artifact(artifact_or_name=config.dataset_artifact).download()
             )
         )
 
