@@ -20,7 +20,7 @@ class RewardStatistics:
 def evaluate_policy(
     *,
     policy_factory: PolicyFactory,
-    something: int,
+    start_episode_seed: int,
     episode_count: int,
     disturber_config: DisturberConfig | None,
     description: str,
@@ -35,7 +35,7 @@ def evaluate_policy(
         per_episode_reward: list[float] = []
 
         for episode_seed in tqdm(
-            iterable=range(something, something + episode_count),
+            iterable=range(start_episode_seed, start_episode_seed + episode_count),
             desc=description,
             unit="episode",
             leave=False,
