@@ -128,25 +128,26 @@ def _run(*, config: Config) -> None:
 
             checkpoint_path = checkpoint_directory_path / "checkpoint.pt"
             save_behavior_cloning_policy(policy=policy, path=checkpoint_path)
-            validation_result = _evaluate(
+            validation_reward = _evaluate(
                 checkpoint_path=checkpoint_path,
                 episode_count=config.evaluation.episode_count,
                 device=device,
             )
             run.log(
                 data={
-                    "validation/max_reward_mean": validation_result.mean,
+                    "validation/reward_mean": validation_reward.mean,
+                    "validation/reward_std": validation_reward.std,
                     "epoch": epoch_index,
                 }
             )
 
             if (
                 best_checkpoint is None
-                or validation_result.mean > best_checkpoint.validation_reward_mean
+                or validation_reward.mean > best_checkpoint.validation_reward_mean
             ):
                 best_checkpoint = Checkpoint(
-                    validation_reward_mean=validation_result.mean,
-                    validation_reward_std=validation_result.std,
+                    validation_reward_mean=validation_reward.mean,
+                    validation_reward_std=validation_reward.std,
                     epoch=epoch_index,
                     state_dict=copy.deepcopy(policy.state_dict()),
                 )

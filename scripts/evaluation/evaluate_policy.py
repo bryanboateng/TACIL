@@ -52,25 +52,23 @@ def _run(*, config: Config) -> None:
         start_episode_seed = 1_000_000
         policy_factory = _build_policy_factory(config=config, run=run, device=device)
 
-        clean_result = evaluate_policy(
+        reward_clean = evaluate_policy(
             policy_factory=policy_factory,
             start_episode_seed=start_episode_seed,
             episode_count=config.episode_count,
             disturber_config=None,
             description="Undisturbed",
         )
-        _write_summary(run=run, protocol="clean", max_reward_statistics=clean_result)
+        _write_summary(run=run, protocol="clean", reward=reward_clean)
 
-        disturbed_result = evaluate_policy(
+        reward_disturbed = evaluate_policy(
             policy_factory=policy_factory,
             start_episode_seed=start_episode_seed,
             episode_count=config.episode_count,
             disturber_config=config.disturbance,
             description="Disturbed",
         )
-        _write_summary(
-            run=run, protocol="disturbed", max_reward_statistics=disturbed_result
-        )
+        _write_summary(run=run, protocol="disturbed", reward=reward_disturbed)
 
 
 def _build_policy_factory(
@@ -111,11 +109,9 @@ def _download_checkpoint(*, run: Run, artifact_name: str) -> Path:
     )
 
 
-def _write_summary(
-    *, run: Run, protocol: str, max_reward_statistics: RewardStatistics
-) -> None:
-    run.summary[f"{protocol}/max_reward_mean"] = max_reward_statistics.mean
-    run.summary[f"{protocol}/max_reward_std"] = max_reward_statistics.std
+def _write_summary(*, run: Run, protocol: str, reward: RewardStatistics) -> None:
+    run.summary[f"{protocol}/reward_mean"] = reward.mean
+    run.summary[f"{protocol}/reward_std"] = reward.std
 
 
 if __name__ == "__main__":

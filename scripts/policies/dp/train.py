@@ -183,26 +183,26 @@ def _run(*, config: Config) -> None:
                 diffusion_timestep_count=config.diffusion_timestep_count,
             )
 
-            validation_result = _evaluate(
+            validation_reward = _evaluate(
                 checkpoint_path=checkpoint_path,
                 episode_count=config.evaluation.episode_count,
                 device=device,
             )
             run.log(
                 data={
-                    "validation/max_reward_mean": validation_result.mean,
-                    "validation/max_reward_std": validation_result.std,
+                    "validation/reward_mean": validation_reward.mean,
+                    "validation/reward_std": validation_reward.std,
                 },
                 step=global_step,
             )
 
             if (
                 best_checkpoint is None
-                or validation_result.mean > best_checkpoint.validation_reward_mean
+                or validation_reward.mean > best_checkpoint.validation_reward_mean
             ):
                 best_checkpoint = Checkpoint(
-                    validation_reward_mean=validation_result.mean,
-                    validation_reward_std=validation_result.std,
+                    validation_reward_mean=validation_reward.mean,
+                    validation_reward_std=validation_reward.std,
                     epoch=epoch_number,
                     state_dict=ema_state_dict,
                 )
