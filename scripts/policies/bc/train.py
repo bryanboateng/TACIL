@@ -12,7 +12,8 @@ from torch.utils.data import DataLoader
 from tqdm.auto import tqdm
 from wandb import Run
 
-from scripts.evaluation.bryan.evaluation import RewardStatistics, evaluate_policy
+from scripts.evaluation.core.condition import EvalCondition
+from scripts.evaluation.core.evaluation import RewardStatistics, evaluate_policy
 from scripts.policies.bc.config import Config
 from scripts.policies.bc.dataset import Dataset
 from scripts.policies.bc.policy import (
@@ -180,8 +181,7 @@ def _evaluate(
         policy_factory=policy_factory,
         start_episode_seed=100_000,
         episode_count=episode_count,
-        disturber_config=None,
-        description="Validation",
+        condition=EvalCondition(name="Validation", damping=None, disturber=None),
     )
 
 

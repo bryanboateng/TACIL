@@ -7,12 +7,14 @@ import wandb
 from rich.pretty import pretty_repr
 from wandb import Run
 
-from scripts.evaluation.bryan.evaluation import RewardStatistics, evaluate_policy
 from scripts.evaluation.config import (
     BehaviorCloningCheckpoint,
     Config,
     DiffusionPolicyCheckpoint,
 )
+from scripts.evaluation.core.condition import EvalCondition
+from scripts.evaluation.core.disturbance import DisturberConfig
+from scripts.evaluation.core.evaluation import RewardStatistics, evaluate_policy
 from scripts.policies.bc.policy import load_behavior_cloning_policy
 from scripts.policies.dp.policy import load_diffusion_policy
 from scripts.policies.gpi import config as gpi
@@ -52,23 +54,29 @@ def _run(*, config: Config) -> None:
         start_episode_seed = 1_000_000
         policy_factory = _build_policy_factory(config=config, run=run, device=device)
 
-        reward_clean = evaluate_policy(
-            policy_factory=policy_factory,
-            start_episode_seed=start_episode_seed,
-            episode_count=config.episode_count,
-            disturber_config=None,
-            description="Undisturbed",
-        )
-        _write_summary(run=run, protocol="clean", reward=reward_clean)
+        conditions = [
+            EvalCondition(name="baseline", damping=None, disturber=None),
+            EvalCondition(name="slidy", damping=0.4, disturber=None),
+            EvalCondition(
+                name="disturbed",
+                damping=None,
+                disturber=DisturberConfig(attack_interval=80, attack_duration=8),
+            ),
+            EvalCondition(
+                name="slidy+disturbed",
+                damping=0.4,
+                disturber=DisturberConfig(attack_interval=80, attack_duration=8),
+            ),
+        ]
 
-        reward_disturbed = evaluate_policy(
-            policy_factory=policy_factory,
-            start_episode_seed=start_episode_seed,
-            episode_count=config.episode_count,
-            disturber_config=config.disturbance,
-            description="Disturbed",
-        )
-        _write_summary(run=run, protocol="disturbed", reward=reward_disturbed)
+        for condition in conditions:
+            reward = evaluate_policy(
+                policy_factory=policy_factory,
+                start_episode_seed=start_episode_seed,
+                episode_count=config.episode_count,
+                condition=condition,
+            )
+            _write_summary(run=run, protocol=condition.name, reward=reward)
 
 
 def _build_policy_factory(

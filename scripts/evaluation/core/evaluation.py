@@ -6,7 +6,8 @@ import numpy as np
 import torch
 from tqdm import tqdm
 
-from scripts.evaluation.bryan.disturbance import DisturberConfig, setup_disturber
+from scripts.evaluation.core.condition import EvalCondition
+from scripts.evaluation.core.disturbance import setup_disturber
 from scripts.shared.policy_types import PolicyFactory
 
 
@@ -22,21 +23,20 @@ def evaluate_policy(
     policy_factory: PolicyFactory,
     start_episode_seed: int,
     episode_count: int,
-    disturber_config: DisturberConfig | None,
-    description: str,
+    condition: EvalCondition,
 ) -> RewardStatistics:
-    environment = gymnasium.make(id="gym_pusht/PushT-v0")
+    environment = gymnasium.make(id="gym_pusht/PushT-v0", damping=condition.damping)
 
-    if disturber_config is not None:
+    if condition.disturber is not None:
         environment.reset()
-        setup_disturber(environment=environment, config=disturber_config)
+        setup_disturber(environment=environment, config=condition.disturber)
 
     try:
         per_episode_reward: list[float] = []
 
         for episode_seed in tqdm(
             iterable=range(start_episode_seed, start_episode_seed + episode_count),
-            desc=description,
+            desc=condition.name,
             unit="episode",
             leave=False,
         ):
@@ -46,7 +46,7 @@ def evaluate_policy(
             environment.observation_space.seed(seed=episode_seed)
             environment.action_space.seed(seed=episode_seed)
 
-            if disturber_config is not None:
+            if condition.disturber is not None:
                 environment.unwrapped.disturber_rng = np.random.default_rng(  # ty:ignore[unresolved-attribute]
                     seed=episode_seed
                 )

@@ -80,9 +80,7 @@ def _added_summary(
 ) -> dict:
     added_episode_count = len(augmentation_report.episode_store.episode_end_indices)
     added_transition_count = int(augmentation_report.episode_store.states.shape[0])
-    added_synthetic_count = (
-        augmentation_report.counts.accepted * synthetic_part_length
-    )
+    added_synthetic_count = augmentation_report.counts.accepted * synthetic_part_length
     added_expert_count = added_transition_count - added_synthetic_count
 
     return {
@@ -114,9 +112,7 @@ def _dataset_summary(
     added_episode_count = len(augmentation_report.episode_store.episode_end_indices)
     added_transition_count = int(augmentation_report.episode_store.states.shape[0])
 
-    added_synthetic_count = (
-        augmentation_report.counts.accepted * synthetic_part_length
-    )
+    added_synthetic_count = augmentation_report.counts.accepted * synthetic_part_length
     dataset_transition_count = source_transition_count + added_transition_count
     dataset_expert_count = dataset_transition_count - added_synthetic_count
 

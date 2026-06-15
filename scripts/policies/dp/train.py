@@ -11,7 +11,8 @@ from diffusers.training_utils import EMAModel
 from rich.pretty import pretty_repr
 from tqdm.auto import tqdm
 
-from scripts.evaluation.bryan.evaluation import RewardStatistics, evaluate_policy
+from scripts.evaluation.core.condition import EvalCondition
+from scripts.evaluation.core.evaluation import RewardStatistics, evaluate_policy
 from scripts.policies.dp.config import Config, DimensionalityConfig, HorizonLengthConfig
 from scripts.policies.dp.dataset import Dataset
 from scripts.policies.dp.loss import _compute_denoising_loss
@@ -252,8 +253,7 @@ def _evaluate(
         policy_factory=policy_factory,
         start_episode_seed=100_000,
         episode_count=episode_count,
-        disturber_config=None,
-        description="Validation",
+        condition=EvalCondition(name="Validation", damping=None, disturber=None),
     )
 
 

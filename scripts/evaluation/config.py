@@ -3,7 +3,6 @@ from typing import Annotated
 
 import tyro
 
-from scripts.evaluation.bryan.disturbance import DisturberConfig
 from scripts.policies.gpi import config as gpi
 
 
@@ -24,6 +23,5 @@ class Config:
         | Annotated[BehaviorCloningCheckpoint, tyro.conf.subcommand(name="bc")]
         | Annotated[gpi.Config, tyro.conf.subcommand(name="gpi")]
     )
-    disturbance: DisturberConfig
     episode_count: int = 100
     seed: int = 42
