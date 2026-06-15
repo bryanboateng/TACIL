@@ -2,7 +2,6 @@ from pathlib import Path
 
 import numpy as np
 import torch
-from torch import nn
 
 from scripts.shared.normalization_range import NormalizationRange
 from scripts.shared.paths import PROJECT_ROOT_DIRECTORY_PATH
@@ -14,17 +13,22 @@ def build_behavior_cloning_network(
     observation_dimensionality: int,
     action_dimensionality: int,
     hidden_dimensionality: int,
-) -> nn.Module:
-    return nn.Sequential(
-        nn.Linear(observation_dimensionality, hidden_dimensionality),
-        nn.ReLU(),
-        nn.Linear(hidden_dimensionality, hidden_dimensionality),
-        nn.ReLU(),
-        nn.Linear(hidden_dimensionality, action_dimensionality),
+) -> torch.nn.Module:
+    return torch.nn.Sequential(
+        torch.nn.Linear(observation_dimensionality, hidden_dimensionality),
+        torch.nn.ReLU(),
+        torch.nn.Linear(hidden_dimensionality, hidden_dimensionality),
+        torch.nn.ReLU(),
+        torch.nn.Linear(hidden_dimensionality, action_dimensionality),
     )
 
 
-class BehaviorCloningPolicy(nn.Module):
+class BehaviorCloningPolicy(torch.nn.Module):
+    _observation_minimum: torch.Tensor  # (observation_dimensionality,)
+    _observation_maximum: torch.Tensor  # (observation_dimensionality,)
+    _action_minimum: torch.Tensor  # (action_dimensionality,)
+    _action_maximum: torch.Tensor  # (action_dimensionality,)
+
     def __init__(
         self,
         *,
@@ -48,25 +52,25 @@ class BehaviorCloningPolicy(nn.Module):
 
         # Buffers: saved in state_dict(), moved by .to(device), never receive gradients.
         self.register_buffer(
-            "observation_minimum",
+            "_observation_minimum",
             torch.as_tensor(
                 observation_normalization_range.minimum, dtype=torch.float32
             ).clone(),
         )  # (observation_dimensionality,)
         self.register_buffer(
-            "observation_maximum",
+            "_observation_maximum",
             torch.as_tensor(
                 observation_normalization_range.maximum, dtype=torch.float32
             ).clone(),
         )  # (observation_dimensionality,)
         self.register_buffer(
-            "action_minimum",
+            "_action_minimum",
             torch.as_tensor(
                 action_normalization_range.minimum, dtype=torch.float32
             ).clone(),
         )  # (action_dimensionality,)
         self.register_buffer(
-            "action_maximum",
+            "_action_maximum",
             torch.as_tensor(
                 action_normalization_range.maximum, dtype=torch.float32
             ).clone(),
@@ -75,13 +79,13 @@ class BehaviorCloningPolicy(nn.Module):
     def observation_normalization_range(self) -> NormalizationRange:
         """The fitted observation range, reconstructed from the buffers."""
         return NormalizationRange(
-            minimum=self.observation_minimum, maximum=self.observation_maximum
+            minimum=self._observation_minimum, maximum=self._observation_maximum
         )
 
     def action_normalization_range(self) -> NormalizationRange:
         """The fitted action range, reconstructed from the buffers."""
         return NormalizationRange(
-            minimum=self.action_minimum, maximum=self.action_maximum
+            minimum=self._action_minimum, maximum=self._action_maximum
         )
 
     def normalize_observation(
