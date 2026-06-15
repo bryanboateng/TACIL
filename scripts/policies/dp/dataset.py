@@ -1,7 +1,7 @@
 import torch
 
 from scripts.shared.data import EpisodeDataset
-from scripts.shared.normalization_range import NormalizationRange
+from scripts.shared.normalization_range import MinMaxNormalizer
 
 
 class PushTWindowDataset(torch.utils.data.Dataset[tuple[torch.Tensor, torch.Tensor]]):
@@ -13,26 +13,26 @@ class PushTWindowDataset(torch.utils.data.Dataset[tuple[torch.Tensor, torch.Tens
         observation_horizon_length: int,
         action_horizon_length: int,
     ) -> None:
-        observations = torch.from_numpy(
+        observation_batch = torch.from_numpy(
             episode_dataset.states
         ).float()  # (total_timestep_count, observation_dimensionality)
-        actions = torch.from_numpy(
+        action_batch = torch.from_numpy(
             episode_dataset.actions
         ).float()  # (total_timestep_count, action_dimensionality)
         episode_ends = torch.from_numpy(
             episode_dataset.episode_end_indices
         )  # (episode_count,)
 
-        self.observation_normalization_range = NormalizationRange.from_values(
-            values=observations
+        self.observation_normalizer = MinMaxNormalizer.from_values(
+            value_batch=observation_batch
         )
-        self.action_normalization_range = NormalizationRange.from_values(values=actions)
+        self.action_normalizer = MinMaxNormalizer.from_values(value_batch=action_batch)
 
-        self._normalized_observations = self.observation_normalization_range.normalize(
-            values=observations
+        self._normalized_observations = self.observation_normalizer.normalize(
+            value_batch=observation_batch
         )  # (total_timestep_count, observation_dimensionality)
-        self._normalized_actions = self.action_normalization_range.normalize(
-            values=actions
+        self._normalized_actions = self.action_normalizer.normalize(
+            value_batch=action_batch
         )  # (total_timestep_count, action_dimensionality)
 
         self._window_indices = _build_window_indices(

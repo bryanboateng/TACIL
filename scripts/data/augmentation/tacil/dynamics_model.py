@@ -1,16 +1,15 @@
 import torch
 
+from scripts.shared.normalization_range import ZScoreNormalizer
+
 # Maximum factor by which SiLU stretches space, i.e. its (global) Lipschitz constant.
 _SILU_LIPSCHITZ_CONSTANT = 1.099839320
 
 
 class DynamicsModel(torch.nn.Module):
-    _state_mean: torch.Tensor  # (state_dimensionality,)
-    _state_std: torch.Tensor  # (state_dimensionality,)
-    _action_mean: torch.Tensor  # (action_dimensionality,)
-    _action_std: torch.Tensor  # (action_dimensionality,)
-    _next_state_residual_mean: torch.Tensor  # (state_dimensionality,)
-    _next_state_residual_std: torch.Tensor  # (state_dimensionality,)
+    state_normalizer: ZScoreNormalizer
+    action_normalizer: ZScoreNormalizer
+    next_state_residual_normalizer: ZScoreNormalizer
 
     def __init__(
         self,
@@ -34,22 +33,16 @@ class DynamicsModel(torch.nn.Module):
             lipschitz_constant_upper_bound=lipschitz_constant_upper_bound,
         )
 
-        self.register_buffer(
-            name="_state_mean", tensor=torch.zeros(state_dimensionality)
+        # Placeholders; overwritten by compute_normalization_stats() or load_state_dict().
+        self.state_normalizer = ZScoreNormalizer(
+            mean=torch.zeros(state_dimensionality), std=torch.ones(state_dimensionality)
         )
-        self.register_buffer(
-            name="_action_mean", tensor=torch.zeros(action_dimensionality)
+        self.action_normalizer = ZScoreNormalizer(
+            mean=torch.zeros(action_dimensionality),
+            std=torch.ones(action_dimensionality),
         )
-        self.register_buffer(
-            name="_next_state_residual_mean", tensor=torch.zeros(state_dimensionality)
-        )
-
-        self.register_buffer(name="_state_std", tensor=torch.ones(state_dimensionality))
-        self.register_buffer(
-            name="_action_std", tensor=torch.ones(action_dimensionality)
-        )
-        self.register_buffer(
-            name="_next_state_residual_std", tensor=torch.ones(state_dimensionality)
+        self.next_state_residual_normalizer = ZScoreNormalizer(
+            mean=torch.zeros(state_dimensionality), std=torch.ones(state_dimensionality)
         )
 
     @torch.no_grad()
@@ -61,36 +54,25 @@ class DynamicsModel(torch.nn.Module):
         next_state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
     ) -> None:
         next_state_residual_batch = next_state_batch - state_batch
-
-        self._state_mean.copy_(state_batch.mean(dim=0))
-        self._action_mean.copy_(action_batch.mean(dim=0))
-        self._next_state_residual_mean.copy_(next_state_residual_batch.mean(dim=0))
-
-        self._state_std.copy_(state_batch.std(dim=0))
-        self._action_std.copy_(action_batch.std(dim=0))
-        self._next_state_residual_std.copy_(next_state_residual_batch.std(dim=0))
+        self.state_normalizer = ZScoreNormalizer.from_values(value_batch=state_batch)
+        self.action_normalizer = ZScoreNormalizer.from_values(value_batch=action_batch)
+        self.next_state_residual_normalizer = ZScoreNormalizer.from_values(
+            value_batch=next_state_residual_batch
+        )
 
     def normalize_state(
         self,
         *,
         state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
     ) -> torch.Tensor:  # (batch_size, state_dimensionality)
-        return self._normalize(
-            input_batch=state_batch,
-            mean_batch=self._state_mean,
-            std_batch=self._state_std,
-        )
+        return self.state_normalizer.normalize(value_batch=state_batch)
 
     def denormalize_state(
         self,
         *,
         normalized_state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
     ) -> torch.Tensor:  # (batch_size, state_dimensionality)
-        return self._denormalize(
-            input_batch=normalized_state_batch,
-            mean_batch=self._state_mean,
-            std_batch=self._state_std,
-        )
+        return self.state_normalizer.denormalize(value_batch=normalized_state_batch)
 
     def predict_next_state(
         self,
@@ -98,7 +80,7 @@ class DynamicsModel(torch.nn.Module):
         state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
         action_batch: torch.Tensor,  # (batch_size, action_dimensionality)
     ) -> torch.Tensor:  # (batch_size, state_dimensionality)
-        normalized_residual: torch.Tensor = self._network(
+        normalized_residual_batch: torch.Tensor = self._network(
             torch.cat(
                 tensors=[
                     self.normalize_state(state_batch=state_batch),
@@ -108,10 +90,8 @@ class DynamicsModel(torch.nn.Module):
             )
         )  # (batch_size, state_dimensionality)
 
-        raw_residual = self._denormalize(
-            input_batch=normalized_residual,
-            mean_batch=self._next_state_residual_mean,
-            std_batch=self._next_state_residual_std,
+        raw_residual = self.next_state_residual_normalizer.denormalize(
+            value_batch=normalized_residual_batch
         )  # (batch_size, state_dimensionality)
         return state_batch + raw_residual  # (batch_size, state_dimensionality)
 
@@ -141,29 +121,7 @@ class DynamicsModel(torch.nn.Module):
         *,
         action_batch: torch.Tensor,  # (batch_size, action_dimensionality)
     ) -> torch.Tensor:  # (batch_size, action_dimensionality)
-        return self._normalize(
-            input_batch=action_batch,
-            mean_batch=self._action_mean,
-            std_batch=self._action_std,
-        )
-
-    @staticmethod
-    def _normalize(
-        *,
-        input_batch: torch.Tensor,  # (batch_size, dimensionality)
-        mean_batch: torch.Tensor,  # (dimensionality,)
-        std_batch: torch.Tensor,  # (dimensionality,)
-    ) -> torch.Tensor:  # (batch_size, dimensionality)
-        return (input_batch - mean_batch) / std_batch
-
-    @staticmethod
-    def _denormalize(
-        *,
-        input_batch: torch.Tensor,  # (batch_size, dimensionality)
-        mean_batch: torch.Tensor,  # (dimensionality,)
-        std_batch: torch.Tensor,  # (dimensionality,)
-    ) -> torch.Tensor:  # (batch_size, dimensionality)
-        return input_batch * std_batch + mean_batch
+        return self.action_normalizer.normalize(value_batch=action_batch)
 
 
 def _create_network(

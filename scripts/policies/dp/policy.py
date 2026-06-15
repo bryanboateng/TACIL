@@ -88,8 +88,8 @@ def load_diffusion_policy(
                 device=device, dtype=torch.float32
             )  # (observation_horizon_length, observation_dimensionality)
             normalized_observation_history = (
-                noise_prediction_network.observation_normalization_range().normalize(
-                    values=observation_history
+                noise_prediction_network.observation_normalizer.normalize(
+                    value_batch=observation_history
                 )
             )  # (observation_horizon_length, observation_dimensionality)
             condition_batch = normalized_observation_history.unsqueeze(dim=0).flatten(
@@ -120,8 +120,9 @@ def load_diffusion_policy(
 
                 # Loop has finished: denoising_state is now the predicted normalized action sequence.
                 predicted_action_sequence = (
-                    noise_prediction_network.action_normalization_range()
-                    .denormalize(values=denoising_state[0])
+                    noise_prediction_network.action_normalizer.denormalize(
+                        value_batch=denoising_state[0]
+                    )
                     .cpu()
                     .numpy()
                 )  # (prediction_horizon_length, action_dimensionality)

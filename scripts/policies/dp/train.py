@@ -89,8 +89,8 @@ def _run(*, config: Config) -> None:
         )
 
         noise_prediction_network.set_normalization_ranges(
-            observation_normalization_range=dataset.observation_normalization_range,
-            action_normalization_range=dataset.action_normalization_range,
+            observation_normalizer=dataset.observation_normalizer,
+            action_normalizer=dataset.action_normalizer,
         )
 
         dataloader = torch.utils.data.DataLoader(
