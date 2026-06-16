@@ -140,6 +140,7 @@ def _sample_random_block_point(*, env, rng: np.random.Generator) -> np.ndarray:
         if hasattr(shape, "get_vertices"):
             vertices.extend(shape.get_vertices())
 
+    vertices.sort()
     random_vertex = vertices[rng.integers(len(vertices))]
     return np.array(env.block.local_to_world(random_vertex))
 
