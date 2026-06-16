@@ -200,7 +200,7 @@ def _record(
     if condition.disturber is not None:
         setup_disturber(environment=environment, config=condition.disturber)
 
-    setup_renderer(environment=environment, bg_color=condition.bg_color)
+    setup_renderer(environment=environment, bg_cmap=condition.bg_cmap)
 
     try:
         for label, group in [

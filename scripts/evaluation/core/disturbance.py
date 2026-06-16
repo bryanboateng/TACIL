@@ -7,6 +7,30 @@ from gymnasium import Env
 
 OFF_SCREEN_POSITION = (-200.0, -200.0)
 
+# 8-pointed star: 16 vertices alternating outer (r=22.5) and inner (r=9) radii,
+# starting from the top tip. Fan-triangulated from the center into 16 triangles.
+_n = 16
+_angles = np.linspace(-np.pi / 2, 3 * np.pi / 2, _n, endpoint=False)
+_radii = np.tile([22.5, 16.0], 8)
+_DISTURBER_VERTICES = [
+    (float(_radii[i] * np.cos(_angles[i])), float(_radii[i] * np.sin(_angles[i])))
+    for i in range(_n)
+]
+_DISTURBER_TRIANGLES = [
+    ((0.0, 0.0), _DISTURBER_VERTICES[i], _DISTURBER_VERTICES[(i + 1) % _n])
+    for i in range(_n)
+]
+del _n, _angles, _radii
+
+
+def _make_disturber_shapes(body: pymunk.Body) -> list[pymunk.Poly]:
+    shapes = []
+    for triangle in _DISTURBER_TRIANGLES:
+        shape = pymunk.Poly(body=body, vertices=triangle)
+        shape.elasticity = 0.1
+        shapes.append(shape)
+    return shapes
+
 
 @dataclass(frozen=True)
 class DisturberConfig:
@@ -34,11 +58,10 @@ def _add_disturber(*, environment: Env) -> None:
     body = pymunk.Body(body_type=pymunk.Body.KINEMATIC)
     body.position = OFF_SCREEN_POSITION
 
-    shape = pymunk.Circle(body=body, radius=15)
-    shape.elasticity = 0.1
+    shapes = _make_disturber_shapes(body)
 
     unwrapped_environment = environment.unwrapped
-    unwrapped_environment.space.add(body, shape)  # ty:ignore[unresolved-attribute]
+    unwrapped_environment.space.add(body, *shapes)  # ty:ignore[unresolved-attribute]
     unwrapped_environment.disturber = body  # ty:ignore[unresolved-attribute]
     unwrapped_environment.disturber_t = 0  # ty:ignore[unresolved-attribute]
 
@@ -102,9 +125,8 @@ def _patch_reset_for_disturber(*, environment: Env) -> None:
         # it's a 4-line object, the cost is negligible.
         self.disturber = pymunk.Body(body_type=pymunk.Body.KINEMATIC)
         self.disturber.position = OFF_SCREEN_POSITION
-        disturber_shape = pymunk.Circle(body=self.disturber, radius=15)
-        disturber_shape.elasticity = 0.1
-        self.space.add(self.disturber, disturber_shape)
+        disturber_shapes = _make_disturber_shapes(self.disturber)
+        self.space.add(self.disturber, *disturber_shapes)
 
         self.disturber_t = 0
         return result

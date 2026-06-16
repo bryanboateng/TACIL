@@ -8,4 +8,5 @@ class EvalCondition:
     name: str
     damping: float | None
     disturber: DisturberConfig | None
-    bg_color: tuple[int, int, int] = (210, 210, 210)
+    bg_cmap: str = "Greys"
+    bg_val: float = 0.2

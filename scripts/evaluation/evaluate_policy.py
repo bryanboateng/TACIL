@@ -56,22 +56,28 @@ def _run(*, config: Config) -> None:
 
         conditions = [
             EvalCondition(
-                name="baseline", damping=None, disturber=None, bg_color=(210, 210, 210)
+                name="baseline",
+                damping=None,
+                disturber=None,
+                bg_cmap="Greys",
+                bg_val=0.2,
             ),
             EvalCondition(
-                name="slidy", damping=0.4, disturber=None, bg_color=(155, 188, 228)
+                name="slidy", damping=0.4, disturber=None, bg_cmap="Blues", bg_val=0.4
             ),
             EvalCondition(
                 name="disturbed",
                 damping=None,
                 disturber=DisturberConfig(attack_interval=80, attack_duration=8),
-                bg_color=(228, 208, 100),
+                bg_cmap="Oranges",
+                bg_val=0.4,
             ),
             EvalCondition(
                 name="slidy+disturbed",
                 damping=0.4,
                 disturber=DisturberConfig(attack_interval=80, attack_duration=8),
-                bg_color=(218, 128, 128),
+                bg_cmap="Reds",
+                bg_val=0.4,
             ),
         ]
 
