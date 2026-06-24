@@ -13,7 +13,11 @@ from tqdm.auto import tqdm
 from wandb import Run
 
 from scripts.evaluation.core.condition import EvalCondition
-from scripts.evaluation.core.evaluation import RewardStatistics, evaluate_policy
+from scripts.evaluation.core.scoring import (
+    RewardStatistics,
+    reward_statistics,
+    run_scored_episodes,
+)
 from scripts.policies.bc.config import Config
 from scripts.policies.bc.dataset import Dataset
 from scripts.policies.bc.policy import (
@@ -177,11 +181,13 @@ def _evaluate(
     policy_factory = load_behavior_cloning_policy(
         checkpoint_path=checkpoint_path, device=device
     )
-    return evaluate_policy(
-        policy_factory=policy_factory,
-        start_episode_seed=100_000,
-        episode_count=episode_count,
-        condition=EvalCondition(name="Validation", damping=None, disturber=None),
+    return reward_statistics(
+        run_scored_episodes(
+            policy_factory=policy_factory,
+            start_episode_seed=100_000,
+            episode_count=episode_count,
+            condition=EvalCondition(name="Validation", disturbance=None),
+        )
     )
 
 

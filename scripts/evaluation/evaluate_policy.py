@@ -12,9 +12,14 @@ from scripts.evaluation.config import (
     Config,
     DiffusionPolicyCheckpoint,
 )
-from scripts.evaluation.core.condition import EvalCondition
-from scripts.evaluation.core.disturbance import DisturberConfig
-from scripts.evaluation.core.evaluation import RewardStatistics, evaluate_policy
+from scripts.evaluation.core.condition import build_conditions
+from scripts.evaluation.core.scoring import (
+    RewardStatistics,
+    reward_statistics,
+    run_scored_episodes,
+    select_seeds,
+)
+from scripts.evaluation.core.video import record_condition
 from scripts.policies.bc.policy import load_behavior_cloning_policy
 from scripts.policies.dp.policy import load_diffusion_policy
 from scripts.policies.gpi import config as gpi
@@ -54,42 +59,22 @@ def _run(*, config: Config) -> None:
         start_episode_seed = 1_000_000
         policy_factory = _build_policy_factory(config=config, run=run, device=device)
 
-        conditions = [
-            EvalCondition(
-                name="baseline",
-                damping=None,
-                disturber=None,
-                bg_cmap="Greys",
-                bg_val=0.2,
-            ),
-            EvalCondition(
-                name="slidy", damping=0.4, disturber=None, bg_cmap="Blues", bg_val=0.4
-            ),
-            EvalCondition(
-                name="disturbed",
-                damping=None,
-                disturber=DisturberConfig(attack_interval=80, attack_duration=8),
-                bg_cmap="Oranges",
-                bg_val=0.4,
-            ),
-            EvalCondition(
-                name="slidy+disturbed",
-                damping=0.4,
-                disturber=DisturberConfig(attack_interval=80, attack_duration=8),
-                bg_cmap="Reds",
-                bg_val=0.4,
-            ),
-        ]
-
-        for condition in conditions:
-            reward = evaluate_policy(
+        for condition in build_conditions():
+            seed_rewards = run_scored_episodes(
                 policy_factory=policy_factory,
                 start_episode_seed=start_episode_seed,
                 episode_count=config.episode_count,
                 condition=condition,
+            )
+            record_condition(
+                policy_factory=policy_factory,
+                condition=condition,
+                selected_seeds=select_seeds(seed_rewards),
                 run=run,
             )
-            _write_summary(run=run, protocol=condition.name, reward=reward)
+            _write_summary(
+                run=run, protocol=condition.name, reward=reward_statistics(seed_rewards)
+            )
 
 
 def _build_policy_factory(

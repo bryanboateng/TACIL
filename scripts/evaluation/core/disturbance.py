@@ -1,180 +1,190 @@
-import types
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Protocol
+
+import math
 
 import numpy as np
+import numpy.typing as npt
 import pymunk
-from gymnasium import Env
-
-OFF_SCREEN_POSITION = (-200.0, -200.0)
-
-# 8-pointed star: 16 vertices alternating outer (r=22.5) and inner (r=9) radii,
-# starting from the top tip. Fan-triangulated from the center into 16 triangles.
-_n = 16
-_angles = np.linspace(-np.pi / 2, 3 * np.pi / 2, _n, endpoint=False)
-_radii = np.tile([22.5, 16.0], 8)
-_DISTURBER_VERTICES = [
-    (float(_radii[i] * np.cos(_angles[i])), float(_radii[i] * np.sin(_angles[i])))
-    for i in range(_n)
-]
-_DISTURBER_TRIANGLES = [
-    ((0.0, 0.0), _DISTURBER_VERTICES[i], _DISTURBER_VERTICES[(i + 1) % _n])
-    for i in range(_n)
-]
-del _n, _angles, _radii
-
-
-def _make_disturber_shapes(body: pymunk.Body) -> list[pymunk.Poly]:
-    shapes = []
-    for triangle in _DISTURBER_TRIANGLES:
-        shape = pymunk.Poly(body=body, vertices=triangle)
-        shape.elasticity = 0.1
-        shapes.append(shape)
-    return shapes
+from gym_pusht.envs import PushTEnv
+from gymnasium.spaces import Box
 
 
 @dataclass(frozen=True)
-class DisturberConfig:
-    attack_interval: int = 80
-    attack_duration: int = 8
+class BlockImpulse:
+    """A single shove to the block at a fixed step, then nominal dynamics."""
+
+    magnitude: float  # velocity (units/s) added to the block at the kick
+    step: int = 100  # when to apply the shove
 
 
-def setup_disturber(*, environment: Env, config: DisturberConfig) -> None:
-    """Add the disturber body and patch step/reset onto the env.
+@dataclass(frozen=True)
+class ActionNoise:
+    """Gaussian noise added to every executed action (actuator error)."""
 
-    Reset the env ONCE before calling this so block/agent/space exist. Then, before
-    each episode, set `environment.unwrapped.disturber_rng` to a fresh
-    `np.random.default_rng(episode_seed)` (see evaluation.py).
-    """
-    _add_disturber(environment=environment)
-    _patch_step_with_disturber(
-        environment=environment,
-        attack_interval=config.attack_interval,
-        attack_duration=config.attack_duration,
-    )
-    _patch_reset_for_disturber(environment=environment)
+    std: float  # standard deviation in action units
 
 
-def _add_disturber(*, environment: Env) -> None:
-    body = pymunk.Body(body_type=pymunk.Body.KINEMATIC)
-    body.position = OFF_SCREEN_POSITION
-
-    shapes = _make_disturber_shapes(body)
-
-    unwrapped_environment = environment.unwrapped
-    unwrapped_environment.space.add(body, *shapes)  # ty:ignore[unresolved-attribute]
-    unwrapped_environment.disturber = body  # ty:ignore[unresolved-attribute]
-    unwrapped_environment.disturber_t = 0  # ty:ignore[unresolved-attribute]
+Disturbance = BlockImpulse | ActionNoise
 
 
-def _patch_step_with_disturber(
-    *, environment: Env, attack_interval: int, attack_duration: int
-) -> None:
-    unwrapped_environment = environment.unwrapped
-    original_step_function = unwrapped_environment.step
+class StepFunction(Protocol):
+    def __call__(self, action: npt.NDArray[np.float64]) -> tuple: ...
 
-    def disturbed_step(env, action):
-        phase = env.disturber_t % attack_interval
 
-        disturbance_is_active = phase < attack_duration
-        disturbance_has_just_started = phase == 0
+class StepFunctionWrapper(Protocol):
+    def __call__(self, step_function: StepFunction) -> StepFunction: ...
 
-        env.disturber_t += 1
 
-        if not disturbance_is_active:
-            env.disturber.velocity = (0, 0)
-            env.disturber.position = OFF_SCREEN_POSITION
-        else:
-            block_point = _sample_random_block_point(env=env, rng=env.disturber_rng)
+@dataclass
+class DisturberState:
+    time_step: int = 0
+    rng: np.random.Generator = field(default_factory=np.random.default_rng)
 
-            # Spawn from a random direction in the hemisphere facing away from the
-            # goal, so the disturber pushes the block further from the goal.
-            if disturbance_has_just_started:
-                approach_direction = _sample_random_direction_away_from_goal(
-                    block_point=block_point, env=env, rng=env.disturber_rng
+
+def describe(disturbance: Disturbance | None) -> str:
+    """Human-readable label of the disturbance type and its value, for on-screen overlays."""
+    match disturbance:
+        case None:
+            return "Clean"
+        case BlockImpulse(magnitude=magnitude):
+            return f"Block impulse  {magnitude:g}"
+        case ActionNoise(std=std):
+            return f"Action noise  {std:g}"
+
+
+def setup_disturber(*, environment: PushTEnv, disturbance: Disturbance) -> None:
+    state = DisturberState()
+    match disturbance:
+        case BlockImpulse():
+            _install_step(
+                environment=environment,
+                make_step=_wrap_step_function_with_block_impulse(
+                    config=disturbance, state=state, environment=environment
+                ),
+            )
+        case ActionNoise():
+            _install_step(
+                environment=environment,
+                make_step=_wrap_step_function_with_action_noise(
+                    config=disturbance, state=state, environment=environment
+                ),
+            )
+    _patch_reset(environment=environment, state=state)
+
+
+def _install_step(*, environment: PushTEnv, make_step: StepFunctionWrapper) -> None:
+    environment.step = make_step(step_function=environment.step)  # ty:ignore[invalid-assignment]
+
+
+def _wrap_step_function_with_block_impulse(
+    config: BlockImpulse, state: DisturberState, environment: PushTEnv
+) -> StepFunctionWrapper:
+    def wrap(step_function: StepFunction) -> StepFunction:
+        def disturbed_step(action: npt.NDArray[np.float64]) -> tuple:
+            # One shove at a fixed step, in a fixed direction away from the goal, then
+            # leave the dynamics alone so the rest of the episode tests recovery.
+            if state.time_step == config.step:
+                angle = _calculate_push_direction(environment=environment)
+                environment.block.velocity += (
+                    pymunk.Vec2d(math.cos(angle), math.sin(angle))
+                    * config.magnitude
                 )
+            state.time_step += 1
+            return step_function(action=action)
 
-                spawn_distance = env.disturber_rng.uniform(low=25.0, high=45.0)
-                spawn_position = block_point - approach_direction * spawn_distance
+        return disturbed_step
 
-                env.disturber.position = tuple(spawn_position)
-                env.disturber_speed = env.disturber_rng.uniform(low=50.0, high=300.0)
-
-            push_direction = _compute_push_direction(
-                env=env, target_position=block_point
-            )
-
-            env.disturber.velocity = (
-                pymunk.Vec2d(float(push_direction[0]), float(push_direction[1]))
-                * env.disturber_speed
-            )
-
-        return original_step_function(action)
-
-    unwrapped_environment.step = types.MethodType(disturbed_step, unwrapped_environment)  # ty:ignore[invalid-assignment]
+    return wrap
 
 
-def _patch_reset_for_disturber(*, environment: Env) -> None:
-    unwrapped_environment = environment.unwrapped
-    original_reset_function = unwrapped_environment.reset
+def _wrap_step_function_with_action_noise(
+    config: ActionNoise, state: DisturberState, environment: PushTEnv
+) -> StepFunctionWrapper:
+    action_space = environment.action_space
+    if not isinstance(action_space, Box):
+        raise TypeError(f"Expected Box action space, got {type(action_space).__name__}")
+    action_low: npt.NDArray[np.float64] = action_space.low
+    action_high: npt.NDArray[np.float64] = action_space.high
 
-    def new_reset(self, **kwargs):
-        result = original_reset_function(**kwargs)
+    def wrap(step_function: StepFunction) -> StepFunction:
+        def disturbed_step(
+            action: npt.NDArray[np.float64],  # (action_dimensionality,)
+        ) -> tuple:
+            noise: npt.NDArray[np.float64] = state.rng.normal(
+                loc=0.0, scale=config.std, size=action.shape
+            )  # (action_dimensionality,)
 
-        # gym-pusht's reset() rebuilds the pymunk space from scratch, leaving our
-        # disturber body with a stale `body.space`. Recreate it fresh each reset —
-        # it's a 4-line object, the cost is negligible.
-        self.disturber = pymunk.Body(body_type=pymunk.Body.KINEMATIC)
-        self.disturber.position = OFF_SCREEN_POSITION
-        disturber_shapes = _make_disturber_shapes(self.disturber)
-        self.space.add(self.disturber, *disturber_shapes)
+            noisy_action: npt.NDArray[np.float64] = np.clip(
+                a=action + noise, a_min=action_low, a_max=action_high
+            )  # (action_dimensionality,)
 
-        self.disturber_t = 0
+            state.time_step += 1
+            return step_function(action=noisy_action)
+
+        return disturbed_step
+
+    return wrap
+
+
+def _patch_reset(*, environment: PushTEnv, state: DisturberState) -> None:
+    original_reset = environment.reset
+
+    def new_reset(**kwargs):
+        result = original_reset(**kwargs)
+        state.time_step = 0
+        # Reseed per episode so the disturbance is reproducible for a given seed.
+        state.rng = np.random.default_rng(kwargs.get("seed"))
         return result
 
-    unwrapped_environment.reset = types.MethodType(new_reset, unwrapped_environment)  # ty:ignore[invalid-assignment]
+    environment.reset = new_reset  # ty:ignore[invalid-assignment]
 
 
-def _sample_random_block_point(*, env, rng: np.random.Generator) -> np.ndarray:
-    vertices = []
-    for shape in env.block.shapes:
-        if hasattr(shape, "get_vertices"):
-            vertices.extend(shape.get_vertices())
-
-    vertices.sort()
-    random_vertex = vertices[rng.integers(len(vertices))]
-    return np.array(env.block.local_to_world(random_vertex))
-
-
-def _sample_random_direction_away_from_goal(
-    *, block_point, env, rng: np.random.Generator
-) -> np.ndarray:
-    goal_position = np.array(env.goal_pose[:2])
-
-    goal_to_block = block_point - goal_position
-    goal_to_block_distance = np.linalg.norm(goal_to_block)
-
-    if goal_to_block_distance > 1e-6:
-        goal_to_block /= goal_to_block_distance
-    else:
-        goal_to_block = np.array([1.0, 0.0])
-
-    random_angle = rng.uniform(low=0.0, high=2 * np.pi)
-    random_unit_vector = np.array([np.cos(random_angle), np.sin(random_angle)])
-
-    # If the random direction points toward the goal, flip it.
-    if np.dot(random_unit_vector, goal_to_block) < 0:
-        random_unit_vector *= -1
-
-    return random_unit_vector
+def _calculate_push_direction(*, environment: PushTEnv) -> float:
+    block_position: npt.NDArray[np.float64] = np.array(environment.block.position)
+    angle_away_from_goal = _calculate_direction_away_from_goal(
+        block_position=block_position,
+        goal_position=np.array(environment.goal_pose[:2]),
+    )
+    return _calculate_direction_deflected_away_from_agent(
+        angle_away_from_goal=angle_away_from_goal,
+        block_position=block_position,
+        agent_position=np.array(environment.agent.position),
+    )
 
 
-def _compute_push_direction(*, env, target_position) -> np.ndarray:
-    push_direction = target_position - np.array(env.disturber.position)
-    push_distance = np.linalg.norm(push_direction)
+def _calculate_direction_away_from_goal(
+    *, block_position: npt.NDArray[np.float64], goal_position: npt.NDArray[np.float64]
+) -> float:
+    displacement = block_position - goal_position
+    distance = float(np.linalg.norm(displacement))
+    if distance > 1e-6:
+        return math.atan2(float(displacement[1]), float(displacement[0]))
+    return 0.0
 
-    if push_distance > 1e-6:
-        push_direction /= push_distance
-    else:
-        push_direction = np.zeros(2)
 
-    return push_direction
+def _calculate_direction_deflected_away_from_agent(
+    *,
+    angle_away_from_goal: float,
+    block_position: npt.NDArray[np.float64],
+    agent_position: npt.NDArray[np.float64],
+) -> float:
+    direction = np.array([math.cos(angle_away_from_goal), math.sin(angle_away_from_goal)])
+    to_agent = agent_position - block_position
+    agent_distance = float(np.linalg.norm(to_agent))
+    if agent_distance <= 1e-6:
+        return angle_away_from_goal
+    to_agent = to_agent / agent_distance
+
+    component_toward_agent = float(np.dot(direction, to_agent))
+    if component_toward_agent <= 0:
+        # Already pushing away from the agent; nothing to avoid.
+        return angle_away_from_goal
+
+    deflected = direction - component_toward_agent * to_agent
+    deflected_norm = float(np.linalg.norm(deflected))
+    if deflected_norm > 1e-6:
+        deflected = deflected / deflected_norm
+        return math.atan2(float(deflected[1]), float(deflected[0]))
+    # direction pointed straight at the agent: slide perpendicular instead.
+    return math.atan2(float(-to_agent[1]), float(to_agent[0]))
