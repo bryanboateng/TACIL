@@ -6,7 +6,6 @@ from tqdm import tqdm
 from wandb import Run
 
 from scripts.evaluation.core.condition import EvaluationCondition
-from scripts.evaluation.core.disturbance import describe
 from scripts.evaluation.core.renderer import RENDER_SIZE
 from scripts.evaluation.core.rollout import (
     EpisodeResult,
@@ -111,7 +110,7 @@ def record_condition(
             )
 
             # wandb.Video expects (T, C, H, W)
-            run.summary[f"{condition.name}/video_{label}"] = wandb.Video(
+            run.summary[f"{condition}/video_{label}"] = wandb.Video(
                 data_or_path=np.stack(frames).transpose(0, 3, 1, 2), fps=FPS
             )
     finally:
@@ -127,10 +126,10 @@ def _record_group(
     group: list[tuple[int, float]],
     font: pygame.font.Font,
 ) -> list[np.ndarray]:
-    condition_label = describe(condition.disturbance)
+    condition_label = str(condition)
 
     frames: list[np.ndarray] = []
-    for seed, reward in tqdm(group, desc=f"{condition.name}/{label}", unit="ep"):
+    for seed, reward in tqdm(group, desc=f"{condition}/{label}", unit="ep"):
         result = roll_out_episode(
             environment=environment,
             policy=policy_factory(seed=seed),

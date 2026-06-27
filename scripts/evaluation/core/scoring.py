@@ -37,7 +37,7 @@ def run_scored_episodes(
         seed_rewards: list[tuple[int, float]] = []
         for seed in tqdm(
             iterable=range(start_episode_seed, start_episode_seed + episode_count),
-            desc=condition.name,
+            desc=condition,
             unit="episode",
             leave=False,
         ):

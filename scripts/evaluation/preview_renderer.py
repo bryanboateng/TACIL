@@ -5,7 +5,6 @@ import numpy as np
 import pygame
 
 from scripts.evaluation.core.condition import build_conditions
-from scripts.evaluation.core.disturbance import describe
 from scripts.evaluation.core.renderer import RENDER_SIZE
 from scripts.evaluation.core.rollout import make_environment, roll_out_episode
 from scripts.evaluation.core.video import (
@@ -40,7 +39,7 @@ def main():
 
     for condition in itertools.cycle(build_conditions()):
         seed = rng.randint(a=0, b=2**31 - 1)
-        pygame.display.set_caption(f"{condition.name}  seed={seed}")
+        pygame.display.set_caption(title="Preview")
 
         environment = make_environment(condition=condition, render=True)
         try:
@@ -56,7 +55,7 @@ def main():
         surfaces = annotated_surfaces(
             result=result,
             font=font,
-            condition_label=describe(condition.disturbance),
+            condition_label=str(condition),
             seed=seed,
             reward=None,
         )

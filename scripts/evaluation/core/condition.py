@@ -5,9 +5,17 @@ from scripts.evaluation.core.disturbance import ActionNoise, BlockPush, Disturba
 
 @dataclass(frozen=True)
 class EvaluationCondition:
-    name: str
     disturbance: Disturbance | None
     color_map: str
+
+    def __str__(self) -> str:
+        match self.disturbance:
+            case None:
+                return "clean"
+            case BlockPush(force=force):
+                return f"block_push_{int(force)}"
+            case ActionNoise(std=std):
+                return f"action_noise_{int(std)}"
 
 
 def build_conditions() -> list[EvaluationCondition]:
@@ -27,7 +35,6 @@ def build_conditions() -> list[EvaluationCondition]:
         # EvalCondition(name="clean", disturbance=None, bg_cmap="Greys"),
         *(
             EvaluationCondition(
-                name=f"block_shove_{int(force)}",
                 disturbance=BlockPush(force=force, step=100, duration=20),
                 color_map="Oranges",
             )

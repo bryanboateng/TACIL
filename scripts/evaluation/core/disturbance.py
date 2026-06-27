@@ -39,17 +39,6 @@ class DisturberState:
     push_force: pymunk.Vec2d = field(default_factory=lambda: pymunk.Vec2d(0.0, 0.0))
 
 
-def describe(disturbance: Disturbance | None) -> str:
-    """Human-readable label of the disturbance type and its value, for on-screen overlays."""
-    match disturbance:
-        case None:
-            return "Clean"
-        case BlockPush(force=force):
-            return f"Block shove  {force:g}"
-        case ActionNoise(std=std):
-            return f"Action noise  {std:g}"
-
-
 def setup_disturber(*, environment: PushTEnv, disturbance: Disturbance) -> None:
     state = DisturberState()
     match disturbance:

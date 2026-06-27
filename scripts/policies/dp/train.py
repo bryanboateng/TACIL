@@ -258,7 +258,7 @@ def _evaluate(
             policy_factory=policy_factory,
             start_episode_seed=100_000,
             episode_count=episode_count,
-            condition=EvaluationCondition(name="Validation", disturbance=None),
+            condition=EvaluationCondition(disturbance=None),
         )
     )
 
