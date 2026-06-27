@@ -5,7 +5,7 @@ import wandb
 from tqdm import tqdm
 from wandb import Run
 
-from scripts.evaluation.core.condition import EvalCondition
+from scripts.evaluation.core.condition import EvaluationCondition
 from scripts.evaluation.core.disturbance import describe
 from scripts.evaluation.core.renderer import RENDER_SIZE
 from scripts.evaluation.core.rollout import (
@@ -86,7 +86,7 @@ def annotated_surfaces(
 def record_condition(
     *,
     policy_factory: PolicyFactory,
-    condition: EvalCondition,
+    condition: EvaluationCondition,
     selected_seeds: SelectedSeeds,
     run: Run,
 ) -> None:
@@ -122,7 +122,7 @@ def _record_group(
     *,
     policy_factory: PolicyFactory,
     environment,
-    condition: EvalCondition,
+    condition: EvaluationCondition,
     label: str,
     group: list[tuple[int, float]],
     font: pygame.font.Font,

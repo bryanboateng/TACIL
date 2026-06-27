@@ -7,7 +7,7 @@ import torch
 from gym_pusht.envs import PushTEnv
 from gymnasium import Env
 
-from scripts.evaluation.core.condition import EvalCondition
+from scripts.evaluation.core.condition import EvaluationCondition
 from scripts.evaluation.core.disturbance import setup_disturber
 from scripts.evaluation.core.renderer import RENDER_SIZE, setup_renderer
 from scripts.shared.policy_types import Policy
@@ -22,7 +22,7 @@ class EpisodeResult:
     rewards: list[float] = field(default_factory=list)
 
 
-def make_environment(*, condition: EvalCondition, render: bool) -> Env:
+def make_environment(*, condition: EvaluationCondition, render: bool) -> Env:
     """Create a PushT environment configured for `condition`.
 
     The disturber and renderer patches must be applied after an initial reset so the

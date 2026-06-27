@@ -4,13 +4,13 @@ from scripts.evaluation.core.disturbance import ActionNoise, BlockPush, Disturba
 
 
 @dataclass(frozen=True)
-class EvalCondition:
+class EvaluationCondition:
     name: str
     disturbance: Disturbance | None
     bg_cmap: str = "Greys"
 
 
-def build_conditions() -> list[EvalCondition]:
+def build_conditions() -> list[EvaluationCondition]:
     """The evaluation suite: a clean reference, a sustained external shove (block shove),
     and per-step actuator error (action noise). Each disturbance is swept over a few
     strengths so every policy yields a reward-vs-strength curve.
@@ -26,7 +26,7 @@ def build_conditions() -> list[EvalCondition]:
     return [
         # EvalCondition(name="clean", disturbance=None, bg_cmap="Greys"),
         *(
-            EvalCondition(
+            EvaluationCondition(
                 name=f"block_shove_{int(force)}",
                 disturbance=BlockPush(force=force, step=100, duration=20),
                 bg_cmap="Oranges",
