@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from scripts.evaluation.core.disturbance import ActionNoise, BlockShove, Disturbance
+from scripts.evaluation.core.disturbance import ActionNoise, BlockPush, Disturbance
 
 
 @dataclass(frozen=True)
@@ -28,7 +28,7 @@ def build_conditions() -> list[EvalCondition]:
         *(
             EvalCondition(
                 name=f"block_shove_{int(force)}",
-                disturbance=BlockShove(force=force),
+                disturbance=BlockPush(force=force, step=100, duration=20),
                 bg_cmap="Oranges",
             )
             for force in block_shove_forces

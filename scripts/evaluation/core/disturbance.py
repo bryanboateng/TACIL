@@ -10,34 +10,18 @@ from gymnasium.spaces import Box
 
 
 @dataclass(frozen=True)
-class BlockShove:
-    """A sustained external force on the block over a short window, then nominal dynamics.
-
-    Models an invisible second pusher. The force is added on every physics substep of
-    the window with the env's own damping left untouched, so the block moves while it is
-    pushed and -- like every object in PushT's damped world -- stops almost immediately
-    once the push ends. The force must be applied per substep (not as a one-shot
-    velocity kick) because space damping is 0.0: any standalone velocity is annihilated
-    after a single substep, which just teleports the block and looks like a glitch.
-
-    At unit mass the block travels roughly ``force * 0.001 * duration`` units.
-    """
-
-    force: (
-        float  # external force magnitude added to the block each substep of the window
-    )
-    step: int = 100  # control step at which the push starts
-    duration: int = 10  # number of control steps the push lasts (each is 10 substeps)
+class BlockPush:
+    force: float
+    step: int
+    duration: int
 
 
 @dataclass(frozen=True)
 class ActionNoise:
-    """Gaussian noise added to every executed action (actuator error)."""
-
-    std: float  # standard deviation in action units
+    std: float
 
 
-Disturbance = BlockShove | ActionNoise
+Disturbance = BlockPush | ActionNoise
 
 
 class StepFunction(Protocol):
@@ -60,7 +44,7 @@ def describe(disturbance: Disturbance | None) -> str:
     match disturbance:
         case None:
             return "Clean"
-        case BlockShove(force=force):
+        case BlockPush(force=force):
             return f"Block shove  {force:g}"
         case ActionNoise(std=std):
             return f"Action noise  {std:g}"
@@ -69,7 +53,7 @@ def describe(disturbance: Disturbance | None) -> str:
 def setup_disturber(*, environment: PushTEnv, disturbance: Disturbance) -> None:
     state = DisturberState()
     match disturbance:
-        case BlockShove():
+        case BlockPush():
             _install_step(
                 environment=environment,
                 make_step=_wrap_step_function_with_block_shove(
@@ -91,7 +75,7 @@ def _install_step(*, environment: PushTEnv, make_step: StepFunctionWrapper) -> N
 
 
 def _wrap_step_function_with_block_shove(
-    config: BlockShove, state: DisturberState, environment: PushTEnv
+    config: BlockPush, state: DisturberState, environment: PushTEnv
 ) -> StepFunctionWrapper:
     def push_velocity(
         body: pymunk.Body, gravity: pymunk.Vec2d, damping: float, dt: float
