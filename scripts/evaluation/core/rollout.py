@@ -47,7 +47,7 @@ def make_environment(*, condition: EvaluationCondition, render: bool) -> Env:
             environment=push_t_environment, disturbance=condition.disturbance
         )
     if render:
-        setup_renderer(environment=push_t_environment, color_map=condition.bg_cmap)
+        setup_renderer(environment=push_t_environment, color_map=condition.color_map)
 
     return environment
 
