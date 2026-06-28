@@ -59,12 +59,11 @@ def create_environment(*, condition: Condition, should_render: bool) -> Env:
 def roll_out_episode(
     *, environment: Env, policy: Policy, seed: int, render: bool
 ) -> EpisodeResult:
-    """Run one episode to termination/truncation, collecting frames only when `render`."""
     observation, _ = environment.reset(seed=seed)
     environment.observation_space.seed(seed=seed)
     environment.action_space.seed(seed=seed)
 
-    frames = [_render_frame(environment)] if render else []
+    frames = [_render_frame(environment=environment)] if render else []
 
     reward = 0.0
     rewards: list[float] = []
@@ -77,8 +76,10 @@ def roll_out_episode(
         rewards.append(float(step_reward))
         reward = max(reward, float(step_reward))
         steps += 1
+
         if render:
-            frames.append(_render_frame(environment))
+            frames.append(_render_frame(environment=environment))
+
         if terminated or truncated:
             return EpisodeResult(
                 reward=reward,
