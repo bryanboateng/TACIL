@@ -36,8 +36,9 @@ class BlockPushWrapper(gymnasium.Wrapper):
             impulse = direction * self._config.magnitude
 
             block: Body = self._push_t_environment.block
-            impulse_point = block.local_to_world(v=block.center_of_gravity)
-            block.apply_impulse_at_world_point(impulse=impulse, point=impulse_point)
+            block.apply_impulse_at_world_point(
+                impulse=impulse, point=block.local_to_world(v=block.center_of_gravity)
+            )
 
         self._time_step += 1
 
