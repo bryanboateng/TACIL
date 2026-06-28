@@ -1,3 +1,5 @@
+from enum import Enum, auto
+
 import numpy as np
 import pygame
 import torch
@@ -23,6 +25,13 @@ TEXT_COLOR = (0, 0, 0)
 RUNNING_COLOR = (0, 0, 0)
 SUCCESS_COLOR = (20, 120, 40)
 FAILURE_COLOR = (170, 30, 30)
+
+
+class Corner(Enum):
+    TOP_LEFT = auto()
+    TOP_RIGHT = auto()
+    BOTTOM_LEFT = auto()
+    BOTTOM_RIGHT = auto()
 
 
 def create_font() -> pygame.font.Font:
@@ -181,21 +190,21 @@ def _annotate(
         surface=out,
         font=font,
         text=condition_label,
-        corner="top-left",
+        corner=Corner.TOP_LEFT,
         color=TEXT_COLOR,
     )
     _blit_corner(
-        surface=out, font=font, text=identity, corner="top-right", color=TEXT_COLOR
+        surface=out, font=font, text=identity, corner=Corner.TOP_RIGHT, color=TEXT_COLOR
     )
     _blit_corner(
         surface=out,
         font=font,
         text=f"step {step}",
-        corner="bottom-left",
+        corner=Corner.BOTTOM_LEFT,
         color=TEXT_COLOR,
     )
     _blit_corner(
-        surface=out, font=font, text=state, corner="bottom-right", color=state_color
+        surface=out, font=font, text=state, corner=Corner.BOTTOM_RIGHT, color=state_color
     )
     return out
 
@@ -205,16 +214,19 @@ def _blit_corner(
     surface: pygame.Surface,
     font: pygame.font.Font,
     text: str,
-    corner: str,
+    corner: Corner,
     color: tuple[int, int, int],
 ) -> None:
     rendered = font.render(text, True, color)
     right = surface.get_width() - rendered.get_width() - MARGIN
     bottom = surface.get_height() - rendered.get_height() - MARGIN
-    dest = {
-        "top-left": (MARGIN, MARGIN),
-        "top-right": (right, MARGIN),
-        "bottom-left": (MARGIN, bottom),
-        "bottom-right": (right, bottom),
-    }[corner]
+    match corner:
+        case Corner.TOP_LEFT:
+            dest = (MARGIN, MARGIN)
+        case Corner.TOP_RIGHT:
+            dest = (right, MARGIN)
+        case Corner.BOTTOM_LEFT:
+            dest = (MARGIN, bottom)
+        case Corner.BOTTOM_RIGHT:
+            dest = (right, bottom)
     surface.blit(source=rendered, dest=dest)
