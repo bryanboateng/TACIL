@@ -17,13 +17,9 @@ def setup_block_push(*, environment: PushTEnv, config: BlockPush) -> None:
     time_step = 0
     push_force = pymunk.Vec2d(0.0, 0.0)
 
-    def push_velocity(
+    def velocity_function_with_push(
         body: pymunk.Body, gravity: pymunk.Vec2d, damping: float, dt: float
     ) -> None:
-        # Add the external shove force, then run the block's normal velocity integration
-        # with the env's real damping untouched. This func is only installed during the
-        # push window, so it always pushes while present. It runs on every substep --
-        # setting body.force from outside env.step would only reach the first of its 10.
         body.apply_force_at_world_point(force=push_force, point=body.position)
         pymunk.Body.update_velocity(body=body, gravity=gravity, damping=damping, dt=dt)
 
@@ -37,7 +33,7 @@ def setup_block_push(*, environment: PushTEnv, config: BlockPush) -> None:
             push_force = (
                 pymunk.Vec2d(math.cos(push_angle), math.sin(push_angle)) * config.force
             )
-            environment.block.velocity_func = push_velocity
+            environment.block.velocity_func = velocity_function_with_push
         elif time_step == config.step + config.duration:
             environment.block.velocity_func = pymunk.Body.update_velocity
 
