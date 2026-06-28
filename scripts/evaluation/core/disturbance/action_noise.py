@@ -22,8 +22,14 @@ class ActionNoiseWrapper(gymnasium.ActionWrapper):
             )
 
         self._noise_std = config.noise_std
-        self._action_low: npt.NDArray[np.float64] = action_space.low
-        self._action_high: npt.NDArray[np.float64] = action_space.high
+
+        self._action_lower_bound: npt.NDArray[np.float64] = (
+            action_space.low
+        )  # (action_dimensionality,)
+
+        self._action_upper_bound: npt.NDArray[np.float64] = (
+            action_space.high
+        )  # (action_dimensionality,)
 
     def action(
         self,
@@ -33,5 +39,7 @@ class ActionNoiseWrapper(gymnasium.ActionWrapper):
             loc=0.0, scale=self._noise_std, size=action.shape
         )  # (action_dimensionality,)
         return np.clip(
-            a=action + noise, a_min=self._action_low, a_max=self._action_high
+            a=action + noise,
+            a_min=self._action_lower_bound,
+            a_max=self._action_upper_bound,
         )  # (action_dimensionality,)
