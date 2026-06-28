@@ -31,7 +31,7 @@ def build_conditions() -> list[EvaluationCondition]:
     default window, the block moves ~strength * 0.3 units while pushed, then stops.
     These magnitudes reproduce the previous shove distances (~[30, 60, 90] units).
     """
-    block_shove_strengths = [1000.0, 200.0, 300.0]
+    block_shove_strengths = [700.0]
     action_noise_stds = [5.0, 15.0, 30.0]
 
     return [

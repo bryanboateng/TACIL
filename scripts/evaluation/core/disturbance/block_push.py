@@ -54,16 +54,13 @@ def _calculate_push_direction(*, environment: PushTEnv) -> Vec2d:
     direction_to_agent = (agent_position - block_position).normalized()
 
     component_toward_agent = direction_away_from_goal.dot(other=direction_to_agent)
-    if component_toward_agent <= 0:
-        # Already pushing away from the agent. Nothing to avoid.
-        return direction_away_from_goal
 
-    # Remove the part of the push that points at the agent, keeping only the
-    # perpendicular slide.
+    # Remove the part of the push that points at the agent, keeping only the perpendicular slide.
     # If that leaves nothing (i.e. the push is aimed straight at the agent), slide sideways instead.
     deflected_direction = (
         direction_away_from_goal - component_toward_agent * direction_to_agent
     )
     if deflected_direction.length > 1e-6:
         return deflected_direction.normalized()
-    return direction_to_agent.perpendicular()
+    else:
+        return direction_to_agent.perpendicular()
