@@ -10,11 +10,6 @@ from gym_pusht.envs import PushTEnv
 RENDER_SIZE = 512
 
 
-def _sample_color_map(name: str, value: float) -> pygame.Color:
-    rgba_color = plt.get_cmap(name)(X=value)
-    return pygame.Color(*(int(255 * channel) for channel in rgba_color[:3]))
-
-
 def setup_renderer(*, environment: PushTEnv, color_map: str) -> None:
     goal_color = _sample_color_map(name=color_map, value=0.0)
     background_color = _sample_color_map(name=color_map, value=0.3)
@@ -22,7 +17,7 @@ def setup_renderer(*, environment: PushTEnv, color_map: str) -> None:
     block_color = _sample_color_map(name=color_map, value=0.9)
     agent_color = _sample_color_map(name=color_map, value=1.0)
 
-    def _draw(self):
+    def _draw(self: PushTEnv):
         screen = pygame.Surface((RENDER_SIZE, RENDER_SIZE))
         screen.fill(color=background_color)
 
@@ -91,6 +86,11 @@ def setup_renderer(*, environment: PushTEnv, color_map: str) -> None:
         return result
 
     environment.reset = types.MethodType(_reset_with_colors, environment)  # ty:ignore[invalid-assignment]
+
+
+def _sample_color_map(name: str, value: float) -> pygame.Color:
+    rgba_color = plt.get_cmap(name)(X=value)
+    return pygame.Color(*(int(255 * channel) for channel in rgba_color[:3]))
 
 
 def _set_colors(
