@@ -14,8 +14,8 @@ class EvaluationCondition:
         match self.disturbance:
             case None:
                 return "clean"
-            case block_push.Config(impulse_per_step=impulse_per_step):
-                return f"block_push_{int(impulse_per_step)}"
+            case block_push.Config(magnitude=strength):
+                return f"block_push_{int(strength)}"
             case action_noise.Config(noise_std=std):
                 return f"action_noise_{int(std)}"
 
@@ -27,28 +27,28 @@ def build_conditions() -> list[EvaluationCondition]:
 
     Single source of truth — consumed by both the evaluator and the renderer preview.
 
-    NOTE: block push applies one impulse per control step across the window. At the
-    default duration, the block moves ~impulse_per_step * 0.3 units while pushed, then
-    stops. These magnitudes reproduce the previous shove distances (~[30, 60, 90] units).
+    NOTE: block push applies one impulse per control step across the window. Over the
+    default window, the block moves ~strength * 0.3 units while pushed, then stops.
+    These magnitudes reproduce the previous shove distances (~[30, 60, 90] units).
     """
-    block_shove_impulses = [1000.0, 200.0, 300.0]
+    block_shove_strengths = [1000.0, 200.0, 300.0]
     action_noise_stds = [5.0, 15.0, 30.0]
 
     return [
         # EvalCondition(name="clean", disturbance=None, bg_cmap="Greys"),
-        # *(
-        #     EvaluationCondition(
-        #         disturbance=block_push.Config(
-        #             impulse_per_step=impulse_per_step, step=100, duration=20
-        #         ),
-        #         color_map="Oranges",
-        #     )
-        #     for impulse_per_step in block_shove_impulses
-        # )
         *(
             EvaluationCondition(
-                disturbance=action_noise.Config(noise_std=std), color_map="Blues"
+                disturbance=block_push.Config(
+                    magnitude=strength, window=range(100, 120)
+                ),
+                color_map="Oranges",
             )
-            for std in action_noise_stds
+            for strength in block_shove_strengths
         )
+        # *(
+        #     EvaluationCondition(
+        #         disturbance=action_noise.Config(noise_std=std), color_map="Blues"
+        #     )
+        #     for std in action_noise_stds
+        # )
     ]

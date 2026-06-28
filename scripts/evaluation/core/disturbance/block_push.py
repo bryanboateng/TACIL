@@ -10,9 +10,8 @@ from pymunk import Body
 
 @dataclass(frozen=True)
 class Config:
-    impulse_per_step: float
-    step: int
-    duration: int
+    magnitude: float
+    window: range
 
 
 class BlockPushWrapper(gymnasium.Wrapper):
@@ -34,18 +33,16 @@ class BlockPushWrapper(gymnasium.Wrapper):
         return self.env.reset(**kwargs)
 
     def step(self, action: npt.NDArray) -> tuple:
-        if (
-            self._config.step
-            <= self._time_step
-            < self._config.step + self._config.duration
-        ):
+        if self._time_step in self._config.window:
             angle = _calculate_push_angle(environment=self._push_t_environment)
             impulse = (
                 pymunk.Vec2d(x=math.cos(angle), y=math.sin(angle))
-                * self._config.impulse_per_step
+                * self._config.magnitude
             )
             block: Body = self._push_t_environment.block
-            block.apply_impulse_at_world_point(impulse=impulse, point=block.position)
+            block.apply_impulse_at_world_point(
+                impulse=impulse, point=block.local_to_world(v=block.center_of_gravity)
+            )
 
         self._time_step += 1
 
