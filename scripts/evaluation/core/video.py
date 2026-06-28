@@ -204,7 +204,11 @@ def _annotate(
         color=TEXT_COLOR,
     )
     _blit_corner(
-        surface=out, font=font, text=state, corner=Corner.BOTTOM_RIGHT, color=state_color
+        surface=out,
+        font=font,
+        text=state,
+        corner=Corner.BOTTOM_RIGHT,
+        color=state_color,
     )
     return out
 
