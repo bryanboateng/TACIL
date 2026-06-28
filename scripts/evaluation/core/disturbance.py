@@ -140,51 +140,53 @@ def _patch_reset(*, environment: PushTEnv, state: DisturberState) -> None:
 
 
 def _calculate_push_direction(*, environment: PushTEnv) -> float:
-    block_position: npt.NDArray[np.float64] = np.array(environment.block.position)
-    angle_away_from_goal = _calculate_direction_away_from_goal(
-        block_position=block_position, goal_position=np.array(environment.goal_pose[:2])
+    block_position = environment.block.position
+    angle_away_from_goal = _calculate_angle_away_from_goal(
+        block_position=block_position,
+        goal_position=pymunk.Vec2d(*environment.goal_pose[:2]),
     )
-    return _calculate_direction_deflected_away_from_agent(
+    return _calculate_angle_deflected_away_from_agent(
         angle_away_from_goal=angle_away_from_goal,
         block_position=block_position,
-        agent_position=np.array(environment.agent.position),
+        agent_position=environment.agent.position,
     )
 
 
-def _calculate_direction_away_from_goal(
-    *, block_position: npt.NDArray[np.float64], goal_position: npt.NDArray[np.float64]
+def _calculate_angle_away_from_goal(
+    *, block_position: pymunk.Vec2d, goal_position: pymunk.Vec2d
 ) -> float:
+
+    # noinspection PyTypeChecker
+    # Vec2d.__sub__ expects tuple[float, float], but doesn't recognize Vec2d as compatible since it's a NamedTuple subclass
     displacement = block_position - goal_position
-    distance = float(np.linalg.norm(displacement))
-    if distance > 1e-6:
-        return math.atan2(float(displacement[1]), float(displacement[0]))
+
+    if displacement.length > 1e-6:
+        return displacement.angle
     return 0.0
 
 
-def _calculate_direction_deflected_away_from_agent(
+def _calculate_angle_deflected_away_from_agent(
     *,
     angle_away_from_goal: float,
-    block_position: npt.NDArray[np.float64],
-    agent_position: npt.NDArray[np.float64],
+    block_position: pymunk.Vec2d,
+    agent_position: pymunk.Vec2d,
 ) -> float:
-    direction = np.array(
-        [math.cos(angle_away_from_goal), math.sin(angle_away_from_goal)]
+    direction = pymunk.Vec2d(
+        math.cos(angle_away_from_goal), math.sin(angle_away_from_goal)
     )
     to_agent = agent_position - block_position
-    agent_distance = float(np.linalg.norm(to_agent))
-    if agent_distance <= 1e-6:
+    if to_agent.length <= 1e-6:
         return angle_away_from_goal
-    to_agent = to_agent / agent_distance
 
-    component_toward_agent = float(np.dot(direction, to_agent))
+    to_agent = to_agent.normalized()
+
+    component_toward_agent = direction.dot(to_agent)
     if component_toward_agent <= 0:
         # Already pushing away from the agent; nothing to avoid.
         return angle_away_from_goal
 
     deflected = direction - component_toward_agent * to_agent
-    deflected_norm = float(np.linalg.norm(deflected))
-    if deflected_norm > 1e-6:
-        deflected = deflected / deflected_norm
-        return math.atan2(float(deflected[1]), float(deflected[0]))
+    if deflected.length > 1e-6:
+        return deflected.angle
     # direction pointed straight at the agent: slide perpendicular instead.
-    return math.atan2(float(-to_agent[1]), float(to_agent[0]))
+    return math.atan2(-to_agent.y, to_agent.x)
