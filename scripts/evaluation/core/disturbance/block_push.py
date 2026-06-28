@@ -1,16 +1,9 @@
 import math
 from dataclasses import dataclass
 
-import numpy as np
 import pymunk
 from gym_pusht.envs import PushTEnv
 from numpy import typing as npt
-
-from scripts.evaluation.core.disturbance.disturbance import (
-    DisturberState,
-    StepFunction,
-    StepFunctionWrapper,
-)
 
 
 @dataclass(frozen=True)
@@ -20,9 +13,13 @@ class BlockPush:
     duration: int
 
 
-def _wrap_step_function_with_block_shove(
-    config: BlockPush, state: DisturberState, environment: PushTEnv
-) -> StepFunctionWrapper:
+def setup_block_push(*, environment: PushTEnv, config: BlockPush) -> None:
+    # The push window and the force vector are the only state this needs, and both are
+    # private to one episode, so they live as closure variables here rather than in a
+    # shared struct. The step counter is zeroed by the reset hook below.
+    time_step = 0
+    push_force = pymunk.Vec2d(0.0, 0.0)
+
     def push_velocity(
         body: pymunk.Body, gravity: pymunk.Vec2d, damping: float, dt: float
     ) -> None:
@@ -30,28 +27,34 @@ def _wrap_step_function_with_block_shove(
         # with the env's real damping untouched. This func is only installed during the
         # push window, so it always pushes while present. It runs on every substep --
         # setting body.force from outside env.step would only reach the first of its 10.
-        body.apply_force_at_world_point(state.push_force, body.position)
-        pymunk.Body.update_velocity(body, gravity, damping, dt)
+        body.apply_force_at_world_point(force=push_force, point=body.position)
+        pymunk.Body.update_velocity(body=body, gravity=gravity, damping=damping, dt=dt)
 
-    def wrap(step_function: StepFunction) -> StepFunction:
-        def disturbed_step(action: npt.NDArray[np.float64]) -> tuple:
-            # Aim the shove away from the goal (deflected off the agent) at the start step
-            # and install the per-substep force hook; remove it once the window closes so
-            # the rest of the episode runs clean and tests recovery.
-            if state.time_step == config.step:
-                angle = _calculate_push_direction(environment=environment)
-                state.push_force = (
-                    pymunk.Vec2d(math.cos(angle), math.sin(angle)) * config.force
-                )
-                environment.block.velocity_func = push_velocity
-            elif state.time_step == config.step + config.duration:
-                environment.block.velocity_func = pymunk.Body.update_velocity
-            state.time_step += 1
-            return step_function(action=action)
+    step_function = environment.step
 
-        return disturbed_step
+    def disturbed_step(action: npt.NDArray) -> tuple:
+        nonlocal time_step, push_force
 
-    return wrap
+        if time_step == config.step:
+            angle = _calculate_push_direction(environment=environment)
+            push_force = pymunk.Vec2d(math.cos(angle), math.sin(angle)) * config.force
+            environment.block.velocity_func = push_velocity
+        elif time_step == config.step + config.duration:
+            environment.block.velocity_func = pymunk.Body.update_velocity
+
+        time_step += 1
+        return step_function(action=action)
+
+    reset_function = environment.reset
+
+    def disturbed_reset(**kwargs) -> tuple:
+        nonlocal time_step
+        result = reset_function(**kwargs)
+        time_step = 0
+        return result
+
+    environment.step = disturbed_step  # ty:ignore[invalid-assignment]
+    environment.reset = disturbed_reset  # ty:ignore[invalid-assignment]
 
 
 def _calculate_push_direction(*, environment: PushTEnv) -> float:
