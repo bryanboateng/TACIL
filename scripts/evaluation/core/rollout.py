@@ -8,7 +8,7 @@ from gym_pusht.envs import PushTEnv
 from gymnasium import Env
 
 from scripts.evaluation.core.condition import EvaluationCondition
-from scripts.evaluation.core.disturbance.disturbance import setup_disturber
+from scripts.evaluation.core.disturbance import action_noise, block_push
 from scripts.evaluation.core.renderer import RENDER_SIZE, setup_renderer
 from scripts.shared.policy_types import Policy
 
@@ -22,7 +22,7 @@ class EpisodeResult:
     rewards: list[float] = field(default_factory=list)
 
 
-def make_environment(*, condition: EvaluationCondition, render: bool) -> Env:
+def create_environment(*, condition: EvaluationCondition, render: bool) -> Env:
     """Create a PushT environment configured for `condition`.
 
     The disturber and renderer patches must be applied after an initial reset so the
@@ -42,14 +42,21 @@ def make_environment(*, condition: EvaluationCondition, render: bool) -> Env:
 
     push_t_environment = _get_push_t_environment(environment=environment)
 
-    if condition.disturbance is not None:
-        setup_disturber(
-            environment=push_t_environment, disturbance=condition.disturbance
-        )
     if render:
         setup_renderer(environment=push_t_environment, color_map=condition.color_map)
 
-    return environment
+    if condition.disturbance is None:
+        return environment
+
+    match condition.disturbance:
+        case block_push.Config():
+            return block_push.BlockPushWrapper(
+                environment=environment, config=condition.disturbance
+            )
+        case action_noise.Config():
+            return action_noise.ActionNoiseWrapper(
+                environment=environment, config=condition.disturbance
+            )
 
 
 @torch.no_grad()
@@ -102,3 +109,6 @@ def _get_push_t_environment(environment: Env) -> PushTEnv:
             f"Expected PushTEnv, got {type(unwrapped_environment).__name__}"
         )
     return unwrapped_environment
+
+
+Disturbance = block_push.Config | action_noise.Config

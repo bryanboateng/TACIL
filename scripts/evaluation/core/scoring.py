@@ -5,7 +5,7 @@ import torch
 from tqdm import tqdm
 
 from scripts.evaluation.core.condition import EvaluationCondition
-from scripts.evaluation.core.rollout import make_environment, roll_out_episode
+from scripts.evaluation.core.rollout import create_environment, roll_out_episode
 from scripts.shared.policy_types import PolicyFactory
 
 SUCCESS_THRESHOLD = 0.95
@@ -32,7 +32,7 @@ def run_scored_episodes(
     condition: EvaluationCondition,
 ) -> list[tuple[int, float]]:
     """Score `episode_count` episodes under `condition`, returning (seed, reward) pairs."""
-    environment = make_environment(condition=condition, render=False)
+    environment = create_environment(condition=condition, render=False)
     try:
         seed_rewards: list[tuple[int, float]] = []
         for seed in tqdm(

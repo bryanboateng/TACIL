@@ -6,7 +6,7 @@ import pygame
 
 from scripts.evaluation.core.condition import build_conditions
 from scripts.evaluation.core.renderer import RENDER_SIZE
-from scripts.evaluation.core.rollout import make_environment, roll_out_episode
+from scripts.evaluation.core.rollout import create_environment, roll_out_episode
 from scripts.evaluation.core.video import (
     FREEZE_SECONDS,
     annotated_surfaces,
@@ -41,7 +41,7 @@ def main():
         seed = rng.randint(a=0, b=2**31 - 1)
         pygame.display.set_caption(title="Preview")
 
-        environment = make_environment(condition=condition, render=True)
+        environment = create_environment(condition=condition, render=True)
         try:
             result = roll_out_episode(
                 environment=environment,

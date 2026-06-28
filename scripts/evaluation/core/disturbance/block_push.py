@@ -1,55 +1,55 @@
 import math
 from dataclasses import dataclass
 
+import gymnasium
 import pymunk
 from gym_pusht.envs import PushTEnv
 from numpy import typing as npt
+from pymunk import Body
 
 
 @dataclass(frozen=True)
-class BlockPush:
-    force: float
+class Config:
+    impulse_per_step: float
     step: int
     duration: int
 
 
-def setup_block_push(*, environment: PushTEnv, config: BlockPush) -> None:
-    time_step = 0
-    push_force = pymunk.Vec2d(0.0, 0.0)
+class BlockPushWrapper(gymnasium.Wrapper):
+    def __init__(self, environment: gymnasium.Env, config: Config) -> None:
+        super().__init__(env=environment)
 
-    def velocity_function_with_push(
-        body: pymunk.Body, gravity: pymunk.Vec2d, damping: float, dt: float
-    ) -> None:
-        body.apply_force_at_world_point(force=push_force, point=body.position)
-        pymunk.Body.update_velocity(body=body, gravity=gravity, damping=damping, dt=dt)
-
-    step_function = environment.step
-
-    def disturbed_step_function(action: npt.NDArray) -> tuple:
-        nonlocal time_step, push_force
-
-        if time_step == config.step:
-            push_angle = _calculate_push_angle(environment=environment)
-            push_force = (
-                pymunk.Vec2d(math.cos(push_angle), math.sin(push_angle)) * config.force
+        push_t_environment = environment.unwrapped
+        if not isinstance(push_t_environment, PushTEnv):
+            raise TypeError(
+                f"Expected PushTEnv, got {type(push_t_environment).__name__}"
             )
-            environment.block.velocity_func = velocity_function_with_push
-        elif time_step == config.step + config.duration:
-            environment.block.velocity_func = pymunk.Body.update_velocity
 
-        time_step += 1
-        return step_function(action=action)
+        self._config = config
+        self._push_t_environment = push_t_environment
+        self._time_step = 0
 
-    original_reset_function = environment.reset
+    def reset(self, **kwargs) -> tuple:
+        self._time_step = 0
+        return self.env.reset(**kwargs)
 
-    def reset_and_rewind_push_window(**kwargs) -> tuple:
-        nonlocal time_step
-        reset_result = original_reset_function(**kwargs)
-        time_step = 0
-        return reset_result
+    def step(self, action: npt.NDArray) -> tuple:
+        if (
+            self._config.step
+            <= self._time_step
+            < self._config.step + self._config.duration
+        ):
+            angle = _calculate_push_angle(environment=self._push_t_environment)
+            impulse = (
+                pymunk.Vec2d(x=math.cos(angle), y=math.sin(angle))
+                * self._config.impulse_per_step
+            )
+            block: Body = self._push_t_environment.block
+            block.apply_impulse_at_world_point(impulse=impulse, point=block.position)
 
-    environment.step = disturbed_step_function  # ty:ignore[invalid-assignment]
-    environment.reset = reset_and_rewind_push_window  # ty:ignore[invalid-assignment]
+        self._time_step += 1
+
+        return self.env.step(action=action)
 
 
 def _calculate_push_angle(*, environment: PushTEnv) -> float:

@@ -1,8 +1,7 @@
 from dataclasses import dataclass
 
-from scripts.evaluation.core.disturbance.action_noise import ActionNoise
-from scripts.evaluation.core.disturbance.block_push import BlockPush
-from scripts.evaluation.core.disturbance.disturbance import Disturbance
+from scripts.evaluation.core.disturbance import action_noise, block_push
+from scripts.evaluation.core.rollout import Disturbance
 
 
 @dataclass(frozen=True)
@@ -14,9 +13,9 @@ class EvaluationCondition:
         match self.disturbance:
             case None:
                 return "clean"
-            case BlockPush(force=force):
-                return f"block_push_{int(force)}"
-            case ActionNoise(std=std):
+            case block_push.Config(impulse_per_step=impulse_per_step):
+                return f"block_push_{int(impulse_per_step)}"
+            case action_noise.Config(noise_std=std):
                 return f"action_noise_{int(std)}"
 
 
@@ -27,27 +26,28 @@ def build_conditions() -> list[EvaluationCondition]:
 
     Single source of truth — consumed by both the evaluator and the renderer preview.
 
-    NOTE: a shove force at the default duration moves the block ~force * 0.003 units
-    while it is pushed, then it stops.
+    NOTE: block push applies one impulse per control step across the window. At the
+    default duration, the block moves ~impulse_per_step * 0.3 units while pushed, then
+    stops. These magnitudes reproduce the previous shove distances (~[30, 60, 90] units).
     """
-    block_shove_forces = [10000.0, 20000.0, 30000.0]
+    block_shove_impulses = [1000.0, 200.0, 300.0]
     action_noise_stds = [5.0, 15.0, 30.0]
 
     return [
         # EvalCondition(name="clean", disturbance=None, bg_cmap="Greys"),
+        # *(
+        #     EvaluationCondition(
+        #         disturbance=block_push.Config(
+        #             impulse_per_step=impulse_per_step, step=100, duration=20
+        #         ),
+        #         color_map="Oranges",
+        #     )
+        #     for impulse_per_step in block_shove_impulses
+        # )
         *(
             EvaluationCondition(
-                disturbance=BlockPush(force=force, step=100, duration=20),
-                color_map="Oranges",
+                disturbance=action_noise.Config(noise_std=std), color_map="Blues"
             )
-            for force in block_shove_forces
+            for std in action_noise_stds
         )
-        # * (
-        #     EvalCondition(
-        #         name=f"action_noise_{int(std)}",
-        #         disturbance=ActionNoise(std=std),
-        #         bg_cmap="Blues",
-        #     )
-        #     for std in action_noise_stds
-        # ),
     ]

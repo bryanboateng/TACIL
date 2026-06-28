@@ -9,7 +9,7 @@ from scripts.evaluation.core.condition import EvaluationCondition
 from scripts.evaluation.core.renderer import RENDER_SIZE
 from scripts.evaluation.core.rollout import (
     EpisodeResult,
-    make_environment,
+    create_environment,
     roll_out_episode,
 )
 from scripts.evaluation.core.scoring import SelectedSeeds
@@ -91,7 +91,7 @@ def record_condition(
 ) -> None:
     """Re-roll the selected seeds with rendering and log an annotated video per group."""
     font = create_font()
-    environment = make_environment(condition=condition, render=True)
+    environment = create_environment(condition=condition, render=True)
     try:
         for label, group in [
             ("Failure", selected_seeds.failures),
