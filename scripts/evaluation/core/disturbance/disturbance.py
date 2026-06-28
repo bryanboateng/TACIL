@@ -37,34 +37,27 @@ def setup_disturber(*, environment: PushTEnv, disturbance: Disturbance) -> None:
     state = DisturberState()
     match disturbance:
         case BlockPush():
-            _install_step(
-                environment=environment,
-                make_step=_wrap_step_function_with_block_shove(
-                    config=disturbance, state=state, environment=environment
-                ),
+            make_step = _wrap_step_function_with_block_shove(
+                config=disturbance, state=state, environment=environment
             )
+            environment.step = make_step(step_function=environment.step)  # ty:ignore[invalid-assignment]
         case ActionNoise():
-            _install_step(
-                environment=environment,
-                make_step=_wrap_step_function_with_action_noise(
-                    config=disturbance, state=state, environment=environment
-                ),
+            make_step = _wrap_step_function_with_action_noise(
+                config=disturbance, state=state, environment=environment
             )
+            environment.step = make_step(step_function=environment.step)  # ty:ignore[invalid-assignment]
+
     _patch_reset(environment=environment, state=state)
 
 
-def _install_step(*, environment: PushTEnv, make_step: StepFunctionWrapper) -> None:
-    environment.step = make_step(step_function=environment.step)  # ty:ignore[invalid-assignment]
-
-
 def _patch_reset(*, environment: PushTEnv, state: DisturberState) -> None:
-    original_reset = environment.reset
+    original_reset_function = environment.reset
 
     def new_reset(**kwargs):
-        result = original_reset(**kwargs)
+        result = original_reset_function(**kwargs)
         state.time_step = 0
         # Reseed per episode so the disturbance is reproducible for a given seed.
-        state.rng = np.random.default_rng(kwargs.get("seed"))
+        state.rng = np.random.default_rng(seed=kwargs.get("seed"))
         return result
 
     environment.reset = new_reset  # ty:ignore[invalid-assignment]
