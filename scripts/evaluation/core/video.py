@@ -18,7 +18,7 @@ from scripts.shared.policy_types import PolicyFactory
 FPS = 10
 FREEZE_SECONDS = 2
 
-MARGIN = RENDER_SIZE // 50
+MARGIN = RENDER_SIZE // 100
 TEXT_COLOR = (0, 0, 0)
 RUNNING_COLOR = (0, 0, 0)
 SUCCESS_COLOR = (20, 120, 40)
@@ -27,7 +27,7 @@ FAILURE_COLOR = (170, 30, 30)
 
 def create_font() -> pygame.font.Font:
     pygame.font.init()
-    return pygame.font.SysFont(name="Inter", size=RENDER_SIZE // 23)
+    return pygame.font.SysFont(name="Inter", size=RENDER_SIZE // 40)
 
 
 def annotated_surfaces(
@@ -177,14 +177,31 @@ def _annotate(
     if max_reward is not None:
         identity += f"   max {max_reward:.2f}"
     # Disturbance + identity on top, live status on the bottom.
-    _blit_corner(out, font, condition_label, "top-left", TEXT_COLOR)
-    _blit_corner(out, font, identity, "top-right", TEXT_COLOR)
-    _blit_corner(out, font, f"step {step}", "bottom-left", TEXT_COLOR)
-    _blit_corner(out, font, state, "bottom-right", state_color)
+    _blit_corner(
+        surface=out,
+        font=font,
+        text=condition_label,
+        corner="top-left",
+        color=TEXT_COLOR,
+    )
+    _blit_corner(
+        surface=out, font=font, text=identity, corner="top-right", color=TEXT_COLOR
+    )
+    _blit_corner(
+        surface=out,
+        font=font,
+        text=f"step {step}",
+        corner="bottom-left",
+        color=TEXT_COLOR,
+    )
+    _blit_corner(
+        surface=out, font=font, text=state, corner="bottom-right", color=state_color
+    )
     return out
 
 
 def _blit_corner(
+    *,
     surface: pygame.Surface,
     font: pygame.font.Font,
     text: str,
@@ -200,4 +217,4 @@ def _blit_corner(
         "bottom-left": (MARGIN, bottom),
         "bottom-right": (right, bottom),
     }[corner]
-    surface.blit(rendered, dest)
+    surface.blit(source=rendered, dest=dest)
