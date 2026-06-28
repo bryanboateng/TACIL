@@ -91,7 +91,7 @@ def record_condition(
 ) -> None:
     """Re-roll the selected seeds with rendering and log an annotated video per group."""
     font = create_font()
-    environment = create_environment(condition=condition, render=True)
+    environment = create_environment(condition=condition, should_render=True)
     try:
         for label, group in [
             ("Failure", selected_seeds.failures),

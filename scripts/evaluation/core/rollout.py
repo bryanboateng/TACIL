@@ -12,7 +12,7 @@ from scripts.evaluation.core.disturbance import action_noise, block_push
 from scripts.evaluation.core.renderer import RENDER_SIZE, setup_renderer
 from scripts.shared.policy_types import Policy
 
-
+Disturbance = block_push.Config | action_noise.Config
 @dataclass(frozen=True)
 class EpisodeResult:
     reward: float
@@ -22,13 +22,8 @@ class EpisodeResult:
     rewards: list[float] = field(default_factory=list)
 
 
-def create_environment(*, condition: EvaluationCondition, render: bool) -> Env:
-    """Create a PushT environment configured for `condition`.
-
-    The disturber and renderer patches must be applied after an initial reset so the
-    agent/block/space exist, so this resets once before returning.
-    """
-    if render:
+def create_environment(*, condition: EvaluationCondition, should_render: bool) -> Env:
+    if should_render:
         environment = gymnasium.make(
             id="gym_pusht/PushT-v0",
             render_mode="rgb_array",
@@ -40,10 +35,11 @@ def create_environment(*, condition: EvaluationCondition, render: bool) -> Env:
 
     environment.reset()
 
-    push_t_environment = _get_push_t_environment(environment=environment)
-
-    if render:
-        setup_renderer(environment=push_t_environment, color_map=condition.color_map)
+    if should_render:
+        setup_renderer(
+            environment=_get_push_t_environment(environment=environment),
+            color_map=condition.color_map,
+        )
 
     if condition.disturbance is None:
         return environment
@@ -111,4 +107,3 @@ def _get_push_t_environment(environment: Env) -> PushTEnv:
     return unwrapped_environment
 
 
-Disturbance = block_push.Config | action_noise.Config

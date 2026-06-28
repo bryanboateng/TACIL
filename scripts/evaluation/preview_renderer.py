@@ -41,7 +41,7 @@ def main():
         seed = rng.randint(a=0, b=2**31 - 1)
         pygame.display.set_caption(title="Preview")
 
-        environment = create_environment(condition=condition, render=True)
+        environment = create_environment(condition=condition, should_render=True)
         try:
             result = roll_out_episode(
                 environment=environment,

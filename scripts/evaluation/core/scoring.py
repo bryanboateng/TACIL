@@ -32,7 +32,7 @@ def run_scored_episodes(
     condition: EvaluationCondition,
 ) -> list[tuple[int, float]]:
     """Score `episode_count` episodes under `condition`, returning (seed, reward) pairs."""
-    environment = create_environment(condition=condition, render=False)
+    environment = create_environment(condition=condition, should_render=False)
     try:
         seed_rewards: list[tuple[int, float]] = []
         for seed in tqdm(
