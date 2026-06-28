@@ -1,10 +1,9 @@
 from dataclasses import dataclass
 
 import gymnasium
-import pymunk
 from gym_pusht.envs import PushTEnv
 from numpy import typing as npt
-from pymunk import Body
+from pymunk import Body, Vec2d
 
 
 @dataclass(frozen=True)
@@ -37,23 +36,18 @@ class BlockPushWrapper(gymnasium.Wrapper):
             impulse = direction * self._config.magnitude
 
             block: Body = self._push_t_environment.block
-            center_of_gravity = block.center_of_gravity
-            impulse_point = block.local_to_world(
-                v=(center_of_gravity.x, center_of_gravity.y)
-            )
-            block.apply_impulse_at_world_point(
-                impulse=(impulse.x, impulse.y), point=(impulse_point.x, impulse_point.y)
-            )
+            impulse_point = block.local_to_world(v=block.center_of_gravity)
+            block.apply_impulse_at_world_point(impulse=impulse, point=impulse_point)
 
         self._time_step += 1
 
         return self.env.step(action=action)
 
 
-def _calculate_push_direction(*, environment: PushTEnv) -> pymunk.Vec2d:
-    block_position: pymunk.Vec2d = environment.block.position
-    goal_position = pymunk.Vec2d(*environment.goal_pose[:2])
-    agent_position: pymunk.Vec2d = environment.agent.position
+def _calculate_push_direction(*, environment: PushTEnv) -> Vec2d:
+    block_position: Vec2d = environment.block.position
+    goal_position = Vec2d(*environment.goal_pose[:2])
+    agent_position: Vec2d = environment.agent.position
 
     direction_away_from_goal = (block_position - goal_position).normalized()
     direction_to_agent = (agent_position - block_position).normalized()
