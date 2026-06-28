@@ -115,7 +115,9 @@ def _download_checkpoint(*, run: Run, artifact_name: str) -> Path:
     )
 
 
-def _write_summary(*, run: Run, condition: EvaluationCondition, reward: RewardStatistics) -> None:
+def _write_summary(
+    *, run: Run, condition: EvaluationCondition, reward: RewardStatistics
+) -> None:
     run.summary[f"{condition}/reward_mean"] = reward.mean
     run.summary[f"{condition}/reward_std"] = reward.std
 

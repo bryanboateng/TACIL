@@ -1,6 +1,8 @@
 from dataclasses import dataclass
 
-from scripts.evaluation.core.disturbance import ActionNoise, BlockPush, Disturbance
+from scripts.evaluation.core.disturbance.action_noise import ActionNoise
+from scripts.evaluation.core.disturbance.block_push import BlockPush
+from scripts.evaluation.core.disturbance.disturbance import Disturbance
 
 
 @dataclass(frozen=True)

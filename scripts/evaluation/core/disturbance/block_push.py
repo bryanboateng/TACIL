@@ -1,12 +1,16 @@
 import math
-from dataclasses import dataclass, field
-from typing import Protocol
+from dataclasses import dataclass
 
 import numpy as np
-import numpy.typing as npt
 import pymunk
 from gym_pusht.envs import PushTEnv
-from gymnasium.spaces import Box
+from numpy import typing as npt
+
+from scripts.evaluation.core.disturbance.disturbance import (
+    DisturberState,
+    StepFunction,
+    StepFunctionWrapper,
+)
 
 
 @dataclass(frozen=True)
@@ -14,53 +18,6 @@ class BlockPush:
     force: float
     step: int
     duration: int
-
-
-@dataclass(frozen=True)
-class ActionNoise:
-    std: float
-
-
-Disturbance = BlockPush | ActionNoise
-
-
-class StepFunction(Protocol):
-    def __call__(self, action: npt.NDArray[np.float64]) -> tuple: ...
-
-
-class StepFunctionWrapper(Protocol):
-    def __call__(self, step_function: StepFunction) -> StepFunction: ...
-
-
-@dataclass
-class DisturberState:
-    time_step: int = 0
-    rng: np.random.Generator = field(default_factory=np.random.default_rng)
-    push_force: pymunk.Vec2d = field(default_factory=lambda: pymunk.Vec2d(0.0, 0.0))
-
-
-def setup_disturber(*, environment: PushTEnv, disturbance: Disturbance) -> None:
-    state = DisturberState()
-    match disturbance:
-        case BlockPush():
-            _install_step(
-                environment=environment,
-                make_step=_wrap_step_function_with_block_shove(
-                    config=disturbance, state=state, environment=environment
-                ),
-            )
-        case ActionNoise():
-            _install_step(
-                environment=environment,
-                make_step=_wrap_step_function_with_action_noise(
-                    config=disturbance, state=state, environment=environment
-                ),
-            )
-    _patch_reset(environment=environment, state=state)
-
-
-def _install_step(*, environment: PushTEnv, make_step: StepFunctionWrapper) -> None:
-    environment.step = make_step(step_function=environment.step)  # ty:ignore[invalid-assignment]
 
 
 def _wrap_step_function_with_block_shove(
@@ -95,48 +52,6 @@ def _wrap_step_function_with_block_shove(
         return disturbed_step
 
     return wrap
-
-
-def _wrap_step_function_with_action_noise(
-    config: ActionNoise, state: DisturberState, environment: PushTEnv
-) -> StepFunctionWrapper:
-    action_space = environment.action_space
-    if not isinstance(action_space, Box):
-        raise TypeError(f"Expected Box action space, got {type(action_space).__name__}")
-    action_low: npt.NDArray[np.float64] = action_space.low
-    action_high: npt.NDArray[np.float64] = action_space.high
-
-    def wrap(step_function: StepFunction) -> StepFunction:
-        def disturbed_step(
-            action: npt.NDArray[np.float64],  # (action_dimensionality,)
-        ) -> tuple:
-            noise: npt.NDArray[np.float64] = state.rng.normal(
-                loc=0.0, scale=config.std, size=action.shape
-            )  # (action_dimensionality,)
-
-            noisy_action: npt.NDArray[np.float64] = np.clip(
-                a=action + noise, a_min=action_low, a_max=action_high
-            )  # (action_dimensionality,)
-
-            state.time_step += 1
-            return step_function(action=noisy_action)
-
-        return disturbed_step
-
-    return wrap
-
-
-def _patch_reset(*, environment: PushTEnv, state: DisturberState) -> None:
-    original_reset = environment.reset
-
-    def new_reset(**kwargs):
-        result = original_reset(**kwargs)
-        state.time_step = 0
-        # Reseed per episode so the disturbance is reproducible for a given seed.
-        state.rng = np.random.default_rng(kwargs.get("seed"))
-        return result
-
-    environment.reset = new_reset  # ty:ignore[invalid-assignment]
 
 
 def _calculate_push_direction(*, environment: PushTEnv) -> float:

@@ -8,7 +8,7 @@ from gym_pusht.envs import PushTEnv
 from gymnasium import Env
 
 from scripts.evaluation.core.condition import EvaluationCondition
-from scripts.evaluation.core.disturbance import setup_disturber
+from scripts.evaluation.core.disturbance.disturbance import setup_disturber
 from scripts.evaluation.core.renderer import RENDER_SIZE, setup_renderer
 from scripts.shared.policy_types import Policy
 
