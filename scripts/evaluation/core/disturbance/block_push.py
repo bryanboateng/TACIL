@@ -14,9 +14,6 @@ class BlockPush:
 
 
 def setup_block_push(*, environment: PushTEnv, config: BlockPush) -> None:
-    # The push window and the force vector are the only state this needs, and both are
-    # private to one episode, so they live as closure variables here rather than in a
-    # shared struct. The step counter is zeroed by the reset hook below.
     time_step = 0
     push_force = pymunk.Vec2d(0.0, 0.0)
 
@@ -32,12 +29,14 @@ def setup_block_push(*, environment: PushTEnv, config: BlockPush) -> None:
 
     step_function = environment.step
 
-    def disturbed_step(action: npt.NDArray) -> tuple:
+    def disturbed_step_function(action: npt.NDArray) -> tuple:
         nonlocal time_step, push_force
 
         if time_step == config.step:
-            angle = _calculate_push_direction(environment=environment)
-            push_force = pymunk.Vec2d(math.cos(angle), math.sin(angle)) * config.force
+            push_angle = _calculate_push_angle(environment=environment)
+            push_force = (
+                pymunk.Vec2d(math.cos(push_angle), math.sin(push_angle)) * config.force
+            )
             environment.block.velocity_func = push_velocity
         elif time_step == config.step + config.duration:
             environment.block.velocity_func = pymunk.Body.update_velocity
@@ -45,19 +44,19 @@ def setup_block_push(*, environment: PushTEnv, config: BlockPush) -> None:
         time_step += 1
         return step_function(action=action)
 
-    reset_function = environment.reset
+    original_reset_function = environment.reset
 
-    def disturbed_reset(**kwargs) -> tuple:
+    def reset_and_rewind_push_window(**kwargs) -> tuple:
         nonlocal time_step
-        result = reset_function(**kwargs)
+        reset_result = original_reset_function(**kwargs)
         time_step = 0
-        return result
+        return reset_result
 
-    environment.step = disturbed_step  # ty:ignore[invalid-assignment]
-    environment.reset = disturbed_reset  # ty:ignore[invalid-assignment]
+    environment.step = disturbed_step_function  # ty:ignore[invalid-assignment]
+    environment.reset = reset_and_rewind_push_window  # ty:ignore[invalid-assignment]
 
 
-def _calculate_push_direction(*, environment: PushTEnv) -> float:
+def _calculate_push_angle(*, environment: PushTEnv) -> float:
     block_position = environment.block.position
     angle_away_from_goal = _calculate_angle_away_from_goal(
         block_position=block_position,
