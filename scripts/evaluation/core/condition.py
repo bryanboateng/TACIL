@@ -1,7 +1,8 @@
 from dataclasses import dataclass
 
 from scripts.evaluation.core.disturbance import action_noise, block_push
-from scripts.evaluation.core.rollout import Disturbance
+
+Disturbance = block_push.Config | action_noise.Config
 
 
 @dataclass(frozen=True)

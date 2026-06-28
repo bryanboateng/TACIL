@@ -12,7 +12,7 @@ from scripts.evaluation.core.disturbance import action_noise, block_push
 from scripts.evaluation.core.renderer import RENDER_SIZE, setup_renderer
 from scripts.shared.policy_types import Policy
 
-Disturbance = block_push.Config | action_noise.Config
+
 @dataclass(frozen=True)
 class EpisodeResult:
     reward: float
@@ -105,5 +105,3 @@ def _get_push_t_environment(environment: Env) -> PushTEnv:
             f"Expected PushTEnv, got {type(unwrapped_environment).__name__}"
         )
     return unwrapped_environment
-
-
