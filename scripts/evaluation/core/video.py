@@ -21,10 +21,6 @@ FPS = 10
 FREEZE_SECONDS = 2
 
 MARGIN = RENDER_SIZE // 100
-TEXT_COLOR = (0, 0, 0)
-RUNNING_COLOR = (0, 0, 0)
-SUCCESS_COLOR = (20, 120, 40)
-FAILURE_COLOR = (170, 30, 30)
 
 
 class Corner(Enum):
@@ -47,28 +43,13 @@ def build_annotated_surfaces(
     seed: int,
     reward: float | None,
 ) -> list[pygame.Surface]:
-    """One annotated surface per rendered frame: disturbance + episode identity along the
-    top, timestep + run state along the bottom.
-
-    When `reward` is given (recorded videos) it is the episode's scored reward, shown
-    statically on every frame. When `reward` is None (live preview) there is no scored
-    outcome, so each frame shows its own current reward alongside the running maximum."""
-    final_state_text, final_state_color = (
-        ("Succeeded", SUCCESS_COLOR)
-        if episode_result.terminated
-        else ("Failed", FAILURE_COLOR)
-    )
+    final_state_text = "Succeeded" if episode_result.terminated else "Failed"
     last_frame_index = len(episode_result.frames) - 1
     is_live_preview = reward is None
 
     annotated_surfaces: list[pygame.Surface] = []
     running_max_reward = 0.0
     for step, frame in enumerate(episode_result.frames):
-        state_text, state_color = (
-            (final_state_text, final_state_color)
-            if step == last_frame_index
-            else ("Running", RUNNING_COLOR)
-        )
         if is_live_preview:
             # frames[0] is the initial reset frame, before any step/reward.
             current_reward = episode_result.rewards[step - 1] if step >= 1 else 0.0
@@ -85,8 +66,7 @@ def build_annotated_surfaces(
                 max_reward=frame_max_reward,
                 condition_label=condition_label,
                 step=step,
-                state_text=state_text,
-                state_color=state_color,
+                state_text=final_state_text if step == last_frame_index else "Running",
             )
         )
     return annotated_surfaces
@@ -140,7 +120,9 @@ def _record_group(
     condition_label = label(condition)
 
     frames: list[np.ndarray] = []
-    for seed, reward in tqdm(seed_rewards, desc=f"{condition_label}/{outcome}", unit="ep"):
+    for seed, reward in tqdm(
+        seed_rewards, desc=f"{condition_label}/{outcome}", unit="ep"
+    ):
         episode_result = roll_out_episode(
             environment=environment,
             policy=policy_factory(seed=seed),
@@ -179,7 +161,6 @@ def _annotate_surface(
     condition_label: str,
     step: int,
     state_text: str,
-    state_color: tuple[int, int, int],
 ) -> pygame.Surface:
     annotated_surface = surface.copy()
     identity_text = f"seed {seed}"
@@ -193,41 +174,32 @@ def _annotate_surface(
         font=font,
         text=condition_label,
         corner=Corner.TOP_LEFT,
-        color=TEXT_COLOR,
     )
     _blit_text_at_corner(
         surface=annotated_surface,
         font=font,
         text=identity_text,
         corner=Corner.TOP_RIGHT,
-        color=TEXT_COLOR,
     )
     _blit_text_at_corner(
         surface=annotated_surface,
         font=font,
         text=f"step {step}",
         corner=Corner.BOTTOM_LEFT,
-        color=TEXT_COLOR,
     )
     _blit_text_at_corner(
         surface=annotated_surface,
         font=font,
         text=state_text,
         corner=Corner.BOTTOM_RIGHT,
-        color=state_color,
     )
     return annotated_surface
 
 
 def _blit_text_at_corner(
-    *,
-    surface: pygame.Surface,
-    font: pygame.font.Font,
-    text: str,
-    corner: Corner,
-    color: tuple[int, int, int],
+    *, surface: pygame.Surface, font: pygame.font.Font, text: str, corner: Corner
 ) -> None:
-    text_surface = font.render(text, True, color)
+    text_surface = font.render(text, True, (0, 0, 0))
     right_aligned_x = surface.get_width() - text_surface.get_width() - MARGIN
     bottom_aligned_y = surface.get_height() - text_surface.get_height() - MARGIN
     match corner:
