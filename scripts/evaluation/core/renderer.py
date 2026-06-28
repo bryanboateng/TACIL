@@ -8,6 +8,7 @@ from gym_pusht.envs import PushTEnv
 from gymnasium.spaces import Box
 
 RENDER_SIZE = 1000
+SUPERSAMPLE_FACTOR = 2
 
 
 class RecoloredRenderWrapper(gymnasium.Wrapper):
@@ -36,18 +37,22 @@ class RecoloredRenderWrapper(gymnasium.Wrapper):
     def _draw_scene(self) -> pygame.Surface:
         environment = self._push_t_environment
 
-        screen = pygame.Surface(size=(self._simulation_size, self._simulation_size))
+        canvas_size = RENDER_SIZE * SUPERSAMPLE_FACTOR
+        scale = canvas_size / self._simulation_size
+
+        screen = pygame.Surface(size=(canvas_size, canvas_size))
         screen.fill(color=self._background_color)
 
         draw_options = pymunk.pygame_util.DrawOptions(surface=screen)
         draw_options.flags = pymunk.pygame_util.DrawOptions.DRAW_SHAPES
+        draw_options.transform = pymunk.Transform.scaling(s=scale)
 
         goal_body: pymunk.Body = environment.get_goal_pose_body(
             pose=environment.goal_pose
         )
         for shape in environment.block.shapes:
             goal_vertices = [
-                pymunk.pygame_util.to_pygame(p=goal_vertex, surface=screen)
+                pymunk.pygame_util.to_pygame(p=goal_vertex * scale, surface=screen)
                 for goal_vertex in (
                     goal_body.local_to_world(v=vertex)
                     for vertex in shape.get_vertices()
@@ -74,10 +79,16 @@ class RecoloredRenderWrapper(gymnasium.Wrapper):
             shape.color = self._background_color
 
     def _to_image(self, *, screen: pygame.Surface) -> np.ndarray:
-        image = np.transpose(
-            a=np.array(object=pygame.surfarray.pixels3d(surface=screen)), axes=(1, 0, 2)
-        )
-        image = cv2.resize(src=image, dsize=(RENDER_SIZE, RENDER_SIZE))
+        image = np.frombuffer(
+            buffer=pygame.image.tobytes(
+                pygame.transform.smoothscale(
+                    surface=screen, size=(RENDER_SIZE, RENDER_SIZE)
+                ),
+                "RGB",
+            ),
+            dtype=np.uint8,
+        ).reshape(RENDER_SIZE, RENDER_SIZE, 3)
+        image = image.copy()
         self.draw_last_action(image)
         return image
 
