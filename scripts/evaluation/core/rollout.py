@@ -4,7 +4,6 @@ import gym_pusht  # noqa: F401
 import gymnasium
 import numpy as np
 import torch
-from gym_pusht.envs import PushTEnv
 from gymnasium import Env
 
 from scripts.evaluation.core.disturbance import action_noise, block_push
@@ -13,7 +12,7 @@ from scripts.evaluation.core.disturbance.condition import (
     Undisturbed,
     color_map,
 )
-from scripts.evaluation.core.renderer import RENDER_SIZE, setup_renderer
+from scripts.evaluation.core.renderer import RecoloredRenderWrapper
 from scripts.shared.policy_types import Policy
 
 
@@ -28,34 +27,32 @@ class EpisodeResult:
 
 def create_environment(*, condition: Condition, should_render: bool) -> Env:
     if should_render:
-        environment = gymnasium.make(
-            id="gym_pusht/PushT-v0",
-            render_mode="rgb_array",
-            visualization_width=RENDER_SIZE,
-            visualization_height=RENDER_SIZE,
+        environment: Env = gymnasium.make(
+            id="gym_pusht/PushT-v0", render_mode="rgb_array"
         )
     else:
         environment = gymnasium.make(id="gym_pusht/PushT-v0")
 
     environment.reset()
 
-    if should_render:
-        setup_renderer(
-            environment=_get_push_t_environment(environment=environment),
-            color_map=color_map(condition),
-        )
-
     match condition:
         case Undisturbed():
-            return environment
+            pass
         case block_push.Config():
-            return block_push.BlockPushWrapper(
+            environment = block_push.BlockPushWrapper(
                 environment=environment, config=condition
             )
         case action_noise.Config():
-            return action_noise.ActionNoiseWrapper(
+            environment = action_noise.ActionNoiseWrapper(
                 environment=environment, config=condition
             )
+
+    if should_render:
+        environment = RecoloredRenderWrapper(
+            environment=environment, color_map=color_map(condition)
+        )
+
+    return environment
 
 
 @torch.no_grad()
@@ -99,12 +96,3 @@ def _render_frame(environment: Env) -> np.ndarray:
             f"Expected rgb_array render to return ndarray, got {type(rendered)}"
         )
     return rendered
-
-
-def _get_push_t_environment(environment: Env) -> PushTEnv:
-    unwrapped_environment = environment.unwrapped
-    if not isinstance(unwrapped_environment, PushTEnv):
-        raise TypeError(
-            f"Expected PushTEnv, got {type(unwrapped_environment).__name__}"
-        )
-    return unwrapped_environment

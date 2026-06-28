@@ -18,7 +18,7 @@ from scripts.shared.policy_types import PolicyFactory
 FPS = 10
 FREEZE_SECONDS = 2
 
-MARGIN = 10
+MARGIN = RENDER_SIZE // 50
 TEXT_COLOR = (0, 0, 0)
 RUNNING_COLOR = (0, 0, 0)
 SUCCESS_COLOR = (20, 120, 40)

@@ -3,6 +3,7 @@ import random
 
 import numpy as np
 import pygame
+from gymnasium.spaces import Box
 
 from scripts.evaluation.core.disturbance.condition import build_conditions, label
 from scripts.evaluation.core.renderer import RENDER_SIZE
@@ -17,14 +18,14 @@ from scripts.shared.policy_types import Policy
 PREVIEW_FPS = 30
 
 
-def _figure_eight_policy_factory() -> Policy:
+def _figure_eight_policy_factory(*, center: np.ndarray) -> Policy:
     step = itertools.count()
     amplitude = 150.0
 
     def policy(*, observation: np.ndarray) -> np.ndarray:
         t = next(step) * (2 * np.pi / 120)
-        x = RENDER_SIZE / 2 + amplitude * np.cos(t)
-        y = RENDER_SIZE / 2 + amplitude * np.sin(t) * np.cos(t)
+        x = center[0] + amplitude * np.cos(t)
+        y = center[1] + amplitude * np.sin(t) * np.cos(t)
         return np.asarray([x, y], dtype=np.float32)
 
     return policy
@@ -42,10 +43,17 @@ def main():
         pygame.display.set_caption(title="Preview")
 
         environment = create_environment(condition=condition, should_render=True)
+        action_space = environment.action_space
+        if not isinstance(action_space, Box):
+            raise TypeError(
+                f"Expected Box action space, got {type(action_space).__name__}"
+            )
         try:
             result = roll_out_episode(
                 environment=environment,
-                policy=_figure_eight_policy_factory(),
+                policy=_figure_eight_policy_factory(
+                    center=(action_space.low + action_space.high) / 2
+                ),
                 seed=seed,
                 render=True,
             )
