@@ -6,7 +6,6 @@ import numpy as np
 import pygame
 import pymunk.pygame_util
 from gym_pusht.envs import PushTEnv
-from gymnasium import Env
 
 RENDER_SIZE = 512
 
