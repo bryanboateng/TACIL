@@ -1,4 +1,3 @@
-import math
 from dataclasses import dataclass
 
 import gymnasium
@@ -34,14 +33,16 @@ class BlockPushWrapper(gymnasium.Wrapper):
 
     def step(self, action: npt.NDArray) -> tuple:
         if self._time_step in self._config.window:
-            angle = _calculate_push_angle(environment=self._push_t_environment)
-            impulse = (
-                pymunk.Vec2d(x=math.cos(angle), y=math.sin(angle))
-                * self._config.magnitude
-            )
+            direction = _calculate_push_direction(environment=self._push_t_environment)
+            impulse = direction * self._config.magnitude
+
             block: Body = self._push_t_environment.block
+            center_of_gravity = block.center_of_gravity
+            impulse_point = block.local_to_world(
+                v=(center_of_gravity.x, center_of_gravity.y)
+            )
             block.apply_impulse_at_world_point(
-                impulse=impulse, point=block.local_to_world(v=block.center_of_gravity)
+                impulse=(impulse.x, impulse.y), point=(impulse_point.x, impulse_point.y)
             )
 
         self._time_step += 1
@@ -49,54 +50,25 @@ class BlockPushWrapper(gymnasium.Wrapper):
         return self.env.step(action=action)
 
 
-def _calculate_push_angle(*, environment: PushTEnv) -> float:
-    block_position = environment.block.position
-    angle_away_from_goal = _calculate_angle_away_from_goal(
-        block_position=block_position,
-        goal_position=pymunk.Vec2d(*environment.goal_pose[:2]),
-    )
-    return _calculate_angle_deflected_away_from_agent(
-        angle_away_from_goal=angle_away_from_goal,
-        block_position=block_position,
-        agent_position=environment.agent.position,
-    )
+def _calculate_push_direction(*, environment: PushTEnv) -> pymunk.Vec2d:
+    block_position: pymunk.Vec2d = environment.block.position
+    goal_position = pymunk.Vec2d(*environment.goal_pose[:2])
+    agent_position: pymunk.Vec2d = environment.agent.position
 
+    direction_away_from_goal = (block_position - goal_position).normalized()
+    direction_to_agent = (agent_position - block_position).normalized()
 
-def _calculate_angle_away_from_goal(
-    *, block_position: pymunk.Vec2d, goal_position: pymunk.Vec2d
-) -> float:
-
-    # noinspection PyTypeChecker
-    # Vec2d.__sub__ expects tuple[float, float], but doesn't recognize Vec2d as compatible since it's a NamedTuple subclass
-    displacement = block_position - goal_position
-
-    if displacement.length > 1e-6:
-        return displacement.angle
-    return 0.0
-
-
-def _calculate_angle_deflected_away_from_agent(
-    *,
-    angle_away_from_goal: float,
-    block_position: pymunk.Vec2d,
-    agent_position: pymunk.Vec2d,
-) -> float:
-    direction = pymunk.Vec2d(
-        math.cos(angle_away_from_goal), math.sin(angle_away_from_goal)
-    )
-    to_agent = agent_position - block_position
-    if to_agent.length <= 1e-6:
-        return angle_away_from_goal
-
-    to_agent = to_agent.normalized()
-
-    component_toward_agent = direction.dot(to_agent)
+    component_toward_agent = direction_away_from_goal.dot(other=direction_to_agent)
     if component_toward_agent <= 0:
-        # Already pushing away from the agent; nothing to avoid.
-        return angle_away_from_goal
+        # Already pushing away from the agent. Nothing to avoid.
+        return direction_away_from_goal
 
-    deflected = direction - component_toward_agent * to_agent
-    if deflected.length > 1e-6:
-        return deflected.angle
-    # direction pointed straight at the agent: slide perpendicular instead.
-    return math.atan2(-to_agent.y, to_agent.x)
+    # Remove the part of the push that points at the agent, keeping only the
+    # perpendicular slide.
+    # If that leaves nothing (i.e. the push is aimed straight at the agent), slide sideways instead.
+    deflected_direction = (
+        direction_away_from_goal - component_toward_agent * direction_to_agent
+    )
+    if deflected_direction.length > 1e-6:
+        return deflected_direction.normalized()
+    return direction_to_agent.perpendicular()
