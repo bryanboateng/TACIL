@@ -26,7 +26,7 @@ class Config:
     window_length: int = 21
     # Noise std as a fraction of each state dimension's observed min-max range.
     # E.g. 0.02 = 2% of range per dimension.
-    noise_scale: float = 0.05
+    noise_fraction: float = 0.05
     seed: int = 42
 
 
@@ -55,7 +55,7 @@ def _run(*, config: Config):
             episode_store=source_episode_store,
             window_length=config.window_length,
             augmentation_ratio=config.augmentation_ratio,
-            noise_scale=config.noise_scale,
+            noise_fraction=config.noise_fraction,
             rng=rng,
         )
 
@@ -75,12 +75,12 @@ def _augment_with_noisy_episodes(
     episode_store: EpisodeStore,
     window_length: int,
     augmentation_ratio: float,
-    noise_scale: float,
+    noise_fraction: float,
     rng: Generator,
 ) -> EpisodeStore:
 
     noise_std = compute_noise_std(
-        samples=episode_store.states, noise_scale=noise_scale
+        samples=episode_store.states, noise_fraction=noise_fraction
     )  # (state_dimensionality,)
 
     sliding_window_slices = _get_sliding_window_slices(
@@ -193,7 +193,7 @@ def _get_sliding_window_slices(
 def compute_noise_std(
     *,
     samples: npt.NDArray[np.float32],  # (N, dimensionality)
-    noise_scale: float,
+    noise_fraction: float,
 ) -> npt.NDArray[np.float32]:  # (dimensionality,)
     min_per_dimension: npt.NDArray[np.float32] = samples.min(
         axis=0
@@ -202,7 +202,7 @@ def compute_noise_std(
         axis=0
     )  # (dimensionality,)
     range_per_dimension = max_per_dimension - min_per_dimension  # (dimensionality,)
-    return noise_scale * range_per_dimension
+    return noise_fraction * range_per_dimension
 
 
 def _log_dataset_statistics(

@@ -66,7 +66,7 @@ def _run(*, config: Config) -> None:
         )  # (anchor_count,)
 
         action_noise_std = compute_noise_std(
-            samples=episode_store.actions, noise_scale=config.action_noise_scale
+            samples=episode_store.actions, noise_fraction=config.action_noise_fraction
         )  # (action_dimensionality,)
 
         backward_trajectories = roll_out_backward(

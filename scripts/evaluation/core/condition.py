@@ -16,8 +16,8 @@ class EvaluationCondition:
                 return "clean"
             case block_push.Config(magnitude=strength):
                 return f"block_push_{int(strength)}"
-            case action_noise.Config(noise_std=std):
-                return f"action_noise_{int(std)}"
+            case action_noise.Config(noise_fraction=fraction):
+                return f"action_noise_{fraction}"
 
 
 def build_conditions() -> list[EvaluationCondition]:
@@ -32,7 +32,7 @@ def build_conditions() -> list[EvaluationCondition]:
     These magnitudes reproduce the previous shove distances (~[30, 60, 90] units).
     """
     block_shove_strengths = [700.0]
-    action_noise_stds = [5.0, 15.0, 30.0]
+    action_noise_fractions = [0.05, 0.15, 0.30]
 
     return [
         # EvalCondition(name="clean", disturbance=None, bg_cmap="Greys"),
@@ -47,8 +47,8 @@ def build_conditions() -> list[EvaluationCondition]:
         )
         # *(
         #     EvaluationCondition(
-        #         disturbance=action_noise.Config(noise_std=std), color_map="Blues"
+        #         disturbance=action_noise.Config(noise_fraction=fraction), color_map="Blues"
         #     )
-        #     for std in action_noise_stds
+        #     for fraction in action_noise_fractions
         # )
     ]

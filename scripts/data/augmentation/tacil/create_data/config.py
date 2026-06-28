@@ -9,7 +9,7 @@ class Config:
     synthetic_part_length: int = 5
     expert_part_length: int = 16
 
-    action_noise_scale: float = 0.1
+    action_noise_fraction: float = 0.1
     label_error_bound_quantile: float = 0.5
 
     seed: int = 42

@@ -8,7 +8,8 @@ from numpy import typing as npt
 
 @dataclass(frozen=True)
 class Config:
-    noise_std: float
+    # Noise std as a fraction of each action dimension's min-max range.
+    noise_fraction: float
 
 
 class ActionNoiseWrapper(gymnasium.ActionWrapper):
@@ -21,14 +22,16 @@ class ActionNoiseWrapper(gymnasium.ActionWrapper):
                 f"Expected Box action space, got {type(action_space).__name__}"
             )
 
-        self._noise_std = config.noise_std
-
         self._action_lower_bound: npt.NDArray[np.float64] = (
             action_space.low
         )  # (action_dimensionality,)
 
         self._action_upper_bound: npt.NDArray[np.float64] = (
             action_space.high
+        )  # (action_dimensionality,)
+
+        self._noise_std: npt.NDArray[np.float64] = config.noise_fraction * (
+            self._action_upper_bound - self._action_lower_bound
         )  # (action_dimensionality,)
 
     def action(
