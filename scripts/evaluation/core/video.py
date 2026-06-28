@@ -39,9 +39,9 @@ def create_font() -> pygame.font.Font:
     return pygame.font.SysFont(name="Inter", size=RENDER_SIZE // 40)
 
 
-def annotated_surfaces(
+def build_annotated_surfaces(
     *,
-    result: EpisodeResult,
+    episode_result: EpisodeResult,
     font: pygame.font.Font,
     condition_label: str,
     seed: int,
@@ -53,41 +53,43 @@ def annotated_surfaces(
     When `reward` is given (recorded videos) it is the episode's scored reward, shown
     statically on every frame. When `reward` is None (live preview) there is no scored
     outcome, so each frame shows its own current reward alongside the running maximum."""
-    final_state, final_color = (
-        ("Succeeded", SUCCESS_COLOR) if result.terminated else ("Failed", FAILURE_COLOR)
+    final_state_text, final_state_color = (
+        ("Succeeded", SUCCESS_COLOR)
+        if episode_result.terminated
+        else ("Failed", FAILURE_COLOR)
     )
-    last_index = len(result.frames) - 1
-    live = reward is None
+    last_frame_index = len(episode_result.frames) - 1
+    is_live_preview = reward is None
 
-    surfaces: list[pygame.Surface] = []
-    running_max = 0.0
-    for step, frame in enumerate(result.frames):
-        state, state_color = (
-            (final_state, final_color)
-            if step == last_index
+    annotated_surfaces: list[pygame.Surface] = []
+    running_max_reward = 0.0
+    for step, frame in enumerate(episode_result.frames):
+        state_text, state_color = (
+            (final_state_text, final_state_color)
+            if step == last_frame_index
             else ("Running", RUNNING_COLOR)
         )
-        if live:
+        if is_live_preview:
             # frames[0] is the initial reset frame, before any step/reward.
-            current = result.rewards[step - 1] if step >= 1 else 0.0
-            running_max = max(running_max, current)
-            frame_reward, frame_max = current, running_max
+            current_reward = episode_result.rewards[step - 1] if step >= 1 else 0.0
+            running_max_reward = max(running_max_reward, current_reward)
+            frame_reward, frame_max_reward = current_reward, running_max_reward
         else:
-            frame_reward, frame_max = reward, None
-        surfaces.append(
-            _annotate(
-                surface=_frame_to_surface(frame),
+            frame_reward, frame_max_reward = reward, None
+        annotated_surfaces.append(
+            _annotate_surface(
+                surface=_convert_frame_to_surface(frame=frame),
                 font=font,
                 seed=seed,
                 reward=frame_reward,
-                max_reward=frame_max,
+                max_reward=frame_max_reward,
                 condition_label=condition_label,
                 step=step,
-                state=state,
+                state_text=state_text,
                 state_color=state_color,
             )
         )
-    return surfaces
+    return annotated_surfaces
 
 
 @torch.no_grad()
@@ -102,11 +104,11 @@ def record_condition(
     font = create_font()
     environment = create_environment(condition=condition, should_render=True)
     try:
-        for outcome, group in [
+        for outcome, seed_rewards in [
             ("Failure", selected_seeds.failures),
             ("Success", selected_seeds.successes),
         ]:
-            if not group:
+            if not seed_rewards:
                 continue
 
             frames = _record_group(
@@ -114,7 +116,7 @@ def record_condition(
                 environment=environment,
                 condition=condition,
                 outcome=outcome,
-                group=group,
+                seed_rewards=seed_rewards,
                 font=font,
             )
 
@@ -132,42 +134,42 @@ def _record_group(
     environment,
     condition: Condition,
     outcome: str,
-    group: list[tuple[int, float]],
+    seed_rewards: list[tuple[int, float]],
     font: pygame.font.Font,
 ) -> list[np.ndarray]:
     condition_label = label(condition)
 
     frames: list[np.ndarray] = []
-    for seed, reward in tqdm(group, desc=f"{condition_label}/{outcome}", unit="ep"):
-        result = roll_out_episode(
+    for seed, reward in tqdm(seed_rewards, desc=f"{condition_label}/{outcome}", unit="ep"):
+        episode_result = roll_out_episode(
             environment=environment,
             policy=policy_factory(seed=seed),
             seed=seed,
             render=True,
         )
-        for surface in annotated_surfaces(
-            result=result,
+        for surface in build_annotated_surfaces(
+            episode_result=episode_result,
             font=font,
             condition_label=condition_label,
             seed=seed,
             reward=reward,
         ):
-            frames.append(_surface_to_frame(surface))
+            frames.append(_convert_surface_to_frame(surface=surface))
 
         # Freeze on the final annotated frame.
         frames.extend([frames[-1]] * (FPS * FREEZE_SECONDS))
     return frames
 
 
-def _frame_to_surface(frame: np.ndarray) -> pygame.Surface:
+def _convert_frame_to_surface(*, frame: np.ndarray) -> pygame.Surface:
     return pygame.surfarray.make_surface(frame.transpose(1, 0, 2))
 
 
-def _surface_to_frame(surface: pygame.Surface) -> np.ndarray:
+def _convert_surface_to_frame(*, surface: pygame.Surface) -> np.ndarray:
     return np.transpose(pygame.surfarray.array3d(surface), (1, 0, 2))
 
 
-def _annotate(
+def _annotate_surface(
     *,
     surface: pygame.Surface,
     font: pygame.font.Font,
@@ -176,44 +178,48 @@ def _annotate(
     max_reward: float | None,
     condition_label: str,
     step: int,
-    state: str,
+    state_text: str,
     state_color: tuple[int, int, int],
 ) -> pygame.Surface:
-    out = surface.copy()
-    identity = f"seed {seed}"
+    annotated_surface = surface.copy()
+    identity_text = f"seed {seed}"
     if reward is not None:
-        identity += f"   reward {reward:.2f}"
+        identity_text += f"   reward {reward:.2f}"
     if max_reward is not None:
-        identity += f"   max {max_reward:.2f}"
+        identity_text += f"   max {max_reward:.2f}"
     # Disturbance + identity on top, live status on the bottom.
-    _blit_corner(
-        surface=out,
+    _blit_text_at_corner(
+        surface=annotated_surface,
         font=font,
         text=condition_label,
         corner=Corner.TOP_LEFT,
         color=TEXT_COLOR,
     )
-    _blit_corner(
-        surface=out, font=font, text=identity, corner=Corner.TOP_RIGHT, color=TEXT_COLOR
+    _blit_text_at_corner(
+        surface=annotated_surface,
+        font=font,
+        text=identity_text,
+        corner=Corner.TOP_RIGHT,
+        color=TEXT_COLOR,
     )
-    _blit_corner(
-        surface=out,
+    _blit_text_at_corner(
+        surface=annotated_surface,
         font=font,
         text=f"step {step}",
         corner=Corner.BOTTOM_LEFT,
         color=TEXT_COLOR,
     )
-    _blit_corner(
-        surface=out,
+    _blit_text_at_corner(
+        surface=annotated_surface,
         font=font,
-        text=state,
+        text=state_text,
         corner=Corner.BOTTOM_RIGHT,
         color=state_color,
     )
-    return out
+    return annotated_surface
 
 
-def _blit_corner(
+def _blit_text_at_corner(
     *,
     surface: pygame.Surface,
     font: pygame.font.Font,
@@ -221,16 +227,16 @@ def _blit_corner(
     corner: Corner,
     color: tuple[int, int, int],
 ) -> None:
-    rendered = font.render(text, True, color)
-    right = surface.get_width() - rendered.get_width() - MARGIN
-    bottom = surface.get_height() - rendered.get_height() - MARGIN
+    text_surface = font.render(text, True, color)
+    right_aligned_x = surface.get_width() - text_surface.get_width() - MARGIN
+    bottom_aligned_y = surface.get_height() - text_surface.get_height() - MARGIN
     match corner:
         case Corner.TOP_LEFT:
-            dest = (MARGIN, MARGIN)
+            destination = (MARGIN, MARGIN)
         case Corner.TOP_RIGHT:
-            dest = (right, MARGIN)
+            destination = (right_aligned_x, MARGIN)
         case Corner.BOTTOM_LEFT:
-            dest = (MARGIN, bottom)
+            destination = (MARGIN, bottom_aligned_y)
         case Corner.BOTTOM_RIGHT:
-            dest = (right, bottom)
-    surface.blit(source=rendered, dest=dest)
+            destination = (right_aligned_x, bottom_aligned_y)
+    surface.blit(source=text_surface, dest=destination)

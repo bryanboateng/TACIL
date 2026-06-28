@@ -10,7 +10,7 @@ from scripts.evaluation.core.renderer import RENDER_SIZE
 from scripts.evaluation.core.rollout import create_environment, roll_out_episode
 from scripts.evaluation.core.video import (
     FREEZE_SECONDS,
-    annotated_surfaces,
+    build_annotated_surfaces,
     create_font,
 )
 from scripts.shared.policy_types import Policy
@@ -49,7 +49,7 @@ def main():
                 f"Expected Box action space, got {type(action_space).__name__}"
             )
         try:
-            result = roll_out_episode(
+            episode_result = roll_out_episode(
                 environment=environment,
                 policy=_figure_eight_policy_factory(
                     center=(action_space.low + action_space.high) / 2
@@ -60,8 +60,8 @@ def main():
         finally:
             environment.close()
 
-        surfaces = annotated_surfaces(
-            result=result,
+        surfaces = build_annotated_surfaces(
+            episode_result=episode_result,
             font=font,
             condition_label=label(condition),
             seed=seed,
