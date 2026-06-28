@@ -7,7 +7,7 @@ import torch
 from gym_pusht.envs import PushTEnv
 from gymnasium import Env
 
-from scripts.evaluation.core.condition import Condition, color_map
+from scripts.evaluation.core.condition import Condition, Undisturbed, color_map
 from scripts.evaluation.core.disturbance import action_noise, block_push
 from scripts.evaluation.core.renderer import RENDER_SIZE, setup_renderer
 from scripts.shared.policy_types import Policy
@@ -42,7 +42,7 @@ def create_environment(*, condition: Condition, should_render: bool) -> Env:
         )
 
     match condition:
-        case None:
+        case Undisturbed():
             return environment
         case block_push.Config():
             return block_push.BlockPushWrapper(
