@@ -11,7 +11,6 @@ from diffusers.training_utils import EMAModel
 from rich.pretty import pretty_repr
 from tqdm.auto import tqdm
 
-from scripts.evaluation.core.condition import EvaluationCondition
 from scripts.evaluation.core.scoring import (
     RewardStatistics,
     reward_statistics,
@@ -258,7 +257,7 @@ def _evaluate(
             policy_factory=policy_factory,
             start_episode_seed=100_000,
             episode_count=episode_count,
-            condition=EvaluationCondition(disturbance=None),
+            condition=None,
         )
     )
 

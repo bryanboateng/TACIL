@@ -5,7 +5,7 @@ import wandb
 from tqdm import tqdm
 from wandb import Run
 
-from scripts.evaluation.core.condition import EvaluationCondition
+from scripts.evaluation.core.condition import Condition, label
 from scripts.evaluation.core.renderer import RENDER_SIZE
 from scripts.evaluation.core.rollout import (
     EpisodeResult,
@@ -85,7 +85,7 @@ def annotated_surfaces(
 def record_condition(
     *,
     policy_factory: PolicyFactory,
-    condition: EvaluationCondition,
+    condition: Condition,
     selected_seeds: SelectedSeeds,
     run: Run,
 ) -> None:
@@ -93,7 +93,7 @@ def record_condition(
     font = create_font()
     environment = create_environment(condition=condition, should_render=True)
     try:
-        for label, group in [
+        for outcome, group in [
             ("Failure", selected_seeds.failures),
             ("Success", selected_seeds.successes),
         ]:
@@ -104,13 +104,13 @@ def record_condition(
                 policy_factory=policy_factory,
                 environment=environment,
                 condition=condition,
-                label=label,
+                outcome=outcome,
                 group=group,
                 font=font,
             )
 
             # wandb.Video expects (T, C, H, W)
-            run.summary[f"{condition}/video_{label}"] = wandb.Video(
+            run.summary[f"{label(condition)}/video_{outcome}"] = wandb.Video(
                 data_or_path=np.stack(frames).transpose(0, 3, 1, 2), fps=FPS
             )
     finally:
@@ -121,15 +121,15 @@ def _record_group(
     *,
     policy_factory: PolicyFactory,
     environment,
-    condition: EvaluationCondition,
-    label: str,
+    condition: Condition,
+    outcome: str,
     group: list[tuple[int, float]],
     font: pygame.font.Font,
 ) -> list[np.ndarray]:
-    condition_label = str(condition)
+    condition_label = label(condition)
 
     frames: list[np.ndarray] = []
-    for seed, reward in tqdm(group, desc=f"{condition}/{label}", unit="ep"):
+    for seed, reward in tqdm(group, desc=f"{condition_label}/{outcome}", unit="ep"):
         result = roll_out_episode(
             environment=environment,
             policy=policy_factory(seed=seed),

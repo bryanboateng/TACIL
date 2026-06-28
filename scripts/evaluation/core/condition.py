@@ -1,45 +1,41 @@
-from dataclasses import dataclass
-
 from scripts.evaluation.core.disturbance import action_noise, block_push
 
 Disturbance = block_push.Config | action_noise.Config
+Condition = Disturbance | None
 
 
-@dataclass(frozen=True)
-class EvaluationCondition:
-    disturbance: Disturbance | None
-    color_map: str
-
-    def __str__(self) -> str:
-        match self.disturbance:
-            case None:
-                return "clean"
-            case block_push.Config(magnitude=strength):
-                return f"block_push_{int(strength)}"
-            case action_noise.Config(noise_fraction=fraction):
-                return f"action_noise_{fraction}"
+def label(condition: Condition) -> str:
+    match condition:
+        case None:
+            return "clean"
+        case block_push.Config(magnitude=magnitude, window=window):
+            return f"block_push_{int(magnitude)}_{window.start}-{window.stop}"
+        case action_noise.Config(noise_fraction=noise_fraction):
+            return f"action_noise_{noise_fraction}"
 
 
-def build_conditions() -> list[EvaluationCondition]:
+def color_map(condition: Condition) -> str:
+    match condition:
+        case None:
+            return "Greys"
+        case block_push.Config():
+            return "Oranges"
+        case action_noise.Config():
+            return "Blues"
+
+
+def build_conditions() -> list[Condition]:
     block_push_magnitudes = [700.0]
     action_noise_fractions = [0.05, 0.15, 0.30]
 
     return [
-        EvaluationCondition(disturbance=None, color_map="Greys"),
+        None,
         *(
-            EvaluationCondition(
-                disturbance=block_push.Config(
-                    magnitude=magnitude, window=range(100, 120)
-                ),
-                color_map="Oranges",
-            )
+            block_push.Config(magnitude=magnitude, window=range(100, 120))
             for magnitude in block_push_magnitudes
         ),
         *(
-            EvaluationCondition(
-                disturbance=action_noise.Config(noise_fraction=noise_fraction),
-                color_map="Blues",
-            )
+            action_noise.Config(noise_fraction=noise_fraction)
             for noise_fraction in action_noise_fractions
         ),
     ]

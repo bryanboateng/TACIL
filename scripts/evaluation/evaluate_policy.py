@@ -12,7 +12,7 @@ from scripts.evaluation.config import (
     Config,
     DiffusionPolicyCheckpoint,
 )
-from scripts.evaluation.core.condition import EvaluationCondition, build_conditions
+from scripts.evaluation.core.condition import Condition, build_conditions, label
 from scripts.evaluation.core.scoring import (
     RewardStatistics,
     reward_statistics,
@@ -115,11 +115,9 @@ def _download_checkpoint(*, run: Run, artifact_name: str) -> Path:
     )
 
 
-def _write_summary(
-    *, run: Run, condition: EvaluationCondition, reward: RewardStatistics
-) -> None:
-    run.summary[f"{condition}/reward_mean"] = reward.mean
-    run.summary[f"{condition}/reward_std"] = reward.std
+def _write_summary(*, run: Run, condition: Condition, reward: RewardStatistics) -> None:
+    run.summary[f"{label(condition)}/reward_mean"] = reward.mean
+    run.summary[f"{label(condition)}/reward_std"] = reward.std
 
 
 if __name__ == "__main__":

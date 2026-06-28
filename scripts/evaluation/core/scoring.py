@@ -4,7 +4,7 @@ import numpy as np
 import torch
 from tqdm import tqdm
 
-from scripts.evaluation.core.condition import EvaluationCondition
+from scripts.evaluation.core.condition import Condition, label
 from scripts.evaluation.core.rollout import create_environment, roll_out_episode
 from scripts.shared.policy_types import PolicyFactory
 
@@ -29,7 +29,7 @@ def run_scored_episodes(
     policy_factory: PolicyFactory,
     start_episode_seed: int,
     episode_count: int,
-    condition: EvaluationCondition,
+    condition: Condition,
 ) -> list[tuple[int, float]]:
     """Score `episode_count` episodes under `condition`, returning (seed, reward) pairs."""
     environment = create_environment(condition=condition, should_render=False)
@@ -37,7 +37,7 @@ def run_scored_episodes(
         seed_rewards: list[tuple[int, float]] = []
         for seed in tqdm(
             iterable=range(start_episode_seed, start_episode_seed + episode_count),
-            desc=condition,
+            desc=label(condition),
             unit="episode",
             leave=False,
         ):

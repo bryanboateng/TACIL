@@ -7,7 +7,7 @@ import torch
 from gym_pusht.envs import PushTEnv
 from gymnasium import Env
 
-from scripts.evaluation.core.condition import EvaluationCondition
+from scripts.evaluation.core.condition import Condition, color_map
 from scripts.evaluation.core.disturbance import action_noise, block_push
 from scripts.evaluation.core.renderer import RENDER_SIZE, setup_renderer
 from scripts.shared.policy_types import Policy
@@ -22,7 +22,7 @@ class EpisodeResult:
     rewards: list[float] = field(default_factory=list)
 
 
-def create_environment(*, condition: EvaluationCondition, should_render: bool) -> Env:
+def create_environment(*, condition: Condition, should_render: bool) -> Env:
     if should_render:
         environment = gymnasium.make(
             id="gym_pusht/PushT-v0",
@@ -38,20 +38,19 @@ def create_environment(*, condition: EvaluationCondition, should_render: bool) -
     if should_render:
         setup_renderer(
             environment=_get_push_t_environment(environment=environment),
-            color_map=condition.color_map,
+            color_map=color_map(condition),
         )
 
-    if condition.disturbance is None:
-        return environment
-
-    match condition.disturbance:
+    match condition:
+        case None:
+            return environment
         case block_push.Config():
             return block_push.BlockPushWrapper(
-                environment=environment, config=condition.disturbance
+                environment=environment, config=condition
             )
         case action_noise.Config():
             return action_noise.ActionNoiseWrapper(
-                environment=environment, config=condition.disturbance
+                environment=environment, config=condition
             )
 
 

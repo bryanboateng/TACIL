@@ -4,7 +4,7 @@ import random
 import numpy as np
 import pygame
 
-from scripts.evaluation.core.condition import build_conditions
+from scripts.evaluation.core.condition import build_conditions, label
 from scripts.evaluation.core.renderer import RENDER_SIZE
 from scripts.evaluation.core.rollout import create_environment, roll_out_episode
 from scripts.evaluation.core.video import (
@@ -55,7 +55,7 @@ def main():
         surfaces = annotated_surfaces(
             result=result,
             font=font,
-            condition_label=str(condition),
+            condition_label=label(condition),
             seed=seed,
             reward=None,
         )
