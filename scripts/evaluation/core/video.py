@@ -5,7 +5,7 @@ import wandb
 from tqdm import tqdm
 from wandb import Run
 
-from scripts.evaluation.core.condition import Condition, label
+from scripts.evaluation.core.disturbance.condition import Condition, label
 from scripts.evaluation.core.renderer import RENDER_SIZE
 from scripts.evaluation.core.rollout import (
     EpisodeResult,

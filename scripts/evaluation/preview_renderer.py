@@ -4,7 +4,7 @@ import random
 import numpy as np
 import pygame
 
-from scripts.evaluation.core.condition import build_conditions, label
+from scripts.evaluation.core.disturbance.condition import build_conditions, label
 from scripts.evaluation.core.renderer import RENDER_SIZE
 from scripts.evaluation.core.rollout import create_environment, roll_out_episode
 from scripts.evaluation.core.video import (

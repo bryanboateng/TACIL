@@ -12,7 +12,11 @@ from scripts.evaluation.config import (
     Config,
     DiffusionPolicyCheckpoint,
 )
-from scripts.evaluation.core.condition import Condition, build_conditions, label
+from scripts.evaluation.core.disturbance.condition import (
+    Condition,
+    build_conditions,
+    label,
+)
 from scripts.evaluation.core.scoring import (
     RewardStatistics,
     reward_statistics,

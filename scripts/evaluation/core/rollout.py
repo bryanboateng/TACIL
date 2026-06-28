@@ -7,8 +7,12 @@ import torch
 from gym_pusht.envs import PushTEnv
 from gymnasium import Env
 
-from scripts.evaluation.core.condition import Condition, Undisturbed, color_map
 from scripts.evaluation.core.disturbance import action_noise, block_push
+from scripts.evaluation.core.disturbance.condition import (
+    Condition,
+    Undisturbed,
+    color_map,
+)
 from scripts.evaluation.core.renderer import RENDER_SIZE, setup_renderer
 from scripts.shared.policy_types import Policy
 
