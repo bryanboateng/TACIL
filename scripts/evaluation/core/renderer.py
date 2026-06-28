@@ -22,8 +22,6 @@ class RecoloredRenderWrapper(gymnasium.Wrapper):
             )
 
         self._push_t_environment = push_t_environment
-        # The simulation's world extent is fixed by the env, not by us: positions and
-        # actions span [0, action_space.high], and the draw canvas must match it.
         self._simulation_size = _simulation_size(environment=push_t_environment)
         self._goal_color = _sample_color_map(name=color_map, value=0.0)
         self._background_color = _sample_color_map(name=color_map, value=0.2)
