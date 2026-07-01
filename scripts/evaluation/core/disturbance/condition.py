@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from scripts.evaluation.core.disturbance import action_noise, block_push
+from scripts.evaluation.core.disturbance import block_push
 
 
 @dataclass(frozen=True)
@@ -8,17 +8,15 @@ class Undisturbed:
     pass
 
 
-Condition = Undisturbed | block_push.Config | action_noise.Config
+Condition = Undisturbed | block_push.Config
 
 
 def label(condition: Condition) -> str:
     match condition:
         case Undisturbed():
             return "undisturbed"
-        case block_push.Config(magnitude=magnitude, window=window):
-            return f"block_push_{int(magnitude)}_{window.start}-{window.stop}"
-        case action_noise.Config(noise_fraction=noise_fraction):
-            return f"action_noise_{noise_fraction}"
+        case block_push.Config(magnitude=magnitude, period=period, duration=duration):
+            return f"block_push_{int(magnitude)}_p{period}_d{duration}"
 
 
 def color_map(condition: Condition) -> str:
@@ -27,22 +25,15 @@ def color_map(condition: Condition) -> str:
             return "Greys"
         case block_push.Config():
             return "Oranges"
-        case action_noise.Config():
-            return "Blues"
 
 
 def build_conditions() -> list[Condition]:
-    block_push_magnitudes = [700.0]
-    action_noise_fractions = [0.05, 0.15, 0.30]
+    block_push_magnitudes = [500.0]
 
     return [
-        Undisturbed(),
+        # Undisturbed(),
         *(
-            block_push.Config(magnitude=magnitude, window=range(100, 120))
+            block_push.Config(magnitude=magnitude, period=50, duration=10)
             for magnitude in block_push_magnitudes
-        ),
-        *(
-            action_noise.Config(noise_fraction=noise_fraction)
-            for noise_fraction in action_noise_fractions
         ),
     ]

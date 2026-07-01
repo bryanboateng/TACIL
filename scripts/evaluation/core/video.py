@@ -20,8 +20,6 @@ from scripts.shared.policy_types import PolicyFactory
 FPS = 10
 FREEZE_SECONDS = 2
 
-MARGIN = RENDER_SIZE // 100
-
 
 class Corner(Enum):
     TOP_LEFT = auto()
@@ -30,9 +28,9 @@ class Corner(Enum):
     BOTTOM_RIGHT = auto()
 
 
-def create_font() -> pygame.font.Font:
+def create_font(*, render_size: int = RENDER_SIZE) -> pygame.font.Font:
     pygame.font.init()
-    return pygame.font.SysFont(name="Inter", size=RENDER_SIZE // 40)
+    return pygame.font.SysFont(name="Inter", size=render_size // 40)
 
 
 def build_annotated_surfaces(
@@ -200,15 +198,16 @@ def _blit_text_at_corner(
     *, surface: pygame.Surface, font: pygame.font.Font, text: str, corner: Corner
 ) -> None:
     text_surface = font.render(text, True, (0, 0, 0))
-    right_aligned_x = surface.get_width() - text_surface.get_width() - MARGIN
-    bottom_aligned_y = surface.get_height() - text_surface.get_height() - MARGIN
+    margin = surface.get_width() // 100
+    right_aligned_x = surface.get_width() - text_surface.get_width() - margin
+    bottom_aligned_y = surface.get_height() - text_surface.get_height() - margin
     match corner:
         case Corner.TOP_LEFT:
-            destination = (MARGIN, MARGIN)
+            destination = (margin, margin)
         case Corner.TOP_RIGHT:
-            destination = (right_aligned_x, MARGIN)
+            destination = (right_aligned_x, margin)
         case Corner.BOTTOM_LEFT:
-            destination = (MARGIN, bottom_aligned_y)
+            destination = (margin, bottom_aligned_y)
         case Corner.BOTTOM_RIGHT:
             destination = (right_aligned_x, bottom_aligned_y)
     surface.blit(source=text_surface, dest=destination)
