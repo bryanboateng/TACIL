@@ -3,8 +3,6 @@ from dataclasses import dataclass
 
 from matplotlib.colors import Colormap, LinearSegmentedColormap
 
-from scripts.evaluation.core.disturbance import block_push
-
 
 @dataclass(frozen=True)
 class Condition:
@@ -12,7 +10,7 @@ class Condition:
     # high-friction floor); larger values let the block slide further.
     damping: float | None
     # Block-push disturbance applied on top of the dynamics. None means no push.
-    push: block_push.Config | None
+    push: float | None
 
 
 DAMPING_LEVELS: list[float | None] = [None]  # , 0.4, 0.7]
@@ -26,9 +24,7 @@ def label(condition: Condition) -> str:
     damping_part = (
         "damp_default" if condition.damping is None else f"damp{condition.damping}"
     )
-    push_part = (
-        "no_push" if condition.push is None else f"push{int(condition.push.magnitude)}"
-    )
+    push_part = "no_push" if condition.push is None else f"push{int(condition.push)}"
     return f"{damping_part}__{push_part}"
 
 
@@ -50,7 +46,7 @@ _DAMPING_BRIGHTNESS: dict[float | None, float] = {
 
 
 def condition_colormap(condition: Condition) -> Colormap:
-    magnitude = None if condition.push is None else condition.push.magnitude
+    magnitude = None if condition.push is None else condition.push
     hue, saturation = _PUSH_HUE_AND_SATURATION[magnitude]
     brightness = _DAMPING_BRIGHTNESS[condition.damping]
 
@@ -65,12 +61,7 @@ def condition_colormap(condition: Condition) -> Colormap:
 
 def build_conditions() -> list[Condition]:
     return [
-        Condition(
-            damping=damping,
-            push=(
-                None if magnitude is None else block_push.Config(magnitude=magnitude)
-            ),
-        )
+        Condition(damping=damping, push=magnitude)
         for damping in DAMPING_LEVELS
         for magnitude in PUSH_MAGNITUDES
     ]

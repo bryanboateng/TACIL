@@ -6,13 +6,8 @@ from numpy import typing as npt
 from pymunk import Body, Vec2d
 
 
-@dataclass(frozen=True)
-class Config:
-    magnitude: float
-
-
 class BlockPushWrapper(gymnasium.Wrapper):
-    def __init__(self, environment: gymnasium.Env, config: Config) -> None:
+    def __init__(self, environment: gymnasium.Env, magnitude: float) -> None:
         super().__init__(env=environment)
 
         push_t_environment = environment.unwrapped
@@ -21,7 +16,7 @@ class BlockPushWrapper(gymnasium.Wrapper):
                 f"Expected PushTEnv, got {type(push_t_environment).__name__}"
             )
 
-        self._config = config
+        self._magnitude = magnitude
         self._push_t_environment = push_t_environment
         self._time_step = 0
         # Direction of the push applied on the most recent step, or None when none was
@@ -50,7 +45,7 @@ class BlockPushWrapper(gymnasium.Wrapper):
             if self.push_direction is not None:
                 block: Body = self._push_t_environment.block
                 block.apply_impulse_at_world_point(
-                    impulse=self.push_direction * self._config.magnitude,
+                    impulse=self.push_direction * self._magnitude,
                     point=block.local_to_world(v=block.center_of_gravity),
                 )
         else:

@@ -43,7 +43,7 @@ def create_environment(
 
     if condition.push is not None:
         environment = block_push.BlockPushWrapper(
-            environment=environment, config=condition.push
+            environment=environment, magnitude=condition.push
         )
 
     if should_render:
