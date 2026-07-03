@@ -7,11 +7,7 @@ import torch
 from gymnasium import Env
 
 from scripts.evaluation.core.disturbance import block_push
-from scripts.evaluation.core.disturbance.condition import (
-    Condition,
-    Undisturbed,
-    color_map,
-)
+from scripts.evaluation.core.disturbance.condition import Condition, condition_colormap
 from scripts.evaluation.core.renderer import (
     RENDER_SIZE,
     SUPERSAMPLE_FACTOR,
@@ -38,25 +34,22 @@ def create_environment(
 ) -> Env:
     if should_render:
         environment: Env = gymnasium.make(
-            id="gym_pusht/PushT-v0", render_mode="rgb_array"
+            id="gym_pusht/PushT-v0", render_mode="rgb_array", damping=condition.damping
         )
     else:
-        environment = gymnasium.make(id="gym_pusht/PushT-v0")
+        environment = gymnasium.make(id="gym_pusht/PushT-v0", damping=condition.damping)
 
     environment.reset()
 
-    match condition:
-        case Undisturbed():
-            pass
-        case block_push.Config():
-            environment = block_push.BlockPushWrapper(
-                environment=environment, config=condition
-            )
+    if condition.push is not None:
+        environment = block_push.BlockPushWrapper(
+            environment=environment, config=condition.push
+        )
 
     if should_render:
         environment = RecoloredRenderWrapper(
             environment=environment,
-            color_map=color_map(condition),
+            colormap=condition_colormap(condition),
             render_size=render_size,
             supersample_factor=supersample_factor,
         )

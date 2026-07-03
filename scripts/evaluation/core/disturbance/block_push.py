@@ -9,15 +9,6 @@ from pymunk import Body, Vec2d
 @dataclass(frozen=True)
 class Config:
     magnitude: float
-    period: int  # steps between the start of consecutive push bursts
-    duration: int  # length of each push burst, in steps
-
-    def __post_init__(self) -> None:
-        if not 0 < self.duration <= self.period:
-            raise ValueError(
-                f"Expected 0 < duration <= period, got "
-                f"duration={self.duration}, period={self.period}"
-            )
 
 
 class BlockPushWrapper(gymnasium.Wrapper):
@@ -43,8 +34,10 @@ class BlockPushWrapper(gymnasium.Wrapper):
         return self.env.reset(**kwargs)
 
     def step(self, action: npt.NDArray) -> tuple:
-        phase = self._time_step % self._config.period
-        if phase < self._config.duration:
+        period = 50
+        duration = 10
+        phase = self._time_step % period
+        if phase < duration:
             # Freeze a fresh direction at the start of each burst and hold it for the
             # burst's duration. The block is quasi-static (damping zeroes its velocity
             # each step), so the force must be sustained to move it at all; freezing the
