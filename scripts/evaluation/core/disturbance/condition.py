@@ -1,67 +1,56 @@
-import colorsys
 from dataclasses import dataclass
+from enum import Enum
 
-from matplotlib.colors import Colormap, LinearSegmentedColormap
+
+class DampingLevel(float, Enum):
+    NONE = 0.0  # quasi-static default floor
+    LOW = 0.2
+    HIGH = 0.4  # slidiest floor
 
 
 @dataclass(frozen=True)
 class Condition:
-    # Floor damping passed to the PushT env. None uses the env default (quasi-static,
-    # high-friction floor); larger values let the block slide further.
-    damping: float | None
-    # Block-push disturbance applied on top of the dynamics. None means no push.
-    push: float | None
-
-
-DAMPING_LEVELS: list[float | None] = [None]  # , 0.4, 0.7]
-PUSH_MAGNITUDES: list[float | None] = [200.0, 500.0, 800.0]
+    damping: DampingLevel
+    disturbance_magnitude: int | None
 
 
 def label(condition: Condition) -> str:
-    if condition.damping is None and condition.push is None:
-        return "undisturbed"
-
-    damping_part = (
-        "damp_default" if condition.damping is None else f"damp{condition.damping}"
+    push_part = (
+        "None"
+        if condition.disturbance_magnitude is None
+        else f"{condition.disturbance_magnitude}"
     )
-    push_part = "no_push" if condition.push is None else f"push{int(condition.push)}"
-    return f"{damping_part}__{push_part}"
+    return f"da_{condition.damping.name}+di_{push_part}"
 
 
-# Each condition renders in a single-hue palette so both disturbance axes can be read
-# straight off a video. The *hue* encodes the push magnitude (cool -> hot as the shove
-# grows); the *depth* (darkness + saturation) encodes the damping level (the slidier the
-# floor, the deeper the color). Keep the keys aligned with PUSH_MAGNITUDES/DAMPING_LEVELS.
-_PUSH_HUE_AND_SATURATION: dict[float | None, tuple[float, float]] = {
-    None: (210.0, 0.16),  # calm blue-grey: no push
-    200.0: (150.0, 0.45),  # teal-green
-    500.0: (32.0, 0.75),  # orange
-    800.0: (5.0, 0.95),  # red
-}
-_DAMPING_BRIGHTNESS: dict[float | None, float] = {
-    None: 0.86,  # light: default quasi-static floor
-    0.4: 0.62,
-    0.7: 0.42,  # dark: slidiest floor
-}
-
-
-def condition_colormap(condition: Condition) -> Colormap:
-    magnitude = None if condition.push is None else condition.push
-    hue, saturation = _PUSH_HUE_AND_SATURATION[magnitude]
-    brightness = _DAMPING_BRIGHTNESS[condition.damping]
-
-    base = colorsys.hsv_to_rgb(hue / 360.0, saturation, brightness)
-    # A light, desaturated tint of the same hue anchors the low end so the renderer's
-    # light-to-dark sample stops stay a coherent single-hue ramp.
-    light = colorsys.hsv_to_rgb(
-        hue / 360.0, saturation * 0.25, min(1.0, brightness + 0.30)
-    )
-    return LinearSegmentedColormap.from_list(label(condition), colors=[light, base])
+def condition_colormap(*, damping_level: DampingLevel) -> str:
+    # Each damping level renders in its own single-hue palette so the floor can be read
+    # straight off a video. RecoloredRenderWrapper samples the named colormap across its range.
+    match damping_level:
+        case DampingLevel.NONE:
+            return "Blues"
+        case DampingLevel.LOW:
+            return "Reds"
+        case DampingLevel.HIGH:
+            return "Greens"
+        case _:
+            raise ValueError(f"No colormap for damping level {damping_level!r}")
 
 
 def build_conditions() -> list[Condition]:
+    # The disturbance magnitude is the raw force on the block, and the same force acts very
+    # differently per floor (a damping-0 floor eats most of it, a slidy floor amplifies it),
+    # so each damping level gets its own hand-picked magnitudes. Within one damping the
+    # effect is linear in the magnitude, so levels are easy to stage; magnitudes are not
+    # comparable across damping levels, but policies are only compared within a condition.
+    # Reference (from-rest burst peak): NONE@6000 -> ~60 px/s, LOW@100 -> ~50, HIGH@60 -> ~40.
+    magnitudes_by_damping: dict[DampingLevel, list[int]] = {
+        DampingLevel.NONE: [6000],
+        DampingLevel.LOW: [100],
+        DampingLevel.HIGH: [60],
+    }
     return [
-        Condition(damping=damping, push=magnitude)
-        for damping in DAMPING_LEVELS
-        for magnitude in PUSH_MAGNITUDES
+        Condition(damping=damping, disturbance_magnitude=disturbance_magnitude)
+        for damping, disturbance_magnitudes in magnitudes_by_damping.items()
+        for disturbance_magnitude in disturbance_magnitudes
     ]

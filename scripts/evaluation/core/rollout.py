@@ -41,15 +41,15 @@ def create_environment(
 
     environment.reset()
 
-    if condition.push is not None:
+    if condition.disturbance_magnitude is not None:
         environment = block_push.BlockPushWrapper(
-            environment=environment, magnitude=condition.push
+            environment=environment, magnitude=condition.disturbance_magnitude
         )
 
     if should_render:
         environment = RecoloredRenderWrapper(
             environment=environment,
-            colormap=condition_colormap(condition),
+            colormap=condition_colormap(damping_level=condition.damping),
             render_size=render_size,
             supersample_factor=supersample_factor,
         )

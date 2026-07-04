@@ -1,9 +1,9 @@
-from dataclasses import dataclass
-
 import gymnasium
+import numpy as np
+import pymunk
 from gym_pusht.envs import PushTEnv
 from numpy import typing as npt
-from pymunk import Body, Vec2d
+from pymunk import Vec2d
 
 
 class BlockPushWrapper(gymnasium.Wrapper):
@@ -16,60 +16,66 @@ class BlockPushWrapper(gymnasium.Wrapper):
                 f"Expected PushTEnv, got {type(push_t_environment).__name__}"
             )
 
-        self._magnitude = magnitude
         self._push_t_environment = push_t_environment
+        self._magnitude = magnitude
+
         self._time_step = 0
-        # Direction of the push applied on the most recent step, or None when none was
-        # applied. Exposed so a renderer can visualize the disturbance.
-        self.push_direction: Vec2d | None = None
+        self._disturbance_force = Vec2d.zero()
+
+    @property
+    def is_pushing(self) -> bool:
+        return self._disturbance_force != Vec2d.zero()
+
+    @property
+    def push_direction(self) -> Vec2d:
+        return self._disturbance_force.normalized()
 
     def reset(self, **kwargs) -> tuple:
         self._time_step = 0
-        self.push_direction = None
-        return self.env.reset(**kwargs)
+        self._disturbance_force = Vec2d.zero()
 
-    def step(self, action: npt.NDArray) -> tuple:
-        period = 50
-        duration = 10
-        phase = self._time_step % period
-        if phase < duration:
-            # Freeze a fresh direction at the start of each burst and hold it for the
-            # burst's duration. The block is quasi-static (damping zeroes its velocity
-            # each step), so the force must be sustained to move it at all; freezing the
-            # direction keeps the whole burst a single straight shove.
-            if phase == 0:
-                self.push_direction = _calculate_push_direction(
-                    environment=self._push_t_environment
-                )
+        observation = self.env.reset(**kwargs)
+        self._push_t_environment.block.velocity_func = self._apply_disturbance_force
+        return observation
 
-            if self.push_direction is not None:
-                block: Body = self._push_t_environment.block
-                block.apply_impulse_at_world_point(
-                    impulse=self.push_direction * self._magnitude,
-                    point=block.local_to_world(v=block.center_of_gravity),
-                )
-        else:
-            self.push_direction = None
+    def _apply_disturbance_force(
+        self, body: pymunk.Body, gravity: Vec2d, damping: float, timestep_seconds: float
+    ) -> None:
+        body.force = self._disturbance_force
+        pymunk.Body.update_velocity(
+            body=body, gravity=gravity, damping=damping, dt=timestep_seconds
+        )
+
+    def step(self, action: npt.NDArray[np.float32]) -> tuple:
+        phase = self._time_step % 50
+        if phase == 0:
+            push_direction = _calculate_push_direction(
+                environment=self._push_t_environment
+            )
+            self._disturbance_force = push_direction * self._magnitude
+        elif phase == 10:
+            self._disturbance_force = Vec2d.zero()
 
         self._time_step += 1
-
         return self.env.step(action=action)
 
 
-def _calculate_push_direction(*, environment: PushTEnv) -> Vec2d | None:
-    block_position: Vec2d = environment.block.position
+def _calculate_push_direction(*, environment: PushTEnv) -> Vec2d:
+    block_position: Vec2d = environment.block.local_to_world(
+        v=environment.block.center_of_gravity
+    )
     agent_position: Vec2d = environment.agent.position
-    # Push perpendicular to the agent's line of contact (agent -> block), so the block is
-    # knocked sideways off the agent's push no matter where the agent currently is. The
-    # agent must then reposition around the block -- an off-distribution maneuver
-    # underrepresented in the expert data, which is what makes recovery hard.
-    contact_axis = block_position - agent_position
-    if contact_axis.length < 1e-6:
-        return None
-    lateral = contact_axis.perpendicular().normalized()
+
+    block_to_agent_vector = block_position - agent_position
+
+    block_to_agent_normal_vector = block_to_agent_vector.perpendicular().normalized()
+    goal_to_block_vector = Vec2d(*environment.goal_pose[:2]) - block_position
+
     # Of the two perpendicular directions, choose the one that moves the block away from
-    # the goal, so the burst is always adversarial rather than occasionally helping the
-    # block into the goal. Tracking the block -> goal geometry also self-corrects against
-    # the one-way wall drift that a fixed side would accumulate.
-    to_goal = Vec2d(*environment.goal_pose[:2]) - block_position
-    return lateral if lateral.dot(to_goal) <= 0 else -lateral
+    # the goal, so the burst is always adversarial rather than helping the
+    # block into the goal.
+    return (
+        block_to_agent_normal_vector
+        if block_to_agent_normal_vector.dot(other=goal_to_block_vector) <= 0
+        else -block_to_agent_normal_vector
+    )

@@ -5,6 +5,7 @@ import pygame
 import pymunk.pygame_util
 from gym_pusht.envs import PushTEnv
 from gymnasium.spaces import Box
+from matplotlib import pyplot as plt
 from matplotlib.colors import Colormap
 from pymunk import Vec2d
 
@@ -16,12 +17,11 @@ from scripts.evaluation.core.disturbance.block_push import BlockPushWrapper
 RENDER_SIZE = 1000
 SUPERSAMPLE_FACTOR = 2
 
-# Push visualization: an arrow from the block's center of gravity along the applied
-# push, a dashed line from the block to the goal, and a dashed approach-axis line through
-# the block (the push is lateral, perpendicular to the approach axis). Sizes are derived
-# from the render size at draw time so they scale with whichever resolution is in use.
+# Push visualization: an arrow from the block's center of gravity along the applied push,
+# and a dashed approach-axis line through the block (the push is lateral, perpendicular to
+# the approach axis). Sizes are derived from the render size at draw time so they scale with
+# whichever resolution is in use.
 _PUSH_COLOR = (40, 200, 80)  # green: the applied push
-_GOAL_LINE_COLOR = (90, 90, 90)  # gray: the block -> goal line
 _APPROACH_AXIS_COLOR = (70, 110, 200)  # blue: the agent's approach axis
 
 
@@ -29,7 +29,7 @@ class RecoloredRenderWrapper(gymnasium.Wrapper):
     def __init__(
         self,
         environment: gymnasium.Env,
-        colormap: Colormap,
+        colormap: str,
         render_size: int = RENDER_SIZE,
         supersample_factor: int = SUPERSAMPLE_FACTOR,
     ) -> None:
@@ -46,11 +46,12 @@ class RecoloredRenderWrapper(gymnasium.Wrapper):
         self._push_t_environment = push_t_environment
         self._block_push_wrapper = _find_block_push_wrapper(environment=environment)
         self._simulation_size = _simulation_size(environment=push_t_environment)
-        self._goal_color = _sample_colormap(colormap=colormap, value=0.0)
-        self._background_color = _sample_colormap(colormap=colormap, value=0.2)
-        self._marker_color = _sample_colormap(colormap=colormap, value=0.8)
-        self._block_color = _sample_colormap(colormap=colormap, value=0.9)
-        self._agent_color = _sample_colormap(colormap=colormap, value=1.0)
+
+        self._goal_color = _sample_colormap(name=colormap, value=0.0)
+        self._background_color = _sample_colormap(name=colormap, value=0.2)
+        self._marker_color = _sample_colormap(name=colormap, value=0.8)
+        self._block_color = _sample_colormap(name=colormap, value=0.9)
+        self._agent_color = _sample_colormap(name=colormap, value=1.0)
 
     def render(self) -> np.ndarray:
         return self._to_image(screen=self._draw_scene())
@@ -115,29 +116,18 @@ class RecoloredRenderWrapper(gymnasium.Wrapper):
         return image
 
     def _draw_push(self, image: np.ndarray) -> None:
-        if self._block_push_wrapper is None:
+        if self._block_push_wrapper is None or not self._block_push_wrapper.is_pushing:
             return
         direction = self._block_push_wrapper.push_direction
-        if direction is None:
-            return
         # The push is perpendicular to the contact axis, so recover that axis to draw it.
         axis = direction.perpendicular()
 
         block = self._push_t_environment.block
         origin = self._to_pixel(point=block.local_to_world(v=block.center_of_gravity))
-        goal = self._to_pixel(point=Vec2d(*self._push_t_environment.goal_pose[:2]))
 
         arrow_length = int(0.16 * self._render_size)
         arrow_thickness = max(2, int(self._render_size / 250))
         thin = max(1, arrow_thickness // 2)
-        # The block -> goal line the push side is chosen against.
-        _draw_dashed_line(
-            image=image,
-            start=origin,
-            end=goal,
-            color=_GOAL_LINE_COLOR,
-            thickness=thin,
-        )
         # Approach axis through the block: the push is perpendicular to it.
         axis_reach = axis * arrow_length
         _draw_dashed_line(
@@ -228,6 +218,6 @@ def _simulation_size(*, environment: PushTEnv) -> int:
     return int(action_space.high[0])
 
 
-def _sample_colormap(*, colormap: Colormap, value: float) -> pygame.Color:
-    rgba_color = colormap(X=value)
+def _sample_colormap(*, name: str, value: float) -> pygame.Color:
+    rgba_color = plt.get_cmap(name)(X=value)
     return pygame.Color(*(int(255 * channel) for channel in rgba_color[:3]))
