@@ -6,7 +6,8 @@ import pygame
 import torch
 import wandb
 
-from scripts.evaluation.core.disturbance.condition import build_conditions, label
+from scripts.evaluation.core.condition import get_conditions
+from scripts.evaluation.core.renderer import RenderSettings
 from scripts.evaluation.core.rollout import create_environment, roll_out_episode
 from scripts.evaluation.core.video import (
     FREEZE_SECONDS,
@@ -61,15 +62,15 @@ def main():
 
     policy_factory = _build_gpi_policy_factory()
 
-    for condition in itertools.cycle(build_conditions()):
+    for condition in itertools.cycle(get_conditions()):
         seed = random.randint(a=0, b=2**31 - 1)
         pygame.display.set_caption(title="Preview")
 
         environment = create_environment(
             condition=condition,
-            should_render=True,
-            render_size=PREVIEW_RENDER_SIZE,
-            supersample_factor=PREVIEW_SUPERSAMPLE_FACTOR,
+            render_settings=RenderSettings(
+                size=PREVIEW_RENDER_SIZE, supersample_factor=PREVIEW_SUPERSAMPLE_FACTOR
+            ),
         )
         try:
             episode_result = roll_out_episode(
@@ -84,9 +85,10 @@ def main():
         surfaces = build_annotated_surfaces(
             episode_result=episode_result,
             font=font,
-            condition_label=label(condition),
+            condition=condition,
             seed=seed,
             reward=None,
+            representative_label="P100",
         )
 
         # Play the episode, then hold on the final frame, matching the recorded freeze.

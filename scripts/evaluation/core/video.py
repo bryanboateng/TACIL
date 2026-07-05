@@ -1,23 +1,26 @@
+import array
 from enum import Enum, auto
 
 import numpy as np
 import pygame
 import torch
 import wandb
+from pygame import Surface
+from pygame.font import Font
 from tqdm import tqdm
 from wandb import Run
 
-from scripts.evaluation.core.disturbance.condition import Condition, label
-from scripts.evaluation.core.renderer import RENDER_SIZE
+from scripts.evaluation.core.condition import Condition, DisturbanceLevel
+from scripts.evaluation.core.renderer import RenderSettings
 from scripts.evaluation.core.rollout import (
     EpisodeResult,
     create_environment,
     roll_out_episode,
 )
-from scripts.evaluation.core.scoring import SelectedSeeds
+from scripts.evaluation.core.scoring import EpisodeScore, RepresentativeScore
 from scripts.shared.policy_types import PolicyFactory
 
-FPS = 10
+FPS = 30
 FREEZE_SECONDS = 2
 
 
@@ -28,7 +31,7 @@ class Corner(Enum):
     BOTTOM_RIGHT = auto()
 
 
-def create_font(*, render_size: int = RENDER_SIZE) -> pygame.font.Font:
+def create_font(*, render_size: int) -> pygame.font.Font:
     pygame.font.init()
     return pygame.font.SysFont(name="Inter", size=render_size // 40)
 
@@ -37,11 +40,11 @@ def build_annotated_surfaces(
     *,
     episode_result: EpisodeResult,
     font: pygame.font.Font,
-    condition_label: str,
+    condition: Condition,
     seed: int,
     reward: float | None,
+    representative_label: str,
 ) -> list[pygame.Surface]:
-    final_state_text = "Succeeded" if episode_result.terminated else "Failed"
     last_frame_index = len(episode_result.frames) - 1
     is_live_preview = reward is None
 
@@ -55,18 +58,44 @@ def build_annotated_surfaces(
             frame_reward, frame_max_reward = current_reward, running_max_reward
         else:
             frame_reward, frame_max_reward = reward, None
-        annotated_surfaces.append(
-            _annotate_surface(
-                surface=_convert_frame_to_surface(frame=frame),
-                font=font,
-                seed=seed,
-                reward=frame_reward,
-                max_reward=frame_max_reward,
-                condition_label=condition_label,
-                step=step,
-                state_text=final_state_text if step == last_frame_index else "Running",
-            )
+
+        annotated_surface = _convert_frame_to_surface(frame=frame).copy()
+
+        _add_text_to_surface(
+            text=_condition_label(condition=condition),
+            corner=Corner.TOP_LEFT,
+            surface=annotated_surface,
+            font=font,
         )
+        _add_text_to_surface(
+            text=_build_identity_text(
+                frame_max_reward=frame_max_reward,
+                frame_reward=frame_reward,
+                representative_label=representative_label,
+                seed=seed,
+            ),
+            corner=Corner.TOP_RIGHT,
+            surface=annotated_surface,
+            font=font,
+        )
+        _add_text_to_surface(
+            text=f"step {step}",
+            corner=Corner.BOTTOM_LEFT,
+            surface=annotated_surface,
+            font=font,
+        )
+        _add_text_to_surface(
+            text=(
+                ("Succeeded" if episode_result.terminated else "Failed")
+                if step == last_frame_index
+                else "Running"
+            ),
+            corner=Corner.BOTTOM_RIGHT,
+            surface=annotated_surface,
+            font=font,
+        )
+
+        annotated_surfaces.append(annotated_surface)
     return annotated_surfaces
 
 
@@ -75,35 +104,63 @@ def record_condition(
     *,
     policy_factory: PolicyFactory,
     condition: Condition,
-    selected_seeds: SelectedSeeds,
+    representative_scores: list[RepresentativeScore],
     run: Run,
 ) -> None:
-    """Re-roll the selected seeds with rendering and log an annotated video per group."""
-    font = create_font()
-    environment = create_environment(condition=condition, should_render=True)
+    render_settings = RenderSettings()
+    font = create_font(render_size=render_settings.size)
+    environment = create_environment(
+        condition=condition, render_settings=render_settings
+    )
     try:
-        for outcome, seed_rewards in [
-            ("Failure", selected_seeds.failures),
-            ("Success", selected_seeds.successes),
-        ]:
-            if not seed_rewards:
-                continue
+        frames = _record_group(
+            policy_factory=policy_factory,
+            environment=environment,
+            condition=condition,
+            representative_scores=representative_scores,
+            font=font,
+        )
 
-            frames = _record_group(
-                policy_factory=policy_factory,
-                environment=environment,
-                condition=condition,
-                outcome=outcome,
-                seed_rewards=seed_rewards,
-                font=font,
-            )
-
-            # wandb.Video expects (T, C, H, W)
-            run.summary[f"{label(condition)}/video_{outcome}"] = wandb.Video(
-                data_or_path=np.stack(frames).transpose(0, 3, 1, 2), fps=FPS
-            )
+        run.summary[f"{condition.label}/video"] = wandb.Video(
+            data_or_path=np.stack(arrays=frames).transpose(0, 3, 1, 2), fps=FPS
+        )
     finally:
         environment.close()
+
+
+# ---- Private --------------------------------------------
+
+
+def _condition_label(*, condition: Condition) -> str:
+    if condition.disturbance is None:
+        disturbance_label = "--"
+    else:
+        match condition.disturbance.level:
+            case DisturbanceLevel.LOW:
+                level_label = "low"
+            case DisturbanceLevel.MEDIUM:
+                level_label = "medium"
+            case DisturbanceLevel.HIGH:
+                level_label = "high"
+        disturbance_label = f"{level_label} ({condition.disturbance.magnitude})"
+
+    return f"damping: {condition.damping}   disturbance: {disturbance_label}"
+
+
+def _build_identity_text(
+    *,
+    frame_max_reward: float | None,
+    frame_reward: float | None,
+    representative_label: str,
+    seed: int,
+) -> str:
+    identity_text = f"{representative_label}   " if representative_label else ""
+    identity_text += f"seed {seed}"
+    identity_text += "   reward: "
+    identity_text += f"{frame_reward:.2f}" if frame_reward is not None else "--"
+    identity_text += "   max: "
+    identity_text += f"{frame_max_reward:.2f}" if frame_max_reward is not None else "--"
+    return identity_text
 
 
 def _record_group(
@@ -111,28 +168,30 @@ def _record_group(
     policy_factory: PolicyFactory,
     environment,
     condition: Condition,
-    outcome: str,
-    seed_rewards: list[tuple[int, float]],
+    representative_scores: list[RepresentativeScore],
     font: pygame.font.Font,
 ) -> list[np.ndarray]:
-    condition_label = label(condition)
 
     frames: list[np.ndarray] = []
-    for seed, reward in tqdm(
-        seed_rewards, desc=f"{condition_label}/{outcome}", unit="ep"
+    for representative in tqdm(
+        representative_scores, desc=condition.label, unit="episode"
     ):
+        score: EpisodeScore = representative.score
         episode_result = roll_out_episode(
             environment=environment,
-            policy=policy_factory(seed=seed),
-            seed=seed,
+            policy=policy_factory(seed=score.seed),
+            seed=score.seed,
             render=True,
         )
         for surface in build_annotated_surfaces(
             episode_result=episode_result,
             font=font,
-            condition_label=condition_label,
-            seed=seed,
-            reward=reward,
+            condition=condition,
+            seed=score.seed,
+            reward=score.reward,
+            representative_label=_create_percentile_label(
+                representative=representative
+            ),
         ):
             frames.append(_convert_surface_to_frame(surface=surface))
 
@@ -141,61 +200,24 @@ def _record_group(
     return frames
 
 
-def _convert_frame_to_surface(*, frame: np.ndarray) -> pygame.Surface:
-    return pygame.surfarray.make_surface(frame.transpose(1, 0, 2))
+def _create_percentile_label(*, representative: RepresentativeScore) -> str:
+    if representative.percentile == 0:
+        return "P0 (worst)"
+    if representative.percentile == 100:
+        return "P100 (best)"
+    return f"P{representative.percentile}"
 
 
-def _convert_surface_to_frame(*, surface: pygame.Surface) -> np.ndarray:
-    return np.transpose(pygame.surfarray.array3d(surface), (1, 0, 2))
+def _convert_frame_to_surface(*, frame: np.ndarray) -> Surface:
+    return pygame.surfarray.make_surface(array=frame.transpose(1, 0, 2))
 
 
-def _annotate_surface(
-    *,
-    surface: pygame.Surface,
-    font: pygame.font.Font,
-    seed: int,
-    reward: float | None,
-    max_reward: float | None,
-    condition_label: str,
-    step: int,
-    state_text: str,
-) -> pygame.Surface:
-    annotated_surface = surface.copy()
-    identity_text = f"seed {seed}"
-    if reward is not None:
-        identity_text += f"   reward {reward:.2f}"
-    if max_reward is not None:
-        identity_text += f"   max {max_reward:.2f}"
-    # Disturbance + identity on top, live status on the bottom.
-    _blit_text_at_corner(
-        surface=annotated_surface,
-        font=font,
-        text=condition_label,
-        corner=Corner.TOP_LEFT,
-    )
-    _blit_text_at_corner(
-        surface=annotated_surface,
-        font=font,
-        text=identity_text,
-        corner=Corner.TOP_RIGHT,
-    )
-    _blit_text_at_corner(
-        surface=annotated_surface,
-        font=font,
-        text=f"step {step}",
-        corner=Corner.BOTTOM_LEFT,
-    )
-    _blit_text_at_corner(
-        surface=annotated_surface,
-        font=font,
-        text=state_text,
-        corner=Corner.BOTTOM_RIGHT,
-    )
-    return annotated_surface
+def _convert_surface_to_frame(*, surface: Surface) -> np.ndarray:
+    return np.transpose(a=pygame.surfarray.array3d(surface=surface), axes=(1, 0, 2))
 
 
-def _blit_text_at_corner(
-    *, surface: pygame.Surface, font: pygame.font.Font, text: str, corner: Corner
+def _add_text_to_surface(
+    *, text: str, corner: Corner, surface: Surface, font: Font
 ) -> None:
     text_surface = font.render(text, True, (0, 0, 0))
     margin = surface.get_width() // 100

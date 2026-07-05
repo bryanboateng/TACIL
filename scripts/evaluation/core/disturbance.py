@@ -6,7 +6,7 @@ from numpy import typing as npt
 from pymunk import Vec2d
 
 
-class BlockPushWrapper(gymnasium.Wrapper):
+class DisturbanceWrapper(gymnasium.Wrapper):
     def __init__(self, environment: gymnasium.Env, magnitude: float) -> None:
         super().__init__(env=environment)
 
@@ -38,14 +38,6 @@ class BlockPushWrapper(gymnasium.Wrapper):
         self._push_t_environment.block.velocity_func = self._apply_disturbance_force
         return observation
 
-    def _apply_disturbance_force(
-        self, body: pymunk.Body, gravity: Vec2d, damping: float, timestep_seconds: float
-    ) -> None:
-        body.force = self._disturbance_force
-        pymunk.Body.update_velocity(
-            body=body, gravity=gravity, damping=damping, dt=timestep_seconds
-        )
-
     def step(self, action: npt.NDArray[np.float32]) -> tuple:
         phase = self._time_step % 50
         if phase == 0:
@@ -58,6 +50,14 @@ class BlockPushWrapper(gymnasium.Wrapper):
 
         self._time_step += 1
         return self.env.step(action=action)
+
+    def _apply_disturbance_force(
+        self, body: pymunk.Body, gravity: Vec2d, damping: float, timestep_seconds: float
+    ) -> None:
+        body.force = self._disturbance_force
+        pymunk.Body.update_velocity(
+            body=body, gravity=gravity, damping=damping, dt=timestep_seconds
+        )
 
 
 def _calculate_push_direction(*, environment: PushTEnv) -> Vec2d:

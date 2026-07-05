@@ -12,7 +12,7 @@ from torch.utils.data import DataLoader
 from tqdm.auto import tqdm
 from wandb import Run
 
-from scripts.evaluation.core.disturbance.condition import Undisturbed
+from scripts.evaluation.core.condition import Undisturbed
 from scripts.evaluation.core.scoring import (
     RewardStatistics,
     reward_statistics,

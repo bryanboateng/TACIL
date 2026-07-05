@@ -4,11 +4,15 @@ import numpy as np
 import torch
 from tqdm import tqdm
 
-from scripts.evaluation.core.disturbance.condition import Condition, label
+from scripts.evaluation.core.condition import Condition, DisturbanceLevel
 from scripts.evaluation.core.rollout import create_environment, roll_out_episode
 from scripts.shared.policy_types import PolicyFactory
 
-SUCCESS_THRESHOLD = 0.95
+
+@dataclass(frozen=True)
+class EpisodeScore:
+    seed: int
+    reward: float
 
 
 @dataclass(frozen=True)
@@ -18,9 +22,9 @@ class RewardStatistics:
 
 
 @dataclass(frozen=True)
-class SelectedSeeds:
-    failures: list[tuple[int, float]]
-    successes: list[tuple[int, float]]
+class RepresentativeScore:
+    percentile: int
+    score: EpisodeScore
 
 
 @torch.no_grad()
@@ -30,14 +34,13 @@ def run_scored_episodes(
     start_episode_seed: int,
     episode_count: int,
     condition: Condition,
-) -> list[tuple[int, float]]:
-    """Score `episode_count` episodes under `condition`, returning (seed, reward) pairs."""
-    environment = create_environment(condition=condition, should_render=False)
+) -> list[EpisodeScore]:
+    environment = create_environment(condition=condition, render_settings=None)
     try:
-        seed_rewards: list[tuple[int, float]] = []
+        episode_scores: list[EpisodeScore] = []
         for seed in tqdm(
             iterable=range(start_episode_seed, start_episode_seed + episode_count),
-            desc=label(condition),
+            desc=condition.label,
             unit="episode",
             leave=False,
         ):
@@ -47,38 +50,31 @@ def run_scored_episodes(
                 seed=seed,
                 render=False,
             )
-            seed_rewards.append((seed, result.reward))
-        return seed_rewards
+            episode_scores.append(EpisodeScore(seed=seed, reward=result.reward))
+        return episode_scores
     finally:
         environment.close()
 
 
-def reward_statistics(seed_rewards: list[tuple[int, float]]) -> RewardStatistics:
-    rewards = np.array([reward for _, reward in seed_rewards])
+def reward_statistics(episode_scores: list[EpisodeScore]) -> RewardStatistics:
+    rewards = np.array([score.reward for score in episode_scores])
     return RewardStatistics(mean=float(rewards.mean()), std=float(rewards.std()))
 
 
-def select_seeds(seed_rewards: list[tuple[int, float]]) -> SelectedSeeds:
-    return SelectedSeeds(
-        failures=_pick_representative(
-            [sr for sr in seed_rewards if sr[1] < SUCCESS_THRESHOLD]
-        ),
-        successes=_pick_representative(
-            [sr for sr in seed_rewards if sr[1] >= SUCCESS_THRESHOLD]
-        ),
-    )
+def pick_representative_scores(
+    *, episode_scores: list[EpisodeScore]
+) -> list[RepresentativeScore]:
+    count = 8
 
-
-def _pick_representative(
-    seed_rewards: list[tuple[int, float]],
-) -> list[tuple[int, float]]:
-    """Pick up to three seeds spanning the reward range: worst, median, best."""
-    sorted_seed_rewards = sorted(seed_rewards, key=lambda sr: sr[1])
-    count = len(sorted_seed_rewards)
-    if count <= 2:
-        return sorted_seed_rewards
-    return [
-        sorted_seed_rewards[0],
-        sorted_seed_rewards[count // 2],
-        sorted_seed_rewards[-1],
-    ]
+    sorted_scores = sorted(episode_scores, key=lambda score: score.reward)
+    last_index = len(sorted_scores) - 1
+    representative_scores: list[RepresentativeScore] = []
+    for step in range(count):
+        fraction = step / (count - 1)
+        representative_scores.append(
+            RepresentativeScore(
+                percentile=round(number=100 * fraction),
+                score=sorted_scores[round(number=last_index * fraction)],
+            )
+        )
+    return representative_scores

@@ -6,13 +6,9 @@ import numpy as np
 import torch
 from gymnasium import Env
 
-from scripts.evaluation.core.disturbance import block_push
-from scripts.evaluation.core.disturbance.condition import Condition, condition_colormap
-from scripts.evaluation.core.renderer import (
-    RENDER_SIZE,
-    SUPERSAMPLE_FACTOR,
-    RecoloredRenderWrapper,
-)
+from scripts.evaluation.core import disturbance
+from scripts.evaluation.core.condition import Condition
+from scripts.evaluation.core.renderer import RecoloredRenderWrapper, RenderSettings
 from scripts.shared.policy_types import Policy
 
 
@@ -26,32 +22,25 @@ class EpisodeResult:
 
 
 def create_environment(
-    *,
-    condition: Condition,
-    should_render: bool,
-    render_size: int = RENDER_SIZE,
-    supersample_factor: int = SUPERSAMPLE_FACTOR,
+    *, condition: Condition, render_settings: RenderSettings | None
 ) -> Env:
-    if should_render:
-        environment: Env = gymnasium.make(
-            id="gym_pusht/PushT-v0", render_mode="rgb_array", damping=condition.damping
-        )
-    else:
-        environment = gymnasium.make(id="gym_pusht/PushT-v0", damping=condition.damping)
-
+    environment = gymnasium.make(
+        id="gym_pusht/PushT-v0",
+        damping=condition.damping,
+        render_mode="rgb_array" if render_settings is not None else None,
+    )
     environment.reset()
 
-    if condition.disturbance_magnitude is not None:
-        environment = block_push.BlockPushWrapper(
-            environment=environment, magnitude=condition.disturbance_magnitude
+    if condition.disturbance is not None:
+        environment = disturbance.DisturbanceWrapper(
+            environment=environment, magnitude=condition.disturbance.magnitude
         )
 
-    if should_render:
+    if render_settings is not None:
         environment = RecoloredRenderWrapper(
             environment=environment,
-            colormap=condition_colormap(damping_level=condition.damping),
-            render_size=render_size,
-            supersample_factor=supersample_factor,
+            colormap=condition.colormap,
+            render_settings=render_settings,
         )
 
     return environment
@@ -90,6 +79,9 @@ def roll_out_episode(
                 frames=frames,
                 rewards=rewards,
             )
+
+
+# ---- Private --------------------------------------------
 
 
 def _render_frame(environment: Env) -> np.ndarray:

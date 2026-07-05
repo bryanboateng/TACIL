@@ -1,3 +1,5 @@
+from dataclasses import dataclass
+
 import cv2
 import gymnasium
 import numpy as np
@@ -6,32 +8,27 @@ import pymunk.pygame_util
 from gym_pusht.envs import PushTEnv
 from gymnasium.spaces import Box
 from matplotlib import pyplot as plt
-from matplotlib.colors import Colormap
-from pymunk import Vec2d
+from pymunk import Body, Vec2d
 
-from scripts.evaluation.core.disturbance.block_push import BlockPushWrapper
+from scripts.evaluation.core.disturbance import DisturbanceWrapper
 
-# Defaults for full-quality video recording. The live preview overrides these with a
-# smaller render size and no supersampling, since smoothscaling the supersampled canvas
-# dominates the per-frame cost.
-RENDER_SIZE = 1000
-SUPERSAMPLE_FACTOR = 2
 
-# Push visualization: an arrow from the block's center of gravity along the applied push,
-# and a dashed approach-axis line through the block (the push is lateral, perpendicular to
-# the approach axis). Sizes are derived from the render size at draw time so they scale with
-# whichever resolution is in use.
-_PUSH_COLOR = (40, 200, 80)  # green: the applied push
-_APPROACH_AXIS_COLOR = (70, 110, 200)  # blue: the agent's approach axis
+@dataclass(frozen=True)
+class RenderSettings:
+    # Defaults for full-quality video recording. The live preview overrides these with a
+    # smaller render size and no supersampling, since smoothscaling the supersampled canvas
+    # dominates the per-frame cost.
+    size: int = 1_000
+    supersample_factor: int = 2
 
 
 class RecoloredRenderWrapper(gymnasium.Wrapper):
     def __init__(
         self,
+        *,
         environment: gymnasium.Env,
         colormap: str,
-        render_size: int = RENDER_SIZE,
-        supersample_factor: int = SUPERSAMPLE_FACTOR,
+        render_settings: RenderSettings,
     ) -> None:
         super().__init__(env=environment)
 
@@ -41,11 +38,10 @@ class RecoloredRenderWrapper(gymnasium.Wrapper):
                 f"Expected PushTEnv, got {type(push_t_environment).__name__}"
             )
 
-        self._render_size = render_size
-        self._supersample_factor = supersample_factor
+        self._render_settings = render_settings
         self._push_t_environment = push_t_environment
-        self._block_push_wrapper = _find_block_push_wrapper(environment=environment)
-        self._simulation_size = _simulation_size(environment=push_t_environment)
+        self._disturbance_wrapper = _find_disturbance_wrapper(environment=environment)
+        self._simulation_size = _get_simulation_size(environment=push_t_environment)
 
         self._goal_color = _sample_colormap(name=colormap, value=0.0)
         self._background_color = _sample_colormap(name=colormap, value=0.2)
@@ -54,12 +50,16 @@ class RecoloredRenderWrapper(gymnasium.Wrapper):
         self._agent_color = _sample_colormap(name=colormap, value=1.0)
 
     def render(self) -> np.ndarray:
-        return self._to_image(screen=self._draw_scene())
+        return self._compose_image(screen=self._draw_scene())
+
+    # ---- Private --------------------------------------------
 
     def _draw_scene(self) -> pygame.Surface:
         environment = self._push_t_environment
 
-        canvas_size = self._render_size * self._supersample_factor
+        canvas_size = (
+            self._render_settings.size * self._render_settings.supersample_factor
+        )
         scale = canvas_size / self._simulation_size
 
         screen = pygame.Surface(size=(canvas_size, canvas_size))
@@ -100,64 +100,58 @@ class RecoloredRenderWrapper(gymnasium.Wrapper):
             # Game border
             shape.color = self._background_color
 
-    def _to_image(self, *, screen: pygame.Surface) -> np.ndarray:
+    def _compose_image(self, *, screen: pygame.Surface) -> np.ndarray:
         image = np.frombuffer(
             buffer=pygame.image.tobytes(
                 pygame.transform.smoothscale(
-                    surface=screen, size=(self._render_size, self._render_size)
+                    surface=screen,
+                    size=(self._render_settings.size, self._render_settings.size),
                 ),
                 "RGB",
             ),
             dtype=np.uint8,
-        ).reshape(self._render_size, self._render_size, 3)
+        ).reshape(self._render_settings.size, self._render_settings.size, 3)
+
         image = image.copy()
-        self.draw_last_action(image)
-        self._draw_push(image)
+        self._draw_last_action(image=image)
+        self._draw_push(image=image)
         return image
 
-    def _draw_push(self, image: np.ndarray) -> None:
-        if self._block_push_wrapper is None or not self._block_push_wrapper.is_pushing:
+    def _draw_push(self, *, image: np.ndarray) -> None:
+        if (
+            self._disturbance_wrapper is None
+            or not self._disturbance_wrapper.is_pushing
+        ):
             return
-        direction = self._block_push_wrapper.push_direction
-        # The push is perpendicular to the contact axis, so recover that axis to draw it.
-        axis = direction.perpendicular()
 
-        block = self._push_t_environment.block
-        origin = self._to_pixel(point=block.local_to_world(v=block.center_of_gravity))
+        push_direction = self._disturbance_wrapper.push_direction
 
-        arrow_length = int(0.16 * self._render_size)
-        arrow_thickness = max(2, int(self._render_size / 250))
-        thin = max(1, arrow_thickness // 2)
-        # Approach axis through the block: the push is perpendicular to it.
-        axis_reach = axis * arrow_length
-        _draw_dashed_line(
-            image=image,
-            start=origin - axis_reach,
-            end=origin + axis_reach,
-            color=_APPROACH_AXIS_COLOR,
-            thickness=thin,
+        block: Body = self._push_t_environment.block
+        origin_coordinates = self._scale_to_render(
+            point=block.local_to_world(v=block.center_of_gravity)
         )
-        # The applied push.
-        tip = origin + direction * arrow_length
+        arrow_length = int(0.16 * self._render_settings.size)
+        tip_coordinates = origin_coordinates + push_direction * arrow_length
+
         cv2.arrowedLine(
             img=image,
-            pt1=_pixel(origin),
-            pt2=_pixel(tip),
-            color=_PUSH_COLOR,
-            thickness=arrow_thickness + 2,
+            pt1=origin_coordinates.int_tuple,
+            pt2=tip_coordinates.int_tuple,
+            color=(40, 200, 80),
+            thickness=int(self._render_settings.size / 250),
             line_type=cv2.LINE_AA,
             tipLength=0.25,
         )
 
-    def _to_pixel(self, *, point: Vec2d) -> Vec2d:
-        return (point / self._simulation_size) * self._render_size
+    def _scale_to_render(self, *, point: Vec2d) -> Vec2d:
+        return (point / self._simulation_size) * self._render_settings.size
 
-    def draw_last_action(self, image):
+    def _draw_last_action(self, *, image):
         last_action = self._push_t_environment._last_action
         if last_action is not None:
             coordinate = (
                 (np.array(object=last_action) / self._simulation_size)
-                * self._render_size
+                * self._render_settings.size
             ).astype(np.int32)
             cv2.drawMarker(
                 img=image,
@@ -168,50 +162,26 @@ class RecoloredRenderWrapper(gymnasium.Wrapper):
                     self._marker_color.b,
                 ),
                 markerType=cv2.MARKER_CROSS,
-                markerSize=int(8 / 96 * self._render_size),
-                thickness=int(1 / 96 * self._render_size),
+                markerSize=int(8 / 96 * self._render_settings.size),
+                thickness=int(1 / 96 * self._render_settings.size),
             )
 
 
-def _pixel(point: Vec2d) -> tuple[int, int]:
-    return int(point.x), int(point.y)
+# ---- Private --------------------------------------------
 
 
-def _draw_dashed_line(
-    *, image: np.ndarray, start: Vec2d, end: Vec2d, color: tuple, thickness: int
-) -> None:
-    dash = image.shape[0] * 0.018
-    span = end - start
-    length = span.length
-    if length < 1:
-        return
-    step = dash * 2  # dash followed by an equal gap
-    direction = span / length
-    offset = 0.0
-    while offset < length:
-        segment_start = start + direction * offset
-        segment_end = start + direction * min(offset + dash, length)
-        cv2.line(
-            img=image,
-            pt1=_pixel(segment_start),
-            pt2=_pixel(segment_end),
-            color=color,
-            thickness=thickness,
-            lineType=cv2.LINE_AA,
-        )
-        offset += step
-
-
-def _find_block_push_wrapper(*, environment: gymnasium.Env) -> BlockPushWrapper | None:
+def _find_disturbance_wrapper(
+    *, environment: gymnasium.Env
+) -> DisturbanceWrapper | None:
     current = environment
     while isinstance(current, gymnasium.Wrapper):
-        if isinstance(current, BlockPushWrapper):
+        if isinstance(current, DisturbanceWrapper):
             return current
         current = current.env
     return None
 
 
-def _simulation_size(*, environment: PushTEnv) -> int:
+def _get_simulation_size(*, environment: PushTEnv) -> int:
     action_space = environment.action_space
     if not isinstance(action_space, Box):
         raise TypeError(f"Expected Box action space, got {type(action_space).__name__}")

@@ -12,16 +12,12 @@ from scripts.evaluation.config import (
     Config,
     DiffusionPolicyCheckpoint,
 )
-from scripts.evaluation.core.disturbance.condition import (
-    Condition,
-    build_conditions,
-    label,
-)
+from scripts.evaluation.core.condition import Condition, get_conditions
 from scripts.evaluation.core.scoring import (
     RewardStatistics,
+    pick_representative_scores,
     reward_statistics,
     run_scored_episodes,
-    select_seeds,
 )
 from scripts.evaluation.core.video import record_condition
 from scripts.policies.bc.policy import load_behavior_cloning_policy
@@ -63,8 +59,8 @@ def _run(*, config: Config) -> None:
         start_episode_seed = 1_000_000
         policy_factory = _build_policy_factory(config=config, run=run, device=device)
 
-        for condition in build_conditions():
-            seed_rewards = run_scored_episodes(
+        for condition in get_conditions():
+            episode_scores = run_scored_episodes(
                 policy_factory=policy_factory,
                 start_episode_seed=start_episode_seed,
                 episode_count=config.episode_count,
@@ -73,11 +69,13 @@ def _run(*, config: Config) -> None:
             record_condition(
                 policy_factory=policy_factory,
                 condition=condition,
-                selected_seeds=select_seeds(seed_rewards),
+                representative_scores=pick_representative_scores(
+                    episode_scores=episode_scores
+                ),
                 run=run,
             )
             _write_summary(
-                run=run, condition=condition, reward=reward_statistics(seed_rewards)
+                run=run, condition=condition, reward=reward_statistics(episode_scores)
             )
 
 
@@ -120,8 +118,8 @@ def _download_checkpoint(*, run: Run, artifact_name: str) -> Path:
 
 
 def _write_summary(*, run: Run, condition: Condition, reward: RewardStatistics) -> None:
-    run.summary[f"{label(condition)}/reward_mean"] = reward.mean
-    run.summary[f"{label(condition)}/reward_std"] = reward.std
+    run.summary[f"{condition.label}/reward_mean"] = reward.mean
+    run.summary[f"{condition.label}/reward_std"] = reward.std
 
 
 if __name__ == "__main__":
