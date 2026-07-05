@@ -1,4 +1,3 @@
-import array
 from enum import Enum, auto
 
 import numpy as np
@@ -24,10 +23,11 @@ FPS = 30
 FREEZE_SECONDS = 2
 
 
-class Corner(Enum):
+class Placement(Enum):
     TOP_LEFT = auto()
     TOP_RIGHT = auto()
     BOTTOM_LEFT = auto()
+    BOTTOM_CENTER = auto()
     BOTTOM_RIGHT = auto()
 
 
@@ -63,24 +63,27 @@ def build_annotated_surfaces(
 
         _add_text_to_surface(
             text=_condition_label(condition=condition),
-            corner=Corner.TOP_LEFT,
+            placement=Placement.TOP_LEFT,
             surface=annotated_surface,
             font=font,
         )
         _add_text_to_surface(
-            text=_build_identity_text(
-                frame_max_reward=frame_max_reward,
-                frame_reward=frame_reward,
-                representative_label=representative_label,
-                seed=seed,
-            ),
-            corner=Corner.TOP_RIGHT,
+            text=f"{representative_label}   seed {seed}",
+            placement=Placement.TOP_RIGHT,
             surface=annotated_surface,
             font=font,
         )
         _add_text_to_surface(
             text=f"step {step}",
-            corner=Corner.BOTTOM_LEFT,
+            placement=Placement.BOTTOM_LEFT,
+            surface=annotated_surface,
+            font=font,
+        )
+        _add_text_to_surface(
+            text=_build_reward_text(
+                frame_max_reward=frame_max_reward, frame_reward=frame_reward
+            ),
+            placement=Placement.BOTTOM_CENTER,
             surface=annotated_surface,
             font=font,
         )
@@ -90,7 +93,7 @@ def build_annotated_surfaces(
                 if step == last_frame_index
                 else "Running"
             ),
-            corner=Corner.BOTTOM_RIGHT,
+            placement=Placement.BOTTOM_RIGHT,
             surface=annotated_surface,
             font=font,
         )
@@ -142,25 +145,21 @@ def _condition_label(*, condition: Condition) -> str:
                 level_label = "medium"
             case DisturbanceLevel.HIGH:
                 level_label = "high"
-        disturbance_label = f"{level_label} ({condition.disturbance.magnitude})"
+        disturbance_label = f"{level_label} ({condition.disturbance.magnitude} px/s²)"
 
-    return f"damping: {condition.damping}   disturbance: {disturbance_label}"
+    return (
+        f"damping: {condition.damping} (vel. kept/s)   disturbance: {disturbance_label}"
+    )
 
 
-def _build_identity_text(
-    *,
-    frame_max_reward: float | None,
-    frame_reward: float | None,
-    representative_label: str,
-    seed: int,
+def _build_reward_text(
+    *, frame_max_reward: float | None, frame_reward: float | None
 ) -> str:
-    identity_text = f"{representative_label}   " if representative_label else ""
-    identity_text += f"seed {seed}"
-    identity_text += "   reward: "
-    identity_text += f"{frame_reward:.2f}" if frame_reward is not None else "--"
-    identity_text += "   max: "
-    identity_text += f"{frame_max_reward:.2f}" if frame_max_reward is not None else "--"
-    return identity_text
+    reward_text = "reward: "
+    reward_text += f"{frame_reward:.2f}" if frame_reward is not None else "--"
+    reward_text += "   max: "
+    reward_text += f"{frame_max_reward:.2f}" if frame_max_reward is not None else "--"
+    return reward_text
 
 
 def _record_group(
@@ -217,19 +216,22 @@ def _convert_surface_to_frame(*, surface: Surface) -> np.ndarray:
 
 
 def _add_text_to_surface(
-    *, text: str, corner: Corner, surface: Surface, font: Font
+    *, text: str, placement: Placement, surface: Surface, font: Font
 ) -> None:
     text_surface = font.render(text, True, (0, 0, 0))
     margin = surface.get_width() // 100
     right_aligned_x = surface.get_width() - text_surface.get_width() - margin
+    center_aligned_x = (surface.get_width() - text_surface.get_width()) // 2
     bottom_aligned_y = surface.get_height() - text_surface.get_height() - margin
-    match corner:
-        case Corner.TOP_LEFT:
+    match placement:
+        case Placement.TOP_LEFT:
             destination = (margin, margin)
-        case Corner.TOP_RIGHT:
+        case Placement.TOP_RIGHT:
             destination = (right_aligned_x, margin)
-        case Corner.BOTTOM_LEFT:
+        case Placement.BOTTOM_LEFT:
             destination = (margin, bottom_aligned_y)
-        case Corner.BOTTOM_RIGHT:
+        case Placement.BOTTOM_CENTER:
+            destination = (center_aligned_x, bottom_aligned_y)
+        case Placement.BOTTOM_RIGHT:
             destination = (right_aligned_x, bottom_aligned_y)
     surface.blit(source=text_surface, dest=destination)
