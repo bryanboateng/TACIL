@@ -11,7 +11,7 @@ from diffusers.training_utils import EMAModel
 from rich.pretty import pretty_repr
 from tqdm.auto import tqdm
 
-from scripts.evaluation.core.condition import Undisturbed
+from scripts.evaluation.core.condition import Condition
 from scripts.evaluation.core.scoring import (
     RewardStatistics,
     reward_statistics,
@@ -23,7 +23,7 @@ from scripts.policies.dp.loss import _compute_denoising_loss
 from scripts.policies.dp.network import ConditionalUnet1d
 from scripts.policies.dp.noise_scheduler import get_noise_scheduler
 from scripts.policies.dp.policy import load_diffusion_policy, save_diffusion_policy
-from scripts.policies.shared.stat import Checkpoint
+from scripts.policies.shared.checkpoint import Checkpoint
 from scripts.shared.data import load_episode_store
 from scripts.shared.log import create_logger, log_device_info
 from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
@@ -254,11 +254,11 @@ def _evaluate(
         checkpoint_path=checkpoint_path, device=device
     )
     return reward_statistics(
-        run_scored_episodes(
+        episode_scores=run_scored_episodes(
             policy_factory=policy_factory,
             start_episode_seed=100_000,
             episode_count=episode_count,
-            condition=Undisturbed(),
+            condition=Condition(damping=0.0, disturbance=None, colormap="Greys"),
         )
     )
 

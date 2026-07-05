@@ -4,7 +4,7 @@ import numpy as np
 import torch
 from tqdm import tqdm
 
-from scripts.evaluation.core.condition import Condition, DisturbanceLevel
+from scripts.evaluation.core.condition import Condition
 from scripts.evaluation.core.rollout import create_environment, roll_out_episode
 from scripts.shared.policy_types import PolicyFactory
 
