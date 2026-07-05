@@ -2,9 +2,12 @@ import itertools
 import random
 from pathlib import Path
 
+import numpy as np
 import pygame
 import torch
+import tyro
 import wandb
+from numpy import typing as npt
 
 from scripts.evaluation.core.condition import get_conditions
 from scripts.evaluation.core.renderer import RenderSettings
@@ -18,7 +21,7 @@ from scripts.policies.gpi import config as gpi
 from scripts.policies.gpi.policy import load_geometric_policy
 from scripts.shared.data import load_episode_store
 from scripts.shared.log import create_logger, log_device_info
-from scripts.shared.policy_types import PolicyFactory
+from scripts.shared.policy_types import Policy, PolicyFactory
 
 FPS = 30
 # The live preview renders small and without supersampling: smoothscaling the
@@ -53,13 +56,35 @@ def _build_gpi_policy_factory() -> PolicyFactory:
     )
 
 
-def main():
+def _build_avoidance_policy_factory() -> PolicyFactory:
+    def factory(*, seed: int) -> Policy:
+        def policy(*, observation: npt.NDArray[np.float32]) -> npt.NDArray[np.float32]:
+            agent_position = observation[:2]
+            block_position = observation[2:4]
+            away_vector = agent_position - block_position
+            distance = float(np.linalg.norm(away_vector))
+            away_direction = (
+                away_vector / distance if distance > 1e-6 else np.array([1.0, 0.0])
+            )
+            target = block_position + away_direction * 150.0
+            return target.astype(np.float32)
+
+        return policy
+
+    return factory
+
+
+def main(use_gpi_policy: bool = False) -> None:
     pygame.init()
     screen = pygame.display.set_mode(size=(RENDER_SIZE, RENDER_SIZE))
     font = create_font(render_size=RENDER_SIZE)
     clock = pygame.time.Clock()
 
-    policy_factory = _build_gpi_policy_factory()
+    policy_factory = (
+        _build_gpi_policy_factory()
+        if use_gpi_policy
+        else _build_avoidance_policy_factory()
+    )
 
     for condition in itertools.cycle(get_conditions()):
         seed = random.randint(a=0, b=2**31 - 1)
@@ -103,4 +128,4 @@ def _quit_requested() -> bool:
 
 
 if __name__ == "__main__":
-    main()
+    tyro.cli(f=main)
