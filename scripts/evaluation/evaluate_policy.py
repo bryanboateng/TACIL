@@ -69,7 +69,7 @@ def _run(*, config: Config) -> None:
             record_condition(
                 policy_factory=policy_factory,
                 condition=condition,
-                representative_scores=pick_representative_scores(
+                episode_scores=pick_representative_scores(
                     episode_scores=episode_scores
                 ),
                 run=run,

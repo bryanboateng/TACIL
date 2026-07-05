@@ -85,9 +85,9 @@ def _get_conditions_for_setting(*, setting: _Setting) -> list[Condition]:
     levels = setting.disturbance_levels
     disturbances: list[Disturbance | None] = [
         None,
-        Disturbance(DisturbanceLevel.LOW, levels.low),
-        Disturbance(DisturbanceLevel.MEDIUM, levels.medium),
-        Disturbance(DisturbanceLevel.HIGH, levels.high),
+        Disturbance(level=DisturbanceLevel.LOW, magnitude=levels.low),
+        Disturbance(level=DisturbanceLevel.MEDIUM, magnitude=levels.medium),
+        Disturbance(level=DisturbanceLevel.HIGH, magnitude=levels.high),
     ]
     return [
         Condition(

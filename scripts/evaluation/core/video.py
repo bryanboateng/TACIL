@@ -16,7 +16,7 @@ from scripts.evaluation.core.rollout import (
     create_environment,
     roll_out_episode,
 )
-from scripts.evaluation.core.scoring import EpisodeScore, RepresentativeScore
+from scripts.evaluation.core.scoring import EpisodeScore
 from scripts.shared.policy_types import PolicyFactory
 
 FPS = 30
@@ -42,22 +42,15 @@ def build_annotated_surfaces(
     font: pygame.font.Font,
     condition: Condition,
     seed: int,
-    reward: float | None,
-    representative_label: str,
+    percentile: int,
 ) -> list[pygame.Surface]:
     last_frame_index = len(episode_result.frames) - 1
-    is_live_preview = reward is None
 
     annotated_surfaces: list[pygame.Surface] = []
     running_max_reward = 0.0
     for step, frame in enumerate(episode_result.frames):
-        if is_live_preview:
-            # frames[0] is the initial reset frame, before any step/reward.
-            current_reward = episode_result.rewards[step - 1] if step >= 1 else 0.0
-            running_max_reward = max(running_max_reward, current_reward)
-            frame_reward, frame_max_reward = current_reward, running_max_reward
-        else:
-            frame_reward, frame_max_reward = reward, None
+        current_reward = episode_result.rewards[step - 1] if step >= 1 else 0.0
+        running_max_reward = max(running_max_reward, current_reward)
 
         annotated_surface = _convert_frame_to_surface(frame=frame).copy()
 
@@ -68,7 +61,7 @@ def build_annotated_surfaces(
             font=font,
         )
         _add_text_to_surface(
-            text=f"{representative_label}   seed {seed}",
+            text=f"P{percentile}   seed {seed}",
             placement=Placement.TOP_RIGHT,
             surface=annotated_surface,
             font=font,
@@ -81,7 +74,7 @@ def build_annotated_surfaces(
         )
         _add_text_to_surface(
             text=_build_reward_text(
-                frame_max_reward=frame_max_reward, frame_reward=frame_reward
+                frame_max_reward=running_max_reward, frame_reward=current_reward
             ),
             placement=Placement.BOTTOM_CENTER,
             surface=annotated_surface,
@@ -107,7 +100,7 @@ def record_condition(
     *,
     policy_factory: PolicyFactory,
     condition: Condition,
-    representative_scores: list[RepresentativeScore],
+    episode_scores: dict[int, EpisodeScore],
     run: Run,
 ) -> None:
     render_settings = RenderSettings()
@@ -120,7 +113,7 @@ def record_condition(
             policy_factory=policy_factory,
             environment=environment,
             condition=condition,
-            representative_scores=representative_scores,
+            episode_scores=episode_scores,
             font=font,
         )
 
@@ -152,14 +145,8 @@ def _condition_label(*, condition: Condition) -> str:
     )
 
 
-def _build_reward_text(
-    *, frame_max_reward: float | None, frame_reward: float | None
-) -> str:
-    reward_text = "reward: "
-    reward_text += f"{frame_reward:.2f}" if frame_reward is not None else "--"
-    reward_text += "   max: "
-    reward_text += f"{frame_max_reward:.2f}" if frame_max_reward is not None else "--"
-    return reward_text
+def _build_reward_text(*, frame_max_reward: float, frame_reward: float) -> str:
+    return f"reward: {frame_reward:.2f}   max: {frame_max_reward:.2f}"
 
 
 def _record_group(
@@ -167,15 +154,14 @@ def _record_group(
     policy_factory: PolicyFactory,
     environment,
     condition: Condition,
-    representative_scores: list[RepresentativeScore],
+    episode_scores: dict[int, EpisodeScore],
     font: pygame.font.Font,
 ) -> list[np.ndarray]:
 
     frames: list[np.ndarray] = []
-    for representative in tqdm(
-        representative_scores, desc=condition.label, unit="episode"
+    for percentile, score in tqdm(
+        episode_scores.items(), desc=condition.label, unit="episode"
     ):
-        score: EpisodeScore = representative.score
         episode_result = roll_out_episode(
             environment=environment,
             policy=policy_factory(seed=score.seed),
@@ -187,24 +173,13 @@ def _record_group(
             font=font,
             condition=condition,
             seed=score.seed,
-            reward=score.reward,
-            representative_label=_create_percentile_label(
-                representative=representative
-            ),
+            percentile=percentile,
         ):
             frames.append(_convert_surface_to_frame(surface=surface))
 
         # Freeze on the final annotated frame.
         frames.extend([frames[-1]] * (FPS * FREEZE_SECONDS))
     return frames
-
-
-def _create_percentile_label(*, representative: RepresentativeScore) -> str:
-    if representative.percentile == 0:
-        return "P0 (worst)"
-    if representative.percentile == 100:
-        return "P100 (best)"
-    return f"P{representative.percentile}"
 
 
 def _convert_frame_to_surface(*, frame: np.ndarray) -> Surface:

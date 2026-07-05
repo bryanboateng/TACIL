@@ -21,12 +21,6 @@ class RewardStatistics:
     std: float
 
 
-@dataclass(frozen=True)
-class RepresentativeScore:
-    percentile: int
-    score: EpisodeScore
-
-
 @torch.no_grad()
 def run_scored_episodes(
     *,
@@ -63,18 +57,16 @@ def reward_statistics(episode_scores: list[EpisodeScore]) -> RewardStatistics:
 
 def pick_representative_scores(
     *, episode_scores: list[EpisodeScore]
-) -> list[RepresentativeScore]:
+) -> dict[int, EpisodeScore]:
     count = 8
 
     sorted_scores = sorted(episode_scores, key=lambda score: score.reward)
     last_index = len(sorted_scores) - 1
-    representative_scores: list[RepresentativeScore] = []
+    representative_scores: dict[int, EpisodeScore] = {}
     for step in range(count):
         fraction = step / (count - 1)
-        representative_scores.append(
-            RepresentativeScore(
-                percentile=round(number=100 * fraction),
-                score=sorted_scores[round(number=last_index * fraction)],
-            )
-        )
+        percentile = round(number=100 * fraction)
+        representative_scores[percentile] = sorted_scores[
+            round(number=last_index * fraction)
+        ]
     return representative_scores

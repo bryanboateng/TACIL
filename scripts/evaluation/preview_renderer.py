@@ -87,8 +87,7 @@ def main():
             font=font,
             condition=condition,
             seed=seed,
-            reward=None,
-            representative_label="P100",
+            percentile=75,
         )
 
         # Play the episode, then hold on the final frame, matching the recorded freeze.
