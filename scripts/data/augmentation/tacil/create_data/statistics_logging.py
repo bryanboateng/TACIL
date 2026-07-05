@@ -31,20 +31,25 @@ def log_dataset_statistics(
         source_transition_count=source_transition_count,
     )
     run.summary["bound_threshold"] = augmentation_result.error_bound_threshold
+    run.summary["uncertainty_threshold"] = augmentation_result.uncertainty_threshold
 
-    error_bound_batch = augmentation_result.error_bounds  # (converged_step_count,)
     run.log(
         {
-            "figures/error_bounds": wandb.Histogram(
-                np_histogram=np.histogram(
-                    a=error_bound_batch[
-                        error_bound_batch
-                        <= float(np.percentile(a=error_bound_batch, q=99.5))
-                    ],
-                    bins="auto",
-                )
-            )
+            "figures/error_bounds": _clipped_histogram(
+                values=augmentation_result.error_bounds
+            ),
+            "figures/uncertainties": _clipped_histogram(
+                values=augmentation_result.uncertainties
+            ),
         }
+    )
+
+
+def _clipped_histogram(*, values: np.ndarray) -> wandb.Histogram:  # (step_count,)
+    return wandb.Histogram(
+        np_histogram=np.histogram(
+            a=values[values <= float(np.percentile(a=values, q=99.5))], bins="auto"
+        )
     )
 
 

@@ -19,7 +19,7 @@ from scripts.data.augmentation.tacil.create_data.episode_assembly import (
 from scripts.data.augmentation.tacil.create_data.statistics_logging import (
     log_dataset_statistics,
 )
-from scripts.data.augmentation.tacil.dynamics.checkpoint import load_dynamics_model
+from scripts.data.augmentation.tacil.dynamics.checkpoint import load_dynamics_ensemble
 from scripts.shared.data import load_episode_store, upload_episode_store
 from scripts.shared.log import create_logger, log_device_info
 from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
@@ -45,14 +45,13 @@ def _run(*, config: Config) -> None:
         config=asdict(config),
         dir=OUTPUT_DIRECTORY_PATH,
     ) as run:
-        dynamics_model = load_dynamics_model(
-            checkpoint_file_path=Path(
+        dynamics_ensemble = load_dynamics_ensemble(
+            directory=Path(
                 run.use_artifact(artifact_or_name=config.model_artifact).download()
-            )
-            / "dynamics.pt",
+            ),
             device=device,
         )
-        dynamics_model.eval()
+        dynamics_ensemble.eval()
 
         episode_store = load_episode_store(
             episode_file_path=Path(
@@ -70,7 +69,7 @@ def _run(*, config: Config) -> None:
         )  # (action_dimensionality,)
 
         backward_trajectories = roll_out_backward(
-            dynamics_model=dynamics_model,
+            dynamics_ensemble=dynamics_ensemble,
             state_batch=torch.as_tensor(episode_store.states[anchor_indices]).to(
                 device=device
             ),
@@ -87,6 +86,7 @@ def _run(*, config: Config) -> None:
             anchor_indices=anchor_indices,
             expert_part_length=config.expert_part_length,
             label_error_bound_quantile=config.label_error_bound_quantile,
+            uncertainty_quantile=config.uncertainty_quantile,
         )
 
         log_dataset_statistics(

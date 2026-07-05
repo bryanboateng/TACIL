@@ -24,6 +24,10 @@ class AugmentationResult:
         np.float32
     ]  # per-step normalized bounds over converged steps
     error_bound_threshold: float
+    uncertainties: npt.NDArray[
+        np.float32
+    ]  # per-step ensemble uncertainties over converged steps
+    uncertainty_threshold: float
     counts: OutcomeCounts
 
 
@@ -57,6 +61,7 @@ def create_augmented_episodes(
     anchor_indices: npt.NDArray[np.int64],  # (anchor_count,)
     expert_part_length: int,
     label_error_bound_quantile: float,
+    uncertainty_quantile: float,
 ) -> AugmentationResult:
 
     converged_error_bounds = backward_trajectories.error_bounds_batch[
@@ -71,9 +76,20 @@ def create_augmented_episodes(
         ).item()
     )
 
-    episode_accepted_batch = backward_trajectories.anchor_alive_batch & (
-        backward_trajectories.error_bounds_batch <= error_bound_threshold
-    ).all(dim=1)  # (anchor_count,)
+    converged_uncertainties = backward_trajectories.uncertainties_batch[
+        backward_trajectories.anchor_alive_batch
+    ].flatten()  # (alive_count * step,)
+    uncertainty_threshold = float(
+        torch.quantile(input=converged_uncertainties, q=uncertainty_quantile).item()
+    )
+
+    episode_accepted_batch = (
+        backward_trajectories.anchor_alive_batch
+        & (backward_trajectories.error_bounds_batch <= error_bound_threshold).all(dim=1)
+        & (backward_trajectories.uncertainties_batch <= uncertainty_threshold).all(
+            dim=1
+        )
+    )  # (anchor_count,)
 
     augmented_episode_store = _assemble_episodes(
         states=episode_store.states,
@@ -94,6 +110,8 @@ def create_augmented_episodes(
         episode_store=augmented_episode_store,
         error_bounds=converged_error_bounds.cpu().numpy(),
         error_bound_threshold=error_bound_threshold,
+        uncertainties=converged_uncertainties.cpu().numpy(),
+        uncertainty_threshold=uncertainty_threshold,
         counts=AugmentationResult.OutcomeCounts(
             not_converged=not_converged_count,
             rejected=rejected_count,

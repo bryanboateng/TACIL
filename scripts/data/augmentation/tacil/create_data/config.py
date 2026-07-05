@@ -11,6 +11,7 @@ class Config:
 
     action_noise_fraction: float = 0.1
     label_error_bound_quantile: float = 0.5
+    uncertainty_quantile: float = 0.5
 
     seed: int = 42
 
@@ -26,4 +27,8 @@ class Config:
         if not 0.0 <= self.label_error_bound_quantile <= 1.0:
             raise ValueError(
                 f"label_error_bound_quantile must be in [0, 1], got {self.label_error_bound_quantile}"
+            )
+        if not 0.0 <= self.uncertainty_quantile <= 1.0:
+            raise ValueError(
+                f"uncertainty_quantile must be in [0, 1], got {self.uncertainty_quantile}"
             )

@@ -17,6 +17,11 @@ class TrainingConfig:
 class ArchitectureConfig:
     hidden_layer_sizes: tuple[int, ...] = (256, 256)
     lipschitz_constant_upper_bound: float | None = None
+    ensemble_size: int = 5
+
+    def __post_init__(self) -> None:
+        if self.ensemble_size < 1:
+            raise ValueError(f"ensemble_size must be >= 1, got {self.ensemble_size}")
 
 
 @dataclass(frozen=True)

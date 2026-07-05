@@ -3,7 +3,11 @@ from pathlib import Path
 
 import torch
 
-from scripts.data.augmentation.tacil.dynamics_model import DynamicsModel
+from scripts.data.augmentation.tacil.dynamics_ensemble import DynamicsEnsemble
+from scripts.data.augmentation.tacil.dynamics_network import DynamicsNetwork
+from scripts.data.augmentation.tacil.normalizers import Normalizers
+
+_NORMALIZERS_FILE_NAME = "normalizers.pt"
 
 
 class CheckpointKeys(StrEnum):
@@ -14,26 +18,61 @@ class CheckpointKeys(StrEnum):
     LIPSCHITZ_CONSTANT_UPPER_BOUND = "lipschitz_constant_upper_bound"
 
 
-def save_dynamics_model(*, dynamics_model: DynamicsModel, path: Path) -> None:
+def save_dynamics_ensemble(*, ensemble: DynamicsEnsemble, directory: Path) -> None:
+    _save_normalizers(
+        normalizers=ensemble.normalizers,
+        state_dimensionality=ensemble.state_dimensionality,
+        action_dimensionality=ensemble.action_dimensionality,
+        path=directory / _NORMALIZERS_FILE_NAME,
+    )
+    for network_index, network in enumerate(ensemble.networks):
+        _save_network(
+            network=network,
+            path=_network_file_path(directory=directory, network_index=network_index),
+        )
+
+
+def load_dynamics_ensemble(
+    *, directory: Path, device: torch.device
+) -> DynamicsEnsemble:
+    network_file_paths = sorted(
+        directory.glob(pattern="network_*.pt"),
+        key=lambda path: int(path.stem.removeprefix("network_")),
+    )
+    if len(network_file_paths) == 0:
+        raise FileNotFoundError(f"No dynamics network checkpoints found in {directory}")
+
+    return DynamicsEnsemble(
+        normalizers=_load_normalizers(
+            path=directory / _NORMALIZERS_FILE_NAME, device=device
+        ),
+        networks=[
+            _load_network(path=network_file_path, device=device)
+            for network_file_path in network_file_paths
+        ],
+    ).to(device=device)
+
+
+def _network_file_path(*, directory: Path, network_index: int) -> Path:
+    return directory / f"network_{network_index}.pt"
+
+
+def _save_network(*, network: DynamicsNetwork, path: Path) -> None:
     torch.save(
         obj={
-            CheckpointKeys.STATE_DICTIONARY: dynamics_model.state_dict(),
-            CheckpointKeys.STATE_DIMENSIONALITY: dynamics_model.state_dimensionality,
-            CheckpointKeys.ACTION_DIMENSIONALITY: dynamics_model.action_dimensionality,
-            CheckpointKeys.HIDDEN_DIMENSIONALITIES: dynamics_model.hidden_dimensionalities,
-            CheckpointKeys.LIPSCHITZ_CONSTANT_UPPER_BOUND: dynamics_model.lipschitz_constant_upper_bound,
+            CheckpointKeys.STATE_DICTIONARY: network.state_dict(),
+            CheckpointKeys.STATE_DIMENSIONALITY: network.state_dimensionality,
+            CheckpointKeys.ACTION_DIMENSIONALITY: network.action_dimensionality,
+            CheckpointKeys.HIDDEN_DIMENSIONALITIES: network.hidden_dimensionalities,
+            CheckpointKeys.LIPSCHITZ_CONSTANT_UPPER_BOUND: network.lipschitz_constant_upper_bound,
         },
         f=path,
     )
 
 
-def load_dynamics_model(
-    *, checkpoint_file_path: Path, device: torch.device
-) -> DynamicsModel:
-    checkpoint = torch.load(
-        f=checkpoint_file_path, map_location=device, weights_only=False
-    )
-    dynamics_model = DynamicsModel(
+def _load_network(*, path: Path, device: torch.device) -> DynamicsNetwork:
+    checkpoint = torch.load(f=path, map_location=device, weights_only=False)
+    network = DynamicsNetwork(
         state_dimensionality=checkpoint[CheckpointKeys.STATE_DIMENSIONALITY],
         action_dimensionality=checkpoint[CheckpointKeys.ACTION_DIMENSIONALITY],
         hidden_dimensionalities=tuple(
@@ -43,5 +82,32 @@ def load_dynamics_model(
             CheckpointKeys.LIPSCHITZ_CONSTANT_UPPER_BOUND
         ],
     )
-    dynamics_model.load_state_dict(checkpoint[CheckpointKeys.STATE_DICTIONARY])
-    return dynamics_model.to(device=device)
+    network.load_state_dict(checkpoint[CheckpointKeys.STATE_DICTIONARY])
+    return network.to(device=device)
+
+
+def _save_normalizers(
+    *,
+    normalizers: Normalizers,
+    state_dimensionality: int,
+    action_dimensionality: int,
+    path: Path,
+) -> None:
+    torch.save(
+        obj={
+            CheckpointKeys.STATE_DICTIONARY: normalizers.state_dict(),
+            CheckpointKeys.STATE_DIMENSIONALITY: state_dimensionality,
+            CheckpointKeys.ACTION_DIMENSIONALITY: action_dimensionality,
+        },
+        f=path,
+    )
+
+
+def _load_normalizers(*, path: Path, device: torch.device) -> Normalizers:
+    checkpoint = torch.load(f=path, map_location=device, weights_only=False)
+    normalizers = Normalizers.placeholder(
+        state_dimensionality=checkpoint[CheckpointKeys.STATE_DIMENSIONALITY],
+        action_dimensionality=checkpoint[CheckpointKeys.ACTION_DIMENSIONALITY],
+    )
+    normalizers.load_state_dict(checkpoint[CheckpointKeys.STATE_DICTIONARY])
+    return normalizers.to(device=device)

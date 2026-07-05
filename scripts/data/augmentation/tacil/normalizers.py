@@ -1,0 +1,96 @@
+from typing import Self
+
+import torch
+
+from scripts.shared.normalization import ZScoreNormalizer
+
+
+class Normalizers(torch.nn.Module):
+    state_normalizer: ZScoreNormalizer
+    action_normalizer: ZScoreNormalizer
+    state_displacement_normalizer: ZScoreNormalizer
+
+    def __init__(
+        self,
+        *,
+        state_normalizer: ZScoreNormalizer,
+        action_normalizer: ZScoreNormalizer,
+        state_displacement_normalizer: ZScoreNormalizer,
+    ):
+        super().__init__()
+        self.state_normalizer = state_normalizer
+        self.action_normalizer = action_normalizer
+        self.state_displacement_normalizer = state_displacement_normalizer
+
+    @classmethod
+    def from_transitions(
+        cls,
+        *,
+        state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
+        action_batch: torch.Tensor,  # (batch_size, action_dimensionality)
+        next_state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
+    ) -> Self:
+        return cls(
+            state_normalizer=ZScoreNormalizer.from_values(value_batch=state_batch),
+            action_normalizer=ZScoreNormalizer.from_values(value_batch=action_batch),
+            state_displacement_normalizer=ZScoreNormalizer.from_values(
+                value_batch=next_state_batch - state_batch
+            ),
+        )
+
+    @classmethod
+    def placeholder(
+        cls, *, state_dimensionality: int, action_dimensionality: int
+    ) -> Self:
+        """Identity normalizers whose buffers are overwritten by a state dict."""
+        return cls(
+            state_normalizer=ZScoreNormalizer(
+                mean=torch.zeros(state_dimensionality),
+                std=torch.ones(state_dimensionality),
+            ),
+            action_normalizer=ZScoreNormalizer(
+                mean=torch.zeros(action_dimensionality),
+                std=torch.ones(action_dimensionality),
+            ),
+            state_displacement_normalizer=ZScoreNormalizer(
+                mean=torch.zeros(state_dimensionality),
+                std=torch.ones(state_dimensionality),
+            ),
+        )
+
+    def normalize_state(
+        self,
+        *,
+        state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
+    ) -> torch.Tensor:  # (batch_size, state_dimensionality)
+        return self.state_normalizer.normalize(value_batch=state_batch)
+
+    def denormalize_state(
+        self,
+        *,
+        normalized_state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
+    ) -> torch.Tensor:  # (batch_size, state_dimensionality)
+        return self.state_normalizer.denormalize(value_batch=normalized_state_batch)
+
+    def normalized_input(
+        self,
+        *,
+        state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
+        action_batch: torch.Tensor,  # (batch_size, action_dimensionality)
+    ) -> torch.Tensor:  # (batch_size, state_dimensionality + action_dimensionality)
+        return torch.cat(
+            tensors=[
+                self.state_normalizer.normalize(value_batch=state_batch),
+                self.action_normalizer.normalize(value_batch=action_batch),
+            ],
+            dim=-1,
+        )
+
+    def denormalize_state_displacement(
+        self,
+        *,
+        normalized_state_displacement_batch: torch.Tensor,  # (batch_size, state_dimensionality)
+    ) -> torch.Tensor:  # (batch_size, state_dimensionality)
+        return self.state_displacement_normalizer.denormalize(
+            value_batch=normalized_state_displacement_batch
+        )
