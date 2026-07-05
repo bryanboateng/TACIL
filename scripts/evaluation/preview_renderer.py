@@ -20,13 +20,12 @@ from scripts.shared.data import load_episode_store
 from scripts.shared.log import create_logger, log_device_info
 from scripts.shared.policy_types import PolicyFactory
 
-PREVIEW_FPS = 30
+FPS = 30
 # The live preview renders small and without supersampling: smoothscaling the
 # supersampled canvas is the dominant per-frame cost, and the on-screen window does not
 # need the recording's resolution. Recorded videos keep the renderer's full-quality
 # defaults.
-PREVIEW_RENDER_SIZE = 600
-PREVIEW_SUPERSAMPLE_FACTOR = 1
+RENDER_SIZE = 600
 
 
 logger = create_logger()
@@ -56,8 +55,8 @@ def _build_gpi_policy_factory() -> PolicyFactory:
 
 def main():
     pygame.init()
-    screen = pygame.display.set_mode(size=(PREVIEW_RENDER_SIZE, PREVIEW_RENDER_SIZE))
-    font = create_font(render_size=PREVIEW_RENDER_SIZE)
+    screen = pygame.display.set_mode(size=(RENDER_SIZE, RENDER_SIZE))
+    font = create_font(render_size=RENDER_SIZE)
     clock = pygame.time.Clock()
 
     policy_factory = _build_gpi_policy_factory()
@@ -68,9 +67,7 @@ def main():
 
         environment = create_environment(
             condition=condition,
-            render_settings=RenderSettings(
-                size=PREVIEW_RENDER_SIZE, supersample_factor=PREVIEW_SUPERSAMPLE_FACTOR
-            ),
+            render_settings=RenderSettings(size=RENDER_SIZE, supersample_factor=1),
         )
         try:
             episode_result = roll_out_episode(
@@ -91,14 +88,14 @@ def main():
         )
 
         # Play the episode, then hold on the final frame, matching the recorded freeze.
-        freeze = [surfaces[-1]] * (PREVIEW_FPS * FREEZE_SECONDS)
+        freeze = [surfaces[-1]] * (FPS * FREEZE_SECONDS)
         for surface in [*surfaces, *freeze]:
             if _quit_requested():
                 pygame.quit()
                 return
             screen.blit(surface, (0, 0))
             pygame.display.flip()
-            clock.tick(PREVIEW_FPS)
+            clock.tick(FPS)
 
 
 def _quit_requested() -> bool:
