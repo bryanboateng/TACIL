@@ -65,17 +65,17 @@ def _get_settings() -> list[_Setting]:
     return [
         _Setting(
             damping=0.0,
-            disturbance_levels=_DisturbanceLevels(low=3_000, medium=6_000, high=12_000),
+            disturbance_levels=_DisturbanceLevels(low=1_500, medium=3_000, high=6_000),
             colormap="Greys",
         ),
         _Setting(
             damping=0.2,
-            disturbance_levels=_DisturbanceLevels(low=50, medium=100, high=200),
+            disturbance_levels=_DisturbanceLevels(low=24, medium=48, high=96),
             colormap="Blues",
         ),
         _Setting(
             damping=0.4,
-            disturbance_levels=_DisturbanceLevels(low=30, medium=60, high=120),
+            disturbance_levels=_DisturbanceLevels(low=14, medium=27, high=55),
             colormap="Oranges",
         ),
     ]
