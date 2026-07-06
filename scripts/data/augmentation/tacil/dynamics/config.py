@@ -51,6 +51,8 @@ class DataConfig:
 
 @dataclass(frozen=True)
 class Config:
+    wandb_project: str
+
     data: DataConfig
     architecture: ArchitectureConfig
     training: TrainingConfig

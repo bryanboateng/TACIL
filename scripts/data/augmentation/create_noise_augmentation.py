@@ -18,6 +18,8 @@ logger = create_logger()
 
 @dataclass
 class Config:
+    wandb_project: str
+
     dataset_artifact: str
     # Fraction of all candidate subtrajectories to sample and add as noisy episodes (0, 1].
     # E.g. 0.3 means 30% of all sliding-window subtrajectories become new noisy episodes.
@@ -40,7 +42,7 @@ def _run(*, config: Config):
     rng = np.random.default_rng(seed=config.seed)
 
     with wandb.init(
-        project="abc",
+        project=config.wandb_project,
         job_type="create-noisy-dataset",
         config=asdict(config),
         dir=OUTPUT_DIRECTORY_PATH,

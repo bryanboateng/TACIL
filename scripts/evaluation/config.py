@@ -18,6 +18,8 @@ class BehaviorCloningCheckpoint:
 
 @dataclass(frozen=True)
 class Config:
+    wandb_project: str
+
     policy: (
         Annotated[DiffusionPolicyCheckpoint, tyro.conf.subcommand(name="dp")]
         | Annotated[BehaviorCloningCheckpoint, tyro.conf.subcommand(name="bc")]

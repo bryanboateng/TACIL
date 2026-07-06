@@ -59,7 +59,7 @@ def _run(*, config: Config) -> None:
     log_device_info(device=device, logger=logger)
 
     with wandb.init(
-        project="abc",
+        project=config.wandb_project,
         job_type="train-tacil-dynamics",
         config=asdict(config),
         dir=OUTPUT_DIRECTORY_PATH,

@@ -3,6 +3,8 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class Config:
+    wandb_project: str
+
     model_artifact: str
     dataset_artifact: str
 

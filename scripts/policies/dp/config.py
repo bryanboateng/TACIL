@@ -32,6 +32,8 @@ class EvaluationConfig:
 
 @dataclass(frozen=True)
 class Config:
+    wandb_project: str
+
     dataset_artifact: str
     dimensionality: DimensionalityConfig
     horizon_length: HorizonLengthConfig

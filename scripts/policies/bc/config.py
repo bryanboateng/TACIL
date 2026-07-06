@@ -23,6 +23,8 @@ class EvaluationConfig:
 
 @dataclass(frozen=True)
 class Config:
+    wandb_project: str
+
     dimensionality: DimensionalityConfig
     optimization: OptimizationConfig
     evaluation: EvaluationConfig

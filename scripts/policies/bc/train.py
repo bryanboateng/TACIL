@@ -49,7 +49,7 @@ def _run(*, config: Config) -> None:
 
     with (
         wandb.init(
-            project="abc",
+            project=config.wandb_project,
             job_type="train-behavior-cloning-policy",
             config=asdict(config),
             dir=OUTPUT_DIRECTORY_PATH,
