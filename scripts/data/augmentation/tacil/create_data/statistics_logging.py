@@ -46,11 +46,11 @@ def log_dataset_statistics(
 
 
 def _clipped_histogram(*, values: np.ndarray) -> wandb.Histogram:  # (step_count,)
-    return wandb.Histogram(
-        np_histogram=np.histogram(
-            a=values[values <= float(np.percentile(a=values, q=99.5))], bins="auto"
-        )
-    )
+    clipped_values = values[values <= float(np.percentile(a=values, q=99.5))]
+
+    # "auto" can pick more bins than wandb allows, so cap the bin count.
+    bin_count = min(len(np.histogram_bin_edges(clipped_values, bins="auto")) - 1, 512)
+    return wandb.Histogram(np_histogram=np.histogram(a=clipped_values, bins=bin_count))
 
 
 def _candidate_episodes_summary(
