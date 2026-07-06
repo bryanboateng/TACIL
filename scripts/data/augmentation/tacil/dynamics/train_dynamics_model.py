@@ -113,8 +113,12 @@ def _run(*, config: Config) -> None:
 
         networks: list[DynamicsNetwork] = []
         global_step = 0
-        for member_index in range(config.architecture.ensemble_size):
-            set_seed(seed=config.seed + member_index)
+        for member_index, member_seed in enumerate(
+            np.random.SeedSequence(entropy=config.seed).generate_state(
+                n_words=config.architecture.ensemble_size
+            )
+        ):
+            set_seed(seed=member_seed)
 
             network, global_step = _train_single_member(
                 member_index=member_index,
