@@ -118,7 +118,7 @@ def _run(*, config: Config) -> None:
                 n_words=config.architecture.ensemble_size
             )
         ):
-            set_seed(seed=member_seed)
+            set_seed(seed=int(member_seed))
 
             network, global_step = _train_single_member(
                 member_index=member_index,
