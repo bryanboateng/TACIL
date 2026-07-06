@@ -177,6 +177,14 @@ def _assemble_episodes(
         )
         episode_lengths.append(synthetic_part_length + expert_part_length)
 
+    if not episode_state_chunks:
+        raise RuntimeError(
+            "No anchors were accepted: every candidate episode was rejected by the "
+            "label-error-bound and/or uncertainty filters. Loosen "
+            "label_error_bound_quantile / uncertainty_quantile or retrain the "
+            "dynamics model."
+        )
+
     return EpisodeStore(
         states=np.concatenate(
             episode_state_chunks, axis=0

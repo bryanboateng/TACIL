@@ -13,6 +13,7 @@ from scripts.shared.policy_types import PolicyFactory
 class EpisodeScore:
     seed: int
     reward: float
+    success: bool
 
 
 @dataclass(frozen=True)
@@ -44,7 +45,11 @@ def run_scored_episodes(
                 seed=seed,
                 render=False,
             )
-            episode_scores.append(EpisodeScore(seed=seed, reward=result.reward))
+            episode_scores.append(
+                EpisodeScore(
+                    seed=seed, reward=result.reward, success=result.terminated
+                )
+            )
         return episode_scores
     finally:
         environment.close()
@@ -53,6 +58,12 @@ def run_scored_episodes(
 def reward_statistics(episode_scores: list[EpisodeScore]) -> RewardStatistics:
     rewards = np.array([score.reward for score in episode_scores])
     return RewardStatistics(mean=float(rewards.mean()), std=float(rewards.std()))
+
+
+def success_rate(episode_scores: list[EpisodeScore]) -> float:
+    if not episode_scores:
+        return 0.0
+    return float(np.mean([score.success for score in episode_scores]))
 
 
 def pick_representative_scores(

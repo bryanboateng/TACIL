@@ -18,6 +18,7 @@ from scripts.evaluation.core.scoring import (
     pick_representative_scores,
     reward_statistics,
     run_scored_episodes,
+    success_rate,
 )
 from scripts.evaluation.core.video import record_condition
 from scripts.policies.bc.policy import load_behavior_cloning_policy
@@ -75,7 +76,10 @@ def _run(*, config: Config) -> None:
                 run=run,
             )
             _write_summary(
-                run=run, condition=condition, reward=reward_statistics(episode_scores)
+                run=run,
+                condition=condition,
+                reward=reward_statistics(episode_scores),
+                success_fraction=success_rate(episode_scores),
             )
 
 
@@ -117,9 +121,16 @@ def _download_checkpoint(*, run: Run, artifact_name: str) -> Path:
     )
 
 
-def _write_summary(*, run: Run, condition: Condition, reward: RewardStatistics) -> None:
+def _write_summary(
+    *,
+    run: Run,
+    condition: Condition,
+    reward: RewardStatistics,
+    success_fraction: float,
+) -> None:
     run.summary[f"{condition.label}/reward_mean"] = reward.mean
     run.summary[f"{condition.label}/reward_std"] = reward.std
+    run.summary[f"{condition.label}/success_rate"] = success_fraction
 
 
 if __name__ == "__main__":
