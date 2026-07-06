@@ -122,11 +122,7 @@ def _download_checkpoint(*, run: Run, artifact_name: str) -> Path:
 
 
 def _write_summary(
-    *,
-    run: Run,
-    condition: Condition,
-    reward: RewardStatistics,
-    success_fraction: float,
+    *, run: Run, condition: Condition, reward: RewardStatistics, success_fraction: float
 ) -> None:
     run.summary[f"{condition.label}/reward_mean"] = reward.mean
     run.summary[f"{condition.label}/reward_std"] = reward.std

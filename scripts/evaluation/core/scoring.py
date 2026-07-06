@@ -46,9 +46,7 @@ def run_scored_episodes(
                 render=False,
             )
             episode_scores.append(
-                EpisodeScore(
-                    seed=seed, reward=result.reward, success=result.terminated
-                )
+                EpisodeScore(seed=seed, reward=result.reward, success=result.terminated)
             )
         return episode_scores
     finally:

@@ -41,10 +41,6 @@ def compute_loss(
     ]  # (window_count, window_length, state_dimensionality)
 
     return torch.nn.functional.mse_loss(
-        input=normalizers.normalize_state(
-            state_batch=predicted_state_trajectory_batch
-        ),
-        target=normalizers.normalize_state(
-            state_batch=target_state_trajectory_batch
-        ),
+        input=normalizers.normalize_state(state_batch=predicted_state_trajectory_batch),
+        target=normalizers.normalize_state(state_batch=target_state_trajectory_batch),
     )
