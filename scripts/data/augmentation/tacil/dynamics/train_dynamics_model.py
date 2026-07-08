@@ -237,8 +237,8 @@ def _train_single_member(
         validation_loss = calculate_validation_loss(
             network=ema_network,
             normalizers=normalizers,
-            validation_state_windows=validation_state_windows,
-            validation_action_windows=validation_action_windows,
+            state_windows=validation_state_windows,
+            action_windows=validation_action_windows,
             batch_size=config.data.loader.batch_size,
         )
         run.log({f"{metric_prefix}loss/validation": validation_loss}, step=global_step)

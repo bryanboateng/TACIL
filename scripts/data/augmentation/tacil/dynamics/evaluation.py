@@ -12,10 +12,10 @@ def calculate_validation_loss(
     *,
     network: DynamicsNetwork,
     normalizers: Normalizers,
-    validation_state_windows: npt.NDArray[
+    state_windows: npt.NDArray[
         np.float32
     ],  # (window_count, window_length + 1, state_dimensionality)
-    validation_action_windows: npt.NDArray[
+    action_windows: npt.NDArray[
         np.float32
     ],  # (window_count, window_length, action_dimensionality)
     batch_size: int,
@@ -23,10 +23,10 @@ def calculate_validation_loss(
 
     device = next(network.parameters()).device
 
-    state_windows_tensor = torch.from_numpy(validation_state_windows).to(
+    state_windows_tensor = torch.from_numpy(ndarray=state_windows).to(
         device=device
     )  # (window_count, window_length + 1, state_dimensionality)
-    action_windows_tensor = torch.from_numpy(validation_action_windows).to(
+    action_windows_tensor = torch.from_numpy(ndarray=action_windows).to(
         device=device
     )  # (window_count, window_length, action_dimensionality)
 
@@ -36,16 +36,16 @@ def calculate_validation_loss(
     network.eval()
     for batch_start in range(0, window_count, batch_size):
         batch_slice = slice(batch_start, batch_start + batch_size)
-        batch_state_windows = state_windows_tensor[
+        state_window_batch = state_windows_tensor[
             batch_slice
         ]  # (batch_size, window_length + 1, state_dimensionality)
         batch_loss = compute_loss(
             network=network,
             normalizers=normalizers,
-            state_window_batch=batch_state_windows,
+            state_window_batch=state_window_batch,
             action_window_batch=action_windows_tensor[batch_slice],
         )
-        total_loss += batch_loss.item() * batch_state_windows.shape[0]
+        total_loss += batch_loss.item() * state_window_batch.shape[0]
 
     return total_loss / window_count
 
@@ -64,13 +64,13 @@ def calculate_local_lipschitz_constants(
     network.eval()
 
     device = next(network.parameters()).device
-    states_tensor = torch.from_numpy(states).to(device=device)
-    actions_tensor = torch.from_numpy(actions).to(device=device)
+    states_tensor = torch.from_numpy(ndarray=states).to(device=device)
+    actions_tensor = torch.from_numpy(ndarray=actions).to(device=device)
 
-    spectral_norm_batches: list[npt.NDArray[np.float32]] = []
+    local_lipschitz_constant_batches: list[npt.NDArray[np.float32]] = []
     for batch_start in range(0, states_tensor.shape[0], batch_size):
         batch_slice = slice(batch_start, batch_start + batch_size)
-        spectral_norm_batches.append(
+        local_lipschitz_constant_batches.append(
             network.local_lipschitz_constants(
                 normalizers=normalizers,
                 state_batch=states_tensor[batch_slice],
@@ -80,4 +80,4 @@ def calculate_local_lipschitz_constants(
             .numpy()
         )
 
-    return np.concatenate(spectral_norm_batches)
+    return np.concatenate(local_lipschitz_constant_batches)
