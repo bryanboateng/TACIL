@@ -13,10 +13,6 @@ class TransitionSet:
     next_states: npt.NDArray[np.float32]  # (episode_length, state_dimensionality)
 
 
-class NoValidWindowsError(ValueError):
-    pass
-
-
 def extract_transitions(*, episode_store: EpisodeStore) -> list[TransitionSet]:
 
     episode_start_indices = np.concatenate(
@@ -78,13 +74,16 @@ def build_windows(
     state_window_list: list[npt.NDArray[np.float32]] = []
 
     for episode in episodes:
+        if episode.actions.shape[0] < window_length:
+            raise ValueError(
+                f"Episode of length {episode.actions.shape[0]} is shorter than "
+                f"window length {window_length}."
+            )
+
         final_next_state = episode.next_states[[-1]]  # (1, state_dimensionality)
         full_state_sequence = np.concatenate(
             [episode.states, final_next_state], axis=0
         )  # (episode_length + 1, state_dimensionality)
-
-        if episode.actions.shape[0] < window_length:
-            continue
 
         state_windows = _build_sliding_windows(
             array=full_state_sequence, window_length=window_length + 1
@@ -99,11 +98,6 @@ def build_windows(
         state_window_list.append(state_windows)
         action_window_list.append(action_windows)
 
-    if not action_window_list:
-        raise NoValidWindowsError(
-            f"No episodes long enough to build windows of horizon {window_length}."
-        )
-
     return (
         np.ascontiguousarray(
             a=np.concatenate(state_window_list, axis=0)
@@ -112,6 +106,9 @@ def build_windows(
             a=np.concatenate(action_window_list, axis=0)
         ),  # (total_window_count, window_length, action_dimensionality)
     )
+
+
+# ---- Private --------------------------------------------
 
 
 def _build_sliding_windows(
