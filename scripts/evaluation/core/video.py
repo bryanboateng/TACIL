@@ -9,7 +9,11 @@ from pygame.font import Font
 from tqdm import tqdm
 from wandb import Run
 
-from scripts.evaluation.core.condition import Condition, DisturbanceLevel
+from scripts.evaluation.core.condition import (
+    Condition,
+    DisturbanceLevel,
+    FloorCondition,
+)
 from scripts.evaluation.core.renderer import RenderSettings
 from scripts.evaluation.core.rollout import (
     EpisodeResult,
@@ -61,13 +65,13 @@ def build_annotated_surfaces(
             font=font,
         )
         _add_text_to_surface(
-            text=f"P{percentile}   seed {seed}",
+            text=f"seed: {seed}",
             placement=Placement.TOP_RIGHT,
             surface=annotated_surface,
             font=font,
         )
         _add_text_to_surface(
-            text=f"step {step}",
+            text=f"step: {step}",
             placement=Placement.BOTTOM_LEFT,
             surface=annotated_surface,
             font=font,
@@ -129,20 +133,21 @@ def record_condition(
 
 def _condition_label(*, condition: Condition) -> str:
     if condition.disturbance is None:
-        disturbance_label = "--"
+        disturbance_label = "none"
     else:
         match condition.disturbance.level:
             case DisturbanceLevel.LOW:
-                level_label = "low"
-            case DisturbanceLevel.MEDIUM:
-                level_label = "medium"
+                disturbance_label = "low"
             case DisturbanceLevel.HIGH:
-                level_label = "high"
-        disturbance_label = f"{level_label} ({condition.disturbance.magnitude} px/s²)"
+                disturbance_label = "high"
 
-    return (
-        f"damping: {condition.damping} (vel. kept/s)   disturbance: {disturbance_label}"
-    )
+    match condition.floor_condition:
+        case FloorCondition.GRIPPY:
+            floor_label = "grippy"
+        case FloorCondition.SLIPPERY:
+            floor_label = "slippery"
+
+    return f"floor: {floor_label}   disturbance: {disturbance_label}"
 
 
 def _build_reward_text(*, frame_max_reward: float, frame_reward: float) -> str:

@@ -7,7 +7,7 @@ import torch
 from gymnasium import Env
 
 from scripts.evaluation.core import disturbance
-from scripts.evaluation.core.condition import Condition
+from scripts.evaluation.core.condition import Condition, FloorCondition
 from scripts.evaluation.core.renderer import RecoloredRenderWrapper, RenderSettings
 from scripts.shared.policy_types import Policy
 
@@ -24,9 +24,15 @@ class EpisodeResult:
 def create_environment(
     *, condition: Condition, render_settings: RenderSettings | None
 ) -> Env:
+    match condition.floor_condition:
+        case FloorCondition.GRIPPY:
+            damping = 0.0
+        case FloorCondition.SLIPPERY:
+            damping = 0.2
+
     environment = gymnasium.make(
         id="gym_pusht/PushT-v0",
-        damping=condition.damping,
+        damping=damping,
         render_mode="rgb_array" if render_settings is not None else None,
     )
     environment.reset()
@@ -37,10 +43,13 @@ def create_environment(
         )
 
     if render_settings is not None:
+        match condition.floor_condition:
+            case FloorCondition.GRIPPY:
+                colormap = "Blues"
+            case FloorCondition.SLIPPERY:
+                colormap = "Oranges"
         environment = RecoloredRenderWrapper(
-            environment=environment,
-            colormap=condition.colormap,
-            render_settings=render_settings,
+            environment=environment, colormap=colormap, render_settings=render_settings
         )
 
     return environment

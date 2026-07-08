@@ -3,9 +3,13 @@ from enum import Enum, auto
 from itertools import chain
 
 
+class FloorCondition(Enum):
+    GRIPPY = auto()
+    SLIPPERY = auto()
+
+
 class DisturbanceLevel(Enum):
     LOW = auto()
-    MEDIUM = auto()
     HIGH = auto()
 
 
@@ -17,9 +21,8 @@ class Disturbance:
 
 @dataclass(frozen=True)
 class Condition:
-    damping: float
+    floor_condition: FloorCondition
     disturbance: Disturbance | None
-    colormap: str
 
     @property
     def label(self) -> str:
@@ -29,17 +32,18 @@ class Condition:
             match self.disturbance.level:
                 case DisturbanceLevel.LOW:
                     disturbance_label = "low"
-                case DisturbanceLevel.MEDIUM:
-                    disturbance_label = "medium"
                 case DisturbanceLevel.HIGH:
                     disturbance_label = "high"
-        return f"damping_{self.damping}_disturbance_{disturbance_label}"
+        return f"damping_{self.floor_condition}_disturbance_{disturbance_label}"
 
 
 def get_conditions() -> list[Condition]:
     return list(
         chain.from_iterable(
-            _get_conditions_for_setting(setting=setting) for setting in _get_settings()
+            _get_conditions_for_setting(
+                floor_condition=floor_condition, disturbance_levels=disturbance_levels
+            )
+            for floor_condition, disturbance_levels in _get_settings().items()
         )
     )
 
@@ -50,48 +54,25 @@ def get_conditions() -> list[Condition]:
 @dataclass(frozen=True)
 class _DisturbanceLevels:
     low: float
-    medium: float
     high: float
 
 
-@dataclass(frozen=True)
-class _Setting:
-    damping: float
-    disturbance_levels: _DisturbanceLevels
-    colormap: str
+def _get_settings() -> dict[FloorCondition, _DisturbanceLevels]:
+    return {
+        FloorCondition.GRIPPY: _DisturbanceLevels(low=1_500, high=4_500),
+        FloorCondition.SLIPPERY: _DisturbanceLevels(low=24, high=72),
+    }
 
 
-def _get_settings() -> list[_Setting]:
-    return [
-        _Setting(
-            damping=0.0,
-            disturbance_levels=_DisturbanceLevels(low=1_500, medium=3_000, high=6_000),
-            colormap="Greys",
-        ),
-        _Setting(
-            damping=0.2,
-            disturbance_levels=_DisturbanceLevels(low=24, medium=48, high=96),
-            colormap="Blues",
-        ),
-        _Setting(
-            damping=0.4,
-            disturbance_levels=_DisturbanceLevels(low=14, medium=27, high=55),
-            colormap="Oranges",
-        ),
-    ]
-
-
-def _get_conditions_for_setting(*, setting: _Setting) -> list[Condition]:
-    levels = setting.disturbance_levels
+def _get_conditions_for_setting(
+    *, floor_condition: FloorCondition, disturbance_levels: _DisturbanceLevels
+) -> list[Condition]:
     disturbances: list[Disturbance | None] = [
         None,
-        Disturbance(level=DisturbanceLevel.LOW, magnitude=levels.low),
-        Disturbance(level=DisturbanceLevel.MEDIUM, magnitude=levels.medium),
-        Disturbance(level=DisturbanceLevel.HIGH, magnitude=levels.high),
+        Disturbance(level=DisturbanceLevel.LOW, magnitude=disturbance_levels.low),
+        Disturbance(level=DisturbanceLevel.HIGH, magnitude=disturbance_levels.high),
     ]
     return [
-        Condition(
-            damping=setting.damping, disturbance=disturbance, colormap=setting.colormap
-        )
+        Condition(floor_condition=floor_condition, disturbance=disturbance)
         for disturbance in disturbances
     ]
