@@ -1,12 +1,12 @@
 import torch
 
-from scripts.data.augmentation.tacil.mmmmmmm.dynamics_network import DynamicsNetwork
+from scripts.data.augmentation.tacil.mmmmmmm.dynamics_network import DynamicsModel
 from scripts.data.augmentation.tacil.mmmmmmm.normalizers import Normalizers
 
 
 def compute_loss(
     *,
-    network: DynamicsNetwork,
+    dynamics_model: DynamicsModel,
     normalizers: Normalizers,
     state_window_batch: torch.Tensor,  # (batch_size, window_length + 1, state_dimensionality)
     action_window_batch: torch.Tensor,  # (batch_size, window_length, action_dimensionality)
@@ -25,7 +25,7 @@ def compute_loss(
             :, timestep_index, :
         ]  # (window_count, action_dimensionality)
 
-        current_state_batch = network.predict_next_state(
+        current_state_batch = dynamics_model.predict_next_state(
             normalizers=normalizers,
             state_batch=current_state_batch,
             action_batch=current_action_batch,

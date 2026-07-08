@@ -3,14 +3,14 @@ import torch
 from numpy import typing as npt
 
 from scripts.data.augmentation.tacil.create_dynamics.losses import compute_loss
-from scripts.data.augmentation.tacil.mmmmmmm.dynamics_network import DynamicsNetwork
+from scripts.data.augmentation.tacil.mmmmmmm.dynamics_network import DynamicsModel
 from scripts.data.augmentation.tacil.mmmmmmm.normalizers import Normalizers
 
 
 @torch.no_grad()
 def calculate_validation_loss(
     *,
-    network: DynamicsNetwork,
+    dynamics_model: DynamicsModel,
     normalizers: Normalizers,
     state_windows: npt.NDArray[
         np.float32
@@ -21,7 +21,7 @@ def calculate_validation_loss(
     batch_size: int,
 ) -> float:
 
-    device = next(network.parameters()).device
+    device = next(dynamics_model.parameters()).device
 
     state_windows_tensor = torch.from_numpy(ndarray=state_windows).to(
         device=device
@@ -33,14 +33,14 @@ def calculate_validation_loss(
     window_count = state_windows_tensor.shape[0]
     total_loss = 0.0
 
-    network.eval()
+    dynamics_model.eval()
     for batch_start in range(0, window_count, batch_size):
         batch_slice = slice(batch_start, batch_start + batch_size)
         state_window_batch = state_windows_tensor[
             batch_slice
         ]  # (batch_size, window_length + 1, state_dimensionality)
         batch_loss = compute_loss(
-            network=network,
+            dynamics_model=dynamics_model,
             normalizers=normalizers,
             state_window_batch=state_window_batch,
             action_window_batch=action_windows_tensor[batch_slice],
@@ -53,7 +53,7 @@ def calculate_validation_loss(
 @torch.no_grad()
 def calculate_local_lipschitz_constants(
     *,
-    network: DynamicsNetwork,
+    dynamics_model: DynamicsModel,
     normalizers: Normalizers,
     states: npt.NDArray[np.float32],  # (sample_count, state_dimensionality)
     actions: npt.NDArray[np.float32],  # (sample_count, action_dimensionality)
@@ -61,9 +61,9 @@ def calculate_local_lipschitz_constants(
 ) -> npt.NDArray[np.float32]:  # (sample_count,)
     """Local Lipschitz constant of the network at each (state, action) sample."""
 
-    network.eval()
+    dynamics_model.eval()
 
-    device = next(network.parameters()).device
+    device = next(dynamics_model.parameters()).device
     states_tensor = torch.from_numpy(ndarray=states).to(device=device)
     actions_tensor = torch.from_numpy(ndarray=actions).to(device=device)
 
@@ -71,7 +71,7 @@ def calculate_local_lipschitz_constants(
     for batch_start in range(0, states_tensor.shape[0], batch_size):
         batch_slice = slice(batch_start, batch_start + batch_size)
         local_lipschitz_constant_batches.append(
-            network.local_lipschitz_constants(
+            dynamics_model.local_lipschitz_constants(
                 normalizers=normalizers,
                 state_batch=states_tensor[batch_slice],
                 action_batch=actions_tensor[batch_slice],

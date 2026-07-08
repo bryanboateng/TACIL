@@ -6,7 +6,7 @@ import torch
 from scripts.data.augmentation.tacil.mmmmmmm.dynamics_model_ensemble import (
     DynamicsModelEnsemble,
 )
-from scripts.data.augmentation.tacil.mmmmmmm.dynamics_network import DynamicsNetwork
+from scripts.data.augmentation.tacil.mmmmmmm.dynamics_network import DynamicsModel
 from scripts.data.augmentation.tacil.mmmmmmm.normalizers import Normalizers
 
 
@@ -19,28 +19,32 @@ def save_dynamics_model_ensemble(
         action_dimensionality=dynamics_model_ensemble.action_dimensionality,
         path=directory / _NORMALIZERS_FILE_NAME,
     )
-    for network_index, network in enumerate(iterable=dynamics_model_ensemble.networks):
-        _save_network(network=network, path=directory / f"network_{network_index}.pt")
+    for index, dynamics_model in enumerate(
+        iterable=dynamics_model_ensemble.dynamics_models
+    ):
+        _save_dynamics_model(
+            dynamics_model=dynamics_model, path=directory / f"dynamics_model_{index}.pt"
+        )
 
 
 def load_dynamics_model_ensemble(
     *, directory: Path, device: torch.device
 ) -> DynamicsModelEnsemble:
-    network_file_paths = sorted(
-        directory.glob(pattern="network_*.pt"),
-        key=lambda path: int(path.stem.removeprefix("network_")),
+    dynamics_model_file_paths = sorted(
+        directory.glob(pattern="dynamics_model_*.pt"),
+        key=lambda path: int(path.stem.removeprefix("dynamics_model_")),
     )
 
-    if len(network_file_paths) == 0:
-        raise FileNotFoundError(f"No dynamics network checkpoints found in {directory}")
+    if len(dynamics_model_file_paths) == 0:
+        raise FileNotFoundError(f"No dynamics model checkpoints found in {directory}")
 
     return DynamicsModelEnsemble(
         normalizers=_load_normalizers(
             path=directory / _NORMALIZERS_FILE_NAME, device=device
         ),
-        networks=[
-            _load_network(path=network_file_path, device=device)
-            for network_file_path in network_file_paths
+        dynamics_models=[
+            _load_dynamics_model(path=dynamics_model_file_path, device=device)
+            for dynamics_model_file_path in dynamics_model_file_paths
         ],
     ).to(device=device)
 
@@ -85,22 +89,22 @@ def _load_normalizers(*, path: Path, device: torch.device) -> Normalizers:
     return normalizers.to(device=device)
 
 
-def _save_network(*, network: DynamicsNetwork, path: Path) -> None:
+def _save_dynamics_model(*, dynamics_model: DynamicsModel, path: Path) -> None:
     torch.save(
         obj={
-            _CheckpointKeys.STATE_DICTIONARY: network.state_dict(),
-            _CheckpointKeys.STATE_DIMENSIONALITY: network.state_dimensionality,
-            _CheckpointKeys.ACTION_DIMENSIONALITY: network.action_dimensionality,
-            _CheckpointKeys.HIDDEN_DIMENSIONALITIES: network.hidden_dimensionalities,
-            _CheckpointKeys.LIPSCHITZ_CONSTANT_UPPER_BOUND: network.lipschitz_constant_upper_bound,
+            _CheckpointKeys.STATE_DICTIONARY: dynamics_model.state_dict(),
+            _CheckpointKeys.STATE_DIMENSIONALITY: dynamics_model.state_dimensionality,
+            _CheckpointKeys.ACTION_DIMENSIONALITY: dynamics_model.action_dimensionality,
+            _CheckpointKeys.HIDDEN_DIMENSIONALITIES: dynamics_model.hidden_dimensionalities,
+            _CheckpointKeys.LIPSCHITZ_CONSTANT_UPPER_BOUND: dynamics_model.lipschitz_constant_upper_bound,
         },
         f=path,
     )
 
 
-def _load_network(*, path: Path, device: torch.device) -> DynamicsNetwork:
+def _load_dynamics_model(*, path: Path, device: torch.device) -> DynamicsModel:
     checkpoint = torch.load(f=path, map_location=device, weights_only=False)
-    network = DynamicsNetwork(
+    dynamics_model = DynamicsModel(
         state_dimensionality=checkpoint[_CheckpointKeys.STATE_DIMENSIONALITY],
         action_dimensionality=checkpoint[_CheckpointKeys.ACTION_DIMENSIONALITY],
         hidden_dimensionalities=tuple(
@@ -110,5 +114,7 @@ def _load_network(*, path: Path, device: torch.device) -> DynamicsNetwork:
             _CheckpointKeys.LIPSCHITZ_CONSTANT_UPPER_BOUND
         ],
     )
-    network.load_state_dict(state_dict=checkpoint[_CheckpointKeys.STATE_DICTIONARY])
-    return network.to(device=device)
+    dynamics_model.load_state_dict(
+        state_dict=checkpoint[_CheckpointKeys.STATE_DICTIONARY]
+    )
+    return dynamics_model.to(device=device)

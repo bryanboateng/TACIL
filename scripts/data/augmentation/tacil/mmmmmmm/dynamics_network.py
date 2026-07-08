@@ -6,7 +6,7 @@ from scripts.data.augmentation.tacil.mmmmmmm.normalizers import Normalizers
 _SILU_LIPSCHITZ_CONSTANT = 1.099839320
 
 
-class DynamicsNetwork(torch.nn.Module):
+class DynamicsModel(torch.nn.Module):
     def __init__(
         self,
         *,
