@@ -30,7 +30,7 @@ from scripts.data.augmentation.tacil.create_dynamics.evaluation import (
     calculate_validation_loss,
 )
 from scripts.data.augmentation.tacil.create_dynamics.losses import compute_loss
-from scripts.data.augmentation.tacil.mmmmmmm.dynamics_ensemble import (
+from scripts.data.augmentation.tacil.mmmmmmm.dynamics_model_ensemble import (
     DynamicsModelEnsemble,
 )
 from scripts.data.augmentation.tacil.mmmmmmm.dynamics_network import DynamicsNetwork
