@@ -1,7 +1,7 @@
 import torch
 
-from scripts.data.augmentation.tacil.mmmmmmm.dynamics_model import DynamicsModel
-from scripts.data.augmentation.tacil.mmmmmmm.normalizers import Normalizers
+from scripts.data.augmentation.tacil.models.dynamics_model import DynamicsModel
+from scripts.data.augmentation.tacil.models.normalizers import Normalizers
 
 
 def compute_loss(

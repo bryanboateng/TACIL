@@ -3,8 +3,8 @@ import torch
 from numpy import typing as npt
 
 from scripts.data.augmentation.tacil.create_dynamics.losses import compute_loss
-from scripts.data.augmentation.tacil.mmmmmmm.dynamics_model import DynamicsModel
-from scripts.data.augmentation.tacil.mmmmmmm.normalizers import Normalizers
+from scripts.data.augmentation.tacil.models.dynamics_model import DynamicsModel
+from scripts.data.augmentation.tacil.models.normalizers import Normalizers
 
 
 @torch.no_grad()

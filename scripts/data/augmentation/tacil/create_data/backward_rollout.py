@@ -7,7 +7,7 @@ from scripts.data.augmentation.tacil.create_data.inverse_dynamics import (
     reached_target_next_state,
     solve_inverse_dynamics_state,
 )
-from scripts.data.augmentation.tacil.mmmmmmm.dynamics_model_ensemble import (
+from scripts.data.augmentation.tacil.models.dynamics_model_ensemble import (
     DynamicsModelEnsemble,
 )
 
