@@ -20,7 +20,7 @@ from scripts.data.augmentation.tacil.create_data.statistics_logging import (
     log_dataset_statistics,
 )
 from scripts.data.augmentation.tacil.create_dynamics.checkpoint import (
-    load_dynamics_ensemble,
+    load_dynamics_model_ensemble,
 )
 from scripts.shared.data import load_episode_store, upload_episode_store
 from scripts.shared.log import create_logger, log_device_info
@@ -47,13 +47,13 @@ def _run(*, config: Config) -> None:
         config=asdict(config),
         dir=OUTPUT_DIRECTORY_PATH,
     ) as run:
-        dynamics_ensemble = load_dynamics_ensemble(
+        dynamics_model_ensemble = load_dynamics_model_ensemble(
             directory=Path(
                 run.use_artifact(artifact_or_name=config.model_artifact).download()
             ),
             device=device,
         )
-        dynamics_ensemble.eval()
+        dynamics_model_ensemble.eval()
 
         episode_store = load_episode_store(
             episode_file_path=Path(
@@ -71,7 +71,7 @@ def _run(*, config: Config) -> None:
         )  # (action_dimensionality,)
 
         backward_trajectories = roll_out_backward(
-            dynamics_ensemble=dynamics_ensemble,
+            dyanmics_model_ensemble=dynamics_model_ensemble,
             state_batch=torch.as_tensor(episode_store.states[anchor_indices]).to(
                 device=device
             ),

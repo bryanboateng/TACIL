@@ -3,25 +3,29 @@ from pathlib import Path
 
 import torch
 
-from scripts.data.augmentation.tacil.mmmmmmm.dynamics_ensemble import DynamicsEnsemble
+from scripts.data.augmentation.tacil.mmmmmmm.dynamics_ensemble import (
+    DynamicsModelEnsemble,
+)
 from scripts.data.augmentation.tacil.mmmmmmm.dynamics_network import DynamicsNetwork
 from scripts.data.augmentation.tacil.mmmmmmm.normalizers import Normalizers
 
 
-def save_dynamics_ensemble(*, ensemble: DynamicsEnsemble, directory: Path) -> None:
+def save_dynamics_model_ensemble(
+    *, dynamics_model_ensemble: DynamicsModelEnsemble, directory: Path
+) -> None:
     _save_normalizers(
-        normalizers=ensemble.normalizers,
-        state_dimensionality=ensemble.state_dimensionality,
-        action_dimensionality=ensemble.action_dimensionality,
+        normalizers=dynamics_model_ensemble.normalizers,
+        state_dimensionality=dynamics_model_ensemble.state_dimensionality,
+        action_dimensionality=dynamics_model_ensemble.action_dimensionality,
         path=directory / _NORMALIZERS_FILE_NAME,
     )
-    for network_index, network in enumerate(iterable=ensemble.networks):
+    for network_index, network in enumerate(iterable=dynamics_model_ensemble.networks):
         _save_network(network=network, path=directory / f"network_{network_index}.pt")
 
 
-def load_dynamics_ensemble(
+def load_dynamics_model_ensemble(
     *, directory: Path, device: torch.device
-) -> DynamicsEnsemble:
+) -> DynamicsModelEnsemble:
     network_file_paths = sorted(
         directory.glob(pattern="network_*.pt"),
         key=lambda path: int(path.stem.removeprefix("network_")),
@@ -30,7 +34,7 @@ def load_dynamics_ensemble(
     if len(network_file_paths) == 0:
         raise FileNotFoundError(f"No dynamics network checkpoints found in {directory}")
 
-    return DynamicsEnsemble(
+    return DynamicsModelEnsemble(
         normalizers=_load_normalizers(
             path=directory / _NORMALIZERS_FILE_NAME, device=device
         ),

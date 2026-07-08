@@ -16,7 +16,7 @@ from tqdm import tqdm
 from wandb import Run
 
 from scripts.data.augmentation.tacil.create_dynamics.checkpoint import (
-    save_dynamics_ensemble,
+    save_dynamics_model_ensemble,
 )
 from scripts.data.augmentation.tacil.create_dynamics.config import Config
 from scripts.data.augmentation.tacil.create_dynamics.data import (
@@ -30,7 +30,9 @@ from scripts.data.augmentation.tacil.create_dynamics.evaluation import (
     calculate_validation_loss,
 )
 from scripts.data.augmentation.tacil.create_dynamics.losses import compute_loss
-from scripts.data.augmentation.tacil.mmmmmmm.dynamics_ensemble import DynamicsEnsemble
+from scripts.data.augmentation.tacil.mmmmmmm.dynamics_ensemble import (
+    DynamicsModelEnsemble,
+)
 from scripts.data.augmentation.tacil.mmmmmmm.dynamics_network import DynamicsNetwork
 from scripts.data.augmentation.tacil.mmmmmmm.normalizers import Normalizers
 from scripts.shared.data import load_episode_store
@@ -138,8 +140,10 @@ def _run(*, config: Config) -> None:
             )
             networks.append(network)
 
-        _upload_dynamics_ensemble(
-            ensemble=DynamicsEnsemble(normalizers=normalizers, networks=networks),
+        _upload_dynamics_model_ensemble(
+            dynamics_model_ensemble=DynamicsModelEnsemble(
+                normalizers=normalizers, networks=networks
+            ),
             run=run,
         )
 
@@ -343,10 +347,15 @@ def _refresh_spectral_norm_estimates(*, ema_network: DynamicsNetwork) -> None:
     ema_network.train(mode=network_was_training)
 
 
-def _upload_dynamics_ensemble(*, ensemble: DynamicsEnsemble, run: Run) -> None:
+def _upload_dynamics_model_ensemble(
+    *, dynamics_model_ensemble: DynamicsModelEnsemble, run: Run
+) -> None:
     with tempfile.TemporaryDirectory() as temporary_directory:
         ensemble_directory = Path(temporary_directory)
-        save_dynamics_ensemble(ensemble=ensemble, directory=ensemble_directory)
+        save_dynamics_model_ensemble(
+            dynamics_model_ensemble=dynamics_model_ensemble,
+            directory=ensemble_directory,
+        )
         model_artifact = wandb.Artifact(
             name=f"tacil-dynamics-model-{run.name}", type="model"
         )

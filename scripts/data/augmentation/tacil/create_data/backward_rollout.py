@@ -7,7 +7,9 @@ from scripts.data.augmentation.tacil.create_data.inverse_dynamics import (
     reached_target_next_state,
     solve_inverse_dynamics_state,
 )
-from scripts.data.augmentation.tacil.mmmmmmm.dynamics_ensemble import DynamicsEnsemble
+from scripts.data.augmentation.tacil.mmmmmmm.dynamics_ensemble import (
+    DynamicsModelEnsemble,
+)
 
 
 @dataclass(frozen=True)
@@ -31,7 +33,7 @@ class BackwardTrajectories:
 @torch.no_grad()
 def roll_out_backward(
     *,
-    dynamics_ensemble: DynamicsEnsemble,
+    dyanmics_model_ensemble: DynamicsModelEnsemble,
     state_batch: torch.Tensor,  # (anchor_count, state_dimensionality)
     action_batch: torch.Tensor,  # (anchor_count, action_dimensionality)
     step_count: int,
@@ -64,7 +66,7 @@ def roll_out_backward(
         )  # (alive_count,)
 
         backward_step = _compute_backward_step(
-            dynamics_ensemble=dynamics_ensemble,
+            dynamics_model_ensemble=dyanmics_model_ensemble,
             state_batch=anchor_state_batch[alive_indices],
             action_batch=action_batch[alive_indices],
             action_noise_std=action_noise_std,
@@ -99,7 +101,7 @@ def roll_out_backward(
 
 def _compute_backward_step(
     *,
-    dynamics_ensemble: DynamicsEnsemble,
+    dynamics_model_ensemble: DynamicsModelEnsemble,
     state_batch: torch.Tensor,  # (N, state_dimensionality)
     action_batch: torch.Tensor,  # (N, action_dimensionality)
     action_noise_std: torch.Tensor,  # (action_dimensionality,)
@@ -109,7 +111,7 @@ def _compute_backward_step(
     )  # (N, action_dimensionality)
 
     predecessor_state_batch = solve_inverse_dynamics_state(
-        dynamics_ensemble=dynamics_ensemble,
+        dynamics_model_ensemble=dynamics_model_ensemble,
         initial_state_estimate_batch=state_batch,
         action_batch=noisy_action_batch,
         target_next_state_batch=state_batch,
@@ -119,18 +121,18 @@ def _compute_backward_step(
         predecessor_state_batch=predecessor_state_batch,
         action_batch=noisy_action_batch,
         target_state_batch=state_batch,
-        dynamics_ensemble=dynamics_ensemble,
+        dynamics_model_ensemble=dynamics_model_ensemble,
     )  # (N,)
 
     error_bound_batch = _compute_label_error_bound(
-        dynamics_ensemble=dynamics_ensemble,
+        dynamics_model_ensemble=dynamics_model_ensemble,
         state_batch=state_batch,
         predecessor_state_batch=predecessor_state_batch,
         action_batch=noisy_action_batch,
     )  # (N,)
 
     uncertainty_batch = _compute_ensemble_uncertainty(
-        dynamics_ensemble=dynamics_ensemble,
+        dynamics_model_ensemble=dynamics_model_ensemble,
         predecessor_state_batch=predecessor_state_batch,
         action_batch=noisy_action_batch,
     )  # (N,)
@@ -147,16 +149,16 @@ def _compute_backward_step(
 @torch.no_grad()
 def _compute_ensemble_uncertainty(
     *,
-    dynamics_ensemble: DynamicsEnsemble,
+    dynamics_model_ensemble: DynamicsModelEnsemble,
     predecessor_state_batch: torch.Tensor,  # (N, state_dimensionality)
     action_batch: torch.Tensor,  # (N, action_dimensionality)
 ) -> torch.Tensor:  # (N,)
-    per_member_next_state_batch = dynamics_ensemble.predict_next_state_per_member(
+    per_member_next_state_batch = dynamics_model_ensemble.predict_next_state_per_member(
         state_batch=predecessor_state_batch, action_batch=action_batch
     )  # (member_count, N, state_dimensionality)
 
     member_count, batch_size, state_dimensionality = per_member_next_state_batch.shape
-    normalized_per_member_next_state_batch = dynamics_ensemble.normalize_state(
+    normalized_per_member_next_state_batch = dynamics_model_ensemble.normalize_state(
         state_batch=per_member_next_state_batch.reshape(-1, state_dimensionality)
     ).reshape(
         member_count, batch_size, state_dimensionality
@@ -174,14 +176,14 @@ def _check_inverse_dynamics_convergence(
     predecessor_state_batch: torch.Tensor,  # (N, state_dimensionality)
     action_batch: torch.Tensor,  # (N, action_dimensionality)
     target_state_batch: torch.Tensor,  # (N, state_dimensionality)
-    dynamics_ensemble: DynamicsEnsemble,
+    dynamics_model_ensemble: DynamicsModelEnsemble,
 ) -> torch.Tensor:  # (N,)
-    predicted_state_batch = dynamics_ensemble.predict_next_state(
+    predicted_state_batch = dynamics_model_ensemble.predict_next_state(
         state_batch=predecessor_state_batch, action_batch=action_batch
     )  # (N, state_dimensionality)
-    next_state_gap_batch = dynamics_ensemble.normalize_state(
+    next_state_gap_batch = dynamics_model_ensemble.normalize_state(
         state_batch=predicted_state_batch
-    ) - dynamics_ensemble.normalize_state(
+    ) - dynamics_model_ensemble.normalize_state(
         state_batch=target_state_batch
     )  # (N, state_dimensionality)
 
@@ -191,18 +193,18 @@ def _check_inverse_dynamics_convergence(
 @torch.no_grad()
 def _compute_label_error_bound(
     *,
-    dynamics_ensemble: DynamicsEnsemble,
+    dynamics_model_ensemble: DynamicsModelEnsemble,
     state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
     predecessor_state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
     action_batch: torch.Tensor,  # (batch_size, action_dimensionality)
 ) -> torch.Tensor:  # (batch_size,)
-    local_lipschitz_constant_batch = dynamics_ensemble.local_lipschitz_constants(
+    local_lipschitz_constant_batch = dynamics_model_ensemble.local_lipschitz_constants(
         state_batch=state_batch, action_batch=action_batch
     )  # (batch_size,)
 
     normalized_step_distance_batch: torch.Tensor = torch.linalg.norm(
-        dynamics_ensemble.normalize_state(state_batch=predecessor_state_batch)
-        - dynamics_ensemble.normalize_state(state_batch=state_batch),
+        dynamics_model_ensemble.normalize_state(state_batch=predecessor_state_batch)
+        - dynamics_model_ensemble.normalize_state(state_batch=state_batch),
         dim=-1,
     )  # (batch_size,)
 

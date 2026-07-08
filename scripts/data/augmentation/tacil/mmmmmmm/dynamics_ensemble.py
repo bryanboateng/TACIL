@@ -4,7 +4,7 @@ from scripts.data.augmentation.tacil.mmmmmmm.dynamics_network import DynamicsNet
 from scripts.data.augmentation.tacil.mmmmmmm.normalizers import Normalizers
 
 
-class DynamicsEnsemble(torch.nn.Module):
+class DynamicsModelEnsemble(torch.nn.Module):
     def __init__(self, *, normalizers: Normalizers, networks: list[DynamicsNetwork]):
         super().__init__()
         self.normalizers = normalizers
