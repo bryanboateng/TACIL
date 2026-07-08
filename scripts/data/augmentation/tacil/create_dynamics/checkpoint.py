@@ -3,10 +3,10 @@ from pathlib import Path
 
 import torch
 
+from scripts.data.augmentation.tacil.mmmmmmm.dynamics_model import DynamicsModel
 from scripts.data.augmentation.tacil.mmmmmmm.dynamics_model_ensemble import (
     DynamicsModelEnsemble,
 )
-from scripts.data.augmentation.tacil.mmmmmmm.dynamics_network import DynamicsModel
 from scripts.data.augmentation.tacil.mmmmmmm.normalizers import Normalizers
 
 

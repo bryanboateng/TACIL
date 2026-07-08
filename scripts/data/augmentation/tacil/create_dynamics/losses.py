@@ -1,6 +1,6 @@
 import torch
 
-from scripts.data.augmentation.tacil.mmmmmmm.dynamics_network import DynamicsModel
+from scripts.data.augmentation.tacil.mmmmmmm.dynamics_model import DynamicsModel
 from scripts.data.augmentation.tacil.mmmmmmm.normalizers import Normalizers
 
 
