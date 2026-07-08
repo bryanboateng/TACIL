@@ -15,19 +15,21 @@ from torch.optim.swa_utils import AveragedModel
 from tqdm import tqdm
 from wandb import Run
 
-from scripts.data.augmentation.tacil.dynamics.checkpoint import save_dynamics_ensemble
-from scripts.data.augmentation.tacil.dynamics.config import Config
-from scripts.data.augmentation.tacil.dynamics.data import (
+from scripts.data.augmentation.tacil.create_dynamics.checkpoint import (
+    save_dynamics_ensemble,
+)
+from scripts.data.augmentation.tacil.create_dynamics.config import Config
+from scripts.data.augmentation.tacil.create_dynamics.data import (
     TransitionSet,
     build_windows,
     concatenate_episodes,
     extract_transitions,
 )
-from scripts.data.augmentation.tacil.dynamics.evaluation import (
+from scripts.data.augmentation.tacil.create_dynamics.evaluation import (
     calculate_local_lipschitz_constants,
     calculate_validation_loss,
 )
-from scripts.data.augmentation.tacil.dynamics.losses import compute_loss
+from scripts.data.augmentation.tacil.create_dynamics.losses import compute_loss
 from scripts.data.augmentation.tacil.dynamics_ensemble import DynamicsEnsemble
 from scripts.data.augmentation.tacil.dynamics_network import DynamicsNetwork
 from scripts.data.augmentation.tacil.normalizers import Normalizers

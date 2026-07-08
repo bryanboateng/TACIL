@@ -2,7 +2,7 @@ import numpy as np
 import torch
 from numpy import typing as npt
 
-from scripts.data.augmentation.tacil.dynamics.losses import compute_loss
+from scripts.data.augmentation.tacil.create_dynamics.losses import compute_loss
 from scripts.data.augmentation.tacil.dynamics_network import DynamicsNetwork
 from scripts.data.augmentation.tacil.normalizers import Normalizers
 

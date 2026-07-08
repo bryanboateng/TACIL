@@ -19,7 +19,9 @@ from scripts.data.augmentation.tacil.create_data.episode_assembly import (
 from scripts.data.augmentation.tacil.create_data.statistics_logging import (
     log_dataset_statistics,
 )
-from scripts.data.augmentation.tacil.dynamics.checkpoint import load_dynamics_ensemble
+from scripts.data.augmentation.tacil.create_dynamics.checkpoint import (
+    load_dynamics_ensemble,
+)
 from scripts.shared.data import load_episode_store, upload_episode_store
 from scripts.shared.log import create_logger, log_device_info
 from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
