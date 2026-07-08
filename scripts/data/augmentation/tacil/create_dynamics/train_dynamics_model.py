@@ -30,9 +30,9 @@ from scripts.data.augmentation.tacil.create_dynamics.evaluation import (
     calculate_validation_loss,
 )
 from scripts.data.augmentation.tacil.create_dynamics.losses import compute_loss
-from scripts.data.augmentation.tacil.dynamics_ensemble import DynamicsEnsemble
-from scripts.data.augmentation.tacil.dynamics_network import DynamicsNetwork
-from scripts.data.augmentation.tacil.normalizers import Normalizers
+from scripts.data.augmentation.tacil.mmmmmmm.dynamics_ensemble import DynamicsEnsemble
+from scripts.data.augmentation.tacil.mmmmmmm.dynamics_network import DynamicsNetwork
+from scripts.data.augmentation.tacil.mmmmmmm.normalizers import Normalizers
 from scripts.shared.data import load_episode_store
 from scripts.shared.log import create_logger, log_device_info
 from scripts.shared.paths import OUTPUT_DIRECTORY_PATH

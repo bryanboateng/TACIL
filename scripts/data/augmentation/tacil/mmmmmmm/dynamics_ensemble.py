@@ -1,7 +1,7 @@
 import torch
 
-from scripts.data.augmentation.tacil.dynamics_network import DynamicsNetwork
-from scripts.data.augmentation.tacil.normalizers import Normalizers
+from scripts.data.augmentation.tacil.mmmmmmm.dynamics_network import DynamicsNetwork
+from scripts.data.augmentation.tacil.mmmmmmm.normalizers import Normalizers
 
 
 class DynamicsEnsemble(torch.nn.Module):

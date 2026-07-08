@@ -7,7 +7,7 @@ from scripts.data.augmentation.tacil.create_data.inverse_dynamics import (
     reached_target_next_state,
     solve_inverse_dynamics_state,
 )
-from scripts.data.augmentation.tacil.dynamics_ensemble import DynamicsEnsemble
+from scripts.data.augmentation.tacil.mmmmmmm.dynamics_ensemble import DynamicsEnsemble
 
 
 @dataclass(frozen=True)

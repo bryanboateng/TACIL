@@ -1,6 +1,6 @@
 import torch
 
-from scripts.data.augmentation.tacil.normalizers import Normalizers
+from scripts.data.augmentation.tacil.mmmmmmm.normalizers import Normalizers
 
 # Maximum factor by which SiLU stretches space, i.e. its (global) Lipschitz constant.
 _SILU_LIPSCHITZ_CONSTANT = 1.099839320

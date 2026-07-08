@@ -3,9 +3,9 @@ from pathlib import Path
 
 import torch
 
-from scripts.data.augmentation.tacil.dynamics_ensemble import DynamicsEnsemble
-from scripts.data.augmentation.tacil.dynamics_network import DynamicsNetwork
-from scripts.data.augmentation.tacil.normalizers import Normalizers
+from scripts.data.augmentation.tacil.mmmmmmm.dynamics_ensemble import DynamicsEnsemble
+from scripts.data.augmentation.tacil.mmmmmmm.dynamics_network import DynamicsNetwork
+from scripts.data.augmentation.tacil.mmmmmmm.normalizers import Normalizers
 
 
 def save_dynamics_ensemble(*, ensemble: DynamicsEnsemble, directory: Path) -> None:
