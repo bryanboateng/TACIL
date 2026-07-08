@@ -85,6 +85,8 @@ def build_windows(
             [episode.states, final_next_state], axis=0
         )  # (episode_length + 1, state_dimensionality)
 
+        # One more state than actions in each window: action k is executed at
+        # state k, so the window's final state has no corresponding action.
         state_windows = _build_sliding_windows(
             array=full_state_sequence, window_length=window_length + 1
         )  # (episode_window_count, window_length + 1, state_dimensionality)
