@@ -566,6 +566,7 @@ dependencies = [
     { name = "tqdm" },
     { name = "tyro" },
     { name = "wandb" },
+    { name = "wandb-workspaces" },
     { name = "zarr" },
 ]
 
@@ -593,6 +594,7 @@ requires-dist = [
     { name = "tqdm", specifier = ">=4.67.3" },
     { name = "tyro", specifier = ">=1.0.13" },
     { name = "wandb", specifier = ">=0.27.0" },
+    { name = "wandb-workspaces", specifier = ">=0.4.4" },
     { name = "zarr", specifier = ">=3.1.5" },
 ]
 
@@ -1987,6 +1989,19 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/5f/40/bf510c8758727df020f83b717ebc1fcc1739ed7f6ae1796ebef60bf6f592/wandb-0.27.0-py3-none-win32.whl", hash = "sha256:0bd5659417e386bf6538b5e2ffe6885774c6197f0e4853bfed517d5b0db457f1", size = 25036164, upload-time = "2026-05-14T03:43:54.839Z" },
     { url = "https://files.pythonhosted.org/packages/54/ff/69f88e7d90c22b79bcb911143c13e59742ee192080b21015ff83a5a1f60a/wandb-0.27.0-py3-none-win_amd64.whl", hash = "sha256:89d584b73166eecee96fb446f18d0e45b1aa45aba6a3696296f3f06d7454516b", size = 25036170, upload-time = "2026-05-14T03:43:59.227Z" },
     { url = "https://files.pythonhosted.org/packages/f6/38/f7efd7a87297a55c7e9a331a1dbb5b19e54aeacc11fe6f43f8636a73987c/wandb-0.27.0-py3-none-win_arm64.whl", hash = "sha256:a6c129c311edf210a2b4f2f4acc557eff522628125f5f28ed27df19c16c07079", size = 22972710, upload-time = "2026-05-14T03:44:03.275Z" },
+]
+
+[[package]]
+name = "wandb-workspaces"
+version = "0.4.4"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pydantic" },
+    { name = "wandb" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/93/eb/b2669ea4e5883b55c44555607eaa552a839b101aa14a6d01818c0ed55c82/wandb_workspaces-0.4.4.tar.gz", hash = "sha256:084a006ca2735cb77634fd5b7d4e1c1d57c642d8601739797258349710db9edc", size = 238003, upload-time = "2026-06-25T20:17:47.845Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/a3/36/531a070834fd33c729d5b6b56f5a6ce74c5aa0f07831420343349eae1475/wandb_workspaces-0.4.4-py3-none-any.whl", hash = "sha256:60ab10d4f648cf7c142fd8cbf105840685bb5013c39c921471c6c061a57ce4b0", size = 111957, upload-time = "2026-06-25T20:17:46.574Z" },
 ]
 
 [[package]]

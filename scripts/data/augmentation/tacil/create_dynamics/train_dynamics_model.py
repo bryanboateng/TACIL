@@ -15,6 +15,9 @@ from scripts.data.augmentation.tacil.create_dynamics.checkpoint import (
     save_dynamics_model_ensemble,
 )
 from scripts.data.augmentation.tacil.create_dynamics.config import Config
+from scripts.data.augmentation.tacil.create_dynamics.configure_dashboard import (
+    ensure_dashboard_view,
+)
 from scripts.data.augmentation.tacil.create_dynamics.data import (
     build_windows,
     concatenate_episodes,
@@ -58,6 +61,8 @@ def _run(*, config: Config) -> None:
         config=asdict(obj=config),
         dir=OUTPUT_DIRECTORY_PATH,
     ) as run:
+        ensure_dashboard_view(entity=run.entity, project=run.project)
+
         training_episodes, validation_episodes = train_test_split(
             extract_transitions(
                 episode_store=load_episode_store(
