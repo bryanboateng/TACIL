@@ -174,19 +174,19 @@ def _log_ensemble_epoch(
     logged_metrics: dict[str, float | wandb.Histogram] = {}
     for member_index, metrics in enumerate(member_epoch_metrics):
         member = f"member_{member_index:02d}"
-        logged_metrics[f"loss/training/{member}"] = metrics.training_loss
-        logged_metrics[f"loss/validation/{member}"] = metrics.validation_loss
+        logged_metrics[f"loss_training/{member}"] = metrics.training_loss
+        logged_metrics[f"loss_validation/{member}"] = metrics.validation_loss
         logged_metrics[f"gradient_norm/{member}"] = metrics.gradient_norm
-        logged_metrics[f"lipschitz/mean_training/{member}"] = (
+        logged_metrics[f"lipschitz_mean_training/{member}"] = (
             metrics.training_lipschitz.mean
         )
-        logged_metrics[f"lipschitz/p99_training/{member}"] = (
+        logged_metrics[f"lipschitz_p99_training/{member}"] = (
             metrics.training_lipschitz.p99
         )
-        logged_metrics[f"lipschitz/mean_validation/{member}"] = (
+        logged_metrics[f"lipschitz_mean_validation/{member}"] = (
             metrics.validation_lipschitz.mean
         )
-        logged_metrics[f"lipschitz/p99_validation/{member}"] = (
+        logged_metrics[f"lipschitz_p99_validation/{member}"] = (
             metrics.validation_lipschitz.p99
         )
 
@@ -197,7 +197,7 @@ def _log_ensemble_epoch(
             [metrics.validation_lipschitz for metrics in member_epoch_metrics],
         ),
     ):
-        logged_metrics[f"lipschitz/distribution_{split}"] = wandb.Histogram(
+        logged_metrics[f"lipschitz_distribution/{split}"] = wandb.Histogram(
             np.concatenate(
                 [split_lipschitz.subsample for split_lipschitz in member_split_lipschitz]
             ).tolist()
