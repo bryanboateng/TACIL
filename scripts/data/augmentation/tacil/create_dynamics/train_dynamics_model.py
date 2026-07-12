@@ -90,9 +90,9 @@ def _run(*, config: Config) -> None:
             action_batch=torch.from_numpy(training_transitions.actions).to(
                 device=device
             ),
-            next_state_batch=torch.from_numpy(
-                ndarray=training_transitions.next_states
-            ).to(device=device),
+            next_state_batch=torch.from_numpy(training_transitions.next_states).to(
+                device=device
+            ),
         ).to(device=device)
 
         dynamics_models: list[DynamicsModel] = []
