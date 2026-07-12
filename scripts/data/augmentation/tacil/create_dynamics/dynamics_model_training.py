@@ -27,23 +27,19 @@ class Checkpoint:
 
 
 @dataclass
-class SplitLipschitz:
-    """One member's local Lipschitz constants on one data split at one epoch."""
-
-    mean: float
-    p99: float
-    subsample: npt.NDArray[np.float32]  # bounded random subsample of the raw constants
-
-
-@dataclass
 class MemberEpochMetrics:
-    """One member's metrics for a single epoch."""
+    """One member's metrics for a single epoch.
+
+    Each ``*_lipschitz`` field is a bounded random subsample of that member's local
+    Lipschitz constants on the split, kept small enough to keep memory flat while still
+    capturing the distribution's shape for the pooled histogram.
+    """
 
     training_loss: float
     gradient_norm: float
     validation_loss: float
-    training_lipschitz: SplitLipschitz
-    validation_lipschitz: SplitLipschitz
+    training_lipschitz: npt.NDArray[np.float32]
+    validation_lipschitz: npt.NDArray[np.float32]
 
 
 @dataclass
@@ -217,7 +213,7 @@ def _compute_split_lipschitz(
     transitions: TransitionSet,
     batch_size: int,
     histogram_sample_rng: np.random.Generator,
-) -> SplitLipschitz:
+) -> npt.NDArray[np.float32]:
     local_lipschitz_constants = calculate_local_lipschitz_constants(
         dynamics_model=ema_model_module,
         normalizers=normalizers,
@@ -225,26 +221,14 @@ def _compute_split_lipschitz(
         actions=transitions.actions,
         batch_size=batch_size,
     )
-    return SplitLipschitz(
-        mean=float(np.mean(local_lipschitz_constants)),
-        p99=float(np.percentile(local_lipschitz_constants, q=99.0)),
-        # A bounded subsample is enough for the pooled histogram and keeps memory flat.
-        subsample=_subsample_for_histogram(
-            values=local_lipschitz_constants, rng=histogram_sample_rng
-        ),
-    )
-
-
-def _subsample_for_histogram(
-    *, values: npt.NDArray[np.float32], rng: np.random.Generator
-) -> npt.NDArray[np.float32]:
+    # A bounded subsample is enough for the pooled histogram and keeps memory flat.
     maximum_sample_count = 512
-    if values.shape[0] <= maximum_sample_count:
-        return values
-    selected_indices = rng.choice(
-        a=values.shape[0], size=maximum_sample_count, replace=False
+    if local_lipschitz_constants.shape[0] <= maximum_sample_count:
+        return local_lipschitz_constants
+    selected_indices = histogram_sample_rng.choice(
+        a=local_lipschitz_constants.shape[0], size=maximum_sample_count, replace=False
     )
-    return values[selected_indices]
+    return local_lipschitz_constants[selected_indices]
 
 
 @torch.no_grad()
