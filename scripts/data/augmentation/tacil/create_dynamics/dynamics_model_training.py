@@ -28,26 +28,15 @@ class Checkpoint:
 
 @dataclass
 class MemberEpochMetrics:
-    """One member's metrics for a single epoch.
-
-    Each ``*_lipschitz`` field is a bounded random subsample of that member's local
-    Lipschitz constants on the split, kept small enough to keep memory flat while still
-    capturing the distribution's shape for the pooled histogram.
-    """
-
     training_loss: float
     gradient_norm: float
     validation_loss: float
-    training_lipschitz: npt.NDArray[np.float32]
-    validation_lipschitz: npt.NDArray[np.float32]
+    training_local_lipschitz_constants: npt.NDArray[np.float32]
+    validation_local_lipschitz_constants: npt.NDArray[np.float32]
 
 
 @dataclass
 class MemberTrainingState:
-    """Mutable per-member state carried across epochs while the ensemble trains in
-    lockstep (every member advances one epoch before the next epoch begins), so the
-    across-member aggregate can be logged live at each epoch."""
-
     model: DynamicsModel
     optimizer: torch.optim.Optimizer
     ema_model: AveragedModel
@@ -76,7 +65,7 @@ def create_member_training_state(
     member_index: int,
     member_seed: int,
     config: Config,
-    training_transitions: TransitionSet,
+    transitions: TransitionSet,
     device: torch.device,
 ) -> MemberTrainingState:
     # Seed before construction so each member's weight initialisation is reproducible
@@ -85,8 +74,8 @@ def create_member_training_state(
     set_seed(seed=member_seed)
 
     model = DynamicsModel(
-        state_dimensionality=training_transitions.states.shape[1],
-        action_dimensionality=training_transitions.actions.shape[1],
+        state_dimensionality=transitions.states.shape[1],
+        action_dimensionality=transitions.actions.shape[1],
         hidden_dimensionalities=config.architecture.hidden_layer_sizes,
         lipschitz_constant_upper_bound=config.architecture.lipschitz_constant_upper_bound,
     ).to(device=device)
@@ -182,14 +171,14 @@ def train_member_for_one_epoch(
         training_loss=float(np.mean(step_losses)),
         gradient_norm=float(np.max(step_gradient_norms)),
         validation_loss=validation_loss,
-        training_lipschitz=_compute_split_lipschitz(
+        training_local_lipschitz_constants=_compute_split_lipschitz(
             ema_model_module=state.ema_model_module,
             normalizers=context.normalizers,
             transitions=context.training_transitions,
             batch_size=config.data.loader.batch_size,
             histogram_sample_rng=state.histogram_sample_rng,
         ),
-        validation_lipschitz=_compute_split_lipschitz(
+        validation_local_lipschitz_constants=_compute_split_lipschitz(
             ema_model_module=state.ema_model_module,
             normalizers=context.normalizers,
             transitions=context.validation_transitions,
@@ -199,11 +188,15 @@ def train_member_for_one_epoch(
     )
 
 
-def load_best_member_model(*, state: MemberTrainingState) -> DynamicsModel:
-    if state.best_checkpoint is None:
+def load_best_member_model(
+    *, member_training_state: MemberTrainingState
+) -> DynamicsModel:
+    if member_training_state.best_checkpoint is None:
         raise ValueError("No checkpoint was recorded")
-    state.model.load_state_dict(state_dict=state.best_checkpoint.state_dict)
-    return state.model
+    member_training_state.model.load_state_dict(
+        state_dict=member_training_state.best_checkpoint.state_dict
+    )
+    return member_training_state.model
 
 
 def _compute_split_lipschitz(

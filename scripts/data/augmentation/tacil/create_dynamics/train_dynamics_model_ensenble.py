@@ -95,7 +95,7 @@ def _run(*, config: Config) -> None:
             ),
         ).to(device=device)
 
-        context = TrainingContext(
+        training_context = TrainingContext(
             config=config,
             normalizers=normalizers,
             training_transitions=training_transitions,
@@ -108,18 +108,16 @@ def _run(*, config: Config) -> None:
             validation_action_windows=validation_action_windows,
         )
 
-        # Train every member in lockstep: all advance one epoch before the next epoch
-        # begins, so the across-member aggregate can be logged live each epoch.
-        member_states = [
+        member_training_states = [
             create_member_training_state(
                 member_index=member_index,
                 member_seed=int(member_seed),
                 config=config,
-                training_transitions=training_transitions,
+                transitions=training_transitions,
                 device=device,
             )
             for member_index, member_seed in enumerate(
-                np.random.SeedSequence(entropy=config.seed).generate_state(
+                iterable=np.random.SeedSequence(entropy=config.seed).generate_state(
                     n_words=config.architecture.ensemble_size
                 )
             )
@@ -128,60 +126,61 @@ def _run(*, config: Config) -> None:
         for epoch_index in tqdm(
             range(config.training.epoch_count), desc="training ensemble", unit="epoch"
         ):
-            _log_ensemble_epoch(
-                run=run,
+            _log_epoch(
                 epoch_index=epoch_index,
-                member_epoch_metrics=[
+                per_member_metrics=[
                     train_member_for_one_epoch(
-                        state=state, epoch_index=epoch_index, context=context
+                        state=member_training_state,
+                        epoch_index=epoch_index,
+                        context=training_context,
                     )
-                    for state in member_states
+                    for member_training_state in member_training_states
                 ],
+                run=run,
             )
 
-        _log_checkpoint_summary(member_states=member_states, run=run)
+        _log_checkpoint_summary(member_states=member_training_states, run=run)
 
         _upload_dynamics_model_ensemble(
             dynamics_model_ensemble=DynamicsModelEnsemble(
                 normalizers=normalizers,
                 dynamics_models=[
-                    load_best_member_model(state=state) for state in member_states
+                    load_best_member_model(member_training_state=member_training_state)
+                    for member_training_state in member_training_states
                 ],
             ),
             run=run,
         )
 
 
-def _log_ensemble_epoch(
-    *, run: Run, epoch_index: int, member_epoch_metrics: list[MemberEpochMetrics]
+def _log_epoch(
+    *, epoch_index: int, per_member_metrics: list[MemberEpochMetrics], run: Run
 ) -> None:
-    """Log every member's raw per-epoch metrics, plus the pooled Lipschitz histograms.
-
-    Nothing is aggregated in code: each member's value is logged under a
-    ``<quantity>/member_XX`` key. In W&B, selecting all of a quantity's member keys on a
-    panel's Y axis and enabling metric grouping (Agg = Mean, Range = Std Dev) draws a
-    mean + standard-deviation band. Keeping the raw per-member values in the one run means
-    the band, the individual members, and their identity are all recoverable from the
-    same run. The two Lipschitz distribution histograms pool a bounded subsample of every
-    member's constants to show the distribution's shape. Everything is keyed to the epoch,
-    the single timeline now that members advance in lockstep.
-    """
     logged_metrics: dict[str, float | wandb.Histogram] = {}
-    for member_index, metrics in enumerate(member_epoch_metrics):
+    for member_index, metrics in enumerate(iterable=per_member_metrics):
         member = f"member_{member_index:02d}"
         logged_metrics[f"loss_training/{member}"] = metrics.training_loss
         logged_metrics[f"loss_validation/{member}"] = metrics.validation_loss
         logged_metrics[f"gradient_norm/{member}"] = metrics.gradient_norm
 
     for split, member_split_lipschitz in (
-        ("training", [metrics.training_lipschitz for metrics in member_epoch_metrics]),
+        (
+            "training",
+            [
+                metrics.training_local_lipschitz_constants
+                for metrics in per_member_metrics
+            ],
+        ),
         (
             "validation",
-            [metrics.validation_lipschitz for metrics in member_epoch_metrics],
+            [
+                metrics.validation_local_lipschitz_constants
+                for metrics in per_member_metrics
+            ],
         ),
     ):
         logged_metrics[f"lipschitz_distribution/{split}"] = wandb.Histogram(
-            np.concatenate(member_split_lipschitz).tolist()
+            sequence=np.concatenate(member_split_lipschitz).tolist()
         )
 
     run.log(logged_metrics, step=epoch_index)
@@ -190,23 +189,17 @@ def _log_ensemble_epoch(
 def _log_checkpoint_summary(
     *, member_states: list[MemberTrainingState], run: Run
 ) -> None:
-    """Record the ensemble's checkpoint quality in the run summary.
-
-    The summary is the one row per run in the W&B table used to compare runs. Each member
-    contributes its own retained checkpoint (its lowest-validation-loss epoch); we log that
-    checkpoint's validation loss and its epoch, each averaged over all members.
-    """
     checkpoints = []
-    for state in member_states:
-        if state.best_checkpoint is None:
+    for member_state in member_states:
+        if member_state.best_checkpoint is None:
             raise ValueError("No checkpoint was recorded")
-        checkpoints.append(state.best_checkpoint)
+        checkpoints.append(member_state.best_checkpoint)
 
     run.summary["checkpoint/validation_loss_mean"] = float(
-        np.mean([checkpoint.validation_loss for checkpoint in checkpoints])
+        np.mean(a=[checkpoint.validation_loss for checkpoint in checkpoints])
     )
     run.summary["checkpoint/epoch_mean"] = float(
-        np.mean([checkpoint.epoch for checkpoint in checkpoints])
+        np.mean(a=[checkpoint.epoch for checkpoint in checkpoints])
     )
 
 
@@ -214,16 +207,16 @@ def _upload_dynamics_model_ensemble(
     *, dynamics_model_ensemble: DynamicsModelEnsemble, run: Run
 ) -> None:
     with tempfile.TemporaryDirectory() as temporary_directory:
-        ensemble_directory = Path(temporary_directory)
+        ensemble_directory_path = Path(temporary_directory)
         save_dynamics_model_ensemble(
             dynamics_model_ensemble=dynamics_model_ensemble,
-            directory=ensemble_directory,
+            directory=ensemble_directory_path,
         )
         model_artifact = wandb.Artifact(
             name=f"tacil-dynamics-model-{run.name}", type="model"
         )
-        model_artifact.add_dir(local_path=str(ensemble_directory))
-        run.log_artifact(model_artifact)
+        model_artifact.add_dir(local_path=str(ensemble_directory_path))
+        run.log_artifact(artifact_or_path=model_artifact)
 
 
 if __name__ == "__main__":
