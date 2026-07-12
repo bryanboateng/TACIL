@@ -11,36 +11,39 @@ from scripts.data.augmentation.tacil.models.normalizers import Normalizers
 
 
 def save_dynamics_model_ensemble(
-    *, dynamics_model_ensemble: DynamicsModelEnsemble, directory: Path
+    *, dynamics_model_ensemble: DynamicsModelEnsemble, directory_path: Path
 ) -> None:
     _save_normalizers(
         normalizers=dynamics_model_ensemble.normalizers,
         state_dimensionality=dynamics_model_ensemble.state_dimensionality,
         action_dimensionality=dynamics_model_ensemble.action_dimensionality,
-        path=directory / _NORMALIZERS_FILE_NAME,
+        path=directory_path / _NORMALIZERS_FILE_NAME,
     )
     for index, dynamics_model in enumerate(
         iterable=dynamics_model_ensemble.dynamics_models
     ):
         _save_dynamics_model(
-            dynamics_model=dynamics_model, path=directory / f"dynamics_model_{index}.pt"
+            dynamics_model=dynamics_model,
+            path=directory_path / f"dynamics_model_{index}.pt",
         )
 
 
 def load_dynamics_model_ensemble(
-    *, directory: Path, device: torch.device
+    *, directory_path: Path, device: torch.device
 ) -> DynamicsModelEnsemble:
     dynamics_model_file_paths = sorted(
-        directory.glob(pattern="dynamics_model_*.pt"),
+        directory_path.glob(pattern="dynamics_model_*.pt"),
         key=lambda path: int(path.stem.removeprefix("dynamics_model_")),
     )
 
     if len(dynamics_model_file_paths) == 0:
-        raise FileNotFoundError(f"No dynamics model checkpoints found in {directory}")
+        raise FileNotFoundError(
+            f"No dynamics model checkpoints found in {directory_path}"
+        )
 
     return DynamicsModelEnsemble(
         normalizers=_load_normalizers(
-            path=directory / _NORMALIZERS_FILE_NAME, device=device
+            path=directory_path / _NORMALIZERS_FILE_NAME, device=device
         ),
         dynamics_models=[
             _load_dynamics_model(path=dynamics_model_file_path, device=device)

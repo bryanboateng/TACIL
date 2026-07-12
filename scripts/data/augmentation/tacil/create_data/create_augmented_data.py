@@ -48,7 +48,7 @@ def _run(*, config: Config) -> None:
         dir=OUTPUT_DIRECTORY_PATH,
     ) as run:
         dynamics_model_ensemble = load_dynamics_model_ensemble(
-            directory=Path(
+            directory_path=Path(
                 run.use_artifact(artifact_or_name=config.model_artifact).download()
             ),
             device=device,

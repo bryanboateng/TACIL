@@ -210,7 +210,7 @@ def _upload_dynamics_model_ensemble(
         ensemble_directory_path = Path(temporary_directory)
         save_dynamics_model_ensemble(
             dynamics_model_ensemble=dynamics_model_ensemble,
-            directory=ensemble_directory_path,
+            directory_path=ensemble_directory_path,
         )
         model_artifact = wandb.Artifact(
             name=f"tacil-dynamics-model-{run.name}", type="model"
