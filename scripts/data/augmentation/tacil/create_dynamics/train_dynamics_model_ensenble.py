@@ -182,8 +182,9 @@ def _log_epoch(
             ],
         ),
     ):
-        # A subsample per member is enough for the pooled histogram and keeps the
-        # logged payload flat regardless of how many transitions each member scored.
+        # Each member has one Lipschitz constant per transition, which is far more than a
+        # histogram needs. Draw a fixed 512 at random from each member and pool them, so
+        # the amount logged per epoch stays constant no matter how many transitions exist.
         logged_metrics[f"lipschitz_distribution/{split}"] = wandb.Histogram(
             sequence=np.concatenate(
                 [
