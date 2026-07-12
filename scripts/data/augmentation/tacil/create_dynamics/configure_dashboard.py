@@ -1,16 +1,20 @@
 """Curated W&B saved view for the TACIL dynamics ensemble.
 
 ``ensure_dashboard_view`` is called once per run from the training entrypoint. It upserts
-a single saved view named "Ensemble dashboard" in which each mean/standard-deviation band
-is one panel (the mean plus its two edges on one chart) rather than three separate
-auto-generated panels. It is idempotent: it always targets the same view via a fixed
-internal name, so repeated runs update it in place instead of creating duplicates, and no
-one has to build panels by hand.
+a single saved view named "Ensemble dashboard" whose panels use W&B's native metric
+grouping: each panel matches every member's raw metric for one quantity (via a
+``<quantity>/member_`` regex) and groups them into a mean line with a filled
+standard-deviation band. W&B computes the band; the training code logs only raw
+per-member values. It is idempotent: it always targets the same view via a fixed internal
+name, so repeated runs update it in place instead of creating duplicates, and no one has
+to build panels by hand.
 
 The distribution histograms (``lipschitz/distribution_*``) are still logged and visible in
 the project's default view; the workspace API has no histogram panel type, so they cannot
 be placed in this curated view.
 """
+
+from typing import Literal
 
 import wandb_workspaces.reports.v2.interface as wr
 import wandb_workspaces.workspaces as ws
@@ -25,20 +29,24 @@ _VIEW_NAME = "Ensemble dashboard"
 _INTERNAL_VIEW_NAME = "nw-tacil-ensemble-dashboard-v"
 
 
-def _band_panel(*, title: str, metric_base: str) -> wr.LinePlot:
-    """One panel holding a band's mean line and its two standard-deviation edges."""
-    mean_series = f"{metric_base}_mean"
-    lower_series = f"{metric_base}_band_lower"
-    upper_series = f"{metric_base}_band_upper"
+def _grouped_band_panel(
+    *,
+    title: str,
+    member_metric_regex: str,
+    range_function: Literal["minmax", "stddev", "stderr", "none", "samples"] = "stddev",
+) -> wr.LinePlot:
+    """A panel that groups every member's metric into a mean line with a filled band.
+
+    ``member_metric_regex`` matches the per-member keys for one quantity (e.g.
+    ``loss/validation/member_``); W&B aggregates them with mean and the given range
+    (``stddev`` for a disagreement band, ``minmax`` to surface the worst member).
+    """
     return wr.LinePlot(
         title=title,
-        y=[mean_series, lower_series, upper_series],
-        line_titles={
-            mean_series: "mean",
-            lower_series: "-1 std",
-            upper_series: "+1 std",
-        },
-        line_widths={mean_series: 2.0, lower_series: 1.0, upper_series: 1.0},
+        metric_regex=member_metric_regex,
+        aggregate=True,
+        groupby_aggfunc="mean",
+        groupby_rangefunc=range_function,
     )
 
 
@@ -53,9 +61,13 @@ def _build_workspace(*, entity: str, project: str) -> ws.Workspace:
                 name="Loss",
                 is_open=True,
                 panels=[
-                    wr.LinePlot(title="training loss", y=["loss/training_mean"]),
-                    _band_panel(
-                        title="validation loss", metric_base="loss/validation"
+                    _grouped_band_panel(
+                        title="training loss",
+                        member_metric_regex="loss/training/member_",
+                    ),
+                    _grouped_band_panel(
+                        title="validation loss",
+                        member_metric_regex="loss/validation/member_",
                     ),
                 ],
             ),
@@ -63,19 +75,21 @@ def _build_workspace(*, entity: str, project: str) -> ws.Workspace:
                 name="Lipschitz",
                 is_open=True,
                 panels=[
-                    _band_panel(
-                        title="mean (training)", metric_base="lipschitz/mean_training"
+                    _grouped_band_panel(
+                        title="mean (training)",
+                        member_metric_regex="lipschitz/mean_training/member_",
                     ),
-                    _band_panel(
+                    _grouped_band_panel(
                         title="mean (validation)",
-                        metric_base="lipschitz/mean_validation",
+                        member_metric_regex="lipschitz/mean_validation/member_",
                     ),
-                    _band_panel(
-                        title="p99 (training)", metric_base="lipschitz/p99_training"
+                    _grouped_band_panel(
+                        title="p99 (training)",
+                        member_metric_regex="lipschitz/p99_training/member_",
                     ),
-                    _band_panel(
+                    _grouped_band_panel(
                         title="p99 (validation)",
-                        metric_base="lipschitz/p99_validation",
+                        member_metric_regex="lipschitz/p99_validation/member_",
                     ),
                 ],
             ),
@@ -83,7 +97,11 @@ def _build_workspace(*, entity: str, project: str) -> ws.Workspace:
                 name="Health",
                 is_open=True,
                 panels=[
-                    wr.LinePlot(title="gradient norm (max)", y=["gradient_norm_max"])
+                    _grouped_band_panel(
+                        title="gradient norm",
+                        member_metric_regex="gradient_norm/member_",
+                        range_function="minmax",
+                    )
                 ],
             ),
         ],

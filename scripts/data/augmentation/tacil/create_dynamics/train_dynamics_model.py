@@ -25,7 +25,6 @@ from scripts.data.augmentation.tacil.create_dynamics.data import (
 )
 from scripts.data.augmentation.tacil.create_dynamics.dynamics_model_training import (
     MemberEpochMetrics,
-    SplitLipschitz,
     TrainingContext,
     create_member_training_state,
     load_best_member_model,
@@ -166,82 +165,50 @@ def _log_ensemble_epoch(
     epoch_index: int,
     member_epoch_metrics: list[MemberEpochMetrics],
 ) -> None:
-    """Log one epoch's across-member aggregate, live.
+    """Log every member's raw per-epoch metrics, plus the pooled Lipschitz histograms.
 
-    The validation loss and each Lipschitz statistic are logged as an across-member
-    mean with a one-standard-deviation band (the standard deviation is the ensemble
-    disagreement, and unlike a min/max band a single divergent member cannot blow up
-    the y-axis). Each split's local Lipschitz constants are pooled into one histogram so
-    the distribution's shape stays visible without one histogram per member. Training
-    loss and the worst gradient norm are logged as single health lines. Everything is
-    keyed to the epoch, the single timeline now that members advance in lockstep.
-
-    Keys are not prefixed with ``ensemble/``: the whole run is the ensemble, so that
-    prefix would put every metric in one group and defeat the natural grouping into
-    ``loss/`` and ``lipschitz/`` sections.
+    Nothing is aggregated in code: each member's value is logged under a
+    ``<quantity>/member_XX`` key, and the curated W&B view groups the matching keys into
+    a native mean + standard-deviation band per quantity (see ``configure_dashboard``).
+    Keeping the raw per-member values in the one run means the band, the individual
+    members, and their identity are all recoverable from the same run. The two Lipschitz
+    distribution histograms pool a bounded subsample of every member's constants to show
+    the distribution's shape. Everything is keyed to the epoch, the single timeline now
+    that members advance in lockstep.
     """
-    run.log(
-        {
-            "loss/training_mean": float(
-                np.mean([metrics.training_loss for metrics in member_epoch_metrics])
-            ),
-            "gradient_norm_max": float(
-                np.max([metrics.gradient_norm for metrics in member_epoch_metrics])
-            ),
-            **_scalar_band(
-                name="loss/validation",
-                member_values=[
-                    metrics.validation_loss for metrics in member_epoch_metrics
-                ],
-            ),
-            **_lipschitz_bands(
-                split="training",
-                member_lipschitz=[
-                    metrics.training_lipschitz for metrics in member_epoch_metrics
-                ],
-            ),
-            **_lipschitz_bands(
-                split="validation",
-                member_lipschitz=[
-                    metrics.validation_lipschitz for metrics in member_epoch_metrics
-                ],
-            ),
-        },
-        step=epoch_index,
-    )
+    logged_metrics: dict[str, float | wandb.Histogram] = {}
+    for member_index, metrics in enumerate(member_epoch_metrics):
+        member = f"member_{member_index:02d}"
+        logged_metrics[f"loss/training/{member}"] = metrics.training_loss
+        logged_metrics[f"loss/validation/{member}"] = metrics.validation_loss
+        logged_metrics[f"gradient_norm/{member}"] = metrics.gradient_norm
+        logged_metrics[f"lipschitz/mean_training/{member}"] = (
+            metrics.training_lipschitz.mean
+        )
+        logged_metrics[f"lipschitz/p99_training/{member}"] = (
+            metrics.training_lipschitz.p99
+        )
+        logged_metrics[f"lipschitz/mean_validation/{member}"] = (
+            metrics.validation_lipschitz.mean
+        )
+        logged_metrics[f"lipschitz/p99_validation/{member}"] = (
+            metrics.validation_lipschitz.p99
+        )
 
-
-def _scalar_band(*, name: str, member_values: list[float]) -> dict[str, float]:
-    """Across-member mean and the two edges of a one-standard-deviation band."""
-    member_mean = float(np.mean(member_values))
-    member_standard_deviation = float(np.std(member_values))
-    return {
-        f"{name}_mean": member_mean,
-        f"{name}_band_lower": member_mean - member_standard_deviation,
-        f"{name}_band_upper": member_mean + member_standard_deviation,
-    }
-
-
-def _lipschitz_bands(
-    *, split: str, member_lipschitz: list[SplitLipschitz]
-) -> dict[str, float | wandb.Histogram]:
-    """Mean and p99 bands plus one histogram pooling every member's constants."""
-    pooled_local_lipschitz_constants = np.concatenate(
-        [split_lipschitz.subsample for split_lipschitz in member_lipschitz]
-    )
-    return {
-        **_scalar_band(
-            name=f"lipschitz/mean_{split}",
-            member_values=[split_lipschitz.mean for split_lipschitz in member_lipschitz],
+    for split, member_split_lipschitz in (
+        ("training", [metrics.training_lipschitz for metrics in member_epoch_metrics]),
+        (
+            "validation",
+            [metrics.validation_lipschitz for metrics in member_epoch_metrics],
         ),
-        **_scalar_band(
-            name=f"lipschitz/p99_{split}",
-            member_values=[split_lipschitz.p99 for split_lipschitz in member_lipschitz],
-        ),
-        f"lipschitz/distribution_{split}": wandb.Histogram(
-            pooled_local_lipschitz_constants.tolist()
-        ),
-    }
+    ):
+        logged_metrics[f"lipschitz/distribution_{split}"] = wandb.Histogram(
+            np.concatenate(
+                [split_lipschitz.subsample for split_lipschitz in member_split_lipschitz]
+            ).tolist()
+        )
+
+    run.log(logged_metrics, step=epoch_index)
 
 
 def _upload_dynamics_model_ensemble(
