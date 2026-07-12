@@ -82,11 +82,8 @@ def _run(*, config: Config) -> None:
         validation_state_windows, validation_action_windows = build_windows(
             episodes=validation_episodes, window_length=config.data.loader.window_length
         )
-        logger.info(
-            "Built %d training windows of length %d.",
-            train_action_windows.shape[0],
-            config.data.loader.window_length,
-        )
+        run.summary["window_count/training"] = train_action_windows.shape[0]
+        run.summary["window_count/validation"] = validation_action_windows.shape[0]
 
         normalizers = Normalizers.from_transitions(
             state_batch=torch.from_numpy(training_transitions.states).to(device=device),
