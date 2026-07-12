@@ -97,7 +97,7 @@ def create_member_training_state(
             ),
             use_buffers=False,
         ),
-        shuffle_generator=torch.Generator(device=device).manual_seed(seed=member_seed),
+        shuffle_generator=torch.Generator(device=device).manual_seed(member_seed),
     )
 
 
