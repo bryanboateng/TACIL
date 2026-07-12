@@ -1,6 +1,5 @@
 import copy
 from dataclasses import dataclass
-from typing import cast
 
 import numpy as np
 import torch
@@ -40,16 +39,24 @@ class MemberTrainingState:
     model: DynamicsModel
     optimizer: torch.optim.Optimizer
     ema_model: AveragedModel
-    ema_model_module: DynamicsModel
     shuffle_generator: torch.Generator
     histogram_sample_rng: np.random.Generator
     best_checkpoint: Checkpoint | None = None
 
+    @property
+    def ema_dynamics_model(self) -> DynamicsModel:
+        # AveragedModel.module is typed as nn.Module; verify at runtime that it is the
+        # DynamicsModel we wrapped rather than trusting the annotation.
+        module = self.ema_model.module
+        if not isinstance(module, DynamicsModel):
+            raise TypeError(
+                f"Expected the EMA module to be a DynamicsModel, got {type(module)}"
+            )
+        return module
+
 
 @dataclass
 class TrainingContext:
-    """Inputs shared by every member for one epoch of training."""
-
     config: Config
     normalizers: Normalizers
     training_transitions: TransitionSet
@@ -68,12 +75,9 @@ def create_member_training_state(
     transitions: TransitionSet,
     device: torch.device,
 ) -> MemberTrainingState:
-    # Seed before construction so each member's weight initialisation is reproducible
-    # and differs across members; this, plus the per-member shuffle generator, is what
-    # gives the ensemble its diversity.
     set_seed(seed=member_seed)
 
-    model = DynamicsModel(
+    dynamics_model = DynamicsModel(
         state_dimensionality=transitions.states.shape[1],
         action_dimensionality=transitions.actions.shape[1],
         hidden_dimensionalities=config.architecture.hidden_layer_sizes,
@@ -81,7 +85,7 @@ def create_member_training_state(
     ).to(device=device)
 
     ema_model = AveragedModel(
-        model,
+        dynamics_model,
         avg_fn=lambda ema_parameter, current_parameter, _num_averaged: (
             config.training.ema_decay * ema_parameter
             + (1.0 - config.training.ema_decay) * current_parameter
@@ -90,17 +94,14 @@ def create_member_training_state(
     )
 
     return MemberTrainingState(
-        model=model,
+        model=dynamics_model,
         optimizer=torch.optim.Adam(
-            params=model.parameters(),
+            params=dynamics_model.parameters(),
             lr=config.training.learning_rate,
             weight_decay=config.training.weight_decay,
         ),
         ema_model=ema_model,
-        # AveragedModel.module is typed as nn.Module but it is the DynamicsModel we
-        # wrapped.
-        ema_model_module=cast(DynamicsModel, ema_model.module),
-        shuffle_generator=torch.Generator(device=device).manual_seed(member_seed),
+        shuffle_generator=torch.Generator(device=device).manual_seed(seed=member_seed),
         histogram_sample_rng=np.random.default_rng(seed=member_index),
     )
 
@@ -145,10 +146,10 @@ def train_member_for_one_epoch(
 
     state.ema_model.update_parameters(model=state.model)
     if config.architecture.lipschitz_constant_upper_bound is not None:
-        _refresh_spectral_norm_estimates(ema_dynamics_model=state.ema_model_module)
+        _refresh_spectral_norm_estimates(ema_dynamics_model=state.ema_dynamics_model)
 
     validation_loss = calculate_validation_loss(
-        dynamics_model=state.ema_model_module,
+        dynamics_model=state.ema_dynamics_model,
         normalizers=context.normalizers,
         state_windows=context.validation_state_windows,
         action_windows=context.validation_action_windows,
@@ -162,7 +163,7 @@ def train_member_for_one_epoch(
         state.best_checkpoint = Checkpoint(
             validation_loss=validation_loss,
             epoch=epoch_index,
-            state_dict=copy.deepcopy(state.ema_model_module.state_dict()),
+            state_dict=copy.deepcopy(state.ema_dynamics_model.state_dict()),
         )
 
     return MemberEpochMetrics(
@@ -172,14 +173,14 @@ def train_member_for_one_epoch(
         gradient_norm=float(np.max(step_gradient_norms)),
         validation_loss=validation_loss,
         training_local_lipschitz_constants=_compute_split_lipschitz(
-            ema_model_module=state.ema_model_module,
+            ema_dynamics_model=state.ema_dynamics_model,
             normalizers=context.normalizers,
             transitions=context.training_transitions,
             batch_size=config.data.loader.batch_size,
             histogram_sample_rng=state.histogram_sample_rng,
         ),
         validation_local_lipschitz_constants=_compute_split_lipschitz(
-            ema_model_module=state.ema_model_module,
+            ema_dynamics_model=state.ema_dynamics_model,
             normalizers=context.normalizers,
             transitions=context.validation_transitions,
             batch_size=config.data.loader.batch_size,
@@ -201,14 +202,14 @@ def load_best_member_model(
 
 def _compute_split_lipschitz(
     *,
-    ema_model_module: DynamicsModel,
+    ema_dynamics_model: DynamicsModel,
     normalizers: Normalizers,
     transitions: TransitionSet,
     batch_size: int,
     histogram_sample_rng: np.random.Generator,
 ) -> npt.NDArray[np.float32]:
     local_lipschitz_constants = calculate_local_lipschitz_constants(
-        dynamics_model=ema_model_module,
+        dynamics_model=ema_dynamics_model,
         normalizers=normalizers,
         states=transitions.states,
         actions=transitions.actions,
