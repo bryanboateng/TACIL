@@ -22,6 +22,7 @@ from scripts.data.augmentation.tacil.create_dynamics.data import (
 )
 from scripts.data.augmentation.tacil.create_dynamics.dynamics_model_training import (
     MemberEpochMetrics,
+    MemberTrainingState,
     TrainingContext,
     create_member_training_state,
     load_best_member_model,
@@ -128,9 +129,7 @@ def _run(*, config: Config) -> None:
         ]
 
         for epoch_index in tqdm(
-            range(config.training.epoch_count),
-            desc="training ensemble",
-            unit="epoch",
+            range(config.training.epoch_count), desc="training ensemble", unit="epoch"
         ):
             _log_ensemble_epoch(
                 run=run,
@@ -142,6 +141,8 @@ def _run(*, config: Config) -> None:
                     for state in member_states
                 ],
             )
+
+        _log_checkpoint_summary(member_states=member_states, run=run)
 
         _upload_dynamics_model_ensemble(
             dynamics_model_ensemble=DynamicsModelEnsemble(
@@ -155,10 +156,7 @@ def _run(*, config: Config) -> None:
 
 
 def _log_ensemble_epoch(
-    *,
-    run: Run,
-    epoch_index: int,
-    member_epoch_metrics: list[MemberEpochMetrics],
+    *, run: Run, epoch_index: int, member_epoch_metrics: list[MemberEpochMetrics]
 ) -> None:
     """Log every member's raw per-epoch metrics, plus the pooled Lipschitz histograms.
 
@@ -190,6 +188,29 @@ def _log_ensemble_epoch(
         )
 
     run.log(logged_metrics, step=epoch_index)
+
+
+def _log_checkpoint_summary(
+    *, member_states: list[MemberTrainingState], run: Run
+) -> None:
+    """Record the ensemble's checkpoint quality in the run summary.
+
+    The summary is the one row per run in the W&B table used to compare runs. Each member
+    contributes its own retained checkpoint (its lowest-validation-loss epoch); we log that
+    checkpoint's validation loss and its epoch, each averaged over all members.
+    """
+    checkpoints = []
+    for state in member_states:
+        if state.best_checkpoint is None:
+            raise ValueError("No checkpoint was recorded")
+        checkpoints.append(state.best_checkpoint)
+
+    run.summary["checkpoint/validation_loss_mean"] = float(
+        np.mean([checkpoint.validation_loss for checkpoint in checkpoints])
+    )
+    run.summary["checkpoint/epoch_mean"] = float(
+        np.mean([checkpoint.epoch for checkpoint in checkpoints])
+    )
 
 
 def _upload_dynamics_model_ensemble(
