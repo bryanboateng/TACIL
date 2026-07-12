@@ -21,7 +21,6 @@ dependencies = [
     "tqdm>=4.67.3",
     "tyro>=1.0.13",
     "wandb>=0.27.0",
-    "wandb-workspaces>=0.4.4",
     "zarr>=3.1.5",
 ]
 

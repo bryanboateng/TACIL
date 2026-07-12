@@ -15,9 +15,6 @@ from scripts.data.augmentation.tacil.create_dynamics.checkpoint import (
     save_dynamics_model_ensemble,
 )
 from scripts.data.augmentation.tacil.create_dynamics.config import Config
-from scripts.data.augmentation.tacil.create_dynamics.configure_dashboard import (
-    ensure_dashboard_view,
-)
 from scripts.data.augmentation.tacil.create_dynamics.data import (
     build_windows,
     concatenate_episodes,
@@ -60,8 +57,6 @@ def _run(*, config: Config) -> None:
         config=asdict(obj=config),
         dir=OUTPUT_DIRECTORY_PATH,
     ) as run:
-        ensure_dashboard_view(entity=run.entity, project=run.project)
-
         training_episodes, validation_episodes = train_test_split(
             extract_transitions(
                 episode_store=load_episode_store(
@@ -168,13 +163,13 @@ def _log_ensemble_epoch(
     """Log every member's raw per-epoch metrics, plus the pooled Lipschitz histograms.
 
     Nothing is aggregated in code: each member's value is logged under a
-    ``<quantity>/member_XX`` key, and the curated W&B view groups the matching keys into
-    a native mean + standard-deviation band per quantity (see ``configure_dashboard``).
-    Keeping the raw per-member values in the one run means the band, the individual
-    members, and their identity are all recoverable from the same run. The two Lipschitz
-    distribution histograms pool a bounded subsample of every member's constants to show
-    the distribution's shape. Everything is keyed to the epoch, the single timeline now
-    that members advance in lockstep.
+    ``<quantity>/member_XX`` key. In W&B, selecting all of a quantity's member keys on a
+    panel's Y axis and enabling metric grouping (Agg = Mean, Range = Std Dev) draws a
+    mean + standard-deviation band. Keeping the raw per-member values in the one run means
+    the band, the individual members, and their identity are all recoverable from the
+    same run. The two Lipschitz distribution histograms pool a bounded subsample of every
+    member's constants to show the distribution's shape. Everything is keyed to the epoch,
+    the single timeline now that members advance in lockstep.
     """
     logged_metrics: dict[str, float | wandb.Histogram] = {}
     for member_index, metrics in enumerate(member_epoch_metrics):
