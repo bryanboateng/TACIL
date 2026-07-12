@@ -84,15 +84,6 @@ def create_member_training_state(
         lipschitz_constant_upper_bound=config.architecture.lipschitz_constant_upper_bound,
     ).to(device=device)
 
-    ema_model = AveragedModel(
-        dynamics_model,
-        avg_fn=lambda ema_parameter, current_parameter, _num_averaged: (
-            config.training.ema_decay * ema_parameter
-            + (1.0 - config.training.ema_decay) * current_parameter
-        ),
-        use_buffers=False,
-    )
-
     return MemberTrainingState(
         model=dynamics_model,
         optimizer=torch.optim.Adam(
@@ -100,7 +91,14 @@ def create_member_training_state(
             lr=config.training.learning_rate,
             weight_decay=config.training.weight_decay,
         ),
-        ema_model=ema_model,
+        ema_model=AveragedModel(
+            dynamics_model,
+            avg_fn=lambda ema_parameter, current_parameter, _num_averaged: (
+                config.training.ema_decay * ema_parameter
+                + (1.0 - config.training.ema_decay) * current_parameter
+            ),
+            use_buffers=False,
+        ),
         shuffle_generator=torch.Generator(device=device).manual_seed(seed=member_seed),
         histogram_sample_rng=np.random.default_rng(seed=member_index),
     )
