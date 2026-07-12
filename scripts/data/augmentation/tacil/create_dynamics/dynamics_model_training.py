@@ -88,10 +88,8 @@ def train_dynamics_model(
     # wrapped.
     ema_dynamics_model = cast(DynamicsModel, ema_model.module)
 
-    train_state_windows_tensor = torch.from_numpy(ndarray=train_state_windows).to(
-        device=device
-    )
-    train_action_windows_tensor = torch.from_numpy(ndarray=train_action_windows).to(
+    train_state_windows_tensor = torch.from_numpy(train_state_windows).to(device=device)
+    train_action_windows_tensor = torch.from_numpy(train_action_windows).to(
         device=device
     )
 
