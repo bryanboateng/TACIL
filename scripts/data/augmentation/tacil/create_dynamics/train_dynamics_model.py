@@ -8,6 +8,7 @@ import tyro
 import wandb
 from rich.pretty import pretty_repr
 from sklearn.model_selection import train_test_split
+from tqdm import tqdm
 from wandb import Run
 
 from scripts.data.augmentation.tacil.create_dynamics.checkpoint import (
@@ -20,11 +21,13 @@ from scripts.data.augmentation.tacil.create_dynamics.data import (
     extract_transitions,
 )
 from scripts.data.augmentation.tacil.create_dynamics.dynamics_model_training import (
-    LocalLipschitzEpochHistory,
-    MemberEpochHistory,
-    train_dynamics_model,
+    MemberEpochMetrics,
+    SplitLipschitz,
+    TrainingContext,
+    create_member_training_state,
+    load_best_member_model,
+    train_member_for_one_epoch,
 )
-from scripts.data.augmentation.tacil.models.dynamics_model import DynamicsModel
 from scripts.data.augmentation.tacil.models.dynamics_model_ensemble import (
     DynamicsModelEnsemble,
 )
@@ -95,98 +98,112 @@ def _run(*, config: Config) -> None:
             ),
         ).to(device=device)
 
-        dynamics_models: list[DynamicsModel] = []
-        member_epoch_histories: list[MemberEpochHistory] = []
-        global_step = 0
-        for member_index, member_seed in enumerate(
-            np.random.SeedSequence(entropy=config.seed).generate_state(
-                n_words=config.architecture.ensemble_size
-            )
-        ):
-            set_seed(seed=int(member_seed))
-
-            dynamics_model, global_step, member_epoch_history = train_dynamics_model(
-                member_index=member_index,
-                config=config,
-                normalizers=normalizers,
-                training_transitions=training_transitions,
-                validation_transitions=validation_transitions,
-                train_state_windows=train_state_windows,
-                train_action_windows=train_action_windows,
-                validation_state_windows=validation_state_windows,
-                validation_action_windows=validation_action_windows,
-                run=run,
-                device=device,
-                initial_global_step=global_step,
-            )
-            dynamics_models.append(dynamics_model)
-            member_epoch_histories.append(member_epoch_history)
-
-        _log_ensemble_aggregate_metrics(
-            run=run,
-            member_epoch_histories=member_epoch_histories,
-            initial_global_step=global_step,
+        context = TrainingContext(
+            config=config,
+            normalizers=normalizers,
+            training_transitions=training_transitions,
+            validation_transitions=validation_transitions,
+            train_state_windows=torch.from_numpy(train_state_windows).to(device=device),
+            train_action_windows=torch.from_numpy(train_action_windows).to(
+                device=device
+            ),
+            validation_state_windows=validation_state_windows,
+            validation_action_windows=validation_action_windows,
         )
+
+        # Train every member in lockstep: all advance one epoch before the next epoch
+        # begins, so the across-member aggregate can be logged live each epoch.
+        member_states = [
+            create_member_training_state(
+                member_index=member_index,
+                member_seed=int(member_seed),
+                config=config,
+                training_transitions=training_transitions,
+                device=device,
+            )
+            for member_index, member_seed in enumerate(
+                np.random.SeedSequence(entropy=config.seed).generate_state(
+                    n_words=config.architecture.ensemble_size
+                )
+            )
+        ]
+
+        for epoch_index in tqdm(
+            range(config.training.epoch_count),
+            desc="training ensemble",
+            unit="epoch",
+        ):
+            _log_ensemble_epoch(
+                run=run,
+                epoch_index=epoch_index,
+                member_epoch_metrics=[
+                    train_member_for_one_epoch(
+                        state=state, epoch_index=epoch_index, context=context
+                    )
+                    for state in member_states
+                ],
+            )
 
         _upload_dynamics_model_ensemble(
             dynamics_model_ensemble=DynamicsModelEnsemble(
-                normalizers=normalizers, dynamics_models=dynamics_models
+                normalizers=normalizers,
+                dynamics_models=[
+                    load_best_member_model(state=state) for state in member_states
+                ],
             ),
             run=run,
         )
 
 
-def _log_ensemble_aggregate_metrics(
+def _log_ensemble_epoch(
     *,
     run: Run,
-    member_epoch_histories: list[MemberEpochHistory],
-    initial_global_step: int,
+    epoch_index: int,
+    member_epoch_metrics: list[MemberEpochMetrics],
 ) -> None:
-    """Log the ensemble's per-epoch scalar bands and pooled Lipschitz histograms.
+    """Log one epoch's across-member aggregate, live.
 
-    For each scalar metric this emits the across-member mean and the two band edges
-    (mean minus and plus one standard deviation), so a line panel renders the mean
-    bracketed by a disagreement band. The standard deviation (a quantity TACIL cares
-    about) is used rather than a min/max band so a single divergent member cannot blow
-    up the y-axis. For each split, every member's local Lipschitz constants are pooled
-    into a single histogram per epoch, so the shape of the ensemble's Lipschitz
-    distribution stays visible without one histogram per member. All series are plotted
-    against an epoch x-axis (``ensemble/epoch``) rather than the global step, which the
-    per-step training-health curves consume sequentially.
+    The validation loss and each Lipschitz statistic are logged as an across-member
+    mean with a one-standard-deviation band (the standard deviation is the ensemble
+    disagreement, and unlike a min/max band a single divergent member cannot blow up
+    the y-axis). Each split's local Lipschitz constants are pooled into one histogram so
+    the distribution's shape stays visible without one histogram per member. Training
+    loss and the worst gradient norm are logged as single health lines. Everything is
+    keyed to the epoch, the single timeline now that members advance in lockstep.
+
+    Keys are not prefixed with ``ensemble/``: the whole run is the ensemble, so that
+    prefix would put every metric in one group and defeat the natural grouping into
+    ``loss/`` and ``lipschitz/`` sections.
     """
-    run.define_metric(name="ensemble/epoch")
-    run.define_metric(name="ensemble/*", step_metric="ensemble/epoch")
-
-    epoch_count = len(member_epoch_histories[0].validation_losses)
-
-    global_step = initial_global_step
-    for epoch_index in range(epoch_count):
-        aggregate_metrics: dict[str, float | wandb.Histogram] = {
-            "ensemble/epoch": epoch_index,
+    run.log(
+        {
+            "loss/training_mean": float(
+                np.mean([metrics.training_loss for metrics in member_epoch_metrics])
+            ),
+            "gradient_norm_max": float(
+                np.max([metrics.gradient_norm for metrics in member_epoch_metrics])
+            ),
             **_scalar_band(
-                name="ensemble/loss/validation",
+                name="loss/validation",
                 member_values=[
-                    history.validation_losses[epoch_index]
-                    for history in member_epoch_histories
+                    metrics.validation_loss for metrics in member_epoch_metrics
                 ],
             ),
             **_lipschitz_bands(
                 split="training",
-                member_lipschitz_histories=[
-                    history.training_lipschitz for history in member_epoch_histories
+                member_lipschitz=[
+                    metrics.training_lipschitz for metrics in member_epoch_metrics
                 ],
-                epoch_index=epoch_index,
             ),
             **_lipschitz_bands(
                 split="validation",
-                member_lipschitz_histories=[
-                    history.validation_lipschitz for history in member_epoch_histories
+                member_lipschitz=[
+                    metrics.validation_lipschitz for metrics in member_epoch_metrics
                 ],
-                epoch_index=epoch_index,
             ),
-        }
-        run.log(aggregate_metrics, step=global_step)
-        global_step += 1
+        },
+        step=epoch_index,
+    )
 
 
 def _scalar_band(*, name: str, member_values: list[float]) -> dict[str, float]:
@@ -201,34 +218,22 @@ def _scalar_band(*, name: str, member_values: list[float]) -> dict[str, float]:
 
 
 def _lipschitz_bands(
-    *,
-    split: str,
-    member_lipschitz_histories: list[LocalLipschitzEpochHistory],
-    epoch_index: int,
+    *, split: str, member_lipschitz: list[SplitLipschitz]
 ) -> dict[str, float | wandb.Histogram]:
     """Mean and p99 bands plus one histogram pooling every member's constants."""
     pooled_local_lipschitz_constants = np.concatenate(
-        [
-            lipschitz_history.subsamples[epoch_index]
-            for lipschitz_history in member_lipschitz_histories
-        ]
+        [split_lipschitz.subsample for split_lipschitz in member_lipschitz]
     )
     return {
         **_scalar_band(
-            name=f"ensemble/lipschitz/mean_{split}",
-            member_values=[
-                lipschitz_history.means[epoch_index]
-                for lipschitz_history in member_lipschitz_histories
-            ],
+            name=f"lipschitz/mean_{split}",
+            member_values=[split_lipschitz.mean for split_lipschitz in member_lipschitz],
         ),
         **_scalar_band(
-            name=f"ensemble/lipschitz/p99_{split}",
-            member_values=[
-                lipschitz_history.p99s[epoch_index]
-                for lipschitz_history in member_lipschitz_histories
-            ],
+            name=f"lipschitz/p99_{split}",
+            member_values=[split_lipschitz.p99 for split_lipschitz in member_lipschitz],
         ),
-        f"ensemble/lipschitz/distribution_{split}": wandb.Histogram(
+        f"lipschitz/distribution_{split}": wandb.Histogram(
             pooled_local_lipschitz_constants.tolist()
         ),
     }

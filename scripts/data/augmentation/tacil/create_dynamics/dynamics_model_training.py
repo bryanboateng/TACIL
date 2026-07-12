@@ -6,8 +6,6 @@ import numpy as np
 import torch
 from numpy import typing as npt
 from torch.optim.swa_utils import AveragedModel
-from tqdm import tqdm
-from wandb import Run
 
 from scripts.data.augmentation.tacil.create_dynamics.config import Config
 from scripts.data.augmentation.tacil.create_dynamics.data import TransitionSet
@@ -18,6 +16,7 @@ from scripts.data.augmentation.tacil.create_dynamics.evaluation import (
 from scripts.data.augmentation.tacil.create_dynamics.losses import compute_loss
 from scripts.data.augmentation.tacil.models.dynamics_model import DynamicsModel
 from scripts.data.augmentation.tacil.models.normalizers import Normalizers
+from scripts.shared.seed import set_seed
 
 
 @dataclass
@@ -28,55 +27,76 @@ class Checkpoint:
 
 
 @dataclass
-class LocalLipschitzEpochHistory:
-    """One member's per-epoch local Lipschitz statistics on one data split."""
+class SplitLipschitz:
+    """One member's local Lipschitz constants on one data split at one epoch."""
 
-    means: list[float]
-    p99s: list[float]
-    # per-epoch subsample of local Lipschitz constants; the ensemble script pools these
-    # across members into one histogram per epoch
-    subsamples: list[npt.NDArray[np.float32]]
+    mean: float
+    p99: float
+    subsample: npt.NDArray[np.float32]  # bounded random subsample of the raw constants
 
 
 @dataclass
-class MemberEpochHistory:
-    """One ensemble member's per-epoch evaluation record."""
+class MemberEpochMetrics:
+    """One member's metrics for a single epoch."""
 
-    validation_losses: list[float]
-    training_lipschitz: LocalLipschitzEpochHistory
-    validation_lipschitz: LocalLipschitzEpochHistory
+    training_loss: float
+    gradient_norm: float
+    validation_loss: float
+    training_lipschitz: SplitLipschitz
+    validation_lipschitz: SplitLipschitz
 
 
-def train_dynamics_model(
+@dataclass
+class MemberTrainingState:
+    """Mutable per-member state carried across epochs while the ensemble trains in
+    lockstep (every member advances one epoch before the next epoch begins), so the
+    across-member aggregate can be logged live at each epoch."""
+
+    model: DynamicsModel
+    optimizer: torch.optim.Optimizer
+    ema_model: AveragedModel
+    ema_model_module: DynamicsModel
+    shuffle_generator: torch.Generator
+    histogram_sample_rng: np.random.Generator
+    best_checkpoint: Checkpoint | None = None
+
+
+@dataclass
+class TrainingContext:
+    """Inputs shared by every member for one epoch of training."""
+
+    config: Config
+    normalizers: Normalizers
+    training_transitions: TransitionSet
+    validation_transitions: TransitionSet
+    train_state_windows: torch.Tensor
+    train_action_windows: torch.Tensor
+    validation_state_windows: npt.NDArray[np.float32]
+    validation_action_windows: npt.NDArray[np.float32]
+
+
+def create_member_training_state(
     *,
     member_index: int,
+    member_seed: int,
     config: Config,
-    normalizers: Normalizers,
     training_transitions: TransitionSet,
-    validation_transitions: TransitionSet,
-    train_state_windows: npt.NDArray[np.float32],
-    train_action_windows: npt.NDArray[np.float32],
-    validation_state_windows: npt.NDArray[np.float32],
-    validation_action_windows: npt.NDArray[np.float32],
-    run: Run,
     device: torch.device,
-    initial_global_step: int,
-) -> tuple[DynamicsModel, int, MemberEpochHistory]:
-    dynamics_model = DynamicsModel(
+) -> MemberTrainingState:
+    # Seed before construction so each member's weight initialisation is reproducible
+    # and differs across members; this, plus the per-member shuffle generator, is what
+    # gives the ensemble its diversity.
+    set_seed(seed=member_seed)
+
+    model = DynamicsModel(
         state_dimensionality=training_transitions.states.shape[1],
         action_dimensionality=training_transitions.actions.shape[1],
         hidden_dimensionalities=config.architecture.hidden_layer_sizes,
         lipschitz_constant_upper_bound=config.architecture.lipschitz_constant_upper_bound,
     ).to(device=device)
 
-    optimizer = torch.optim.Adam(
-        params=dynamics_model.parameters(),
-        lr=config.training.learning_rate,
-        weight_decay=config.training.weight_decay,
-    )
-
     ema_model = AveragedModel(
-        dynamics_model,
+        model,
         avg_fn=lambda ema_parameter, current_parameter, _num_averaged: (
             config.training.ema_decay * ema_parameter
             + (1.0 - config.training.ema_decay) * current_parameter
@@ -84,138 +104,133 @@ def train_dynamics_model(
         use_buffers=False,
     )
 
-    # AveragedModel.module is typed as nn.Module but it is the DynamicsNetwork we
-    # wrapped.
-    ema_dynamics_model = cast(DynamicsModel, ema_model.module)
-
-    train_state_windows_tensor = torch.from_numpy(train_state_windows).to(device=device)
-    train_action_windows_tensor = torch.from_numpy(train_action_windows).to(
-        device=device
+    return MemberTrainingState(
+        model=model,
+        optimizer=torch.optim.Adam(
+            params=model.parameters(),
+            lr=config.training.learning_rate,
+            weight_decay=config.training.weight_decay,
+        ),
+        ema_model=ema_model,
+        # AveragedModel.module is typed as nn.Module but it is the DynamicsModel we
+        # wrapped.
+        ema_model_module=cast(DynamicsModel, ema_model.module),
+        shuffle_generator=torch.Generator(device=device).manual_seed(member_seed),
+        histogram_sample_rng=np.random.default_rng(seed=member_index),
     )
 
-    window_count = train_state_windows_tensor.shape[0]
+
+def train_member_for_one_epoch(
+    *, state: MemberTrainingState, epoch_index: int, context: TrainingContext
+) -> MemberEpochMetrics:
+    config = context.config
+    window_count = context.train_state_windows.shape[0]
     steps_per_epoch = max(window_count // config.data.loader.batch_size, 1)
 
-    global_step = initial_global_step
-    best_checkpoint: Checkpoint | None = None
-    validation_losses: list[float] = []
-    training_lipschitz = LocalLipschitzEpochHistory(means=[], p99s=[], subsamples=[])
-    validation_lipschitz = LocalLipschitzEpochHistory(means=[], p99s=[], subsamples=[])
-    histogram_sample_rng = np.random.default_rng(seed=member_index)
+    state.model.train()
+    shuffled_window_indices = torch.randperm(
+        n=window_count,
+        generator=state.shuffle_generator,
+        device=context.train_state_windows.device,
+    )
 
-    for epoch_index in tqdm(
-        range(config.training.epoch_count),
-        desc=f"training member {member_index}",
-        unit="epoch",
-    ):
-        dynamics_model.train()
+    step_losses: list[float] = []
+    step_gradient_norms: list[float] = []
+    for step_index in range(steps_per_epoch):
+        batch_window_indices = shuffled_window_indices[
+            step_index * config.data.loader.batch_size : (step_index + 1)
+            * config.data.loader.batch_size
+        ]
 
-        shuffled_window_indices = torch.randperm(n=window_count, device=device)
-        for step_index in range(steps_per_epoch):
-            batch_window_indices = shuffled_window_indices[
-                step_index * config.data.loader.batch_size : (step_index + 1)
-                * config.data.loader.batch_size
-            ]
-
-            optimizer.zero_grad()
-
-            loss = compute_loss(
-                dynamics_model=dynamics_model,
-                normalizers=normalizers,
-                state_window_batch=train_state_windows_tensor[batch_window_indices],
-                action_window_batch=train_action_windows_tensor[batch_window_indices],
-            )
-            loss.backward()
-
-            gradient_norm = torch.nn.utils.clip_grad_norm_(
-                parameters=dynamics_model.parameters(), max_norm=1.0
-            )
-            optimizer.step()
-
-            # These per-step training-health signals share one panel across all
-            # members (no member prefix): the members occupy consecutive global-step
-            # ranges, so this reads as one continuous curve where a member that fails
-            # to descend or blows up still stands out. Per-member detail lives in the
-            # validation-loss and Lipschitz curves instead.
-            run.log(
-                {
-                    "loss/training": loss.detach().item(),
-                    "gradient_norm": gradient_norm.item(),
-                },
-                step=global_step,
-            )
-            global_step += 1
-
-        ema_model.update_parameters(model=dynamics_model)
-
-        if config.architecture.lipschitz_constant_upper_bound is not None:
-            _refresh_spectral_norm_estimates(ema_dynamics_model=ema_dynamics_model)
-
-        validation_loss = calculate_validation_loss(
-            dynamics_model=ema_dynamics_model,
-            normalizers=normalizers,
-            state_windows=validation_state_windows,
-            action_windows=validation_action_windows,
-            batch_size=config.data.loader.batch_size,
+        state.optimizer.zero_grad()
+        loss = compute_loss(
+            dynamics_model=state.model,
+            normalizers=context.normalizers,
+            state_window_batch=context.train_state_windows[batch_window_indices],
+            action_window_batch=context.train_action_windows[batch_window_indices],
         )
-        # Per-member curves are not logged: with a large ensemble they overwhelm the
-        # dashboard. Each member's per-epoch statistics are collected here instead, and
-        # the ensemble script logs the across-member aggregate (mean plus a
-        # standard-deviation band and a pooled histogram), which already surfaces a
-        # single misbehaving member.
-        validation_losses.append(validation_loss)
-        for lipschitz_epoch_history, split_states, split_actions in (
-            (
-                training_lipschitz,
-                training_transitions.states,
-                training_transitions.actions,
-            ),
-            (
-                validation_lipschitz,
-                validation_transitions.states,
-                validation_transitions.actions,
-            ),
-        ):
-            local_lipschitz_constants = calculate_local_lipschitz_constants(
-                dynamics_model=ema_dynamics_model,
-                normalizers=normalizers,
-                states=split_states,
-                actions=split_actions,
-                batch_size=config.data.loader.batch_size,
-            )
-            lipschitz_epoch_history.means.append(
-                float(np.mean(local_lipschitz_constants))
-            )
-            lipschitz_epoch_history.p99s.append(
-                float(np.percentile(local_lipschitz_constants, q=99.0))
-            )
-            # Keep a bounded subsample so the ensemble script can pool constants across
-            # members into one histogram per epoch without holding every constant.
-            lipschitz_epoch_history.subsamples.append(
-                _subsample_for_histogram(
-                    values=local_lipschitz_constants, rng=histogram_sample_rng
-                )
-            )
+        loss.backward()
+        gradient_norm = torch.nn.utils.clip_grad_norm_(
+            parameters=state.model.parameters(), max_norm=1.0
+        )
+        state.optimizer.step()
 
-        if best_checkpoint is None or validation_loss < best_checkpoint.validation_loss:
-            best_checkpoint = Checkpoint(
-                validation_loss=validation_loss,
-                epoch=epoch_index,
-                state_dict=copy.deepcopy(ema_dynamics_model.state_dict()),
-            )
+        step_losses.append(loss.detach().item())
+        step_gradient_norms.append(gradient_norm.item())
 
-    if best_checkpoint is None:
+    state.ema_model.update_parameters(model=state.model)
+    if config.architecture.lipschitz_constant_upper_bound is not None:
+        _refresh_spectral_norm_estimates(ema_dynamics_model=state.ema_model_module)
+
+    validation_loss = calculate_validation_loss(
+        dynamics_model=state.ema_model_module,
+        normalizers=context.normalizers,
+        state_windows=context.validation_state_windows,
+        action_windows=context.validation_action_windows,
+        batch_size=config.data.loader.batch_size,
+    )
+
+    if (
+        state.best_checkpoint is None
+        or validation_loss < state.best_checkpoint.validation_loss
+    ):
+        state.best_checkpoint = Checkpoint(
+            validation_loss=validation_loss,
+            epoch=epoch_index,
+            state_dict=copy.deepcopy(state.ema_model_module.state_dict()),
+        )
+
+    return MemberEpochMetrics(
+        # Mean loss over the epoch's steps and the epoch's worst gradient norm: a spike
+        # in the latter is the earliest sign a member is going unstable.
+        training_loss=float(np.mean(step_losses)),
+        gradient_norm=float(np.max(step_gradient_norms)),
+        validation_loss=validation_loss,
+        training_lipschitz=_compute_split_lipschitz(
+            ema_model_module=state.ema_model_module,
+            normalizers=context.normalizers,
+            transitions=context.training_transitions,
+            batch_size=config.data.loader.batch_size,
+            histogram_sample_rng=state.histogram_sample_rng,
+        ),
+        validation_lipschitz=_compute_split_lipschitz(
+            ema_model_module=state.ema_model_module,
+            normalizers=context.normalizers,
+            transitions=context.validation_transitions,
+            batch_size=config.data.loader.batch_size,
+            histogram_sample_rng=state.histogram_sample_rng,
+        ),
+    )
+
+
+def load_best_member_model(*, state: MemberTrainingState) -> DynamicsModel:
+    if state.best_checkpoint is None:
         raise ValueError("No checkpoint was recorded")
+    state.model.load_state_dict(state_dict=state.best_checkpoint.state_dict)
+    return state.model
 
-    dynamics_model.load_state_dict(state_dict=best_checkpoint.state_dict)
 
-    return (
-        dynamics_model,
-        global_step,
-        MemberEpochHistory(
-            validation_losses=validation_losses,
-            training_lipschitz=training_lipschitz,
-            validation_lipschitz=validation_lipschitz,
+def _compute_split_lipschitz(
+    *,
+    ema_model_module: DynamicsModel,
+    normalizers: Normalizers,
+    transitions: TransitionSet,
+    batch_size: int,
+    histogram_sample_rng: np.random.Generator,
+) -> SplitLipschitz:
+    local_lipschitz_constants = calculate_local_lipschitz_constants(
+        dynamics_model=ema_model_module,
+        normalizers=normalizers,
+        states=transitions.states,
+        actions=transitions.actions,
+        batch_size=batch_size,
+    )
+    return SplitLipschitz(
+        mean=float(np.mean(local_lipschitz_constants)),
+        p99=float(np.percentile(local_lipschitz_constants, q=99.0)),
+        # A bounded subsample is enough for the pooled histogram and keeps memory flat.
+        subsample=_subsample_for_histogram(
+            values=local_lipschitz_constants, rng=histogram_sample_rng
         ),
     )
 
