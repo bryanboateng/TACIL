@@ -40,7 +40,6 @@ class MemberTrainingState:
     optimizer: torch.optim.Optimizer
     ema_model: AveragedModel
     shuffle_generator: torch.Generator
-    histogram_sample_rng: np.random.Generator
     best_checkpoint: Checkpoint | None = None
 
     @property
@@ -69,7 +68,6 @@ class TrainingContext:
 
 def create_member_training_state(
     *,
-    member_index: int,
     member_seed: int,
     config: Config,
     transitions: TransitionSet,
@@ -100,7 +98,6 @@ def create_member_training_state(
             use_buffers=False,
         ),
         shuffle_generator=torch.Generator(device=device).manual_seed(seed=member_seed),
-        histogram_sample_rng=np.random.default_rng(seed=member_index),
     )
 
 
@@ -118,8 +115,9 @@ def train_member_for_one_epoch(
         device=context.train_state_windows.device,
     )
 
-    step_losses: list[float] = []
-    step_gradient_norms: list[float] = []
+    losses: list[float] = []
+    gradient_norms: list[float] = []
+
     for step_index in range(steps_per_epoch):
         batch_window_indices = shuffled_window_indices[
             step_index * config.data.loader.batch_size : (step_index + 1)
@@ -127,6 +125,7 @@ def train_member_for_one_epoch(
         ]
 
         state.optimizer.zero_grad()
+
         loss = compute_loss(
             dynamics_model=state.model,
             normalizers=context.normalizers,
@@ -134,13 +133,13 @@ def train_member_for_one_epoch(
             action_window_batch=context.train_action_windows[batch_window_indices],
         )
         loss.backward()
+        losses.append(loss.detach().item())
+
         gradient_norm = torch.nn.utils.clip_grad_norm_(
             parameters=state.model.parameters(), max_norm=1.0
         )
         state.optimizer.step()
-
-        step_losses.append(loss.detach().item())
-        step_gradient_norms.append(gradient_norm.item())
+        gradient_norms.append(gradient_norm.item())
 
     state.ema_model.update_parameters(model=state.model)
     if config.architecture.lipschitz_constant_upper_bound is not None:
@@ -165,24 +164,22 @@ def train_member_for_one_epoch(
         )
 
     return MemberEpochMetrics(
-        # Mean loss over the epoch's steps and the epoch's worst gradient norm: a spike
-        # in the latter is the earliest sign a member is going unstable.
-        training_loss=float(np.mean(step_losses)),
-        gradient_norm=float(np.max(step_gradient_norms)),
+        training_loss=float(np.mean(losses)),
+        gradient_norm=float(np.max(gradient_norms)),
         validation_loss=validation_loss,
-        training_local_lipschitz_constants=_compute_split_lipschitz(
-            ema_dynamics_model=state.ema_dynamics_model,
+        training_local_lipschitz_constants=calculate_local_lipschitz_constants(
+            dynamics_model=state.ema_dynamics_model,
             normalizers=context.normalizers,
-            transitions=context.training_transitions,
+            states=context.training_transitions.states,
+            actions=context.training_transitions.actions,
             batch_size=config.data.loader.batch_size,
-            histogram_sample_rng=state.histogram_sample_rng,
         ),
-        validation_local_lipschitz_constants=_compute_split_lipschitz(
-            ema_dynamics_model=state.ema_dynamics_model,
+        validation_local_lipschitz_constants=calculate_local_lipschitz_constants(
+            dynamics_model=state.ema_dynamics_model,
             normalizers=context.normalizers,
-            transitions=context.validation_transitions,
+            states=context.validation_transitions.states,
+            actions=context.validation_transitions.actions,
             batch_size=config.data.loader.batch_size,
-            histogram_sample_rng=state.histogram_sample_rng,
         ),
     )
 
@@ -198,29 +195,7 @@ def load_best_member_model(
     return member_training_state.model
 
 
-def _compute_split_lipschitz(
-    *,
-    ema_dynamics_model: DynamicsModel,
-    normalizers: Normalizers,
-    transitions: TransitionSet,
-    batch_size: int,
-    histogram_sample_rng: np.random.Generator,
-) -> npt.NDArray[np.float32]:
-    local_lipschitz_constants = calculate_local_lipschitz_constants(
-        dynamics_model=ema_dynamics_model,
-        normalizers=normalizers,
-        states=transitions.states,
-        actions=transitions.actions,
-        batch_size=batch_size,
-    )
-    # A bounded subsample is enough for the pooled histogram and keeps memory flat.
-    maximum_sample_count = 512
-    if local_lipschitz_constants.shape[0] <= maximum_sample_count:
-        return local_lipschitz_constants
-    selected_indices = histogram_sample_rng.choice(
-        a=local_lipschitz_constants.shape[0], size=maximum_sample_count, replace=False
-    )
-    return local_lipschitz_constants[selected_indices]
+# ---- Private --------------------------------------------
 
 
 @torch.no_grad()

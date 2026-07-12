@@ -110,19 +110,17 @@ def _run(*, config: Config) -> None:
 
         member_training_states = [
             create_member_training_state(
-                member_index=member_index,
                 member_seed=int(member_seed),
                 config=config,
                 transitions=training_transitions,
                 device=device,
             )
-            for member_index, member_seed in enumerate(
-                iterable=np.random.SeedSequence(entropy=config.seed).generate_state(
-                    n_words=config.architecture.ensemble_size
-                )
-            )
+            for member_seed in np.random.SeedSequence(
+                entropy=config.seed
+            ).generate_state(n_words=config.architecture.ensemble_size)
         ]
 
+        histogram_sample_rng = np.random.default_rng(seed=config.seed)
         for epoch_index in tqdm(
             range(config.training.epoch_count), desc="training ensemble", unit="epoch"
         ):
@@ -136,6 +134,7 @@ def _run(*, config: Config) -> None:
                     )
                     for member_training_state in member_training_states
                 ],
+                histogram_sample_rng=histogram_sample_rng,
                 run=run,
             )
 
@@ -154,7 +153,11 @@ def _run(*, config: Config) -> None:
 
 
 def _log_epoch(
-    *, epoch_index: int, per_member_metrics: list[MemberEpochMetrics], run: Run
+    *,
+    epoch_index: int,
+    per_member_metrics: list[MemberEpochMetrics],
+    histogram_sample_rng: np.random.Generator,
+    run: Run,
 ) -> None:
     logged_metrics: dict[str, float | wandb.Histogram] = {}
     for member_index, metrics in enumerate(iterable=per_member_metrics):
@@ -179,8 +182,19 @@ def _log_epoch(
             ],
         ),
     ):
+        # A subsample per member is enough for the pooled histogram and keeps the
+        # logged payload flat regardless of how many transitions each member scored.
         logged_metrics[f"lipschitz_distribution/{split}"] = wandb.Histogram(
-            sequence=np.concatenate(member_split_lipschitz).tolist()
+            sequence=np.concatenate(
+                [
+                    member_lipschitz[
+                        histogram_sample_rng.choice(
+                            a=member_lipschitz.shape[0], size=512, replace=False
+                        )
+                    ]
+                    for member_lipschitz in member_split_lipschitz
+                ]
+            ).tolist()
         )
 
     run.log(logged_metrics, step=epoch_index)
