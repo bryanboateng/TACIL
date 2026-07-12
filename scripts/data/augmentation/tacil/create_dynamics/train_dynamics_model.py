@@ -1,18 +1,13 @@
-import copy
 import tempfile
-from dataclasses import asdict, dataclass
+from dataclasses import asdict
 from pathlib import Path
-from typing import cast
 
 import numpy as np
 import torch
 import tyro
 import wandb
-from numpy import typing as npt
 from rich.pretty import pretty_repr
 from sklearn.model_selection import train_test_split
-from torch.optim.swa_utils import AveragedModel
-from tqdm import tqdm
 from wandb import Run
 
 from scripts.data.augmentation.tacil.create_dynamics.checkpoint import (
@@ -20,16 +15,15 @@ from scripts.data.augmentation.tacil.create_dynamics.checkpoint import (
 )
 from scripts.data.augmentation.tacil.create_dynamics.config import Config
 from scripts.data.augmentation.tacil.create_dynamics.data import (
-    TransitionSet,
     build_windows,
     concatenate_episodes,
     extract_transitions,
 )
-from scripts.data.augmentation.tacil.create_dynamics.evaluation import (
-    calculate_local_lipschitz_constants,
-    calculate_validation_loss,
+from scripts.data.augmentation.tacil.create_dynamics.dynamics_model_training import (
+    LocalLipschitzEpochHistory,
+    MemberEpochHistory,
+    train_dynamics_model,
 )
-from scripts.data.augmentation.tacil.create_dynamics.losses import compute_loss
 from scripts.data.augmentation.tacil.models.dynamics_model import DynamicsModel
 from scripts.data.augmentation.tacil.models.dynamics_model_ensemble import (
     DynamicsModelEnsemble,
@@ -43,13 +37,6 @@ from scripts.shared.seed import set_seed
 logger = create_logger()
 
 
-@dataclass
-class Checkpoint:
-    validation_loss: float
-    epoch: int
-    state_dict: dict
-
-
 def main():
     config = tyro.cli(f=Config, config=[tyro.conf.UsePythonSyntaxForLiteralCollections])
     logger.info(pretty_repr(config))
@@ -59,13 +46,13 @@ def main():
 def _run(*, config: Config) -> None:
     set_seed(seed=config.seed)
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = torch.device(device="cuda" if torch.cuda.is_available() else "cpu")
     log_device_info(device=device, logger=logger)
 
     with wandb.init(
         project=config.wandb_project,
         job_type="train-tacil-dynamics",
-        config=asdict(config),
+        config=asdict(obj=config),
         dir=OUTPUT_DIRECTORY_PATH,
     ) as run:
         training_episodes, validation_episodes = train_test_split(
@@ -98,24 +85,20 @@ def _run(*, config: Config) -> None:
             config.data.loader.window_length,
         )
 
-        train_state_windows_tensor = torch.from_numpy(train_state_windows).to(
-            device=device
-        )
-        train_action_windows_tensor = torch.from_numpy(train_action_windows).to(
-            device=device
-        )
-
         normalizers = Normalizers.from_transitions(
-            state_batch=torch.from_numpy(training_transitions.states).to(device=device),
-            action_batch=torch.from_numpy(training_transitions.actions).to(
+            state_batch=torch.from_numpy(ndarray=training_transitions.states).to(
                 device=device
             ),
-            next_state_batch=torch.from_numpy(training_transitions.next_states).to(
+            action_batch=torch.from_numpy(ndarray=training_transitions.actions).to(
                 device=device
             ),
+            next_state_batch=torch.from_numpy(
+                ndarray=training_transitions.next_states
+            ).to(device=device),
         ).to(device=device)
 
         dynamics_models: list[DynamicsModel] = []
+        member_metric_histories: list[MemberEpochHistory] = []
         global_step = 0
         for member_index, member_seed in enumerate(
             np.random.SeedSequence(entropy=config.seed).generate_state(
@@ -124,14 +107,14 @@ def _run(*, config: Config) -> None:
         ):
             set_seed(seed=int(member_seed))
 
-            dynamics_model, global_step = _train_single_member(
+            dynamics_model, global_step, member_metric_history = train_dynamics_model(
                 member_index=member_index,
                 config=config,
                 normalizers=normalizers,
                 training_transitions=training_transitions,
                 validation_transitions=validation_transitions,
-                train_state_windows_tensor=train_state_windows_tensor,
-                train_action_windows_tensor=train_action_windows_tensor,
+                train_state_windows=train_state_windows,
+                train_action_windows=train_action_windows,
                 validation_state_windows=validation_state_windows,
                 validation_action_windows=validation_action_windows,
                 run=run,
@@ -139,6 +122,13 @@ def _run(*, config: Config) -> None:
                 initial_global_step=global_step,
             )
             dynamics_models.append(dynamics_model)
+            member_metric_histories.append(member_metric_history)
+
+        _log_ensemble_aggregate_metrics(
+            run=run,
+            member_metric_histories=member_metric_histories,
+            initial_global_step=global_step,
+        )
 
         _upload_dynamics_model_ensemble(
             dynamics_model_ensemble=DynamicsModelEnsemble(
@@ -148,204 +138,104 @@ def _run(*, config: Config) -> None:
         )
 
 
-def _train_single_member(
+def _log_ensemble_aggregate_metrics(
     *,
-    member_index: int,
-    config: Config,
-    normalizers: Normalizers,
-    training_transitions: TransitionSet,
-    validation_transitions: TransitionSet,
-    train_state_windows_tensor: torch.Tensor,
-    train_action_windows_tensor: torch.Tensor,
-    validation_state_windows: npt.NDArray[np.float32],
-    validation_action_windows: npt.NDArray[np.float32],
     run: Run,
-    device: torch.device,
+    member_metric_histories: list[MemberEpochHistory],
     initial_global_step: int,
-) -> tuple[DynamicsModel, int]:
-    metric_prefix = f"member_{member_index}/"
+) -> None:
+    """Log the ensemble's per-epoch scalar bands and pooled Lipschitz histograms.
 
-    dynamics_model = DynamicsModel(
-        state_dimensionality=training_transitions.states.shape[1],
-        action_dimensionality=training_transitions.actions.shape[1],
-        hidden_dimensionalities=config.architecture.hidden_layer_sizes,
-        lipschitz_constant_upper_bound=config.architecture.lipschitz_constant_upper_bound,
-    ).to(device=device)
+    For each scalar metric this emits the across-member mean and the two band edges
+    (mean minus and plus one standard deviation), so a line panel renders the mean
+    bracketed by a disagreement band. The standard deviation (a quantity TACIL cares
+    about) is used rather than a min/max band so a single divergent member cannot blow
+    up the y-axis. For each split, every member's local Lipschitz constants are pooled
+    into a single histogram per epoch, so the shape of the ensemble's Lipschitz
+    distribution stays visible without one histogram per member. All series are plotted
+    against an epoch x-axis (``ensemble/epoch``) rather than the global step, which the
+    per-step training-health curves consume sequentially.
+    """
+    run.define_metric(name="ensemble/epoch")
+    run.define_metric(name="ensemble/*", step_metric="ensemble/epoch")
 
-    optimizer = torch.optim.Adam(
-        params=dynamics_model.parameters(),
-        lr=config.training.learning_rate,
-        weight_decay=config.training.weight_decay,
-    )
-
-    ema_model = AveragedModel(
-        dynamics_model,
-        avg_fn=lambda ema_parameter, current_parameter, _num_averaged: (
-            config.training.ema_decay * ema_parameter
-            + (1.0 - config.training.ema_decay) * current_parameter
-        ),
-        use_buffers=False,
-    )
-
-    # AveragedModel.module is typed as nn.Module but it is the DynamicsNetwork we
-    # wrapped.
-    ema_dynamics_model = cast(DynamicsModel, ema_model.module)
-
-    window_count = train_state_windows_tensor.shape[0]
-    steps_per_epoch = max(window_count // config.data.loader.batch_size, 1)
+    epoch_count = len(member_metric_histories[0].validation_losses)
 
     global_step = initial_global_step
-    best_checkpoint: Checkpoint | None = None
-
-    for epoch_index in tqdm(
-        range(config.training.epoch_count),
-        desc=f"training member {member_index}",
-        unit="epoch",
-    ):
-        dynamics_model.train()
-
-        shuffled_window_indices = torch.randperm(n=window_count, device=device)
-        for step_index in range(steps_per_epoch):
-            batch_window_indices = shuffled_window_indices[
-                step_index * config.data.loader.batch_size : (step_index + 1)
-                * config.data.loader.batch_size
-            ]
-
-            optimizer.zero_grad()
-
-            loss = compute_loss(
-                dynamics_model=dynamics_model,
-                normalizers=normalizers,
-                state_window_batch=train_state_windows_tensor[batch_window_indices],
-                action_window_batch=train_action_windows_tensor[batch_window_indices],
-            )
-            loss.backward()
-
-            gradient_norm = torch.nn.utils.clip_grad_norm_(
-                parameters=dynamics_model.parameters(), max_norm=1.0
-            )
-            optimizer.step()
-
-            run.log(
-                {
-                    f"{metric_prefix}loss/training": loss.detach().item(),
-                    f"{metric_prefix}gradient_norm": gradient_norm.item(),
-                },
-                step=global_step,
-            )
-            global_step += 1
-
-        ema_model.update_parameters(model=dynamics_model)
-
-        if config.architecture.lipschitz_constant_upper_bound is not None:
-            _refresh_spectral_norm_estimates(ema_dynamics_model=ema_dynamics_model)
-
-        validation_loss = calculate_validation_loss(
-            dynamics_model=ema_dynamics_model,
-            normalizers=normalizers,
-            state_windows=validation_state_windows,
-            action_windows=validation_action_windows,
-            batch_size=config.data.loader.batch_size,
-        )
-        run.log({f"{metric_prefix}loss/validation": validation_loss}, step=global_step)
-        run.log(
-            {
-                f"{metric_prefix}{key}": value
-                for key, value in {
-                    **_compute_lipschitz_metrics(
-                        dynamics_model=ema_dynamics_model,
-                        normalizers=normalizers,
-                        states=training_transitions.states,
-                        actions=training_transitions.actions,
-                        batch_size=config.data.loader.batch_size,
-                        split="training",
-                    ),
-                    **_compute_lipschitz_metrics(
-                        dynamics_model=ema_dynamics_model,
-                        normalizers=normalizers,
-                        states=validation_transitions.states,
-                        actions=validation_transitions.actions,
-                        batch_size=config.data.loader.batch_size,
-                        split="validation",
-                    ),
-                }.items()
-            },
-            step=global_step,
-        )
-        run.log({f"{metric_prefix}epoch": epoch_index}, step=global_step)
-
-        if best_checkpoint is None or validation_loss < best_checkpoint.validation_loss:
-            best_checkpoint = Checkpoint(
-                validation_loss=validation_loss,
-                epoch=epoch_index,
-                state_dict=copy.deepcopy(ema_dynamics_model.state_dict()),
-            )
-
-    if best_checkpoint is None:
-        raise ValueError("No checkpoint was recorded")
-
-    dynamics_model.load_state_dict(state_dict=best_checkpoint.state_dict)
-    run.summary[f"{metric_prefix}selected/epoch"] = best_checkpoint.epoch
-    run.summary[f"{metric_prefix}selected/validation_loss"] = (
-        best_checkpoint.validation_loss
-    )
-
-    return dynamics_model, global_step
+    for epoch_index in range(epoch_count):
+        aggregate_metrics: dict[str, float | wandb.Histogram] = {
+            "ensemble/epoch": epoch_index,
+            **_scalar_band(
+                name="ensemble/loss/validation",
+                member_values=[
+                    history.validation_losses[epoch_index]
+                    for history in member_metric_histories
+                ],
+            ),
+            **_lipschitz_bands(
+                split="training",
+                member_lipschitz_histories=[
+                    history.training_lipschitz
+                    for history in member_metric_histories
+                ],
+                epoch_index=epoch_index,
+            ),
+            **_lipschitz_bands(
+                split="validation",
+                member_lipschitz_histories=[
+                    history.validation_lipschitz
+                    for history in member_metric_histories
+                ],
+                epoch_index=epoch_index,
+            ),
+        }
+        run.log(aggregate_metrics, step=global_step)
+        global_step += 1
 
 
-def _compute_lipschitz_metrics(
-    *,
-    dynamics_model: DynamicsModel,
-    normalizers: Normalizers,
-    states: npt.NDArray[np.float32],  # (sample_count, state_dimensionality)
-    actions: npt.NDArray[np.float32],  # (sample_count, action_dimensionality)
-    batch_size: int,
-    split: str,
-) -> dict[str, float | wandb.Histogram]:
-    local_lipschitz_constants = calculate_local_lipschitz_constants(
-        dynamics_model=dynamics_model,
-        normalizers=normalizers,
-        states=states,
-        actions=actions,
-        batch_size=batch_size,
-    )
+def _scalar_band(*, name: str, member_values: list[float]) -> dict[str, float]:
+    """Across-member mean and the two edges of a one-standard-deviation band."""
+    member_mean = float(np.mean(member_values))
+    member_standard_deviation = float(np.std(member_values))
     return {
-        f"lipschitz/distribution_{split}": wandb.Histogram(
-            local_lipschitz_constants.tolist()
-        ),
-        f"lipschitz/mean_{split}": float(np.mean(local_lipschitz_constants)),
-        f"lipschitz/p99_{split}": float(
-            np.percentile(local_lipschitz_constants, q=99.0)
-        ),
+        f"{name}_mean": member_mean,
+        f"{name}_band_lower": member_mean - member_standard_deviation,
+        f"{name}_band_upper": member_mean + member_standard_deviation,
     }
 
 
-@torch.no_grad()
-def _refresh_spectral_norm_estimates(*, ema_dynamics_model: DynamicsModel) -> None:
-    """Recompute the spectral-norm vectors for the EMA network's averaged weights.
-
-    These vectors only update during train-mode forward passes, and the EMA network is
-    never trained, so its vectors are out of date. They also can't be copied from the
-    live network, because they only fit the exact weights they were computed from, and
-    the EMA network has different weights. So we run a few forward
-    passes in train mode: each pass moves the vectors one step closer to the correct
-    values for the current weights.
-    The input values play no role here, so we use zeros.
-    """
-    network_device = next(ema_dynamics_model.parameters()).device
-
-    dummy_normalized_input_batch = torch.zeros(
-        1,
-        ema_dynamics_model.state_dimensionality
-        + ema_dynamics_model.action_dimensionality,
-        device=network_device,
+def _lipschitz_bands(
+    *,
+    split: str,
+    member_lipschitz_histories: list[LocalLipschitzEpochHistory],
+    epoch_index: int,
+) -> dict[str, float | wandb.Histogram]:
+    """Mean and p99 bands plus one histogram pooling every member's constants."""
+    pooled_local_lipschitz_constants = np.concatenate(
+        [
+            lipschitz_history.subsamples[epoch_index]
+            for lipschitz_history in member_lipschitz_histories
+        ]
     )
-
-    model_was_training = ema_dynamics_model.training
-    ema_dynamics_model.train()
-    for _ in range(50):
-        ema_dynamics_model(dummy_normalized_input_batch)
-    ema_dynamics_model.train(mode=model_was_training)
+    return {
+        **_scalar_band(
+            name=f"ensemble/lipschitz/mean_{split}",
+            member_values=[
+                lipschitz_history.means[epoch_index]
+                for lipschitz_history in member_lipschitz_histories
+            ],
+        ),
+        **_scalar_band(
+            name=f"ensemble/lipschitz/p99_{split}",
+            member_values=[
+                lipschitz_history.p99s[epoch_index]
+                for lipschitz_history in member_lipschitz_histories
+            ],
+        ),
+        f"ensemble/lipschitz/distribution_{split}": wandb.Histogram(
+            pooled_local_lipschitz_constants.tolist()
+        ),
+    }
 
 
 def _upload_dynamics_model_ensemble(
