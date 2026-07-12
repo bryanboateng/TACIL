@@ -115,13 +115,17 @@ def _build_workspace(*, entity: str, project: str) -> ws.Workspace:
 def ensure_dashboard_view(*, entity: str, project: str) -> None:
     """Upsert the curated saved view for this project.
 
-    NOTE: temporarily NOT best-effort. The error was being swallowed, so we let it
-    propagate to surface why the view is not being created. Restore the try/except once
-    the save path is confirmed working.
+    Best-effort: configuring the dashboard must never break a training run, so any
+    failure (offline mode, API change, missing permissions) is logged and swallowed.
     """
-    workspace = _build_workspace(entity=entity, project=project)
-    # Pin the internal name so repeated runs update this one view rather than spawning a
-    # new duplicate view each time.
-    object.__setattr__(workspace, "_internal_name", _INTERNAL_VIEW_NAME)
-    workspace.save()
-    logger.info("Curated W&B view '%s' is up to date: %s", _VIEW_NAME, workspace.url)
+    try:
+        workspace = _build_workspace(entity=entity, project=project)
+        # Pin the internal name so repeated runs update this one view rather than
+        # spawning a new duplicate view each time.
+        object.__setattr__(workspace, "_internal_name", _INTERNAL_VIEW_NAME)
+        workspace.save()
+        logger.info(
+            "Curated W&B view '%s' is up to date: %s", _VIEW_NAME, workspace.url
+        )
+    except Exception:
+        logger.warning("Could not configure the curated W&B view.", exc_info=True)
