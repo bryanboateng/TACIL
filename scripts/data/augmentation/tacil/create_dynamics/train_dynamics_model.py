@@ -86,10 +86,8 @@ def _run(*, config: Config) -> None:
         )
 
         normalizers = Normalizers.from_transitions(
-            state_batch=torch.from_numpy(ndarray=training_transitions.states).to(
-                device=device
-            ),
-            action_batch=torch.from_numpy(ndarray=training_transitions.actions).to(
+            state_batch=torch.from_numpy(training_transitions.states).to(device=device),
+            action_batch=torch.from_numpy(training_transitions.actions).to(
                 device=device
             ),
             next_state_batch=torch.from_numpy(
@@ -175,16 +173,14 @@ def _log_ensemble_aggregate_metrics(
             **_lipschitz_bands(
                 split="training",
                 member_lipschitz_histories=[
-                    history.training_lipschitz
-                    for history in member_epoch_histories
+                    history.training_lipschitz for history in member_epoch_histories
                 ],
                 epoch_index=epoch_index,
             ),
             **_lipschitz_bands(
                 split="validation",
                 member_lipschitz_histories=[
-                    history.validation_lipschitz
-                    for history in member_epoch_histories
+                    history.validation_lipschitz for history in member_epoch_histories
                 ],
                 epoch_index=epoch_index,
             ),

@@ -23,10 +23,10 @@ def calculate_validation_loss(
 
     device = next(dynamics_model.parameters()).device
 
-    state_windows_tensor = torch.from_numpy(ndarray=state_windows).to(
+    state_windows_tensor = torch.from_numpy(state_windows).to(
         device=device
     )  # (window_count, window_length + 1, state_dimensionality)
-    action_windows_tensor = torch.from_numpy(ndarray=action_windows).to(
+    action_windows_tensor = torch.from_numpy(action_windows).to(
         device=device
     )  # (window_count, window_length, action_dimensionality)
 
@@ -64,8 +64,8 @@ def calculate_local_lipschitz_constants(
     dynamics_model.eval()
 
     device = next(dynamics_model.parameters()).device
-    states_tensor = torch.from_numpy(ndarray=states).to(device=device)
-    actions_tensor = torch.from_numpy(ndarray=actions).to(device=device)
+    states_tensor = torch.from_numpy(states).to(device=device)
+    actions_tensor = torch.from_numpy(actions).to(device=device)
 
     local_lipschitz_constant_batches: list[npt.NDArray[np.float32]] = []
     for batch_start in range(0, states_tensor.shape[0], batch_size):
