@@ -98,7 +98,7 @@ def _run(*, config: Config) -> None:
         ).to(device=device)
 
         dynamics_models: list[DynamicsModel] = []
-        member_metric_histories: list[MemberEpochHistory] = []
+        member_epoch_histories: list[MemberEpochHistory] = []
         global_step = 0
         for member_index, member_seed in enumerate(
             np.random.SeedSequence(entropy=config.seed).generate_state(
@@ -107,7 +107,7 @@ def _run(*, config: Config) -> None:
         ):
             set_seed(seed=int(member_seed))
 
-            dynamics_model, global_step, member_metric_history = train_dynamics_model(
+            dynamics_model, global_step, member_epoch_history = train_dynamics_model(
                 member_index=member_index,
                 config=config,
                 normalizers=normalizers,
@@ -122,11 +122,11 @@ def _run(*, config: Config) -> None:
                 initial_global_step=global_step,
             )
             dynamics_models.append(dynamics_model)
-            member_metric_histories.append(member_metric_history)
+            member_epoch_histories.append(member_epoch_history)
 
         _log_ensemble_aggregate_metrics(
             run=run,
-            member_metric_histories=member_metric_histories,
+            member_epoch_histories=member_epoch_histories,
             initial_global_step=global_step,
         )
 
@@ -141,7 +141,7 @@ def _run(*, config: Config) -> None:
 def _log_ensemble_aggregate_metrics(
     *,
     run: Run,
-    member_metric_histories: list[MemberEpochHistory],
+    member_epoch_histories: list[MemberEpochHistory],
     initial_global_step: int,
 ) -> None:
     """Log the ensemble's per-epoch scalar bands and pooled Lipschitz histograms.
@@ -159,7 +159,7 @@ def _log_ensemble_aggregate_metrics(
     run.define_metric(name="ensemble/epoch")
     run.define_metric(name="ensemble/*", step_metric="ensemble/epoch")
 
-    epoch_count = len(member_metric_histories[0].validation_losses)
+    epoch_count = len(member_epoch_histories[0].validation_losses)
 
     global_step = initial_global_step
     for epoch_index in range(epoch_count):
@@ -169,14 +169,14 @@ def _log_ensemble_aggregate_metrics(
                 name="ensemble/loss/validation",
                 member_values=[
                     history.validation_losses[epoch_index]
-                    for history in member_metric_histories
+                    for history in member_epoch_histories
                 ],
             ),
             **_lipschitz_bands(
                 split="training",
                 member_lipschitz_histories=[
                     history.training_lipschitz
-                    for history in member_metric_histories
+                    for history in member_epoch_histories
                 ],
                 epoch_index=epoch_index,
             ),
@@ -184,7 +184,7 @@ def _log_ensemble_aggregate_metrics(
                 split="validation",
                 member_lipschitz_histories=[
                     history.validation_lipschitz
-                    for history in member_metric_histories
+                    for history in member_epoch_histories
                 ],
                 epoch_index=epoch_index,
             ),
