@@ -34,7 +34,10 @@ class Condition:
                     disturbance_label = "low"
                 case DisturbanceLevel.HIGH:
                     disturbance_label = "high"
-        return f"damping_{self.floor_condition}_disturbance_{disturbance_label}"
+        return (
+            f"damping_{self.floor_condition.name.lower()}"
+            f"_disturbance_{disturbance_label}"
+        )
 
 
 def get_conditions() -> list[Condition]:
