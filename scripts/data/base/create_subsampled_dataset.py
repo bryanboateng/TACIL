@@ -10,13 +10,14 @@ from wandb import Run
 from scripts.shared.data import EpisodeStore, load_episode_store, upload_episode_store
 from scripts.shared.log import create_logger
 from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
+from scripts.shared.wandb_config import WandbConfig
 
 logger = create_logger()
 
 
 @dataclass
 class Config:
-    wandb_project: str
+    wandb: WandbConfig
 
     fraction: float
     seed: int = 42
@@ -36,7 +37,8 @@ def _run(*, config: Config):
     rng = np.random.default_rng(seed=config.seed)
 
     with wandb.init(
-        project=config.wandb_project,
+        project=config.wandb.project,
+        notes=config.wandb.notes,
         job_type="create-subsampled-dataset",
         config=asdict(config),
         dir=OUTPUT_DIRECTORY_PATH,

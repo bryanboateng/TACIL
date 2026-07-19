@@ -4,6 +4,7 @@ from typing import Annotated, Literal
 import tyro
 
 from scripts.policies.gpi import config as gpi
+from scripts.shared.wandb_config import WandbConfig
 
 
 @dataclass(frozen=True)
@@ -19,7 +20,7 @@ class BehaviorCloningCheckpoint:
 
 @dataclass(frozen=True)
 class Config:
-    wandb_project: str
+    wandb: WandbConfig
 
     policy: (
         Annotated[DiffusionPolicyCheckpoint, tyro.conf.subcommand(name="dp")]

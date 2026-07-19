@@ -70,7 +70,8 @@ def _run(*, config: Config) -> None:
 
     with (
         wandb.init(
-            project=config.wandb_project,
+            project=config.wandb.project,
+            notes=config.wandb.notes,
             job_type="train-diffusion-policy",
             config=asdict(config),
             dir=OUTPUT_DIRECTORY_PATH,

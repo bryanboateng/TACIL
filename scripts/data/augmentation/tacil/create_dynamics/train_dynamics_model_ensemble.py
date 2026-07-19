@@ -60,7 +60,8 @@ def _run(*, config: Config) -> None:
     log_device_info(device=device, logger=logger)
 
     with wandb.init(
-        project=config.wandb_project,
+        project=config.wandb.project,
+        notes=config.wandb.notes,
         job_type="train-tacil-dynamics",
         config=asdict(obj=config),
         dir=OUTPUT_DIRECTORY_PATH,

@@ -1,6 +1,8 @@
 from dataclasses import dataclass
 from typing import Literal
 
+from scripts.shared.wandb_config import WandbConfig
+
 
 @dataclass(frozen=True)
 class DimensionalityConfig:
@@ -34,7 +36,7 @@ class EvaluationConfig:
 
 @dataclass(frozen=True)
 class Config:
-    wandb_project: str
+    wandb: WandbConfig
 
     dataset_artifact: str
     dimensionality: DimensionalityConfig

@@ -1,5 +1,7 @@
 from dataclasses import dataclass
 
+from scripts.shared.wandb_config import WandbConfig
+
 
 @dataclass(frozen=True)
 class DimensionalityConfig:
@@ -23,7 +25,7 @@ class EvaluationConfig:
 
 @dataclass(frozen=True)
 class Config:
-    wandb_project: str
+    wandb: WandbConfig
 
     dimensionality: DimensionalityConfig
     optimization: OptimizationConfig

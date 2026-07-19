@@ -1,9 +1,11 @@
 from dataclasses import dataclass
 
+from scripts.shared.wandb_config import WandbConfig
+
 
 @dataclass(frozen=True)
 class Config:
-    wandb_project: str
+    wandb: WandbConfig
 
     model_artifact: str
     dataset_artifact: str
