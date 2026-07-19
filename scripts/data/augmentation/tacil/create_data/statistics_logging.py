@@ -15,8 +15,6 @@ from scripts.data.augmentation.tacil.create_data.episode_assembly import (
 # shows them in pipeline order: error model -> rollout -> termination ->
 # augmented episodes -> combined dataset.
 
-_MAX_HISTOGRAM_VALUE_COUNT = 10_000
-
 
 def log_rollout_statistics(
     *,
@@ -59,7 +57,7 @@ def log_rollout_statistics(
     ):
         values = values_batch.cpu().numpy()
         if values.size > 0:
-            histogram_panels[f"histograms/{name}"] = _histogram_panel(
+            histogram_panels[f"distributions/{name}"] = _distribution_panel(
                 values=values, column_name=name
             )
 
@@ -109,7 +107,7 @@ def log_dataset_statistics(
 
     run.log(
         data={
-            "histograms/synthetic_part_lengths": _histogram_panel(
+            "distributions/synthetic_part_lengths": _distribution_panel(
                 values=synthetic_part_lengths, column_name="synthetic_part_length"
             )
         },
@@ -117,24 +115,32 @@ def log_dataset_statistics(
     )
 
 
-def _histogram_panel(*, values: np.ndarray, column_name: str) -> CustomChart:
-    """A static histogram panel built from a table of raw values.
-
-    wandb's native Histogram type is meant to be logged once per training step
-    and renders as a step-indexed heatmap; for a one-off distribution that
-    display is unreadable, so we use a custom chart instead."""
+def _distribution_panel(*, values: np.ndarray, column_name: str) -> CustomChart:
+    """Bar chart of the value distribution: one bar per bin, bar length = how
+    many values fall in it. Binned here in numpy — wandb's built-in histogram
+    types bin in the browser and render one-off distributions unreadably."""
     clipped_values = values[
         values <= float(np.percentile(a=values, q=99.5))
     ]  # (clipped_count,)
-    if clipped_values.size > _MAX_HISTOGRAM_VALUE_COUNT:
-        clipped_values = np.random.default_rng(seed=0).choice(
-            a=clipped_values, size=_MAX_HISTOGRAM_VALUE_COUNT, replace=False
-        )
 
-    return wandb.plot.histogram(
-        table=wandb.Table(
-            data=[[float(value)] for value in clipped_values], columns=[column_name]
-        ),
-        value=column_name,
+    if np.issubdtype(clipped_values.dtype, np.integer):
+        # One bar per occurring integer value.
+        bin_values, bin_counts = np.unique(clipped_values, return_counts=True)
+        rows = [
+            [int(bin_value), int(bin_count)]
+            for bin_value, bin_count in zip(bin_values, bin_counts)
+        ]
+    else:
+        bin_counts, bin_edges = np.histogram(a=clipped_values, bins=20)
+        bin_midpoints = (bin_edges[:-1] + bin_edges[1:]) / 2  # (20,)
+        rows = [
+            [float(f"{bin_midpoint:.4g}"), int(bin_count)]
+            for bin_midpoint, bin_count in zip(bin_midpoints, bin_counts)
+        ]
+
+    return wandb.plot.bar(
+        table=wandb.Table(data=rows, columns=[column_name, "count"]),
+        label=column_name,
+        value="count",
         title=column_name,
     )
