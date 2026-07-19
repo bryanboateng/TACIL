@@ -153,8 +153,7 @@ def record_condition(
                     f"{condition.label}_video": wandb.Video(
                         data_or_path=str(video_path), format="mp4"
                     )
-                },
-                step=0,
+                }
             )
     finally:
         environment.close()
