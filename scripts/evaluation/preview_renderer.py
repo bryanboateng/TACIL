@@ -108,6 +108,7 @@ def main(use_gpi_policy: bool = False) -> None:
             episode_result=episode_result,
             font=font,
             condition=condition,
+            policy_label="dp (DDIM)   nwoefn.wefwlenfwofownwefn:v0",
             seed=seed,
             percentile=75,
             episode_reward=episode_result.reward,

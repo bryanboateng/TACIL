@@ -11,6 +11,7 @@ from scripts.evaluation.config import (
     BehaviorCloningCheckpoint,
     Config,
     DiffusionPolicyCheckpoint,
+    describe_policy,
 )
 from scripts.evaluation.core.condition import Condition, get_conditions
 from scripts.evaluation.core.scoring import (
@@ -60,6 +61,7 @@ def _run(*, config: Config) -> None:
     ) as run:
         start_episode_seed = 1_000_000
         policy_factory = _build_policy_factory(config=config, run=run, device=device)
+        policy_label = describe_policy(policy=config.policy)
 
         for condition in get_conditions():
             episode_scores = run_scored_episodes(
@@ -70,6 +72,7 @@ def _run(*, config: Config) -> None:
             )
             record_condition(
                 policy_factory=policy_factory,
+                policy_label=policy_label,
                 condition=condition,
                 episode_scores=pick_representative_scores(
                     episode_scores=episode_scores

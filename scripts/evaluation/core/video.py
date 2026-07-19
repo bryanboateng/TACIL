@@ -52,6 +52,7 @@ def build_annotated_surfaces(
     episode_result: EpisodeResult,
     font: pygame.font.Font,
     condition: Condition,
+    policy_label: str,
     seed: int,
     percentile: int,
     episode_reward: float,
@@ -67,7 +68,7 @@ def build_annotated_surfaces(
         annotated_surface = _convert_frame_to_surface(frame=frame).copy()
 
         _add_text_to_surface(
-            text=_condition_label(condition=condition),
+            text=f"{policy_label}\n{_condition_label(condition=condition)}",
             placement=Placement.TOP_LEFT,
             surface=annotated_surface,
             font=font,
@@ -114,6 +115,7 @@ def build_annotated_surfaces(
 def record_condition(
     *,
     policy_factory: PolicyFactory,
+    policy_label: str,
     condition: Condition,
     episode_scores: dict[int, EpisodeScore],
     run: Run,
@@ -139,6 +141,7 @@ def record_condition(
             try:
                 _record_group(
                     policy_factory=policy_factory,
+                    policy_label=policy_label,
                     environment=environment,
                     condition=condition,
                     episode_scores=episode_scores,
@@ -197,6 +200,7 @@ def _build_reward_text(
 def _record_group(
     *,
     policy_factory: PolicyFactory,
+    policy_label: str,
     environment,
     condition: Condition,
     episode_scores: dict[int, EpisodeScore],
@@ -217,6 +221,7 @@ def _record_group(
             episode_result=episode_result,
             font=font,
             condition=condition,
+            policy_label=policy_label,
             seed=score.seed,
             percentile=percentile,
             episode_reward=score.reward,
