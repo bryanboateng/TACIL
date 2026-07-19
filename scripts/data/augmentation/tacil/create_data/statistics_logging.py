@@ -64,11 +64,11 @@ def log_rollout_statistics(
     ):
         values = values_batch.cpu().numpy()
         if values.size > 0:
-            histogram_panels[f"distributions/{name}"] = _distribution_panel(
+            histogram_panels[f"distributions_{name}"] = _distribution_panel(
                 values=values, column_name=name
             )
 
-    run.log(data=histogram_panels)
+    run.log(data=histogram_panels, step=0)
 
 
 def log_dataset_statistics(
@@ -114,10 +114,11 @@ def log_dataset_statistics(
 
     run.log(
         data={
-            "distributions/synthetic_part_lengths": _distribution_panel(
+            "distributions_synthetic_part_lengths": _distribution_panel(
                 values=synthetic_part_lengths, column_name="synthetic_part_length"
             )
-        }
+        },
+        step=0,
     )
 
 
