@@ -11,6 +11,10 @@ from scripts.data.augmentation.tacil.create_data.episode_assembly import (
     AugmentationResult,
 )
 
+# Summary groups carry numeric prefixes so wandb's alphabetical summary table
+# shows them in pipeline order: error model -> rollout -> termination ->
+# augmented episodes -> combined dataset.
+
 _MAX_HISTOGRAM_VALUE_COUNT = 10_000
 
 
@@ -25,11 +29,11 @@ def log_rollout_statistics(
         rollout_diagnostics.termination_reasons_batch.cpu().numpy()
     )  # (anchor_count,)
 
-    run.summary["median_expert_step_distance"] = median_expert_step_distance
-    run.summary["error_limit"] = error_limit
-    run.summary["anchor_count"] = int(termination_reasons.shape[0])
+    run.summary["2_rollout/median_expert_step_distance"] = median_expert_step_distance
+    run.summary["2_rollout/error_limit"] = error_limit
+    run.summary["2_rollout/anchor_count"] = int(termination_reasons.shape[0])
     for termination_reason in TerminationReason:
-        run.summary[f"termination_reason/{termination_reason.name.lower()}"] = int(
+        run.summary[f"3_termination_reason/{termination_reason.name.lower()}"] = int(
             (termination_reasons == termination_reason).sum()
         )
 
@@ -72,33 +76,34 @@ def log_dataset_statistics(
     synthetic_part_lengths = augmentation_result.synthetic_part_lengths
     counts = augmentation_result.counts
 
-    run.summary["anchors/accepted_count"] = counts.accepted
-    run.summary["anchors/empty_count"] = counts.empty
-    run.summary["anchors/accepted_fraction"] = counts.accepted / (
+    # counts.accepted equals the number of augmented episodes, and
+    # counts.empty equals anchor_count - accepted: each value appears once.
+    run.summary["2_rollout/accepted_anchor_count"] = counts.accepted
+    run.summary["2_rollout/accepted_anchor_fraction"] = counts.accepted / (
         counts.accepted + counts.empty
     )
 
-    run.summary["synthetic_part_length/mean"] = float(synthetic_part_lengths.mean())
-    run.summary["synthetic_part_length/max"] = int(synthetic_part_lengths.max())
-
-    augmented_episode_count = len(augmentation_result.episode_store.episode_end_indices)
     augmented_transition_count = int(augmentation_result.episode_store.states.shape[0])
     synthetic_transition_count = int(synthetic_part_lengths.sum())
-    run.summary["augmented_episodes/count"] = augmented_episode_count
-    run.summary["augmented_episodes/transition_count"] = augmented_transition_count
-    run.summary["augmented_episodes/synthetic_transition_count"] = (
+    run.summary["4_augmented_episodes/synthetic_part_length_mean"] = float(
+        synthetic_part_lengths.mean()
+    )
+    run.summary["4_augmented_episodes/synthetic_part_length_max"] = int(
+        synthetic_part_lengths.max()
+    )
+    run.summary["4_augmented_episodes/synthetic_transition_count"] = (
         synthetic_transition_count
     )
-    run.summary["augmented_episodes/copied_expert_transition_count"] = (
+    run.summary["4_augmented_episodes/copied_expert_transition_count"] = (
         augmented_transition_count - synthetic_transition_count
     )
 
     combined_transition_count = source_transition_count + augmented_transition_count
-    run.summary["combined_dataset/episode_count"] = (
-        source_episode_count + augmented_episode_count
+    run.summary["5_combined_dataset/episode_count"] = (
+        source_episode_count + counts.accepted
     )
-    run.summary["combined_dataset/transition_count"] = combined_transition_count
-    run.summary["combined_dataset/synthetic_transition_fraction"] = (
+    run.summary["5_combined_dataset/transition_count"] = combined_transition_count
+    run.summary["5_combined_dataset/synthetic_transition_fraction"] = (
         synthetic_transition_count / combined_transition_count
     )
 

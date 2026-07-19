@@ -67,7 +67,7 @@ def _run(*, config: Config) -> None:
         error_model = load_error_model(directory_path=model_directory_path)
         logger.info(pretty_repr(error_model))
         for field_name, field_value in asdict(error_model).items():
-            run.summary[f"error_model/{field_name}"] = field_value
+            run.summary[f"1_error_model/{field_name}"] = field_value
 
         episode_store = load_episode_store(
             episode_file_path=Path(
