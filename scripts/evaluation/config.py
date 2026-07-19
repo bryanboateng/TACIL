@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Annotated
+from typing import Annotated, Literal
 
 import tyro
 
@@ -9,6 +9,7 @@ from scripts.policies.gpi import config as gpi
 @dataclass(frozen=True)
 class DiffusionPolicyCheckpoint:
     checkpoint_artifact: str
+    sampler: Literal["ddim", "ddpm"] = "ddim"
 
 
 @dataclass(frozen=True)

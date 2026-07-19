@@ -21,7 +21,7 @@ from scripts.policies.dp.config import Config, DimensionalityConfig, HorizonLeng
 from scripts.policies.dp.dataset import Dataset
 from scripts.policies.dp.loss import _compute_denoising_loss
 from scripts.policies.dp.network import ConditionalUnet1d
-from scripts.policies.dp.noise_scheduler import get_noise_scheduler
+from scripts.policies.dp.noise_scheduler import get_ddpm_scheduler
 from scripts.policies.dp.policy import load_diffusion_policy, save_diffusion_policy
 from scripts.policies.shared.checkpoint import Checkpoint
 from scripts.shared.data import load_episode_store
@@ -47,9 +47,7 @@ def _run(*, config: Config) -> None:
         config.dimensionality.observation * config.horizon_length.observation
     )
 
-    noise_scheduler = get_noise_scheduler(
-        diffusion_timestep_count=config.diffusion_timestep_count
-    )
+    noise_scheduler = get_ddpm_scheduler()
 
     noise_prediction_network = ConditionalUnet1d(
         input_channel_count=config.dimensionality.action,
@@ -190,7 +188,6 @@ def _run(*, config: Config) -> None:
                 dimensionality=config.dimensionality,
                 condition_dimensionality=condition_dimensionality,
                 hidden_channel_counts=config.hidden_channel_counts,
-                diffusion_timestep_count=config.diffusion_timestep_count,
             )
 
             validation_reward = _evaluate(
@@ -236,7 +233,6 @@ def _run(*, config: Config) -> None:
             action_dimensionality=config.dimensionality.action,
             condition_dimensionality=condition_dimensionality,
             hidden_channel_counts=config.hidden_channel_counts,
-            diffusion_timestep_count=config.diffusion_timestep_count,
             observation_horizon_length=config.horizon_length.observation,
             prediction_horizon_length=config.horizon_length.prediction,
             action_horizon_length=config.horizon_length.action,
@@ -274,7 +270,6 @@ def _save_ema_checkpoint(
     dimensionality: DimensionalityConfig,
     condition_dimensionality: int,
     hidden_channel_counts: tuple[int, ...],
-    diffusion_timestep_count: int,
 ) -> dict:
     """Save EMA weights to *path* without permanently modifying the network.
 
@@ -291,7 +286,6 @@ def _save_ema_checkpoint(
             action_dimensionality=dimensionality.action,
             condition_dimensionality=condition_dimensionality,
             hidden_channel_counts=hidden_channel_counts,
-            diffusion_timestep_count=diffusion_timestep_count,
             observation_horizon_length=horizon_length.observation,
             prediction_horizon_length=horizon_length.prediction,
             action_horizon_length=horizon_length.action,

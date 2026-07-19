@@ -40,5 +40,4 @@ class Config:
     optimization: OptimizationConfig
     evaluation: EvaluationConfig
     seed: int = 42
-    diffusion_timestep_count: int = 100
     hidden_channel_counts: tuple[int, ...] = (256, 512, 1024)

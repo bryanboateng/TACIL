@@ -87,12 +87,15 @@ def _build_policy_factory(
     *, config: Config, run: Run, device: torch.device
 ) -> PolicyFactory:
     match config.policy:
-        case DiffusionPolicyCheckpoint(checkpoint_artifact=artifact_name):
+        case DiffusionPolicyCheckpoint(
+            checkpoint_artifact=artifact_name, sampler=sampler
+        ):
             return load_diffusion_policy(
                 checkpoint_path=_download_checkpoint(
                     run=run, artifact_name=artifact_name
                 ),
                 device=device,
+                sampler=sampler,
             )
         case BehaviorCloningCheckpoint(checkpoint_artifact=artifact_name):
             return load_behavior_cloning_policy(

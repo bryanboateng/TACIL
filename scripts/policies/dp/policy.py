@@ -1,11 +1,12 @@
 import collections
 from pathlib import Path
+from typing import Literal
 
 import numpy as np
 import torch
 
 from scripts.policies.dp.network import ConditionalUnet1d
-from scripts.policies.dp.noise_scheduler import get_noise_scheduler
+from scripts.policies.dp.noise_scheduler import get_ddim_scheduler, get_ddpm_scheduler
 from scripts.shared.paths import PROJECT_ROOT_DIRECTORY_PATH
 from scripts.shared.policy_types import Policy, PolicyFactory
 
@@ -17,7 +18,6 @@ def save_diffusion_policy(
     action_dimensionality: int,
     condition_dimensionality: int,
     hidden_channel_counts: tuple[int, ...],
-    diffusion_timestep_count: int,
     observation_horizon_length: int,
     prediction_horizon_length: int,
     action_horizon_length: int,
@@ -29,7 +29,6 @@ def save_diffusion_policy(
             "action_dimensionality": action_dimensionality,
             "condition_dimensionality": condition_dimensionality,
             "hidden_channel_counts": hidden_channel_counts,
-            "diffusion_timestep_count": diffusion_timestep_count,
             "observation_horizon_length": observation_horizon_length,
             "prediction_horizon_length": prediction_horizon_length,
             "action_horizon_length": action_horizon_length,
@@ -39,7 +38,7 @@ def save_diffusion_policy(
 
 
 def load_diffusion_policy(
-    *, checkpoint_path: Path, device: torch.device
+    *, checkpoint_path: Path, device: torch.device, sampler: Literal["ddim", "ddpm"]
 ) -> PolicyFactory:
     checkpoint = torch.load(
         f=PROJECT_ROOT_DIRECTORY_PATH / checkpoint_path, map_location=device
@@ -49,11 +48,12 @@ def load_diffusion_policy(
     prediction_horizon_length = checkpoint["prediction_horizon_length"]
     action_horizon_length = checkpoint["action_horizon_length"]
     action_dimensionality = checkpoint["action_dimensionality"]
-    diffusion_timestep_count = checkpoint["diffusion_timestep_count"]
 
-    noise_scheduler = get_noise_scheduler(
-        diffusion_timestep_count=diffusion_timestep_count
-    )
+    match sampler:
+        case "ddim":
+            noise_scheduler = get_ddim_scheduler()
+        case "ddpm":
+            noise_scheduler = get_ddpm_scheduler()
 
     noise_prediction_network = ConditionalUnet1d(
         input_channel_count=action_dimensionality,
