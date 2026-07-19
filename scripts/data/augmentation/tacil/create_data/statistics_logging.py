@@ -116,15 +116,16 @@ def log_dataset_statistics(
 
 
 def _distribution_panel(*, values: np.ndarray, column_name: str) -> CustomChart:
-    """Bar chart of the value distribution: one bar per bin, bar length = how
-    many values fall in it. Binned here in numpy — wandb's built-in histogram
-    types bin in the browser and render one-off distributions unreadably."""
+    """Distribution panel with the value on the x axis and the count on the y
+    axis. Binned here in numpy — wandb's built-in histogram types bin in the
+    browser and render one-off distributions unreadably, and its bar preset
+    only draws horizontal bars with the axes transposed."""
     clipped_values = values[
         values <= float(np.percentile(a=values, q=99.5))
     ]  # (clipped_count,)
 
     if np.issubdtype(clipped_values.dtype, np.integer):
-        # One bar per occurring integer value.
+        # One point per occurring integer value.
         bin_values, bin_counts = np.unique(clipped_values, return_counts=True)
         rows = [
             [int(bin_value), int(bin_count)]
@@ -138,9 +139,9 @@ def _distribution_panel(*, values: np.ndarray, column_name: str) -> CustomChart:
             for bin_midpoint, bin_count in zip(bin_midpoints, bin_counts)
         ]
 
-    return wandb.plot.bar(
+    return wandb.plot.line(
         table=wandb.Table(data=rows, columns=[column_name, "count"]),
-        label=column_name,
-        value="count",
+        x=column_name,
+        y="count",
         title=column_name,
     )
