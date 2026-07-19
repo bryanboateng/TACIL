@@ -1,13 +1,20 @@
+import matplotlib
 import numpy as np
 import wandb
 from wandb import Run
-from wandb.plot.custom_chart import CustomChart
 
-from scripts.data.augmentation.tacil.create_data.backward_rollout import (
+matplotlib.use(backend="Agg")
+from matplotlib import pyplot as plt  # noqa: E402
+
+plt.style.use(style="seaborn-v0_8-whitegrid")
+plt.rcParams["figure.dpi"] = 150
+plt.rcParams["savefig.dpi"] = 300
+
+from scripts.data.augmentation.tacil.create_data.backward_rollout import (  # noqa: E402
     RolloutDiagnostics,
     TerminationReason,
 )
-from scripts.data.augmentation.tacil.create_data.episode_assembly import (
+from scripts.data.augmentation.tacil.create_data.episode_assembly import (  # noqa: E402
     AugmentationResult,
 )
 
@@ -35,7 +42,7 @@ def log_rollout_statistics(
             (termination_reasons == termination_reason).sum()
         )
 
-    histogram_panels: dict[str, CustomChart] = {}
+    histogram_panels: dict[str, wandb.Image] = {}
     for name, values_batch in (
         (
             "accumulated_error_estimates",
@@ -115,33 +122,28 @@ def log_dataset_statistics(
     )
 
 
-def _distribution_panel(*, values: np.ndarray, column_name: str) -> CustomChart:
-    """Distribution panel with the value on the x axis and the count on the y
-    axis. Binned here in numpy — wandb's built-in histogram types bin in the
-    browser and render one-off distributions unreadably, and its bar preset
-    only draws horizontal bars with the axes transposed."""
+def _distribution_panel(*, values: np.ndarray, column_name: str) -> wandb.Image:
+    """Histogram rendered with matplotlib and logged as an image.
+
+    None of wandb's interactive chart types draws a one-off distribution
+    readably (its histogram bins in the browser, its bar chart is horizontal
+    with transposed axes), so we render the figure ourselves."""
     clipped_values = values[
         values <= float(np.percentile(a=values, q=99.5))
     ]  # (clipped_count,)
 
     if np.issubdtype(clipped_values.dtype, np.integer):
-        # One point per occurring integer value.
-        bin_values, bin_counts = np.unique(clipped_values, return_counts=True)
-        rows = [
-            [int(bin_value), int(bin_count)]
-            for bin_value, bin_count in zip(bin_values, bin_counts)
-        ]
+        # One bar per integer value, centered on it.
+        bins = np.arange(clipped_values.min() - 0.5, clipped_values.max() + 1.5)
     else:
-        bin_counts, bin_edges = np.histogram(a=clipped_values, bins=20)
-        bin_midpoints = (bin_edges[:-1] + bin_edges[1:]) / 2  # (20,)
-        rows = [
-            [float(f"{bin_midpoint:.4g}"), int(bin_count)]
-            for bin_midpoint, bin_count in zip(bin_midpoints, bin_counts)
-        ]
+        bins = 20
 
-    return wandb.plot.line(
-        table=wandb.Table(data=rows, columns=[column_name, "count"]),
-        x=column_name,
-        y="count",
-        title=column_name,
-    )
+    figure, axes = plt.subplots(figsize=(6, 4))
+    axes.hist(clipped_values, bins=bins, edgecolor="white")
+    axes.set_xlabel(xlabel=column_name)
+    axes.set_ylabel(ylabel="count")
+    figure.tight_layout()
+
+    image = wandb.Image(figure)
+    plt.close(fig=figure)
+    return image
