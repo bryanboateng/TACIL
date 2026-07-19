@@ -94,8 +94,8 @@ def _build_policy_factory(
                 checkpoint_path=_download_checkpoint(
                     run=run, artifact_name=artifact_name
                 ),
-                device=device,
                 sampler=sampler,
+                device=device,
             )
         case BehaviorCloningCheckpoint(checkpoint_artifact=artifact_name):
             return load_behavior_cloning_policy(

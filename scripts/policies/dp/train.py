@@ -247,7 +247,7 @@ def _evaluate(
     *, checkpoint_path: Path, episode_count: int, device: torch.device
 ) -> RewardStatistics:
     policy_factory = load_diffusion_policy(
-        checkpoint_path=checkpoint_path, device=device
+        checkpoint_path=checkpoint_path, sampler="ddpm", device=device
     )
     return reward_statistics(
         episode_scores=run_scored_episodes(

@@ -38,7 +38,7 @@ def save_diffusion_policy(
 
 
 def load_diffusion_policy(
-    *, checkpoint_path: Path, device: torch.device, sampler: Literal["ddim", "ddpm"]
+    *, checkpoint_path: Path, sampler: Literal["ddim", "ddpm"], device: torch.device
 ) -> PolicyFactory:
     checkpoint = torch.load(
         f=PROJECT_ROOT_DIRECTORY_PATH / checkpoint_path, map_location=device
