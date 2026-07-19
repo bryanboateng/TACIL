@@ -123,7 +123,7 @@ def record_condition(
 
         run.log(
             data={
-                f"{condition.label}/video": wandb.Video(
+                f"{condition.label}_video": wandb.Video(
                     data_or_path=np.stack(arrays=frames).transpose(0, 3, 1, 2),
                     fps=FPS,
                     format="mp4",
