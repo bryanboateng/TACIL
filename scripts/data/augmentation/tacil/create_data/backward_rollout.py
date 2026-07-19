@@ -101,9 +101,10 @@ def roll_out_backward(
     sensitivity_scaled_step_distance_chunks: list[torch.Tensor] = []
     local_transition_lipschitz_constant_chunks: list[torch.Tensor] = []
 
-    for step_index in tqdm(
-        range(MAX_BACKWARD_STEP_COUNT), desc="backward step", unit="step"
-    ):
+    # Progress = anchors whose walk has ended. Counting loop iterations against
+    # the step cap would be misleading: almost every rollout ends far earlier.
+    progress_bar = tqdm(total=anchor_count, desc="anchors finished", unit="anchor")
+    for step_index in range(MAX_BACKWARD_STEP_COUNT):
         active_indices = active_mask_batch.nonzero().squeeze(dim=1)  # (active_count,)
         if active_indices.numel() == 0:
             break
@@ -173,8 +174,11 @@ def roll_out_backward(
             int(TerminationReason.NOT_CONVERGED),
         )
         active_mask_batch[rejected_indices] = False
+        progress_bar.update(n=int(rejected_indices.numel()))
 
     capped_anchor_count = int(active_mask_batch.sum().item())
+    progress_bar.update(n=capped_anchor_count)
+    progress_bar.close()
     if capped_anchor_count > 0:
         logger.warning(
             "%d anchors were still within the error limit after %d backward steps; "
