@@ -113,7 +113,6 @@ def _run(*, config: Config) -> None:
         )
 
         log_rollout_statistics(
-            backward_trajectories=backward_trajectories,
             rollout_diagnostics=rollout_diagnostics,
             median_expert_step_distance=median_expert_step_distance,
             error_limit=error_limit,
