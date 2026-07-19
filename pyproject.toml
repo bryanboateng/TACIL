@@ -9,6 +9,7 @@ dependencies = [
     "gym-pusht>=0.1.6",
     "gymnasium>=1.2.3",
     "matplotlib>=3.10.9",
+    "moviepy>=2.2.1",
     "numpy>=2.4.3",
     "opencv-python>=4.13.0.92",
     "pygame>=2.6.1",

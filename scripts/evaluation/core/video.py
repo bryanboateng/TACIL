@@ -121,8 +121,15 @@ def record_condition(
             font=font,
         )
 
-        run.summary[f"{condition.label}/video"] = wandb.Video(
-            data_or_path=np.stack(arrays=frames).transpose(0, 3, 1, 2), fps=FPS
+        run.log(
+            data={
+                f"{condition.label}/video": wandb.Video(
+                    data_or_path=np.stack(arrays=frames).transpose(0, 3, 1, 2),
+                    fps=FPS,
+                    format="mp4",
+                )
+            },
+            step=0,
         )
     finally:
         environment.close()
