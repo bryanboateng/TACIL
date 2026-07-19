@@ -2,6 +2,7 @@ import copy
 import tempfile
 from dataclasses import asdict
 from pathlib import Path
+from typing import Literal
 
 import torch
 import tyro
@@ -193,6 +194,7 @@ def _run(*, config: Config) -> None:
             validation_reward = _evaluate(
                 checkpoint_path=checkpoint_path,
                 episode_count=config.evaluation.episode_count,
+                sampler=config.evaluation.sampler,
                 device=device,
             )
             run.log(
@@ -244,10 +246,14 @@ def _run(*, config: Config) -> None:
 
 @torch.no_grad()
 def _evaluate(
-    *, checkpoint_path: Path, episode_count: int, device: torch.device
+    *,
+    checkpoint_path: Path,
+    episode_count: int,
+    sampler: Literal["ddim", "ddpm"],
+    device: torch.device,
 ) -> RewardStatistics:
     policy_factory = load_diffusion_policy(
-        checkpoint_path=checkpoint_path, sampler="ddpm", device=device
+        checkpoint_path=checkpoint_path, sampler=sampler, device=device
     )
     return reward_statistics(
         episode_scores=run_scored_episodes(

@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from typing import Literal
 
 
 @dataclass(frozen=True)
@@ -28,6 +29,7 @@ class OptimizationConfig:
 class EvaluationConfig:
     periodic_interval_epoch_count: int = 20
     episode_count: int = 30
+    sampler: Literal["ddim", "ddpm"] = "ddim"
 
 
 @dataclass(frozen=True)
