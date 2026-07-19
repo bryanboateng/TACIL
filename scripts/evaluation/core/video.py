@@ -24,6 +24,7 @@ from scripts.evaluation.core.rollout import (
     roll_out_episode,
 )
 from scripts.evaluation.core.scoring import EpisodeScore
+from scripts.shared.paths import PROJECT_ROOT_DIRECTORY_PATH
 from scripts.shared.policy_types import PolicyFactory
 
 FPS = 30
@@ -40,7 +41,10 @@ class Placement(Enum):
 
 def create_font(*, render_size: int) -> pygame.font.Font:
     pygame.font.init()
-    return pygame.font.SysFont(name="Inter", size=render_size // 40)
+    return pygame.font.Font(
+        PROJECT_ROOT_DIRECTORY_PATH / "assets" / "fonts" / "InterDisplay-Regular.ttf",
+        size=render_size // 36,
+    )
 
 
 def build_annotated_surfaces(
@@ -50,6 +54,7 @@ def build_annotated_surfaces(
     condition: Condition,
     seed: int,
     percentile: int,
+    episode_reward: float,
 ) -> list[pygame.Surface]:
     last_frame_index = len(episode_result.frames) - 1
 
@@ -81,7 +86,10 @@ def build_annotated_surfaces(
         )
         _add_text_to_surface(
             text=_build_reward_text(
-                frame_max_reward=running_max_reward, frame_reward=current_reward
+                percentile=percentile,
+                episode_reward=episode_reward,
+                frame_max_reward=running_max_reward,
+                frame_reward=current_reward,
             ),
             placement=Placement.BOTTOM_CENTER,
             surface=annotated_surface,
@@ -174,8 +182,17 @@ def _condition_label(*, condition: Condition) -> str:
     return f"floor: {floor_label}   disturbance: {disturbance_label}"
 
 
-def _build_reward_text(*, frame_max_reward: float, frame_reward: float) -> str:
-    return f"reward: {frame_reward:.2f}   max: {frame_max_reward:.2f}"
+def _build_reward_text(
+    *,
+    percentile: int,
+    episode_reward: float,
+    frame_max_reward: float,
+    frame_reward: float,
+) -> str:
+    return (
+        f"p{percentile:02d} ({episode_reward:.2f})\n"
+        f"reward: {frame_reward:.2f}   max: {frame_max_reward:.2f}"
+    )
 
 
 def _record_group(
@@ -203,6 +220,7 @@ def _record_group(
             condition=condition,
             seed=score.seed,
             percentile=percentile,
+            episode_reward=score.reward,
         ):
             frame = _convert_surface_to_frame(surface=surface)
             video_writer.append_data(frame)
@@ -224,20 +242,29 @@ def _convert_surface_to_frame(*, surface: Surface) -> np.ndarray:
 def _add_text_to_surface(
     *, text: str, placement: Placement, surface: Surface, font: Font
 ) -> None:
-    text_surface = font.render(text, True, (0, 0, 0))
+    # pygame renders single lines only, so render each line separately and
+    # stack them: top placements grow downward from the margin, bottom
+    # placements keep their last line on the bottom margin.
+    line_surfaces = [font.render(line, True, (0, 0, 0)) for line in text.split("\n")]
     margin = surface.get_width() // 100
-    right_aligned_x = surface.get_width() - text_surface.get_width() - margin
-    center_aligned_x = (surface.get_width() - text_surface.get_width()) // 2
-    bottom_aligned_y = surface.get_height() - text_surface.get_height() - margin
-    match placement:
-        case Placement.TOP_LEFT:
-            destination = (margin, margin)
-        case Placement.TOP_RIGHT:
-            destination = (right_aligned_x, margin)
-        case Placement.BOTTOM_LEFT:
-            destination = (margin, bottom_aligned_y)
-        case Placement.BOTTOM_CENTER:
-            destination = (center_aligned_x, bottom_aligned_y)
-        case Placement.BOTTOM_RIGHT:
-            destination = (right_aligned_x, bottom_aligned_y)
-    surface.blit(source=text_surface, dest=destination)
+    line_height = font.get_linesize()
+    block_height = line_height * len(line_surfaces)
+    for line_index, line_surface in enumerate(line_surfaces):
+        right_aligned_x = surface.get_width() - line_surface.get_width() - margin
+        center_aligned_x = (surface.get_width() - line_surface.get_width()) // 2
+        top_aligned_y = margin + line_index * line_height
+        bottom_aligned_y = (
+            surface.get_height() - margin - block_height + line_index * line_height
+        )
+        match placement:
+            case Placement.TOP_LEFT:
+                destination = (margin, top_aligned_y)
+            case Placement.TOP_RIGHT:
+                destination = (right_aligned_x, top_aligned_y)
+            case Placement.BOTTOM_LEFT:
+                destination = (margin, bottom_aligned_y)
+            case Placement.BOTTOM_CENTER:
+                destination = (center_aligned_x, bottom_aligned_y)
+            case Placement.BOTTOM_RIGHT:
+                destination = (right_aligned_x, bottom_aligned_y)
+        surface.blit(source=line_surface, dest=destination)

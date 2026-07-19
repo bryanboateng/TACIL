@@ -110,6 +110,7 @@ def main(use_gpi_policy: bool = False) -> None:
             condition=condition,
             seed=seed,
             percentile=75,
+            episode_reward=episode_result.reward,
         )
 
         # Play the episode, then hold on the final frame, matching the recorded freeze.
