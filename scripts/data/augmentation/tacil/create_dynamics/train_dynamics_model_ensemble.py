@@ -35,7 +35,7 @@ from scripts.data.augmentation.tacil.models.dynamics_model_ensemble import (
 )
 from scripts.data.augmentation.tacil.models.error_model import (
     ErrorModel,
-    compute_error_model_signals,
+    compute_error_model_training_data,
     fit_error_model,
 )
 from scripts.data.augmentation.tacil.models.normalizers import Normalizers
@@ -156,13 +156,17 @@ def _run(*, config: Config) -> None:
         )
         dynamics_model_ensemble.eval()
 
-        error_model = _create_error_model(
+        error_model, error_model_uncentered_r_squared = _create_error_model(
             dynamics_model_ensemble=dynamics_model_ensemble,
             validation_transitions=validation_transitions,
             split_seed=config.seed,
             device=device,
         )
-        run.summary["error_model"] = asdict(error_model)
+        for field_name, field_value in asdict(error_model).items():
+            run.summary[f"error_model/{field_name}"] = field_value
+        run.summary["error_model/uncentered_r_squared"] = (
+            error_model_uncentered_r_squared
+        )
 
         _upload_dynamics_model_ensemble(
             dynamics_model_ensemble=dynamics_model_ensemble,
@@ -243,20 +247,16 @@ def _create_error_model(
     validation_transitions: TransitionSet,
     split_seed: int,
     device: torch.device,
-) -> ErrorModel:
-    signals = compute_error_model_signals(
+) -> tuple[ErrorModel, float]:
+    training_data = compute_error_model_training_data(
         dynamics_model_ensemble=dynamics_model_ensemble,
-        state_batch=torch.from_numpy(validation_transitions.states).to(device=device),
-        action_batch=torch.from_numpy(validation_transitions.actions).to(device=device),
-        next_state_batch=torch.from_numpy(validation_transitions.next_states).to(
+        states=torch.from_numpy(validation_transitions.states).to(device=device),
+        actions=torch.from_numpy(validation_transitions.actions).to(device=device),
+        next_states=torch.from_numpy(validation_transitions.next_states).to(
             device=device
         ),
     )
-    error_model = fit_error_model(
-        error_model_signals=signals, quantile=0.9, split_seed=split_seed
-    )
-
-    return error_model
+    return fit_error_model(training_data=training_data, split_seed=split_seed)
 
 
 def _upload_dynamics_model_ensemble(

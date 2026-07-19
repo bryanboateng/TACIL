@@ -1,5 +1,5 @@
 import json
-from dataclasses import asdict
+from dataclasses import asdict, fields
 from enum import StrEnum
 from pathlib import Path
 
@@ -69,7 +69,12 @@ def load_error_model(*, directory_path: Path) -> ErrorModel:
             f"predates the calibrated error model. Retrain it with the "
             f"current training script."
         )
-    return ErrorModel(**json.loads(error_model_file_path.read_text()))
+    saved_values = json.loads(error_model_file_path.read_text())
+    # Take exactly the declared fields: extra keys from older checkpoints are
+    # dropped, a missing key still fails loudly.
+    return ErrorModel(
+        **{field.name: saved_values[field.name] for field in fields(ErrorModel)}
+    )
 
 
 # ---- Private --------------------------------------------

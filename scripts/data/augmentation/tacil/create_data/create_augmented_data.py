@@ -25,7 +25,7 @@ from scripts.data.augmentation.tacil.create_dynamics.checkpoint import (
     load_dynamics_model_ensemble,
     load_error_model,
 )
-from scripts.data.augmentation.tacil.models.error_model import (
+from scripts.data.augmentation.tacil.create_data.step_distance import (
     calculate_median_step_distance,
 )
 from scripts.shared.data import (
@@ -66,7 +66,8 @@ def _run(*, config: Config) -> None:
         dynamics_model_ensemble.eval()
         error_model = load_error_model(directory_path=model_directory_path)
         logger.info(pretty_repr(error_model))
-        run.summary["error_model"] = asdict(error_model)
+        for field_name, field_value in asdict(error_model).items():
+            run.summary[f"error_model/{field_name}"] = field_value
 
         episode_store = load_episode_store(
             episode_file_path=Path(
