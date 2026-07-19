@@ -1,5 +1,8 @@
+import tempfile
 from enum import Enum, auto
+from pathlib import Path
 
+import imageio.v2 as imageio
 import numpy as np
 import pygame
 import torch
@@ -113,24 +116,38 @@ def record_condition(
         condition=condition, render_settings=render_settings
     )
     try:
-        frames = _record_group(
-            policy_factory=policy_factory,
-            environment=environment,
-            condition=condition,
-            episode_scores=episode_scores,
-            font=font,
-        )
-
-        run.log(
-            data={
-                f"{condition.label}_video": wandb.Video(
-                    data_or_path=np.stack(arrays=frames).transpose(0, 3, 1, 2),
-                    fps=FPS,
-                    format="mp4",
+        with tempfile.TemporaryDirectory() as video_directory:
+            video_path = Path(video_directory) / f"{condition.label}.mp4"
+            # Stream frames straight into an ffmpeg encoder as they are
+            # produced, so encoding overlaps the rollouts and frames never
+            # accumulate in memory.
+            video_writer = imageio.get_writer(
+                uri=video_path,
+                fps=FPS,
+                codec="libx264",
+                macro_block_size=1,
+                ffmpeg_params=["-preset", "veryfast", "-crf", "20"],
+            )
+            try:
+                _record_group(
+                    policy_factory=policy_factory,
+                    environment=environment,
+                    condition=condition,
+                    episode_scores=episode_scores,
+                    font=font,
+                    video_writer=video_writer,
                 )
-            },
-            step=0,
-        )
+            finally:
+                video_writer.close()
+
+            run.log(
+                data={
+                    f"{condition.label}_video": wandb.Video(
+                        data_or_path=str(video_path), format="mp4"
+                    )
+                },
+                step=0,
+            )
     finally:
         environment.close()
 
@@ -168,9 +185,8 @@ def _record_group(
     condition: Condition,
     episode_scores: dict[int, EpisodeScore],
     font: pygame.font.Font,
-) -> list[np.ndarray]:
-
-    frames: list[np.ndarray] = []
+    video_writer,
+) -> None:
     for percentile, score in tqdm(
         episode_scores.items(), desc=condition.label, unit="episode"
     ):
@@ -180,6 +196,7 @@ def _record_group(
             seed=score.seed,
             render=True,
         )
+        frame: np.ndarray | None = None
         for surface in build_annotated_surfaces(
             episode_result=episode_result,
             font=font,
@@ -187,11 +204,13 @@ def _record_group(
             seed=score.seed,
             percentile=percentile,
         ):
-            frames.append(_convert_surface_to_frame(surface=surface))
+            frame = _convert_surface_to_frame(surface=surface)
+            video_writer.append_data(frame)
 
         # Freeze on the final annotated frame.
-        frames.extend([frames[-1]] * (FPS * FREEZE_SECONDS))
-    return frames
+        if frame is not None:
+            for _ in range(FPS * FREEZE_SECONDS):
+                video_writer.append_data(frame)
 
 
 def _convert_frame_to_surface(*, frame: np.ndarray) -> Surface:
