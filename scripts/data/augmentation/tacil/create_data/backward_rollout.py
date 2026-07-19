@@ -20,7 +20,7 @@ MAX_BACKWARD_STEP_COUNT = 50
 
 
 class TerminationReason(IntEnum):
-    BUDGET_EXHAUSTED = 0
+    ERROR_LIMIT_EXCEEDED = 0
     NOT_CONVERGED = 1
     STEP_CAP_REACHED = 2
 
@@ -169,7 +169,7 @@ def roll_out_backward(
         rejected_indices = active_indices[~accepted_mask_batch]  # (rejected_count,)
         termination_reason_batch[rejected_indices] = torch.where(
             backward_step.converged_batch[~accepted_mask_batch],
-            int(TerminationReason.BUDGET_EXHAUSTED),
+            int(TerminationReason.ERROR_LIMIT_EXCEEDED),
             int(TerminationReason.NOT_CONVERGED),
         )
         active_mask_batch[rejected_indices] = False
@@ -177,8 +177,8 @@ def roll_out_backward(
     capped_anchor_count = int(active_mask_batch.sum().item())
     if capped_anchor_count > 0:
         logger.warning(
-            "%d anchors were still within the error budget after %d backward steps; "
-            "their trajectories were cut by the step cap, not the budget.",
+            "%d anchors were still within the error limit after %d backward steps; "
+            "their trajectories were cut by the step cap, not the error limit.",
             capped_anchor_count,
             MAX_BACKWARD_STEP_COUNT,
         )

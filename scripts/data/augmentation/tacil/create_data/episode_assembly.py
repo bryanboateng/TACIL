@@ -37,8 +37,8 @@ def create_augmented_episodes(
     empty_anchor_count = int(synthetic_part_lengths.shape[0]) - accepted_anchor_count
     if accepted_anchor_count == 0:
         raise RuntimeError(
-            "The error budget produced no augmented episodes. Raise "
-            "error_budget_fraction or retrain the dynamics model."
+            "The error limit produced no augmented episodes. Raise "
+            "error_limit_fraction or retrain the dynamics model."
         )
 
     augmented_episode_store = _assemble_episodes(

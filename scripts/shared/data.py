@@ -112,7 +112,10 @@ def combine_episode_stores(
     prediction horizon. The augmented store carries both, and its values
     become the combined store's.
     """
-    if expert_episode_store.artificial_end_mask is not None:
+    if (
+        expert_episode_store.artificial_end_mask is not None
+        and expert_episode_store.artificial_end_mask.any()
+    ):
         raise ValueError(
             "The expert episode store must not contain artificially ended episodes."
         )

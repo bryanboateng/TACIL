@@ -115,7 +115,7 @@ def _run(*, config: Config) -> None:
             backward_trajectories=backward_trajectories,
             rollout_diagnostics=rollout_diagnostics,
             median_expert_step_distance=median_expert_step_distance,
-            error_budget=error_limit,
+            error_limit=error_limit,
             run=run,
         )
 

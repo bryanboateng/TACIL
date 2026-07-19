@@ -17,7 +17,7 @@ def log_rollout_statistics(
     backward_trajectories: BackwardTrajectories,
     rollout_diagnostics: RolloutDiagnostics,
     median_expert_step_distance: float,
-    error_budget: float,
+    error_limit: float,
     run: Run,
 ) -> None:
     step_count_batch = backward_trajectories.step_count_batch.cpu()  # (anchor_count,)
@@ -27,7 +27,7 @@ def log_rollout_statistics(
     anchor_count = int(step_count_batch.shape[0])
 
     run.summary["median_expert_step_distance"] = median_expert_step_distance
-    run.summary["error_budget"] = error_budget
+    run.summary["error_limit"] = error_limit
     run.summary["rollout"] = {
         "anchor_count": anchor_count,
         "step_count": {
