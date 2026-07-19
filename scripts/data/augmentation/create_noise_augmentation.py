@@ -104,11 +104,17 @@ def _augment_with_noisy_episodes(
     ]  # (original_transition_count, action_dimensionality)
     augmented_episode_end_indices: list[int] = []
 
+    augmented_artificial_end_flags: list[bool] = []
+    source_episode_end_index_set = set(episode_store.episode_end_indices.tolist())
+
     # End indices continue from the original data, since the noisy episodes are appended after it.
     cumulative_end_index = int(episode_store.episode_end_indices[-1])
 
     for sampled_window_index in sampled_window_indices:
         window_slice = sliding_window_slices[int(sampled_window_index)]
+        augmented_artificial_end_flags.append(
+            int(window_slice.stop) not in source_episode_end_index_set
+        )
 
         window_states = episode_store.states[
             window_slice
@@ -143,6 +149,18 @@ def _augment_with_noisy_episodes(
                     augmented_episode_end_indices,
                     dtype=episode_store.episode_end_indices.dtype,
                 ),
+            ]
+        ),  # (original_episode_count + sampled_window_count,)
+        artificial_end_mask=np.concatenate(
+            [
+                (
+                    episode_store.artificial_end_mask
+                    if episode_store.artificial_end_mask is not None
+                    else np.zeros(
+                        shape=len(episode_store.episode_end_indices), dtype=np.bool_
+                    )
+                ),
+                np.asarray(augmented_artificial_end_flags, dtype=np.bool_),
             ]
         ),  # (original_episode_count + sampled_window_count,)
     )

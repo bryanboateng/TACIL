@@ -1,3 +1,4 @@
+import numpy as np
 import torch
 
 from scripts.shared.data import EpisodeStore
@@ -13,6 +14,19 @@ class Dataset(torch.utils.data.Dataset[tuple[torch.Tensor, torch.Tensor]]):
         observation_horizon_length: int,
         action_horizon_length: int,
     ) -> None:
+        if (
+            episode_store.intended_prediction_horizon is not None
+            and episode_store.intended_prediction_horizon != prediction_horizon_length
+        ):
+            raise ValueError(
+                f"This dataset's augmented episodes were laid out for a "
+                f"prediction horizon of "
+                f"{episode_store.intended_prediction_horizon}, but the policy "
+                f"is configured with {prediction_horizon_length}. Training on "
+                f"it would silently produce duplicated or missing windows; "
+                f"regenerate the augmentation with the current horizon."
+            )
+
         observation_batch = torch.from_numpy(
             episode_store.states
         ).float()  # (total_timestep_count, observation_dimensionality)
@@ -21,6 +35,11 @@ class Dataset(torch.utils.data.Dataset[tuple[torch.Tensor, torch.Tensor]]):
         ).float()  # (total_timestep_count, action_dimensionality)
         episode_ends = torch.from_numpy(
             episode_store.episode_end_indices
+        )  # (episode_count,)
+        artificial_end_mask = torch.from_numpy(
+            episode_store.artificial_end_mask
+            if episode_store.artificial_end_mask is not None
+            else np.zeros(len(episode_store.episode_end_indices), dtype=np.bool_)
         )  # (episode_count,)
 
         self.observation_normalizer = MinMaxNormalizer.from_values(
@@ -40,6 +59,7 @@ class Dataset(torch.utils.data.Dataset[tuple[torch.Tensor, torch.Tensor]]):
             prediction_horizon_length=prediction_horizon_length,
             observation_padding_length=observation_horizon_length - 1,
             action_padding_length=action_horizon_length - 1,
+            artificial_end_mask=artificial_end_mask,
         )  # (window_count, 4)
 
         self._prediction_horizon_length = prediction_horizon_length
@@ -90,6 +110,7 @@ def _build_window_indices(
     prediction_horizon_length: int,
     observation_padding_length: int,
     action_padding_length: int,
+    artificial_end_mask: torch.Tensor,  # (episode_count,)
 ) -> torch.Tensor:  # (window_count, 4) columns: source_read_start, source_read_end, output_write_start, output_write_end
     window_indices: list[list[int]] = []
 
@@ -100,8 +121,14 @@ def _build_window_indices(
         episode_length = int(episode_end_position) - episode_start_position
 
         first_window_offset = -observation_padding_length
+        # An artificial episode end is a mid-task cut: windows padded past it
+        # would repeat the last action as a label, teaching the policy to stop
+        # mid-task. Such episodes only contribute windows whose actions are
+        # fully real.
         last_window_offset = (
-            episode_length - prediction_horizon_length + action_padding_length
+            episode_length - prediction_horizon_length
+            if bool(artificial_end_mask[episode_index])
+            else episode_length - prediction_horizon_length + action_padding_length
         )
 
         for window_offset in range(first_window_offset, last_window_offset + 1):

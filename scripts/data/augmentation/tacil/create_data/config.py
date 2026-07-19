@@ -8,29 +8,20 @@ class Config:
     model_artifact: str
     dataset_artifact: str
 
-    synthetic_part_length: int = 5
-    expert_part_length: int = 16
+    # Exactly prediction horizon - 1: the deepest policy training window with
+    # fully real action labels then starts at the last synthetic state, so the
+    # artificial-end rule in the policy dataset (only windows whose labels need no
+    # padding) coincides with "every window observes at least one synthetic
+    # state". Mini-episodes therefore contribute no window that duplicates the
+    # source episode, which is what allows an anchor at every timestep.
+    expert_part_length: int = 15
 
     action_noise_fraction: float = 0.1
-    label_error_bound_quantile: float = 0.5
-    uncertainty_quantile: float = 0.5
+    # Fraction of the median expert step distance: caps the estimated
+    # deviation of a forward-executed synthetic prefix from its anchor. This
+    # is the single conservativeness dial — the error model's conformal scale
+    # is a global factor, so a separate calibration knob would be redundant
+    # with it.
+    error_limit_fraction: float = 0.5
 
     seed: int = 42
-
-    def __post_init__(self):
-        if self.synthetic_part_length < 1:
-            raise ValueError(
-                f"synthetic_part_length must be >= 1, got {self.synthetic_part_length}"
-            )
-        if self.expert_part_length < 1:
-            raise ValueError(
-                f"expert_part_length must be >= 1, got {self.expert_part_length}"
-            )
-        if not 0.0 <= self.label_error_bound_quantile <= 1.0:
-            raise ValueError(
-                f"label_error_bound_quantile must be in [0, 1], got {self.label_error_bound_quantile}"
-            )
-        if not 0.0 <= self.uncertainty_quantile <= 1.0:
-            raise ValueError(
-                f"uncertainty_quantile must be in [0, 1], got {self.uncertainty_quantile}"
-            )

@@ -13,9 +13,11 @@ from wandb import Run
 
 from scripts.data.augmentation.tacil.create_dynamics.checkpoint import (
     save_dynamics_model_ensemble,
+    save_error_model,
 )
 from scripts.data.augmentation.tacil.create_dynamics.config import Config
 from scripts.data.augmentation.tacil.create_dynamics.data import (
+    TransitionSet,
     build_windows,
     concatenate_episodes,
     extract_transitions,
@@ -30,6 +32,11 @@ from scripts.data.augmentation.tacil.create_dynamics.dynamics_model_training imp
 )
 from scripts.data.augmentation.tacil.models.dynamics_model_ensemble import (
     DynamicsModelEnsemble,
+)
+from scripts.data.augmentation.tacil.models.error_model import (
+    ErrorModel,
+    compute_error_model_signals,
+    fit_error_model,
 )
 from scripts.data.augmentation.tacil.models.normalizers import Normalizers
 from scripts.shared.data import load_episode_store
@@ -140,14 +147,26 @@ def _run(*, config: Config) -> None:
 
         _log_checkpoint_summary(member_states=member_training_states, run=run)
 
+        dynamics_model_ensemble = DynamicsModelEnsemble(
+            normalizers=normalizers,
+            dynamics_models=[
+                load_best_member_model(member_training_state=member_training_state)
+                for member_training_state in member_training_states
+            ],
+        )
+        dynamics_model_ensemble.eval()
+
+        error_model = _create_error_model(
+            dynamics_model_ensemble=dynamics_model_ensemble,
+            validation_transitions=validation_transitions,
+            split_seed=config.seed,
+            device=device,
+        )
+        run.summary["error_model"] = asdict(error_model)
+
         _upload_dynamics_model_ensemble(
-            dynamics_model_ensemble=DynamicsModelEnsemble(
-                normalizers=normalizers,
-                dynamics_models=[
-                    load_best_member_model(member_training_state=member_training_state)
-                    for member_training_state in member_training_states
-                ],
-            ),
+            dynamics_model_ensemble=dynamics_model_ensemble,
+            error_model=error_model,
             run=run,
         )
 
@@ -218,14 +237,39 @@ def _log_checkpoint_summary(
     )
 
 
+def _create_error_model(
+    *,
+    dynamics_model_ensemble: DynamicsModelEnsemble,
+    validation_transitions: TransitionSet,
+    split_seed: int,
+    device: torch.device,
+) -> ErrorModel:
+    signals = compute_error_model_signals(
+        dynamics_model_ensemble=dynamics_model_ensemble,
+        state_batch=torch.from_numpy(validation_transitions.states).to(device=device),
+        action_batch=torch.from_numpy(validation_transitions.actions).to(device=device),
+        next_state_batch=torch.from_numpy(validation_transitions.next_states).to(
+            device=device
+        ),
+    )
+    error_model = fit_error_model(
+        error_model_signals=signals, quantile=0.9, split_seed=split_seed
+    )
+
+    return error_model
+
+
 def _upload_dynamics_model_ensemble(
-    *, dynamics_model_ensemble: DynamicsModelEnsemble, run: Run
+    *, dynamics_model_ensemble: DynamicsModelEnsemble, error_model: ErrorModel, run: Run
 ) -> None:
     with tempfile.TemporaryDirectory() as temporary_directory:
         ensemble_directory_path = Path(temporary_directory)
         save_dynamics_model_ensemble(
             dynamics_model_ensemble=dynamics_model_ensemble,
             directory_path=ensemble_directory_path,
+        )
+        save_error_model(
+            error_model=error_model, directory_path=ensemble_directory_path
         )
         model_artifact = wandb.Artifact(
             name=f"tacil-dynamics-model-{run.name}", type="model"

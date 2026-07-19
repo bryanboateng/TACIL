@@ -1,3 +1,5 @@
+import json
+from dataclasses import asdict
 from enum import StrEnum
 from pathlib import Path
 
@@ -7,6 +9,7 @@ from scripts.data.augmentation.tacil.models.dynamics_model import DynamicsModel
 from scripts.data.augmentation.tacil.models.dynamics_model_ensemble import (
     DynamicsModelEnsemble,
 )
+from scripts.data.augmentation.tacil.models.error_model import ErrorModel
 from scripts.data.augmentation.tacil.models.normalizers import Normalizers
 
 
@@ -52,9 +55,27 @@ def load_dynamics_model_ensemble(
     ).to(device=device)
 
 
+def save_error_model(*, error_model: ErrorModel, directory_path: Path) -> None:
+    (directory_path / _ERROR_MODEL_FILE_NAME).write_text(
+        data=json.dumps(obj=asdict(error_model), indent=2)
+    )
+
+
+def load_error_model(*, directory_path: Path) -> ErrorModel:
+    error_model_file_path = directory_path / _ERROR_MODEL_FILE_NAME
+    if not error_model_file_path.exists():
+        raise FileNotFoundError(
+            f"{error_model_file_path} not found; this dynamics ensemble "
+            f"predates the calibrated error model. Retrain it with the "
+            f"current training script."
+        )
+    return ErrorModel(**json.loads(error_model_file_path.read_text()))
+
+
 # ---- Private --------------------------------------------
 
 _NORMALIZERS_FILE_NAME = "normalizers.pt"
+_ERROR_MODEL_FILE_NAME = "error_model.json"
 
 
 class _CheckpointKeys(StrEnum):

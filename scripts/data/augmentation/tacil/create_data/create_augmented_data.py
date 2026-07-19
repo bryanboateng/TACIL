@@ -7,22 +7,32 @@ import wandb
 from rich.pretty import pretty_repr
 
 from scripts.data.augmentation.create_noise_augmentation import compute_noise_std
+from scripts.data.augmentation.tacil.create_data.anchor_selection import (
+    get_anchor_indices,
+)
 from scripts.data.augmentation.tacil.create_data.backward_rollout import (
     roll_out_backward,
 )
 from scripts.data.augmentation.tacil.create_data.config import Config
 from scripts.data.augmentation.tacil.create_data.episode_assembly import (
-    combine_episode_stores,
     create_augmented_episodes,
-    get_anchor_indices,
 )
 from scripts.data.augmentation.tacil.create_data.statistics_logging import (
     log_dataset_statistics,
+    log_rollout_statistics,
 )
 from scripts.data.augmentation.tacil.create_dynamics.checkpoint import (
     load_dynamics_model_ensemble,
+    load_error_model,
 )
-from scripts.shared.data import load_episode_store, upload_episode_store
+from scripts.data.augmentation.tacil.models.error_model import (
+    calculate_median_step_distance,
+)
+from scripts.shared.data import (
+    combine_episode_stores,
+    load_episode_store,
+    upload_episode_store,
+)
 from scripts.shared.log import create_logger, log_device_info
 from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
 from scripts.shared.seed import set_seed
@@ -47,13 +57,16 @@ def _run(*, config: Config) -> None:
         config=asdict(config),
         dir=OUTPUT_DIRECTORY_PATH,
     ) as run:
+        model_directory_path = Path(
+            run.use_artifact(artifact_or_name=config.model_artifact).download()
+        )
         dynamics_model_ensemble = load_dynamics_model_ensemble(
-            directory_path=Path(
-                run.use_artifact(artifact_or_name=config.model_artifact).download()
-            ),
-            device=device,
+            directory_path=model_directory_path, device=device
         )
         dynamics_model_ensemble.eval()
+        error_model = load_error_model(directory_path=model_directory_path)
+        logger.info(pretty_repr(error_model))
+        run.summary["error_model"] = asdict(error_model)
 
         episode_store = load_episode_store(
             episode_file_path=Path(
@@ -70,16 +83,40 @@ def _run(*, config: Config) -> None:
             samples=episode_store.actions, noise_fraction=config.action_noise_fraction
         )  # (action_dimensionality,)
 
-        backward_trajectories = roll_out_backward(
-            dyanmics_model_ensemble=dynamics_model_ensemble,
-            state_batch=torch.as_tensor(episode_store.states[anchor_indices]).to(
+        #  The median expert step distance is useful as a reference scale.
+        #  It answers the question "How far does the expert normally move in one timestep?"
+        #  It can be used to judge whether some other quantity (like a predicted or generated step)
+        #  is unusually large or small.
+        #
+        #  We use the median (rather than the mean) because it's robust to
+        #  outliers.
+        #  A handful of unusually large jumps won't skew the result the way they would an average.
+        median_expert_step_distance = calculate_median_step_distance(
+            episode_store=episode_store, dynamics_model_ensemble=dynamics_model_ensemble
+        )
+
+        error_limit = config.error_limit_fraction * median_expert_step_distance
+
+        backward_trajectories, rollout_diagnostics = roll_out_backward(
+            dynamics_model_ensemble=dynamics_model_ensemble,
+            anchor_state_batch=torch.as_tensor(episode_store.states[anchor_indices]).to(
                 device=device
             ),
-            action_batch=torch.as_tensor(episode_store.actions[anchor_indices]).to(
-                device=device
-            ),
-            step_count=config.synthetic_part_length,
+            anchor_action_batch=torch.as_tensor(
+                episode_store.actions[anchor_indices]
+            ).to(device=device),
             action_noise_std=torch.as_tensor(action_noise_std).to(device=device),
+            error_model=error_model,
+            error_limit=error_limit,
+            convergence_tolerance=1e-3 * median_expert_step_distance,
+        )
+
+        log_rollout_statistics(
+            backward_trajectories=backward_trajectories,
+            rollout_diagnostics=rollout_diagnostics,
+            median_expert_step_distance=median_expert_step_distance,
+            error_budget=error_limit,
+            run=run,
         )
 
         augmentation_result = create_augmented_episodes(
@@ -87,13 +124,10 @@ def _run(*, config: Config) -> None:
             episode_store=episode_store,
             anchor_indices=anchor_indices,
             expert_part_length=config.expert_part_length,
-            label_error_bound_quantile=config.label_error_bound_quantile,
-            uncertainty_quantile=config.uncertainty_quantile,
         )
 
         log_dataset_statistics(
             augmentation_result=augmentation_result,
-            synthetic_part_length=config.synthetic_part_length,
             source_episode_count=len(episode_store.episode_end_indices),
             source_transition_count=len(episode_store.states),
             run=run,
@@ -102,7 +136,7 @@ def _run(*, config: Config) -> None:
         upload_episode_store(
             episode_store=combine_episode_stores(
                 expert_episode_store=episode_store,
-                augmentation_episode_store=augmentation_result.episode_store,
+                augmented_episode_store=augmentation_result.episode_store,
             ),
             name="tacil-dataset",
             run=run,
