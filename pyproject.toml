@@ -12,7 +12,7 @@ dependencies = [
     "imageio-ffmpeg>=0.6.0",
     "matplotlib>=3.10.9",
     "numpy>=2.4.3",
-    "opencv-python>=4.13.0.92",
+    "opencv-python-headless>=4.13.0.92,<5",
     "pygame>=2.6.1",
     "pymunk==6.6.0",
     "rich>=15.0.0",
@@ -31,6 +31,12 @@ dev = [
     "ruff>=0.15.15",
     "ty>=0.0.40",
 ]
+
+[tool.uv]
+# gym_pusht pulls in GUI opencv-python (needs libGL, absent on headless servers).
+# Force it out so only opencv-python-headless provides cv2. The marker is never
+# satisfied, so opencv-python is dropped from resolution entirely.
+override-dependencies = ["opencv-python; sys_platform == 'never'"]
 
 [tool.ruff.format]
 skip-magic-trailing-comma = true
