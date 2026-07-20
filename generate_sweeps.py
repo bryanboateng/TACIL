@@ -1,10 +1,11 @@
 """Generate the DP-training and evaluation sweep YAMLs from W&B run history.
 
-Each sweep varies one ``spec`` value of the form ``<notes>::<artifact>``. A fish
-shim (``sweep_run_dp.fish`` / ``sweep_run_eval.fish``) is the sweep's program: it
+Each sweep varies one ``spec`` value of the form ``<notes>::<artifact>``. A POSIX
+sh shim (``sweep_run_dp.sh`` / ``sweep_run_eval.sh``) is the sweep's program: it
 splits the spec and calls the untouched ``train.py`` / ``evaluate_policy.py`` with
 the notes supplied from the outside. So the note is set externally, the python
-scripts stay pure, and there is no python wrapper.
+scripts stay pure, and there is no python wrapper. (sh, so it runs on any agent
+machine without fish installed.)
 
 The note is derived from the producing run's note and threaded down the lineage:
 
@@ -35,7 +36,7 @@ PHASES = {
         "artifact_type": "dataset",
         "note_prefix_from": "data-",
         "note_prefix_to": "policy-",
-        "program": "sweep_run_dp.fish",
+        "program": "sweep_run_dp.sh",
         "output": "dp_sweep.yaml",
         "metric": "validation/reward_mean",
     },
@@ -44,7 +45,7 @@ PHASES = {
         "artifact_type": "model",
         "note_prefix_from": "policy-",
         "note_prefix_to": "eval-",
-        "program": "sweep_run_eval.fish",
+        "program": "sweep_run_eval.sh",
         "output": "eval_sweep.yaml",
         "metric": None,
     },
@@ -109,7 +110,7 @@ def _write_sweep(
         "program": program,
         "method": "grid",
         "parameters": {"spec": {"values": specs}},
-        "command": ["fish", program, "${args}"],
+        "command": ["sh", program, "${args}"],
     }
     if metric is not None:
         sweep["metric"] = {"name": metric, "goal": "maximize"}
