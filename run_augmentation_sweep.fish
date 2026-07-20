@@ -12,9 +12,11 @@
 #   nohup fish run_augmentation_sweep.fish > sweep_overall.log 2>&1 &
 #   disown
 set -x CUDA_VISIBLE_DEVICES 1
-set models flowing-serenity-10 cosmic-forest-11 valiant-haze-12 fiery-flower-13 robust-hill-15
+# Ordered alphabetically by lip (1, 10, 15, 5, null) to match the alphabetical
+# order the sweep processes runs in.
+set models cosmic-forest-11 fiery-flower-13 robust-hill-15 valiant-haze-12 flowing-serenity-10
 # lips[i] is the dynamics-model Lipschitz constant for models[i] (same order)
-set lips null 1 5 10 15
+set lips 1 10 15 5 null
 set noises 0.0 0.1 0.3
 set fractions 0.25 0.5 1.0 2.0
 set logdir logs/augmentation_sweep
