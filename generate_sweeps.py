@@ -38,7 +38,7 @@ PHASES = {
         "note_prefix_to": "policy-",
         "program": "sweep_run_dp.sh",
         "output": "dp_sweep.yaml",
-        "metric": "validation/reward_mean",
+        "metric": "selected/reward_mean",
     },
     "eval": {
         "source_job_type": "train-diffusion-policy",
