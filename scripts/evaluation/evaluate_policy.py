@@ -70,21 +70,29 @@ def _run(*, config: Config) -> None:
                 episode_count=config.episode_count,
                 condition=condition,
             )
-            record_condition(
-                policy_factory=policy_factory,
-                policy_label=policy_label,
-                condition=condition,
-                episode_scores=pick_representative_scores(
-                    episode_scores=episode_scores
-                ),
-                run=run,
-            )
+            # Write the metrics first — they are the real deliverable — so a
+            # video-encoding failure (e.g. ffmpeg killed under memory pressure)
+            # can never lose them or the whole run.
             _write_summary(
                 run=run,
                 condition=condition,
                 reward=reward_statistics(episode_scores),
                 success_fraction=success_rate(episode_scores),
             )
+            try:
+                record_condition(
+                    policy_factory=policy_factory,
+                    policy_label=policy_label,
+                    condition=condition,
+                    episode_scores=pick_representative_scores(
+                        episode_scores=episode_scores
+                    ),
+                    run=run,
+                )
+            except Exception:
+                logger.exception(
+                    "Video recording failed for %s; continuing.", condition.label
+                )
 
 
 def _build_policy_factory(

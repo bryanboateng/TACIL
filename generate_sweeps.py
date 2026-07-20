@@ -28,14 +28,26 @@ import yaml
 
 SPEC_SEPARATOR = "::"
 
+
+def _dp_consumer_done(run) -> bool:
+    return any(a.type == "model" for a in run.logged_artifacts())
+
+
+def _eval_consumer_done(run) -> bool:
+    return any(str(key).endswith("/reward_mean") for key in run.summary.keys())
+
+
 # Per phase: which producing runs to read, which artifact they emit, how to
-# rewrite their note for this phase, and which fish shim runs the real script.
+# rewrite their note, which fish shim runs the real script, and how to tell
+# whether a combination was already produced (so it can be skipped).
 PHASES = {
     "dp": {
         "source_job_type": "create-tacil-dataset",
         "artifact_type": "dataset",
         "note_prefix_from": "data-",
         "note_prefix_to": "policy-",
+        "consumer_job_type": "train-diffusion-policy",
+        "consumer_done": _dp_consumer_done,
         "program": "sweep_run_dp.sh",
         "output": "dp_sweep.yaml",
         "metric": "selected/reward_mean",
@@ -45,6 +57,8 @@ PHASES = {
         "artifact_type": "model",
         "note_prefix_from": "policy-",
         "note_prefix_to": "eval-",
+        "consumer_job_type": "evaluate-policy",
+        "consumer_done": _eval_consumer_done,
         "program": "sweep_run_eval.sh",
         "output": "eval_sweep.yaml",
         "metric": None,
@@ -57,18 +71,35 @@ def main() -> None:
     parser.add_argument("phase", choices=sorted(PHASES))
     parser.add_argument("--project", default="opq")
     parser.add_argument("--entity", default=None)
+    parser.add_argument(
+        "--include-done",
+        action="store_true",
+        help="Also include combinations already produced by a successful "
+        "downstream run (default skips them so only new work is scheduled).",
+    )
     arguments = parser.parse_args()
 
     phase = PHASES[arguments.phase]
     api = wandb.Api()
     entity = arguments.entity or api.default_entity
+    run_path = f"{entity}/{arguments.project}"
 
-    specs = _build_specs(api=api, run_path=f"{entity}/{arguments.project}", phase=phase)
+    completed = (
+        set()
+        if arguments.include_done
+        else _completed_downstream_notes(api=api, run_path=run_path, phase=phase)
+    )
+    if completed:
+        print(f"Skipping {len(completed)} combinations already done.")
+
+    specs = _build_specs(
+        api=api, run_path=run_path, phase=phase, completed=completed
+    )
     if not specs:
         raise SystemExit(
-            f"No '{phase['source_job_type']}' runs with a '{phase['note_prefix_from']}' "
-            f"note and a '{phase['artifact_type']}' artifact found in "
-            f"{entity}/{arguments.project}."
+            "Nothing to schedule: every combination is already done "
+            "(use --include-done to rebuild), or no matching source runs exist "
+            f"in {run_path}."
         )
 
     _write_sweep(
@@ -80,13 +111,38 @@ def main() -> None:
     print(f"Wrote {phase['output']} with {len(specs)} runs.")
 
 
-def _build_specs(*, api: wandb.Api, run_path: str, phase: dict) -> list[str]:
+def _completed_downstream_notes(
+    *, api: wandb.Api, run_path: str, phase: dict
+) -> set[str]:
+    # Downstream notes whose consumer run already produced its output, so the
+    # combination does not need to be scheduled again. A crashed/incomplete
+    # consumer fails the check and is therefore re-scheduled.
+    done: set[str] = set()
+    for run in api.runs(path=run_path):
+        if run.job_type != phase["consumer_job_type"]:
+            continue
+        note = (run.notes or "").strip()
+        if note.startswith(phase["note_prefix_to"]) and phase["consumer_done"](run):
+            done.add(note)
+    return done
+
+
+def _build_specs(
+    *, api: wandb.Api, run_path: str, phase: dict, completed: set[str]
+) -> list[str]:
     specs: list[str] = []
+    seen: set[str] = set()
     for run in api.runs(path=run_path):
         if run.job_type != phase["source_job_type"]:
             continue
         note = (run.notes or "").strip()
         if not note.startswith(phase["note_prefix_from"]):
+            continue
+        downstream_note = (
+            phase["note_prefix_to"] + note[len(phase["note_prefix_from"]) :]
+        )
+        # Skip combinations already done, and keep only one source per combination.
+        if downstream_note in completed or downstream_note in seen:
             continue
         artifact = next(
             (a for a in run.logged_artifacts() if a.type == phase["artifact_type"]),
@@ -94,9 +150,7 @@ def _build_specs(*, api: wandb.Api, run_path: str, phase: dict) -> list[str]:
         )
         if artifact is None:
             continue
-        downstream_note = (
-            phase["note_prefix_to"] + note[len(phase["note_prefix_from"]) :]
-        )
+        seen.add(downstream_note)
         specs.append(f"{downstream_note}{SPEC_SEPARATOR}{artifact.name}")
     return sorted(specs)
 
