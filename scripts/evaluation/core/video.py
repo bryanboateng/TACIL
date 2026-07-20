@@ -84,7 +84,7 @@ def build_annotated_surfaces(
             font=font,
         )
         _add_text_to_surface(
-            text=f"episode seed: {seed}\npercentile: {percentile:02d}   score: {episode_reward:.2f}",
+            text=f"episode seed: {seed}\npercentile: {percentile}   score: {episode_reward:.2f}",
             placement=Placement.TOP_RIGHT,
             surface=annotated_surface,
             font=font,
