@@ -12,11 +12,7 @@ from numpy import typing as npt
 from scripts.evaluation.core.condition import get_conditions
 from scripts.evaluation.core.renderer import RenderSettings
 from scripts.evaluation.core.rollout import create_environment, roll_out_episode
-from scripts.evaluation.core.video import (
-    FREEZE_SECONDS,
-    build_annotated_surfaces,
-    create_font,
-)
+from scripts.evaluation.core.video import FREEZE_SECONDS, build_annotated_surfaces
 from scripts.policies.gpi import config as gpi
 from scripts.policies.gpi.policy import load_geometric_policy
 from scripts.shared.data import load_episode_store
@@ -77,7 +73,6 @@ def _build_avoidance_policy_factory() -> PolicyFactory:
 def main(use_gpi_policy: bool = False) -> None:
     pygame.init()
     screen = pygame.display.set_mode(size=(RENDER_SIZE, RENDER_SIZE))
-    font = create_font(render_size=RENDER_SIZE)
     clock = pygame.time.Clock()
 
     policy_factory = (
@@ -106,9 +101,9 @@ def main(use_gpi_policy: bool = False) -> None:
 
         surfaces = build_annotated_surfaces(
             episode_result=episode_result,
-            font=font,
             condition=condition,
-            policy_label="dp (DDIM)   nwoefn.wefwlenfwofownwefn:v0",
+            policy_label="dp (DDIM)   diffusion-policy-eternal-sweep-6:v0",
+            notes="eval-lip-1-action-0.1-error-0.5",
             seed=seed,
             percentile=75,
             episode_reward=episode_result.reward,

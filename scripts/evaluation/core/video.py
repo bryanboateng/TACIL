@@ -29,6 +29,9 @@ from scripts.shared.policy_types import PolicyFactory
 
 FPS = 30
 FREEZE_SECONDS = 2
+# Multiplier on the font's natural line height, to loosen spacing between
+# stacked annotation lines.
+LINE_SPACING = 1.25
 
 
 class Placement(Enum):
@@ -50,13 +53,16 @@ def create_font(*, render_size: int) -> pygame.font.Font:
 def build_annotated_surfaces(
     *,
     episode_result: EpisodeResult,
-    font: pygame.font.Font,
     condition: Condition,
     policy_label: str,
+    notes: str,
     seed: int,
     percentile: int,
     episode_reward: float,
 ) -> list[pygame.Surface]:
+    render_size = episode_result.frames[0].shape[0]
+    font = create_font(render_size=render_size)
+
     last_frame_index = len(episode_result.frames) - 1
 
     annotated_surfaces: list[pygame.Surface] = []
@@ -68,13 +74,17 @@ def build_annotated_surfaces(
         annotated_surface = _convert_frame_to_surface(frame=frame).copy()
 
         _add_text_to_surface(
-            text=f"{policy_label}\n{_condition_label(condition=condition)}",
+            text="\n".join(
+                line
+                for line in (notes, policy_label, _condition_label(condition=condition))
+                if line
+            ),
             placement=Placement.TOP_LEFT,
             surface=annotated_surface,
             font=font,
         )
         _add_text_to_surface(
-            text=f"seed: {seed}",
+            text=f"episode seed: {seed}\npercentile: {percentile:02d}   score: {episode_reward:.2f}",
             placement=Placement.TOP_RIGHT,
             surface=annotated_surface,
             font=font,
@@ -87,10 +97,7 @@ def build_annotated_surfaces(
         )
         _add_text_to_surface(
             text=_build_reward_text(
-                percentile=percentile,
-                episode_reward=episode_reward,
-                frame_max_reward=running_max_reward,
-                frame_reward=current_reward,
+                frame_max_reward=running_max_reward, frame_reward=current_reward
             ),
             placement=Placement.BOTTOM_CENTER,
             surface=annotated_surface,
@@ -121,7 +128,6 @@ def record_condition(
     run: Run,
 ) -> None:
     render_settings = RenderSettings()
-    font = create_font(render_size=render_settings.size)
     environment = create_environment(
         condition=condition, render_settings=render_settings
     )
@@ -142,10 +148,10 @@ def record_condition(
                 _record_group(
                     policy_factory=policy_factory,
                     policy_label=policy_label,
+                    notes=run.notes or "",
                     environment=environment,
                     condition=condition,
                     episode_scores=episode_scores,
-                    font=font,
                     video_writer=video_writer,
                 )
             finally:
@@ -184,27 +190,18 @@ def _condition_label(*, condition: Condition) -> str:
     return f"floor: {floor_label}   disturbance: {disturbance_label}"
 
 
-def _build_reward_text(
-    *,
-    percentile: int,
-    episode_reward: float,
-    frame_max_reward: float,
-    frame_reward: float,
-) -> str:
-    return (
-        f"p{percentile:02d} ({episode_reward:.2f})\n"
-        f"reward: {frame_reward:.2f}   max: {frame_max_reward:.2f}"
-    )
+def _build_reward_text(*, frame_max_reward: float, frame_reward: float) -> str:
+    return f"reward: {frame_reward:.2f}   max: {frame_max_reward:.2f}"
 
 
 def _record_group(
     *,
     policy_factory: PolicyFactory,
     policy_label: str,
+    notes: str,
     environment,
     condition: Condition,
     episode_scores: dict[int, EpisodeScore],
-    font: pygame.font.Font,
     video_writer,
 ) -> None:
     for percentile, score in tqdm(
@@ -219,9 +216,9 @@ def _record_group(
         frame: np.ndarray | None = None
         for surface in build_annotated_surfaces(
             episode_result=episode_result,
-            font=font,
             condition=condition,
             policy_label=policy_label,
+            notes=notes,
             seed=score.seed,
             percentile=percentile,
             episode_reward=score.reward,
@@ -251,7 +248,7 @@ def _add_text_to_surface(
     # placements keep their last line on the bottom margin.
     line_surfaces = [font.render(line, True, (0, 0, 0)) for line in text.split("\n")]
     margin = surface.get_width() // 100
-    line_height = font.get_linesize()
+    line_height = round(font.get_linesize() * LINE_SPACING)
     block_height = line_height * len(line_surfaces)
     for line_index, line_surface in enumerate(line_surfaces):
         right_aligned_x = surface.get_width() - line_surface.get_width() - margin

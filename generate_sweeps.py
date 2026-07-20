@@ -63,9 +63,7 @@ def main() -> None:
     api = wandb.Api()
     entity = arguments.entity or api.default_entity
 
-    specs = _build_specs(
-        api=api, run_path=f"{entity}/{arguments.project}", phase=phase
-    )
+    specs = _build_specs(api=api, run_path=f"{entity}/{arguments.project}", phase=phase)
     if not specs:
         raise SystemExit(
             f"No '{phase['source_job_type']}' runs with a '{phase['note_prefix_from']}' "
