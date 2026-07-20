@@ -227,6 +227,8 @@ def _run(*, config: Config) -> None:
         )
 
         run.summary["selected/epoch"] = best_checkpoint.epoch
+        run.summary["selected/reward_mean"] = best_checkpoint.validation_reward_mean
+        run.summary["selected/reward_std"] = best_checkpoint.validation_reward_std
 
         noise_prediction_network.load_state_dict(best_checkpoint.state_dict)
         final_path = checkpoint_directory_path / "checkpoint.pt"
