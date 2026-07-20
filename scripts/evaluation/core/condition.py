@@ -27,17 +27,14 @@ class Condition:
     @property
     def label(self) -> str:
         if self.disturbance is None:
-            disturbance_label = "none"
+            disturbance_label = "undisturbed"
         else:
             match self.disturbance.level:
                 case DisturbanceLevel.LOW:
-                    disturbance_label = "low"
+                    disturbance_label = "low_disturbance"
                 case DisturbanceLevel.HIGH:
-                    disturbance_label = "high"
-        return (
-            f"damping_{self.floor_condition.name.lower()}"
-            f"_disturbance_{disturbance_label}"
-        )
+                    disturbance_label = "high_disturbance"
+        return f"{self.floor_condition.name.lower()}_{disturbance_label}"
 
 
 def get_conditions() -> list[Condition]:
