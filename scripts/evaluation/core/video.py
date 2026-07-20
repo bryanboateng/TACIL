@@ -204,8 +204,11 @@ def _record_group(
     episode_scores: dict[int, EpisodeScore],
     video_writer,
 ) -> None:
+    # Best (highest percentile) first, so the video leads with the good episodes.
     for percentile, score in tqdm(
-        episode_scores.items(), desc=condition.label, unit="episode"
+        sorted(episode_scores.items(), key=lambda item: item[0], reverse=True),
+        desc=condition.label,
+        unit="episode",
     ):
         episode_result = roll_out_episode(
             environment=environment,

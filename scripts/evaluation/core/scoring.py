@@ -67,7 +67,7 @@ def success_rate(episode_scores: list[EpisodeScore]) -> float:
 def pick_representative_scores(
     *, episode_scores: list[EpisodeScore]
 ) -> dict[int, EpisodeScore]:
-    count = 8
+    count = 9
 
     sorted_scores = sorted(episode_scores, key=lambda score: score.reward)
     last_index = len(sorted_scores) - 1
