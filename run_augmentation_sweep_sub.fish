@@ -5,8 +5,8 @@
 # subsampled dataset + its own dynamics models, and tags every note with
 # "sub0.25-" so the runs (and their videos) are self-describing.
 #
-#   nohup fish run_augmentation_sweep_sub.fish > sweep_sub.log 2>&1 &
-#   disown
+#   fish run_augmentation_sweep_sub.fish              # whole grid on one GPU
+#   CUDA_VISIBLE_DEVICES=1 fish run_augmentation_sweep_sub.fish 1 10   # a slice
 #
 # Everything lives in opq-sub025, including its own copy of the expert dataset:
 # create_subsampled_dataset resolves "expert-dataset:latest" inside its own project.
@@ -24,6 +24,24 @@ set models fluent-plant-5 jumping-music-12 visionary-meadow-13 firm-galaxy-10 dr
 set lips 1 10 15 5 null
 
 set dataset_artifact subsampled-dataset-winter-feather-2:latest
+
+# Optional args: the lip values to cover, so the work can be split over GPUs.
+# Without args the whole grid runs.
+if test (count $argv) -gt 0
+    set selected_models
+    set selected_lips
+    for wanted in $argv
+        set index (contains -i -- $wanted $lips)
+        if test -z "$index"
+            echo "Unknown lip value: $wanted (have: $lips)"
+            exit 1
+        end
+        set -a selected_models $models[$index]
+        set -a selected_lips $lips[$index]
+    end
+    set models $selected_models
+    set lips $selected_lips
+end
 
 set noises 0.0 0.1 0.3
 set fractions 0.25 0.5 1.0 2.0 4.0 8.0
