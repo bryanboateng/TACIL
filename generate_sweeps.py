@@ -105,6 +105,7 @@ def main() -> None:
     _write_sweep(
         output_path=phase["output"],
         program=phase["program"],
+        project=arguments.project,
         metric=phase["metric"],
         specs=specs,
     )
@@ -156,13 +157,19 @@ def _build_specs(
 
 
 def _write_sweep(
-    *, output_path: str, program: str, metric: str | None, specs: list[str]
+    *,
+    output_path: str,
+    program: str,
+    project: str,
+    metric: str | None,
+    specs: list[str],
 ) -> None:
     sweep = {
         "program": program,
         "method": "grid",
         "parameters": {"spec": {"values": specs}},
-        "command": ["sh", program, "${args}"],
+        # Pass the project to the shim so runs land in the same project we read.
+        "command": ["sh", program, project, "${args}"],
     }
     if metric is not None:
         sweep["metric"] = {"name": metric, "goal": "maximize"}

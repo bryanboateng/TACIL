@@ -9,6 +9,13 @@
 # POSIX sh (not fish/bash) so it runs on any agent machine. It is the sweep's
 # `program`; you don't run it by hand.
 
+# Optional first arg = wandb project. Old sweeps call this with --spec directly,
+# so if the first arg is already --spec, default the project to opq.
+case "$1" in
+    --spec*) project="opq" ;;
+    *) project="$1"; shift ;;
+esac
+
 # wandb passes either  --spec=<value>  or  --spec <value>
 case "$1" in
     --spec=*) spec="${1#--spec=}" ;;
@@ -20,7 +27,7 @@ notes="${spec%%::*}"
 artifact="${spec#*::}"
 
 exec uv run python -m scripts.evaluation.evaluate_policy \
-    --wandb.project=opq \
+    --wandb.project="$project" \
     --wandb.notes="$notes" \
     dp \
     --checkpoint_artifact="$artifact"

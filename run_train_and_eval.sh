@@ -13,10 +13,11 @@
 #
 # Args:  $1 = comma-separated GPU ids (default "0")
 #        $2 = wandb entity        (default "bryanboateng-team")
+#        $3 = wandb project       (default "opq")
 
 GPUS="${1:-0}"
 ENTITY="${2:-bryanboateng-team}"
-PROJECT="opq"
+PROJECT="${3:-opq}"
 
 run_phase() {
     phase="$1"

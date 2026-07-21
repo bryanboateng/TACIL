@@ -19,7 +19,9 @@ import wandb
 
 mpl.use("Agg")
 
-NOTE_PATTERN = re.compile(r"eval-lip-(.+?)-action-(.+?)-error-(.+)")
+# Extract lip/noise/error from an eval note. Uses search (not a prefix match) so
+# it also handles a variant prefix like "eval-sub0.25-lip-...".
+NOTE_PATTERN = re.compile(r"lip-([^-]+)-action-([^-]+)-error-([^-]+)")
 
 # Early runs used the old condition labels; map them onto the current scheme.
 LABEL_ALIASES = {
@@ -84,7 +86,7 @@ def _collect(*, api: wandb.Api, run_path: str):
     for run in api.runs(path=run_path):
         if run.job_type != "evaluate-policy":
             continue
-        match = NOTE_PATTERN.match(run.notes or "")
+        match = NOTE_PATTERN.search(run.notes or "")
         if match is None:
             continue
         key = match.groups()  # (lip, noise, error)
