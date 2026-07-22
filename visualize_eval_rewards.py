@@ -15,8 +15,9 @@ and 25 % figures can be laid side by side and compared directly.
 Re-run any time as more eval runs finish; it always reflects the current state.
 """
 
-import argparse
+import json
 import re
+from datetime import datetime
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -58,6 +59,9 @@ DIVERGING_COLORMAP = LinearSegmentedColormap.from_list(
 )
 
 MISSING_COLOR = "#e4e4e1"
+
+CACHE_PATH = OUTPUT_DIRECTORY_PATH / "eval_cache.json"
+KEY_SEPARATOR = "|"
 
 # Where the diverging scale ends, as a percentile of |delta| over all projects.
 DELTA_PERCENTILE = 95
@@ -120,15 +124,21 @@ class ProjectData:
     augmentation: dict[tuple[str, str, str], dict[str, float]]
 
 
-def main(projects: list[str], scale: Literal["condition", "global"]) -> None:
-    api = wandb.Api()
-    entity = api.default_entity
-    rewards_per_project = {
-        project: _collect(api=api, run_path=f"{entity}/{project}")
-        for project in projects
-    }
+def main(
+    projects: list[str],
+    scale: Literal["condition", "global"],
+    use_cache: bool = False,
+) -> None:
+    """Render the figures from the current state of the W&B runs.
+
+    Pulling ~200 runs takes minutes and dominates the runtime, while rendering
+    takes seconds. Pass --use-cache while iterating on the design to reuse the
+    numbers of the previous fetch. It is off by default so a figure is never
+    silently built from stale data.
+    """
+    rewards_per_project = _projects(projects=projects, use_cache=use_cache)
     for project, rewards in rewards_per_project.items():
-        print(f"\n=== {entity}/{project} ===")
+        print(f"\n=== {project} ===")
         _report(rewards=rewards)
 
     # One symmetric limit across all projects, so their delta figures compare.
@@ -171,6 +181,88 @@ def main(projects: list[str], scale: Literal["condition", "global"]) -> None:
             delta_limit=delta_limit,
         )
         print(f"Wrote {delta_path}")
+
+
+def _projects(*, projects: list[str], use_cache: bool) -> dict[str, ProjectData]:
+    cache = _read_cache() if use_cache else {}
+    reused = [project for project in projects if project in cache]
+    missing = [project for project in projects if project not in cache]
+
+    if reused:
+        _warn_about_cache(projects=reused)
+
+    if missing:
+        api = wandb.Api()
+        entity = api.default_entity
+        for project in missing:
+            print(f"Fetching {entity}/{project} from W&B ...")
+            cache[project] = _collect(api=api, run_path=f"{entity}/{project}")
+        _write_cache(cache=cache)
+        print(f"Cached {len(cache)} projects in {CACHE_PATH}")
+
+    return {project: cache[project] for project in projects}
+
+
+def _warn_about_cache(*, projects: list[str]) -> None:
+    timestamp = datetime.fromtimestamp(CACHE_PATH.stat().st_mtime)
+    lines = [
+        "READING CACHED DATA - THE FIGURES MAY BE OUT OF DATE",
+        f"cache written {timestamp:%Y-%m-%d %H:%M}",
+        f"from cache: {', '.join(projects)}",
+        "re-run without --use-cache to fetch the current runs",
+    ]
+    width = max(len(line) for line in lines) + 4
+    print("\n" + "!" * width)
+    for line in lines:
+        print(f"! {line.ljust(width - 4)} !")
+    print("!" * width + "\n")
+
+
+def _read_cache() -> dict[str, ProjectData]:
+    if not CACHE_PATH.exists():
+        return {}
+    document = json.loads(CACHE_PATH.read_text())
+    return {
+        project: ProjectData(
+            grid={_key_from_text(text): v for text, v in entry["grid"].items()},
+            diffusion_baseline=entry["diffusion_baseline"],
+            geometric_baseline=entry["geometric_baseline"],
+            augmentation={
+                _key_from_text(text): v for text, v in entry["augmentation"].items()
+            },
+        )
+        for project, entry in document.items()
+    }
+
+
+def _write_cache(*, cache: dict[str, ProjectData]) -> None:
+    CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    CACHE_PATH.write_text(
+        json.dumps(
+            {
+                project: {
+                    "grid": {_key_to_text(k): v for k, v in data.grid.items()},
+                    "diffusion_baseline": data.diffusion_baseline,
+                    "geometric_baseline": data.geometric_baseline,
+                    "augmentation": {
+                        _key_to_text(k): v for k, v in data.augmentation.items()
+                    },
+                }
+                for project, data in cache.items()
+            },
+            indent=2,
+        )
+    )
+
+
+# JSON has no tuple keys, so the (lip, noise, error) triple travels as one string.
+def _key_to_text(key: tuple[str, str, str]) -> str:
+    return KEY_SEPARATOR.join(key)
+
+
+def _key_from_text(text: str) -> tuple[str, str, str]:
+    lip, noise, error = text.split(KEY_SEPARATOR)
+    return lip, noise, error
 
 
 def _collect(*, api: wandb.Api, run_path: str) -> ProjectData:
