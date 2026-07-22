@@ -19,12 +19,16 @@ import argparse
 import re
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
+import tyro
 import wandb
 from matplotlib.colors import LinearSegmentedColormap
+
+from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
 
 mpl.use("Agg")
 
@@ -35,16 +39,6 @@ NOTE_PATTERN = re.compile(r"lip-([^-]+)-action-([^-]+)-error-([^-]+)")
 # Baseline runs carry no lip/action/error at all; "gpi" separates the two kinds.
 BASELINE_MARKER = "noaug"
 GEOMETRIC_MARKER = "gpi"
-
-# Early runs used the old condition labels; map them onto the current scheme.
-LABEL_ALIASES = {
-    "damping_grippy_disturbance_none": "grippy_undisturbed",
-    "damping_grippy_disturbance_low": "grippy_low_disturbance",
-    "damping_grippy_disturbance_high": "grippy_high_disturbance",
-    "damping_slippery_disturbance_none": "slippery_undisturbed",
-    "damping_slippery_disturbance_low": "slippery_low_disturbance",
-    "damping_slippery_disturbance_high": "slippery_high_disturbance",
-}
 
 CONDITIONS = [
     "grippy_undisturbed",
@@ -68,37 +62,70 @@ MISSING_COLOR = "#e4e4e1"
 # Where the diverging scale ends, as a percentile of |delta| over all projects.
 DELTA_PERCENTILE = 95
 
+# Summary keys of the augmentation run that the metrics below are built from.
+SYNTHETIC_TRANSITIONS = "4_augmented_episodes/synthetic_transition_count"
+COPIED_EXPERT_TRANSITIONS = "4_augmented_episodes/copied_expert_transition_count"
+COMBINED_TRANSITIONS = "5_combined_dataset/transition_count"
+SYNTHETIC_PART_LENGTH_MEAN = "4_augmented_episodes/synthetic_part_length_mean"
+
+AUGMENTATION_SUMMARY_KEYS = [
+    SYNTHETIC_TRANSITIONS,
+    COPIED_EXPERT_TRANSITIONS,
+    COMBINED_TRANSITIONS,
+    SYNTHETIC_PART_LENGTH_MEAN,
+]
+
+
+def _synthetic_per_source_transition(summary: dict[str, float]) -> float | None:
+    """Synthetic transitions per transition of the original dataset.
+
+    Deliberately not the logged synthetic_transition_fraction: that divides by the
+    combined dataset, which every augmented episode inflates with 15 copied expert
+    steps. Those copies are not new information, so they do not belong in the
+    denominator of "how much was added".
+    """
+    source = (
+        summary.get(COMBINED_TRANSITIONS, 0)
+        - summary.get(SYNTHETIC_TRANSITIONS, 0)
+        - summary.get(COPIED_EXPERT_TRANSITIONS, 0)
+    )
+    if source <= 0 or SYNTHETIC_TRANSITIONS not in summary:
+        return None
+    return summary[SYNTHETIC_TRANSITIONS] / source
+
+
+# Properties of the augmented dataset itself: row label, number format, value.
+AUGMENTATION_METRICS = [
+    (
+        "synthetic transitions\nper original one",
+        "{:.2f}",
+        _synthetic_per_source_transition,
+    ),
+    (
+        "mean synthetic\npart length",
+        "{:.1f}",
+        lambda summary: summary.get(SYNTHETIC_PART_LENGTH_MEAN),
+    ),
+]
+
 
 @dataclass(frozen=True)
-class ProjectRewards:
+class ProjectData:
     """Everything one project contributes to the figures."""
 
     grid: dict[tuple[str, str, str], dict[str, float]]
     diffusion_baseline: dict[str, float]
     geometric_baseline: dict[str, float]
+    # (lip, noise, error) -> {summary key: value} of the augmentation run.
+    augmentation: dict[tuple[str, str, str], dict[str, float]]
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--projects", nargs="+", default=["opq"])
-    parser.add_argument("--entity", default=None)
-    parser.add_argument("--output-directory", default=".")
-    parser.add_argument(
-        "--scale",
-        choices=["condition", "global"],
-        default="condition",
-        help="absolute figures only. condition: colour scaled per row (see "
-        "within-condition differences); global: one scale across all rows.",
-    )
-    arguments = parser.parse_args()
-
+def main(projects: list[str], scale: Literal["condition", "global"]) -> None:
     api = wandb.Api()
-    entity = arguments.entity or api.default_entity
-    output_directory = Path(arguments.output_directory)
-
+    entity = api.default_entity
     rewards_per_project = {
         project: _collect(api=api, run_path=f"{entity}/{project}")
-        for project in arguments.projects
+        for project in projects
     }
     for project, rewards in rewards_per_project.items():
         print(f"\n=== {entity}/{project} ===")
@@ -122,36 +149,47 @@ def main() -> None:
 
     print()
     for project, rewards in rewards_per_project.items():
-        absolute_path = output_directory / f"eval_reward_absolute_{project}.png"
-        _plot(
-            rewards=rewards,
-            project=project,
-            output_path=absolute_path,
-            scale=arguments.scale,
-        )
+        absolute_path = OUTPUT_DIRECTORY_PATH / f"eval_reward_absolute_{project}.png"
+        _plot(rewards=rewards, project=project, output_path=absolute_path, scale=scale)
         print(f"Wrote {absolute_path}")
+
+        augmentation_path = OUTPUT_DIRECTORY_PATH / f"augmentation_{project}.png"
+        _plot_augmentation(
+            rewards=rewards, project=project, output_path=augmentation_path
+        )
+        print(f"Wrote {augmentation_path}")
 
         if not rewards.diffusion_baseline:
             print(f"No '{BASELINE_MARKER}' baseline in {project}; skipping delta.")
             continue
-        delta_path = output_directory / f"eval_reward_delta_{project}.png"
+        delta_path = OUTPUT_DIRECTORY_PATH / f"eval_reward_delta_{project}.png"
         _plot(
             rewards=rewards,
             project=project,
             output_path=delta_path,
-            scale=arguments.scale,
+            scale=scale,
             delta_limit=delta_limit,
         )
         print(f"Wrote {delta_path}")
 
 
-def _collect(*, api: wandb.Api, run_path: str) -> ProjectRewards:
+def _collect(*, api: wandb.Api, run_path: str) -> ProjectData:
     # (lip, noise, error) -> {condition: reward}, keeping the most complete run.
     best: dict[tuple[str, str, str], dict] = {}
     diffusion_baseline: dict[str, float] = {}
     geometric_baseline: dict[str, float] = {}
+    augmentation: dict[tuple[str, str, str], dict[str, float]] = {}
 
     for run in api.runs(path=run_path):
+        if run.job_type == "create-tacil-dataset":
+            match = NOTE_PATTERN.search(run.notes or "")
+            if match is not None:
+                augmentation[match.groups()] = {
+                    key: float(run.summary[key])
+                    for key in AUGMENTATION_SUMMARY_KEYS
+                    if isinstance(run.summary.get(key), (int, float))
+                }
+            continue
         if run.job_type != "evaluate-policy":
             continue
         note = run.notes or ""
@@ -175,10 +213,11 @@ def _collect(*, api: wandb.Api, run_path: str) -> ProjectRewards:
         if key not in best or candidate > best[key]["rank"]:
             best[key] = {"rank": candidate, "rewards": condition_rewards}
 
-    return ProjectRewards(
+    return ProjectData(
         grid={key: value["rewards"] for key, value in best.items()},
         diffusion_baseline=diffusion_baseline,
         geometric_baseline=geometric_baseline,
+        augmentation=augmentation,
     )
 
 
@@ -189,7 +228,6 @@ def _condition_rewards(*, run) -> dict[str, float]:
         if not summary_key.endswith("/reward_mean"):
             continue
         condition = summary_key.rsplit("/", maxsplit=1)[0]
-        condition = LABEL_ALIASES.get(condition, condition)
         if condition in CONDITIONS and isinstance(value, (int, float)):
             condition_rewards[condition] = float(value)
     return condition_rewards
@@ -207,7 +245,7 @@ def _lip_sort_key(lip: str) -> float:
     return float("inf") if lip == "null" else float(lip)
 
 
-def _report(*, rewards: ProjectRewards) -> None:
+def _report(*, rewards: ProjectData) -> None:
     lips, noises, errors = _axes_values(grid=rewards.grid)
     expected = len(lips) * len(noises) * len(errors)
     print(f"Combinations with data: {len(rewards.grid)} (grid would be {expected})")
@@ -227,9 +265,96 @@ def _report(*, rewards: ProjectRewards) -> None:
         print(f"{name}: {'missing' if not baseline else f'{len(baseline)} conditions'}")
 
 
+def _plot_augmentation(*, rewards: ProjectData, project: str, output_path: Path) -> None:
+    """How much synthetic data each combination actually produced.
+
+    A property of the dataset rather than of an eval condition, so this is its own
+    figure: one row per metric, each on its own scale because the two have
+    different units.
+    """
+    lips, noises, errors = _axes_values(grid=rewards.grid)
+    colormap = plt.get_cmap(SEQUENTIAL_COLORMAP).with_extremes(bad=MISSING_COLOR)
+
+    figure, axes = plt.subplots(
+        nrows=len(AUGMENTATION_METRICS),
+        ncols=len(lips),
+        figsize=(2.4 * len(lips) + 2.4, 1.9 * len(AUGMENTATION_METRICS) + 1.4),
+        squeeze=False,
+    )
+
+    for row, (label, number_format, metric) in enumerate(AUGMENTATION_METRICS):
+        values = [
+            value
+            for summary in rewards.augmentation.values()
+            for value in [metric(summary)]
+            if value is not None
+        ]
+        vmin, vmax = (min(values), max(values)) if values else (0.0, 1.0)
+
+        mesh = None
+        for column, lip in enumerate(lips):
+            ax = axes[row][column]
+            grid = np.full((len(noises), len(errors)), np.nan)
+            for i, noise in enumerate(noises):
+                for j, error in enumerate(errors):
+                    summary = rewards.augmentation.get((lip, noise, error))
+                    value = None if summary is None else metric(summary)
+                    if value is not None:
+                        grid[i, j] = value
+
+            mesh = ax.imshow(
+                np.ma.masked_invalid(grid),
+                cmap=colormap,
+                vmin=vmin,
+                vmax=vmax,
+                aspect="auto",
+                origin="lower",
+            )
+            span = (vmax - vmin) or 1.0
+            for i in range(len(noises)):
+                for j in range(len(errors)):
+                    if np.isnan(grid[i, j]):
+                        continue
+                    ax.text(
+                        j,
+                        i,
+                        number_format.format(grid[i, j]),
+                        ha="center",
+                        va="center",
+                        fontsize=6,
+                        color="white" if grid[i, j] > vmin + 0.62 * span else "#0b0b0b",
+                    )
+
+            ax.set_xticks(range(len(errors)))
+            ax.set_yticks(range(len(noises)))
+            ax.set_xticklabels(
+                errors if row == len(AUGMENTATION_METRICS) - 1 else [], fontsize=7
+            )
+            ax.set_yticklabels(noises if column == 0 else [], fontsize=7)
+            ax.tick_params(length=0)
+            for spine in ax.spines.values():
+                spine.set_visible(False)
+            if row == 0:
+                ax.set_title(f"lip = {lip}", fontsize=9)
+            if column == 0:
+                ax.set_ylabel(label, fontsize=8)
+            if row == len(AUGMENTATION_METRICS) - 1:
+                ax.set_xlabel("error_limit", fontsize=7)
+
+        _add_row_colorbar(figure=figure, row_axes=list(axes[row]), mesh=mesh)
+
+    figure.suptitle(
+        f"{project}: what the augmentation produced\n"
+        "rows: dataset property — y within tile: action_noise",
+        fontsize=11,
+    )
+    figure.savefig(output_path, dpi=150, bbox_inches="tight")
+    plt.close(fig=figure)
+
+
 def _plot(
     *,
-    rewards: ProjectRewards,
+    rewards: ProjectData,
     project: str,
     output_path: Path,
     scale: str,
@@ -244,10 +369,14 @@ def _plot(
     finite = [r for conditions in rewards.grid.values() for r in conditions.values()]
     global_vmin, global_vmax = (min(finite), max(finite)) if finite else (0.0, 1.0)
 
+    # A narrow leading column carries the baselines on the same colour scale as
+    # the tiles, so GPI can be read against the augmentation grid instead of
+    # sitting outside it as text.
     figure, axes = plt.subplots(
         nrows=len(CONDITIONS),
-        ncols=len(lips),
-        figsize=(2.4 * len(lips) + 2.0, 1.9 * len(CONDITIONS) + 1.2),
+        ncols=len(lips) + 1,
+        figsize=(2.4 * len(lips) + 3.0, 1.9 * len(CONDITIONS) + 1.2),
+        width_ratios=[0.42] + [1.0] * len(lips),
         squeeze=False,
     )
 
@@ -266,7 +395,19 @@ def _plot(
         else:
             vmin, vmax = global_vmin, global_vmax
 
-        for column, lip in enumerate(lips):
+        _plot_reference(
+            ax=axes[row][0],
+            rewards=rewards,
+            condition=condition,
+            colormap=colormap,
+            vmin=vmin,
+            vmax=vmax,
+            is_delta=is_delta,
+            is_top_row=row == 0,
+        )
+
+        for offset, lip in enumerate(lips):
+            column = offset + 1
             ax = axes[row][column]
             grid = np.full((len(noises), len(errors)), np.nan)
             for i, noise in enumerate(noises):
@@ -289,26 +430,21 @@ def _plot(
             ax.set_xticks(range(len(errors)))
             ax.set_yticks(range(len(noises)))
             ax.set_xticklabels(errors if row == len(CONDITIONS) - 1 else [], fontsize=7)
-            ax.set_yticklabels(noises if column == 0 else [], fontsize=7)
+            ax.set_yticklabels(noises if column == 1 else [], fontsize=7)
             ax.tick_params(length=0)
             for spine in ax.spines.values():
                 spine.set_visible(False)
             if row == 0:
                 ax.set_title(f"lip = {lip}", fontsize=9)
-            if column == 0:
-                ax.set_ylabel(
-                    _row_label(
-                        condition=condition,
-                        rewards=rewards,
-                        is_delta=is_delta,
-                        vmin=vmin,
-                        vmax=vmax,
-                        scale=scale,
-                    ),
-                    fontsize=8,
-                )
             if row == len(CONDITIONS) - 1:
                 ax.set_xlabel("error_limit", fontsize=7)
+
+        axes[row][0].set_ylabel(condition, fontsize=8)
+
+        if not is_delta and scale == "condition":
+            # Each row has its own scale, so each row gets its own key. Without
+            # one, equal colours in neighbouring rows read as equal rewards.
+            _add_row_colorbar(figure=figure, row_axes=list(axes[row]), mesh=mesh)
 
     _finish(
         figure=figure,
@@ -348,25 +484,61 @@ def _annotate(*, ax, grid, vmin, vmax, is_delta: bool) -> None:
             )
 
 
-def _row_label(
-    *, condition: str, rewards: ProjectRewards, is_delta: bool, vmin, vmax, scale: str
-) -> str:
-    label = condition
+def _plot_reference(
+    *,
+    ax,
+    rewards: ProjectData,
+    condition: str,
+    colormap,
+    vmin: float,
+    vmax: float,
+    is_delta: bool,
+    is_top_row: bool,
+) -> None:
+    diffusion = rewards.diffusion_baseline.get(condition)
+    geometric = rewards.geometric_baseline.get(condition)
+
     if is_delta:
-        # The baselines are what the tiles are measured against, so they belong on
-        # the row itself rather than in a legend somewhere else.
-        parts = []
-        diffusion = rewards.diffusion_baseline.get(condition)
-        geometric = rewards.geometric_baseline.get(condition)
-        if diffusion is not None:
-            parts.append(f"dp {diffusion:.2f}")
-        if geometric is not None:
-            parts.append(f"gpi {geometric:.2f}")
-        if parts:
-            label += "\n" + " · ".join(parts)
-    elif scale == "condition":
-        label += f"\n[{vmin:.2f}–{vmax:.2f}]"
-    return label
+        # dp is the reference and would be a constant zero, so only gpi is shown:
+        # how the geometric policy does against the same no-augmentation policy.
+        labels = ["gpi"]
+        values = [
+            geometric - diffusion
+            if geometric is not None and diffusion is not None
+            else np.nan
+        ]
+    else:
+        labels = ["gpi", "dp"]
+        values = [
+            geometric if geometric is not None else np.nan,
+            diffusion if diffusion is not None else np.nan,
+        ]
+
+    column = np.array(values).reshape(-1, 1)
+    ax.imshow(
+        np.ma.masked_invalid(column),
+        cmap=colormap,
+        vmin=vmin,
+        vmax=vmax,
+        aspect="auto",
+        origin="lower",
+    )
+    _annotate(ax=ax, grid=column, vmin=vmin, vmax=vmax, is_delta=is_delta)
+
+    ax.set_xticks([])
+    ax.set_yticks(range(len(labels)))
+    ax.set_yticklabels(labels, fontsize=7)
+    ax.tick_params(length=0)
+    for spine in ax.spines.values():
+        spine.set_visible(False)
+    if is_top_row:
+        ax.set_title("no aug.", fontsize=9)
+
+
+def _add_row_colorbar(*, figure, row_axes: list, mesh) -> None:
+    colorbar = figure.colorbar(mesh, ax=row_axes, fraction=0.015, pad=0.012)
+    colorbar.ax.tick_params(labelsize=6, length=0)
+    colorbar.outline.set_visible(False)
 
 
 def _finish(
@@ -405,4 +577,4 @@ def _finish(
 
 
 if __name__ == "__main__":
-    main()
+    tyro.cli(f=main)
