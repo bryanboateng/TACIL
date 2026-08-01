@@ -9,7 +9,11 @@ import tyro
 import wandb
 from numpy import typing as npt
 
-from scripts.evaluation.core.condition import get_conditions
+from scripts.evaluation.core.condition import (
+    Condition,
+    DisturbanceLevel,
+    FloorCondition,
+)
 from scripts.evaluation.core.renderer import RenderSettings
 from scripts.evaluation.core.rollout import create_environment, roll_out_episode
 from scripts.evaluation.core.video import FREEZE_SECONDS, build_annotated_surfaces
@@ -81,7 +85,13 @@ def main(use_gpi_policy: bool = False) -> None:
         else _build_avoidance_policy_factory()
     )
 
-    for condition in itertools.cycle(get_conditions()):
+    conditions = [
+        Condition(floor_condition=floor_condition, disturbance_level=disturbance_level)
+        for floor_condition in FloorCondition
+        for disturbance_level in (None, DisturbanceLevel.LOW, DisturbanceLevel.HIGH)
+    ]
+
+    for condition in itertools.cycle(conditions):
         seed = random.randint(a=0, b=2**31 - 1)
         pygame.display.set_caption(title="Preview")
 

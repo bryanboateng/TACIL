@@ -11,9 +11,9 @@ from scripts.evaluation.config import (
     BehaviorCloningCheckpoint,
     Config,
     DiffusionPolicyCheckpoint,
-    describe_policy,
+    Policy,
 )
-from scripts.evaluation.core.condition import Condition, get_conditions
+from scripts.evaluation.core.condition import Condition
 from scripts.evaluation.core.scoring import (
     RewardStatistics,
     pick_representative_scores,
@@ -59,40 +59,32 @@ def _run(*, config: Config) -> None:
         config=asdict(config),
         dir=OUTPUT_DIRECTORY_PATH,
     ) as run:
-        start_episode_seed = 1_000_000
+        condition = Condition(
+            floor_condition=config.floor_condition,
+            disturbance_level=config.disturbance_level,
+        )
         policy_factory = _build_policy_factory(config=config, run=run, device=device)
-        policy_label = describe_policy(policy=config.policy)
 
-        for condition in get_conditions():
-            episode_scores = run_scored_episodes(
-                policy_factory=policy_factory,
-                start_episode_seed=start_episode_seed,
-                episode_count=config.episode_count,
-                condition=condition,
-            )
-            # Write the metrics first — they are the real deliverable — so a
-            # video-encoding failure (e.g. ffmpeg killed under memory pressure)
-            # can never lose them or the whole run.
-            _write_summary(
-                run=run,
-                condition=condition,
-                reward=reward_statistics(episode_scores),
-                success_fraction=success_rate(episode_scores),
-            )
-            try:
-                record_condition(
-                    policy_factory=policy_factory,
-                    policy_label=policy_label,
-                    condition=condition,
-                    episode_scores=pick_representative_scores(
-                        episode_scores=episode_scores
-                    ),
-                    run=run,
-                )
-            except Exception:
-                logger.exception(
-                    "Video recording failed for %s; continuing.", condition.label
-                )
+        episode_scores = run_scored_episodes(
+            policy_factory=policy_factory,
+            start_episode_seed=1_000_000,
+            episode_count=config.episode_count,
+            condition=condition,
+        )
+
+        _write_summary(
+            run=run,
+            condition=condition,
+            reward=reward_statistics(episode_scores),
+            success_fraction=success_rate(episode_scores),
+        )
+        record_condition(
+            policy_factory=policy_factory,
+            policy_label=_describe_policy(policy=config.policy),
+            condition=condition,
+            episode_scores=pick_representative_scores(episode_scores=episode_scores),
+            run=run,
+        )
 
 
 def _build_policy_factory(
@@ -134,6 +126,18 @@ def _download_checkpoint(*, run: Run, artifact_name: str) -> Path:
         Path(run.use_artifact(artifact_or_name=artifact_name).download())
         / "checkpoint.pt"
     )
+
+
+def _describe_policy(*, policy: Policy) -> str:
+    match policy:
+        case DiffusionPolicyCheckpoint(
+            checkpoint_artifact=artifact_name, sampler=sampler
+        ):
+            return f"dp ({sampler})   {artifact_name}"
+        case BehaviorCloningCheckpoint(checkpoint_artifact=artifact_name):
+            return f"bc   {artifact_name}"
+        case gpi.Config(dataset_artifact=artifact_name):
+            return f"gpi   {artifact_name}"
 
 
 def _write_summary(

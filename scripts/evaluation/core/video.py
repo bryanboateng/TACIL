@@ -172,10 +172,10 @@ def record_condition(
 
 
 def _condition_label(*, condition: Condition) -> str:
-    if condition.disturbance is None:
+    if condition.disturbance_level is None:
         disturbance_label = "none"
     else:
-        match condition.disturbance.level:
+        match condition.disturbance_level:
             case DisturbanceLevel.LOW:
                 disturbance_label = "low"
             case DisturbanceLevel.HIGH:

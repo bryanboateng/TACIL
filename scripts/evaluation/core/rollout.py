@@ -7,7 +7,11 @@ import torch
 from gymnasium import Env
 
 from scripts.evaluation.core import disturbance
-from scripts.evaluation.core.condition import Condition, FloorCondition
+from scripts.evaluation.core.condition import (
+    Condition,
+    DisturbanceLevel,
+    FloorCondition,
+)
 from scripts.evaluation.core.renderer import RecoloredRenderWrapper, RenderSettings
 from scripts.shared.policy_types import Policy
 
@@ -37,9 +41,13 @@ def create_environment(
     )
     environment.reset()
 
-    if condition.disturbance is not None:
+    if condition.disturbance_level is not None:
         environment = disturbance.DisturbanceWrapper(
-            environment=environment, magnitude=condition.disturbance.magnitude
+            environment=environment,
+            magnitude=_get_disturbance_magnitude(
+                floor_condition=condition.floor_condition,
+                disturbance_level=condition.disturbance_level,
+            ),
         )
 
     if render_settings is not None:
@@ -91,6 +99,24 @@ def roll_out_episode(
 
 
 # ---- Private --------------------------------------------
+
+
+def _get_disturbance_magnitude(
+    *, floor_condition: FloorCondition, disturbance_level: DisturbanceLevel
+) -> float:
+    match floor_condition:
+        case FloorCondition.GRIPPY:
+            match disturbance_level:
+                case DisturbanceLevel.LOW:
+                    return 1_500
+                case DisturbanceLevel.HIGH:
+                    return 4_500
+        case FloorCondition.SLIPPERY:
+            match disturbance_level:
+                case DisturbanceLevel.LOW:
+                    return 24
+                case DisturbanceLevel.HIGH:
+                    return 72
 
 
 def _render_frame(environment: Env) -> np.ndarray:

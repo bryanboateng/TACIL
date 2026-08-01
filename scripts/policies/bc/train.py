@@ -12,7 +12,7 @@ from torch.utils.data import DataLoader
 from tqdm.auto import tqdm
 from wandb import Run
 
-from scripts.evaluation.core.condition import Condition, FloorCondition
+from scripts.evaluation.core.condition import Condition
 from scripts.evaluation.core.scoring import (
     RewardStatistics,
     reward_statistics,
@@ -132,6 +132,10 @@ def _run(*, config: Config) -> None:
             validation_reward = _evaluate(
                 checkpoint_path=checkpoint_path,
                 episode_count=config.evaluation.episode_count,
+                condition=Condition(
+                    floor_condition=config.evaluation.floor_condition,
+                    disturbance_level=config.evaluation.disturbance_level,
+                ),
                 device=device,
             )
             run.log(
@@ -177,7 +181,11 @@ def _upload_policy(*, policy: BehaviorCloningPolicy, run: Run) -> None:
 
 
 def _evaluate(
-    *, checkpoint_path: Path, episode_count: int, device: torch.device
+    *,
+    checkpoint_path: Path,
+    episode_count: int,
+    condition: Condition,
+    device: torch.device,
 ) -> RewardStatistics:
     policy_factory = load_behavior_cloning_policy(
         checkpoint_path=checkpoint_path, device=device
@@ -187,9 +195,7 @@ def _evaluate(
             policy_factory=policy_factory,
             start_episode_seed=100_000,
             episode_count=episode_count,
-            condition=Condition(
-                floor_condition=FloorCondition.GRIPPY, disturbance=None
-            ),
+            condition=condition,
         )
     )
 

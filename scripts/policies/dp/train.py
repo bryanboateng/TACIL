@@ -12,7 +12,7 @@ from diffusers.training_utils import EMAModel
 from rich.pretty import pretty_repr
 from tqdm.auto import tqdm
 
-from scripts.evaluation.core.condition import Condition, FloorCondition
+from scripts.evaluation.core.condition import Condition
 from scripts.evaluation.core.scoring import (
     RewardStatistics,
     reward_statistics,
@@ -196,6 +196,10 @@ def _run(*, config: Config) -> None:
                 checkpoint_path=checkpoint_path,
                 episode_count=config.evaluation.episode_count,
                 sampler=config.evaluation.sampler,
+                condition=Condition(
+                    floor_condition=config.evaluation.floor_condition,
+                    disturbance_level=config.evaluation.disturbance_level,
+                ),
                 device=device,
             )
             run.log(
@@ -253,6 +257,7 @@ def _evaluate(
     checkpoint_path: Path,
     episode_count: int,
     sampler: Literal["ddim", "ddpm"],
+    condition: Condition,
     device: torch.device,
 ) -> RewardStatistics:
     policy_factory = load_diffusion_policy(
@@ -263,9 +268,7 @@ def _evaluate(
             policy_factory=policy_factory,
             start_episode_seed=100_000,
             episode_count=episode_count,
-            condition=Condition(
-                floor_condition=FloorCondition.GRIPPY, disturbance=None
-            ),
+            condition=condition,
         )
     )
 

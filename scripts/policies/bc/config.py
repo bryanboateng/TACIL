@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 
+from scripts.evaluation.core.condition import DisturbanceLevel, FloorCondition
 from scripts.shared.wandb_config import WandbConfig
 
 
@@ -19,6 +20,9 @@ class OptimizationConfig:
 
 @dataclass(frozen=True)
 class EvaluationConfig:
+    floor_condition: FloorCondition
+    disturbance_level: DisturbanceLevel | None
+
     periodic_interval_epoch_count: int = 20
     episode_count: int = 30
 

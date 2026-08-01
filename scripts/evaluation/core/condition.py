@@ -1,6 +1,5 @@
 from dataclasses import dataclass
 from enum import Enum, auto
-from itertools import chain
 
 
 class FloorCondition(Enum):
@@ -14,65 +13,18 @@ class DisturbanceLevel(Enum):
 
 
 @dataclass(frozen=True)
-class Disturbance:
-    level: DisturbanceLevel
-    magnitude: float
-
-
-@dataclass(frozen=True)
 class Condition:
     floor_condition: FloorCondition
-    disturbance: Disturbance | None
+    disturbance_level: DisturbanceLevel | None
 
     @property
     def label(self) -> str:
-        if self.disturbance is None:
+        if self.disturbance_level is None:
             disturbance_label = "undisturbed"
         else:
-            match self.disturbance.level:
+            match self.disturbance_level:
                 case DisturbanceLevel.LOW:
                     disturbance_label = "low_disturbance"
                 case DisturbanceLevel.HIGH:
                     disturbance_label = "high_disturbance"
         return f"{self.floor_condition.name.lower()}_{disturbance_label}"
-
-
-def get_conditions() -> list[Condition]:
-    return list(
-        chain.from_iterable(
-            _get_conditions_for_setting(
-                floor_condition=floor_condition, disturbance_levels=disturbance_levels
-            )
-            for floor_condition, disturbance_levels in _get_settings().items()
-        )
-    )
-
-
-# ---- Private --------------------------------------------
-
-
-@dataclass(frozen=True)
-class _DisturbanceLevels:
-    low: float
-    high: float
-
-
-def _get_settings() -> dict[FloorCondition, _DisturbanceLevels]:
-    return {
-        FloorCondition.GRIPPY: _DisturbanceLevels(low=1_500, high=4_500),
-        FloorCondition.SLIPPERY: _DisturbanceLevels(low=24, high=72),
-    }
-
-
-def _get_conditions_for_setting(
-    *, floor_condition: FloorCondition, disturbance_levels: _DisturbanceLevels
-) -> list[Condition]:
-    disturbances: list[Disturbance | None] = [
-        None,
-        Disturbance(level=DisturbanceLevel.LOW, magnitude=disturbance_levels.low),
-        Disturbance(level=DisturbanceLevel.HIGH, magnitude=disturbance_levels.high),
-    ]
-    return [
-        Condition(floor_condition=floor_condition, disturbance=disturbance)
-        for disturbance in disturbances
-    ]
