@@ -2,7 +2,7 @@
 # The six files in this directory are identical apart from the condition:
 # `metric`, `--floor-condition` and `--disturbance-level`.
 #
-#   uv run wandb sweep -e bryanboateng-team -p opq sweeps/grippy_low_disturbance.yaml
+#   uv run wandb sweep -e bryanboateng-team -p 2026-08-01 sweeps/grippy_low_disturbance.yaml
 #   CUDA_VISIBLE_DEVICES=0 uv run wandb agent <sweep-id>
 
 program: scripts/sweep/run_pipeline.py
@@ -19,8 +19,8 @@ command:
   - ${interpreter}
   - -m
   - scripts.sweep.run_pipeline
-  - --wandb.project=opq
-  - --expert-dataset-artifact=expert-dataset:v0
+  - --wandb.project=2026-08-01
+  - --expert-dataset-artifact=bryanboateng-team/datasets/expert-dataset:v0
   - --floor-condition=GRIPPY
   - --disturbance-level=LOW
   - ${args}
