@@ -1,5 +1,8 @@
 import torch
 
+from scripts.data.augmentation.tacil.models.lipschitz_constrained_linear import (
+    LipschitzConstrainedLinear,
+)
 from scripts.data.augmentation.tacil.models.normalizers import Normalizers
 
 # Maximum factor by which SiLU stretches space, i.e. its (global) Lipschitz constant.
@@ -177,31 +180,8 @@ def _create_linear_layer(
         return torch.nn.Linear(
             in_features=input_dimensionality, out_features=output_dimensionality
         )
-    return _SpectralNormalizedLinear(
+    return LipschitzConstrainedLinear(
         input_dimensionality=input_dimensionality,
         output_dimensionality=output_dimensionality,
         lipschitz_constant_upper_bound=lipschitz_constant_upper_bound_per_layer,
     )
-
-
-class _SpectralNormalizedLinear(torch.nn.Module):
-    def __init__(
-        self,
-        *,
-        input_dimensionality: int,
-        output_dimensionality: int,
-        lipschitz_constant_upper_bound: float,
-    ):
-        super().__init__()
-        self._linear = torch.nn.utils.parametrizations.spectral_norm(
-            module=torch.nn.Linear(
-                in_features=input_dimensionality, out_features=output_dimensionality
-            )
-        )
-        self._lipschitz_constant_upper_bound = lipschitz_constant_upper_bound
-
-    def forward(
-        self,
-        input_batch: torch.Tensor,  # (batch_size, input_dimensionality)
-    ) -> torch.Tensor:  # (batch_size, output_dimensionality)
-        return self._linear(input_batch) * self._lipschitz_constant_upper_bound

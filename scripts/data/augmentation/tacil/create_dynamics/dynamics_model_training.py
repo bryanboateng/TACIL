@@ -144,8 +144,6 @@ def train_member_for_one_epoch(
         gradient_norms.append(gradient_norm.item())
 
     state.ema_model.update_parameters(model=state.model)
-    if config.architecture.lipschitz_constant_upper_bound is not None:
-        _refresh_spectral_norm_estimates(ema_dynamics_model=state.ema_dynamics_model)
 
     validation_loss = calculate_validation_loss(
         dynamics_model=state.ema_dynamics_model,
@@ -223,31 +221,3 @@ def _sample_local_lipschitz_constants(
         actions=transitions.actions[sample_indices],
         batch_size=batch_size,
     )
-
-
-@torch.no_grad()
-def _refresh_spectral_norm_estimates(*, ema_dynamics_model: DynamicsModel) -> None:
-    """Recompute the spectral-norm vectors for the EMA network's averaged weights.
-
-    These vectors only update during train-mode forward passes, and the EMA network is
-    never trained, so its vectors are out of date. They also can't be copied from the
-    live network, because they only fit the exact weights they were computed from, and
-    the EMA network has different weights. So we run a few forward
-    passes in train mode: each pass moves the vectors one step closer to the correct
-    values for the current weights.
-    The input values play no role here, so we use zeros.
-    """
-    network_device = next(ema_dynamics_model.parameters()).device
-
-    dummy_normalized_input_batch = torch.zeros(
-        1,
-        ema_dynamics_model.state_dimensionality
-        + ema_dynamics_model.action_dimensionality,
-        device=network_device,
-    )
-
-    model_was_training = ema_dynamics_model.training
-    ema_dynamics_model.train()
-    for _ in range(50):
-        ema_dynamics_model(dummy_normalized_input_batch)
-    ema_dynamics_model.train(mode=model_was_training)
