@@ -4,6 +4,7 @@
 #
 #   uv run wandb sweep -e bryanboateng-team -p 2026-08-01-sub025-grippy_undisturbed sweeps/2026-08-01-sub025-grippy_undisturbed.yaml
 #   CUDA_VISIBLE_DEVICES=0 uv run wandb agent <sweep-id>
+#   uv run wandb sweep --cancel <sweep-id>
 
 program: scripts/sweep/run_pipeline.py
 method: bayes

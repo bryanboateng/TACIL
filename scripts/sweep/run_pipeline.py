@@ -1,4 +1,5 @@
 import os
+import signal
 import subprocess
 import sys
 import time
@@ -18,8 +19,10 @@ from scripts.sweep.config import Config
 
 logger = create_logger()
 
-# Set by the sweep agent for the trial run itself. A stage must not inherit them
-# or it would be adopted by the sweep and reported as one of its trials.
+# Set by the sweep agent for the trial run itself. A stage must not inherit them:
+# the run and sweep ids would make it be adopted by the sweep and reported as one
+# of its trials, the rest would label it as the trial. It gets its own values in
+# _stage_environment instead.
 SWEEP_ENVIRONMENT_VARIABLE_NAMES = (
     "WANDB_RUN_ID",
     "WANDB_SWEEP_ID",
@@ -52,10 +55,28 @@ FORWARDED_SUMMARY_KEYS = {
 }
 
 
+# How long a stage may take to shut down on its own before it is killed.
+STAGE_SHUTDOWN_TIMEOUT_SECONDS = 30
+
+# The exit status a shell reports for a process ended by an interrupt.
+INTERRUPTED_EXIT_CODE = 130
+
+
 def main() -> None:
     config = tyro.cli(f=Config, config=[tyro.conf.UsePythonSyntaxForLiteralCollections])
     logger.info(pretty_repr(config))
-    _run(config=config)
+    # Take the same route out for a signalled shutdown as for Ctrl-C, so the
+    # running stage is stopped either way.
+    signal.signal(signal.SIGTERM, _raise_keyboard_interrupt)
+    try:
+        _run(config=config)
+    except KeyboardInterrupt:
+        logger.warning("Interrupted. The trial is incomplete.")
+        sys.exit(INTERRUPTED_EXIT_CODE)
+
+
+def _raise_keyboard_interrupt(signal_number: int, _frame: object) -> None:
+    raise KeyboardInterrupt(f"Received signal {signal_number}.")
 
 
 @dataclass(frozen=True)
@@ -74,7 +95,14 @@ def _run(*, config: Config) -> None:
     )
     notes = _build_notes(config=config, condition=condition)
 
+    # The agent has already chosen the trial's run id; outside a sweep there is
+    # none, so choose one here. Either way it is known before the run starts and
+    # can therefore name the group that ties the stages to this trial.
+    trial_run_id = os.environ.get("WANDB_RUN_ID") or wandb.util.generate_id()
+
     with wandb.init(
+        id=trial_run_id,
+        group=trial_run_id,
         project=config.wandb.project,
         notes=notes.trial,
         job_type="tacil-pipeline",
@@ -87,6 +115,7 @@ def _run(*, config: Config) -> None:
         dynamics_run = _run_stage(
             api=api,
             run_path=run_path,
+            group=trial_run_id,
             job_type="train-tacil-dynamics",
             note=notes.dynamics,
             command=[
@@ -106,6 +135,7 @@ def _run(*, config: Config) -> None:
         data_run = _run_stage(
             api=api,
             run_path=run_path,
+            group=trial_run_id,
             job_type="create-tacil-dataset",
             note=notes.data,
             command=[
@@ -125,6 +155,7 @@ def _run(*, config: Config) -> None:
         policy_run = _run_stage(
             api=api,
             run_path=run_path,
+            group=trial_run_id,
             job_type="train-diffusion-policy",
             note=notes.policy,
             command=[
@@ -144,6 +175,7 @@ def _run(*, config: Config) -> None:
         evaluation_run = _run_stage(
             api=api,
             run_path=run_path,
+            group=trial_run_id,
             job_type="evaluate-policy",
             note=notes.evaluation,
             command=[
@@ -224,7 +256,13 @@ def _lipschitz_argument(*, config: Config) -> str:
 
 
 def _run_stage(
-    *, api: wandb.Api, run_path: str, job_type: str, note: str, command: list[str]
+    *,
+    api: wandb.Api,
+    run_path: str,
+    group: str,
+    job_type: str,
+    note: str,
+    command: list[str],
 ) -> FinishedRun:
     reusable_run = _find_reusable_run(
         api=api, run_path=run_path, job_type=job_type, note=note
@@ -235,12 +273,42 @@ def _run_stage(
 
     run_id = wandb.util.generate_id()
     logger.info("Running %s as %s (%s).", job_type, run_id, note)
-    subprocess.run(
-        args=[sys.executable, *command],
-        check=True,
-        env=_stage_environment(run_id=run_id),
+    _run_command(
+        command=command,
+        environment=_stage_environment(
+            run_id=run_id, group=group, name=f"{group}-{job_type}"
+        ),
     )
     return _wait_for_run(api=api, run_path=f"{run_path}/{run_id}")
+
+
+def _run_command(*, command: list[str], environment: dict[str, str]) -> None:
+    # The stage gets a session of its own, so an interrupt typed in the terminal
+    # reaches this process alone. It is passed on below, once, and the stage is
+    # given the chance to end its own run before it is killed.
+    process = subprocess.Popen(
+        args=[sys.executable, *command], env=environment, start_new_session=True
+    )
+    try:
+        return_code = process.wait()
+    except KeyboardInterrupt:
+        _stop_process(process=process)
+        raise
+    if return_code != 0:
+        raise subprocess.CalledProcessError(returncode=return_code, cmd=process.args)
+
+
+def _stop_process(*, process: subprocess.Popen) -> None:
+    logger.warning("Stopping stage %d.", process.pid)
+    os.killpg(process.pid, signal.SIGINT)
+    try:
+        process.wait(timeout=STAGE_SHUTDOWN_TIMEOUT_SECONDS)
+    except subprocess.TimeoutExpired:
+        # Kill the whole group: the stage itself may be wedged, and its data
+        # loaders and renderers are children of it.
+        logger.warning("Stage %d did not stop. Killing it.", process.pid)
+        os.killpg(process.pid, signal.SIGKILL)
+        process.wait()
 
 
 def _find_reusable_run(
@@ -273,15 +341,22 @@ def _wait_for_run(*, api: wandb.Api, run_path: str) -> FinishedRun:
     raise RuntimeError(f"{run_path} exited successfully but never became readable.")
 
 
-def _stage_environment(*, run_id: str) -> dict[str, str]:
+def _stage_environment(*, run_id: str, group: str, name: str) -> dict[str, str]:
     environment = {
-        name: value
-        for name, value in os.environ.items()
-        if name not in SWEEP_ENVIRONMENT_VARIABLE_NAMES
+        variable_name: value
+        for variable_name, value in os.environ.items()
+        if variable_name not in SWEEP_ENVIRONMENT_VARIABLE_NAMES
     }
     # Choose the stage's run id here, so its artifact can be looked up by id
     # rather than by parsing a generated run name.
     environment["WANDB_RUN_ID"] = run_id
+    # The stage stays outside the sweep, so the group and the name are all that
+    # tie it to the trial it was run for.
+    environment["WANDB_RUN_GROUP"] = group
+    environment["WANDB_NAME"] = name
+    sweep_id = os.environ.get("WANDB_SWEEP_ID")
+    if sweep_id is not None:
+        environment["WANDB_TAGS"] = f"sweep-{sweep_id}"
     return environment
 
 
