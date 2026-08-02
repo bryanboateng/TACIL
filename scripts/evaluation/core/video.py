@@ -57,6 +57,9 @@ def build_annotated_surfaces(
     notes: str,
     percentile: int,
 ) -> list[pygame.Surface]:
+    if episode_record.frames is None:
+        raise ValueError(f"No frames found for episode {episode_record.seed}")
+
     render_size = episode_record.frames[0].shape[0]
     font = create_font(render_size=render_size)
 

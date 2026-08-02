@@ -22,11 +22,10 @@ class EpisodeRecord:
     seed: int
     reward: float
     terminated: bool
-    steps: int
     final_observation: np.ndarray
-    frames: list[np.ndarray] = field(default_factory=list)
-    rewards: list[float] = field(default_factory=list)
     actions: list[np.ndarray] = field(default_factory=list)
+    rewards: list[float] = field(default_factory=list)
+    frames: list[np.ndarray] | None = None
 
 
 @dataclass
@@ -34,11 +33,10 @@ class _EpisodeRun:
     environment: Env
     seed: int
     observation: np.ndarray
-    frames: list[np.ndarray] = field(default_factory=list)
+    frames: list[np.ndarray] | None = None
     rewards: list[float] = field(default_factory=list)
     actions: list[np.ndarray] = field(default_factory=list)
     best_reward: float = 0.0
-    step_count: int = 0
     terminated: bool = False
 
     @property
@@ -47,11 +45,10 @@ class _EpisodeRun:
             seed=self.seed,
             reward=self.best_reward,
             terminated=self.terminated,
-            steps=self.step_count,
             final_observation=self.observation,
-            frames=self.frames,
-            rewards=self.rewards,
             actions=self.actions,
+            rewards=self.rewards,
+            frames=self.frames,
         )
 
 
@@ -107,7 +104,7 @@ def roll_out_episodes(
                 environment=environment,
                 seed=seed,
                 observation=observation,
-                frames=[_render_frame(environment=environment)] if render else [],
+                frames=[_render_frame(environment=environment)] if render else None,
             )
         )
 
@@ -137,9 +134,8 @@ def roll_out_episodes(
                 episode_run.best_reward = max(
                     episode_run.best_reward, float(step_reward)
                 )
-                episode_run.step_count += 1
 
-                if render:
+                if episode_run.frames is not None:
                     episode_run.frames.append(
                         _render_frame(environment=episode_run.environment)
                     )
