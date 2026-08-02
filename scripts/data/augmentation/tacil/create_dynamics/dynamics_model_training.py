@@ -40,6 +40,7 @@ class MemberTrainingState:
     optimizer: torch.optim.Optimizer
     ema_model: AveragedModel
     shuffle_generator: torch.Generator
+    histogram_sample_generator: np.random.Generator
     best_checkpoint: Checkpoint | None = None
 
     @property
@@ -98,6 +99,7 @@ def create_member_training_state(
             use_buffers=False,
         ),
         shuffle_generator=torch.Generator(device=device).manual_seed(member_seed),
+        histogram_sample_generator=np.random.default_rng(seed=member_seed),
     )
 
 
@@ -167,18 +169,16 @@ def train_member_for_one_epoch(
         training_loss=float(np.mean(losses)),
         gradient_norm=float(np.max(gradient_norms)),
         validation_loss=validation_loss,
-        training_local_lipschitz_constants=calculate_local_lipschitz_constants(
-            dynamics_model=state.ema_dynamics_model,
+        training_local_lipschitz_constants=_sample_local_lipschitz_constants(
+            state=state,
             normalizers=context.normalizers,
-            states=context.training_transitions.states,
-            actions=context.training_transitions.actions,
+            transitions=context.training_transitions,
             batch_size=config.data.loader.batch_size,
         ),
-        validation_local_lipschitz_constants=calculate_local_lipschitz_constants(
-            dynamics_model=state.ema_dynamics_model,
+        validation_local_lipschitz_constants=_sample_local_lipschitz_constants(
+            state=state,
             normalizers=context.normalizers,
-            states=context.validation_transitions.states,
-            actions=context.validation_transitions.actions,
+            transitions=context.validation_transitions,
             batch_size=config.data.loader.batch_size,
         ),
     )
@@ -196,6 +196,33 @@ def load_best_member_model(
 
 
 # ---- Private --------------------------------------------
+
+
+def _sample_local_lipschitz_constants(
+    *,
+    state: MemberTrainingState,
+    normalizers: Normalizers,
+    transitions: TransitionSet,
+    batch_size: int,
+) -> npt.NDArray[np.float32]:  # (sample_count,)
+    """Local Lipschitz constants at a random handful of transitions.
+
+    Nothing but the histogram in the run log reads these, and a histogram needs
+    far fewer points than the dataset has. Evaluating every transition would
+    cost a Jacobian and a spectral norm per transition, per member, per epoch.
+    Drawing the sample yields the same distribution.
+    """
+    transition_count = transitions.states.shape[0]
+    sample_indices = state.histogram_sample_generator.choice(
+        a=transition_count, size=min(512, transition_count), replace=False
+    )  # (sample_count,)
+    return calculate_local_lipschitz_constants(
+        dynamics_model=state.ema_dynamics_model,
+        normalizers=normalizers,
+        states=transitions.states[sample_indices],
+        actions=transitions.actions[sample_indices],
+        batch_size=batch_size,
+    )
 
 
 @torch.no_grad()
