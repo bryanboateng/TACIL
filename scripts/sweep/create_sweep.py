@@ -101,21 +101,21 @@ def _build_sweep_configuration(
         "parameters": {
             # Shape the dynamics model. "none" leaves it unconstrained.
             "lipschitz_constant_upper_bound": {
-                "values": ["none", "1", "2", "5", "10", "20"]
+                "values": ["none", "1", "2", "5", "10", "20", "50", "100"]
             },
-            "window_length": {"distribution": "int_uniform", "min": 1, "max": 8},
+            "window_length": {"distribution": "int_uniform", "min": 1, "max": 15},
             # Shape the backward rollout.
             "action_noise_fraction": {
                 "distribution": "uniform",
                 "min": 0.0,
-                "max": 0.4,
+                "max": 1.0,
             },
             # A multiple of the median expert step, so it spans orders of
             # magnitude.
             "error_limit_fraction": {
                 "distribution": "log_uniform_values",
                 "min": 0.125,
-                "max": 8.0,
+                "max": 32.0,
             },
         },
     }
