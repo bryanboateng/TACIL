@@ -153,13 +153,19 @@ def load_geometric_policy(
         dataset=dataset, device=str(device), subset_size=config.retrieval.subset_size
     )
 
-    def make_policy(*, seed: int) -> Policy:
-        policy = StateGPIPolicy(
-            dataset=dataset, database=database, config=config, seed=seed
-        )
+    def make_policy(*, seeds: list[int]) -> Policy:
+        policies = [
+            StateGPIPolicy(dataset=dataset, database=database, config=config, seed=seed)
+            for seed in seeds
+        ]
 
-        def act(*, observation: np.ndarray) -> np.ndarray:
-            return policy.get_action(observation=observation[np.newaxis])
+        def act(*, observations: dict[int, np.ndarray]) -> dict[int, np.ndarray]:
+            return {
+                episode_index: policies[episode_index].get_action(
+                    observation=observation[np.newaxis]
+                )
+                for episode_index, observation in observations.items()
+            }
 
         return act
 

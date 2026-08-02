@@ -2,18 +2,14 @@ from dataclasses import dataclass
 
 import numpy as np
 import torch
-from tqdm import tqdm
 
 from scripts.evaluation.core.condition import Condition
-from scripts.evaluation.core.rollout import create_environment, roll_out_episode
+from scripts.evaluation.core.rollout import (
+    EpisodeRecord,
+    create_environment,
+    roll_out_episodes,
+)
 from scripts.shared.policy_types import PolicyFactory
-
-
-@dataclass(frozen=True)
-class EpisodeScore:
-    seed: int
-    reward: float
-    success: bool
 
 
 @dataclass(frozen=True)
@@ -29,53 +25,46 @@ def run_scored_episodes(
     start_episode_seed: int,
     episode_count: int,
     condition: Condition,
-) -> list[EpisodeScore]:
-    environment = create_environment(condition=condition, render_settings=None)
+) -> list[EpisodeRecord]:
+    seeds = list(range(start_episode_seed, start_episode_seed + episode_count))
+    environments = [
+        create_environment(condition=condition, render_settings=None) for _ in seeds
+    ]
     try:
-        episode_scores: list[EpisodeScore] = []
-        for seed in tqdm(
-            iterable=range(start_episode_seed, start_episode_seed + episode_count),
-            desc=condition.label,
-            unit="episode",
-            leave=False,
-        ):
-            result = roll_out_episode(
-                environment=environment,
-                policy=policy_factory(seed=seed),
-                seed=seed,
-                render=False,
-            )
-            episode_scores.append(
-                EpisodeScore(seed=seed, reward=result.reward, success=result.terminated)
-            )
-        return episode_scores
+        return roll_out_episodes(
+            environments=environments,
+            seeds=seeds,
+            policy=policy_factory(seeds=seeds),
+            render=False,
+        )
     finally:
-        environment.close()
+        for environment in environments:
+            environment.close()
 
 
-def reward_statistics(episode_scores: list[EpisodeScore]) -> RewardStatistics:
-    rewards = np.array([score.reward for score in episode_scores])
+def reward_statistics(episode_records: list[EpisodeRecord]) -> RewardStatistics:
+    rewards = np.array([record.reward for record in episode_records])
     return RewardStatistics(mean=float(rewards.mean()), std=float(rewards.std()))
 
 
-def success_rate(episode_scores: list[EpisodeScore]) -> float:
-    if not episode_scores:
+def success_rate(episode_records: list[EpisodeRecord]) -> float:
+    if not episode_records:
         return 0.0
-    return float(np.mean([score.success for score in episode_scores]))
+    return float(np.mean([record.terminated for record in episode_records]))
 
 
-def pick_representative_scores(
-    *, episode_scores: list[EpisodeScore]
-) -> dict[int, EpisodeScore]:
+def pick_representative_episodes(
+    *, episode_records: list[EpisodeRecord]
+) -> dict[int, EpisodeRecord]:
     count = 9
 
-    sorted_scores = sorted(episode_scores, key=lambda score: score.reward)
-    last_index = len(sorted_scores) - 1
-    representative_scores: dict[int, EpisodeScore] = {}
+    sorted_records = sorted(episode_records, key=lambda record: record.reward)
+    last_index = len(sorted_records) - 1
+    representative_records: dict[int, EpisodeRecord] = {}
     for step in range(count):
         fraction = step / (count - 1)
         percentile = round(number=100 * fraction)
-        representative_scores[percentile] = sorted_scores[
+        representative_records[percentile] = sorted_records[
             round(number=last_index * fraction)
         ]
-    return representative_scores
+    return representative_records

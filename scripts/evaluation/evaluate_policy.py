@@ -16,7 +16,7 @@ from scripts.evaluation.config import (
 from scripts.evaluation.core.condition import Condition
 from scripts.evaluation.core.scoring import (
     RewardStatistics,
-    pick_representative_scores,
+    pick_representative_episodes,
     reward_statistics,
     run_scored_episodes,
     success_rate,
@@ -65,7 +65,7 @@ def _run(*, config: Config) -> None:
         )
         policy_factory = _build_policy_factory(config=config, run=run, device=device)
 
-        episode_scores = run_scored_episodes(
+        episode_records = run_scored_episodes(
             policy_factory=policy_factory,
             start_episode_seed=1_000_000,
             episode_count=config.episode_count,
@@ -75,14 +75,15 @@ def _run(*, config: Config) -> None:
         _write_summary(
             run=run,
             condition=condition,
-            reward=reward_statistics(episode_scores),
-            success_fraction=success_rate(episode_scores),
+            reward=reward_statistics(episode_records),
+            success_fraction=success_rate(episode_records),
         )
         record_condition(
-            policy_factory=policy_factory,
             policy_label=_describe_policy(policy=config.policy),
             condition=condition,
-            episode_scores=pick_representative_scores(episode_scores=episode_scores),
+            episode_records=pick_representative_episodes(
+                episode_records=episode_records
+            ),
             run=run,
         )
 

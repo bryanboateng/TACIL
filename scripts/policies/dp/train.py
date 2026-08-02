@@ -264,7 +264,7 @@ def _evaluate(
         checkpoint_path=checkpoint_path, sampler=sampler, device=device
     )
     return reward_statistics(
-        episode_scores=run_scored_episodes(
+        episode_records=run_scored_episodes(
             policy_factory=policy_factory,
             start_episode_seed=100_000,
             episode_count=episode_count,

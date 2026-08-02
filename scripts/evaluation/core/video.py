@@ -19,13 +19,12 @@ from scripts.evaluation.core.condition import (
 )
 from scripts.evaluation.core.renderer import RenderSettings
 from scripts.evaluation.core.rollout import (
-    EpisodeResult,
+    EpisodeRecord,
     create_environment,
-    roll_out_episode,
+    roll_out_episodes,
 )
-from scripts.evaluation.core.scoring import EpisodeScore
 from scripts.shared.paths import PROJECT_ROOT_DIRECTORY_PATH
-from scripts.shared.policy_types import PolicyFactory
+from scripts.shared.policy_types import Policy
 
 FPS = 30
 FREEZE_SECONDS = 2
@@ -52,23 +51,21 @@ def create_font(*, render_size: int) -> pygame.font.Font:
 
 def build_annotated_surfaces(
     *,
-    episode_result: EpisodeResult,
+    episode_record: EpisodeRecord,
     condition: Condition,
     policy_label: str,
     notes: str,
-    seed: int,
     percentile: int,
-    episode_reward: float,
 ) -> list[pygame.Surface]:
-    render_size = episode_result.frames[0].shape[0]
+    render_size = episode_record.frames[0].shape[0]
     font = create_font(render_size=render_size)
 
-    last_frame_index = len(episode_result.frames) - 1
+    last_frame_index = len(episode_record.frames) - 1
 
     annotated_surfaces: list[pygame.Surface] = []
     running_max_reward = 0.0
-    for step, frame in enumerate(episode_result.frames):
-        current_reward = episode_result.rewards[step - 1] if step >= 1 else 0.0
+    for step, frame in enumerate(episode_record.frames):
+        current_reward = episode_record.rewards[step - 1] if step >= 1 else 0.0
         running_max_reward = max(running_max_reward, current_reward)
 
         annotated_surface = _convert_frame_to_surface(frame=frame).copy()
@@ -84,7 +81,10 @@ def build_annotated_surfaces(
             font=font,
         )
         _add_text_to_surface(
-            text=f"episode seed: {seed}\npercentile: {percentile}   score: {episode_reward:.2f}",
+            text=(
+                f"episode seed: {episode_record.seed}\n"
+                f"percentile: {percentile}   score: {episode_record.reward:.2f}"
+            ),
             placement=Placement.TOP_RIGHT,
             surface=annotated_surface,
             font=font,
@@ -105,7 +105,7 @@ def build_annotated_surfaces(
         )
         _add_text_to_surface(
             text=(
-                ("Succeeded" if episode_result.terminated else "Failed")
+                ("Succeeded" if episode_record.terminated else "Failed")
                 if step == last_frame_index
                 else "Running"
             ),
@@ -121,10 +121,9 @@ def build_annotated_surfaces(
 @torch.no_grad()
 def record_condition(
     *,
-    policy_factory: PolicyFactory,
     policy_label: str,
     condition: Condition,
-    episode_scores: dict[int, EpisodeScore],
+    episode_records: dict[int, EpisodeRecord],
     run: Run,
 ) -> None:
     render_settings = RenderSettings()
@@ -146,12 +145,11 @@ def record_condition(
             )
             try:
                 _record_group(
-                    policy_factory=policy_factory,
                     policy_label=policy_label,
                     notes=run.notes or "",
                     environment=environment,
                     condition=condition,
-                    episode_scores=episode_scores,
+                    episode_records=episode_records,
                     video_writer=video_writer,
                 )
             finally:
@@ -196,34 +194,29 @@ def _build_reward_text(*, frame_max_reward: float, frame_reward: float) -> str:
 
 def _record_group(
     *,
-    policy_factory: PolicyFactory,
     policy_label: str,
     notes: str,
     environment,
     condition: Condition,
-    episode_scores: dict[int, EpisodeScore],
+    episode_records: dict[int, EpisodeRecord],
     video_writer,
 ) -> None:
-    for percentile, score in tqdm(
-        sorted(episode_scores.items(), key=lambda item: item[0]),
-        desc=condition.label,
+    for percentile, episode_record in tqdm(
+        sorted(episode_records.items(), key=lambda item: item[0]),
+        desc="Recording",
         unit="episode",
     ):
-        episode_result = roll_out_episode(
-            environment=environment,
-            policy=policy_factory(seed=score.seed),
-            seed=score.seed,
-            render=True,
+        replayed_record = _replay(
+            episode_record=episode_record, environment=environment
         )
+
         frame: np.ndarray | None = None
         for surface in build_annotated_surfaces(
-            episode_result=episode_result,
+            episode_record=replayed_record,
             condition=condition,
             policy_label=policy_label,
             notes=notes,
-            seed=score.seed,
             percentile=percentile,
-            episode_reward=score.reward,
         ):
             frame = _convert_surface_to_frame(surface=surface)
             video_writer.append_data(frame)
@@ -232,6 +225,25 @@ def _record_group(
         if frame is not None:
             for _ in range(FPS * FREEZE_SECONDS):
                 video_writer.append_data(frame)
+
+
+def _replay(*, episode_record: EpisodeRecord, environment) -> EpisodeRecord:
+    (replayed_record,) = roll_out_episodes(
+        environments=[environment],
+        seeds=[episode_record.seed],
+        policy=create_replay_policy(action_sequences=[episode_record.actions]),
+        render=True,
+    )
+
+    if not np.array_equal(
+        replayed_record.final_observation, episode_record.final_observation
+    ):
+        raise RuntimeError(
+            f"Replaying episode {episode_record.seed} did not reproduce it: "
+            f"it ended at {replayed_record.final_observation}, "
+            f"not {episode_record.final_observation}."
+        )
+    return replayed_record
 
 
 def _convert_frame_to_surface(*, frame: np.ndarray) -> Surface:
@@ -271,3 +283,24 @@ def _add_text_to_surface(
             case Placement.BOTTOM_RIGHT:
                 destination = (right_aligned_x, bottom_aligned_y)
         surface.blit(source=line_surface, dest=destination)
+
+
+def create_replay_policy(*, action_sequences: list[list[np.ndarray]]) -> Policy:
+    """A policy that repeats recorded action sequences, ignoring what it sees.
+
+    The simulator is deterministic, so replaying an episode's actions from its
+    seed reproduces it exactly — including the arithmetic of the batch it was
+    originally rolled out in, which the policy itself would not reproduce.
+    """
+    step_indices = [0] * len(action_sequences)
+
+    def policy(*, observations: dict[int, np.ndarray]) -> dict[int, np.ndarray]:
+        actions = {}
+        for episode_index in observations.keys():
+            actions[episode_index] = action_sequences[episode_index][
+                step_indices[episode_index]
+            ]
+            step_indices[episode_index] += 1
+        return actions
+
+    return policy

@@ -130,20 +130,22 @@ def load_behavior_cloning_policy(
     policy_model.load_state_dict(state_dict=checkpoint["policy_state_dict"])
     policy_model.eval()
 
-    def make_policy(*, seed: int) -> Policy:  # seed unused: BC is deterministic
-        del seed
+    def make_policy(*, seeds: list[int]) -> Policy:  # seeds unused: BC is deterministic
+        del seeds
 
-        def policy(*, observation: np.ndarray) -> np.ndarray:
-            observation_tensor = torch.from_numpy(np.asarray(observation)).to(
+        def policy(*, observations: dict[int, np.ndarray]) -> dict[int, np.ndarray]:
+            observation_tensor = torch.from_numpy(
+                np.stack(arrays=list(observations.values()))
+            ).to(
                 device=device, dtype=torch.float32
-            )  # (observation_dimensionality,)
+            )  # (running_episode_count, observation_dimensionality)
             with torch.no_grad():
-                action_tensor = policy_model.predict_action(
-                    observation=observation_tensor.unsqueeze(dim=0)
-                )  # (1, action_dimensionality)
-            return (
-                action_tensor.squeeze(dim=0).cpu().numpy()
-            )  # (action_dimensionality,)
+                action_batch = (
+                    policy_model.predict_action(observation=observation_tensor)
+                    .cpu()
+                    .numpy()
+                )  # (running_episode_count, action_dimensionality)
+            return dict(zip(observations, action_batch, strict=True))
 
         return policy
 

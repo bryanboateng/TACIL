@@ -15,7 +15,7 @@ from scripts.evaluation.core.condition import (
     FloorCondition,
 )
 from scripts.evaluation.core.renderer import RenderSettings
-from scripts.evaluation.core.rollout import create_environment, roll_out_episode
+from scripts.evaluation.core.rollout import create_environment, roll_out_episodes
 from scripts.evaluation.core.video import FREEZE_SECONDS, build_annotated_surfaces
 from scripts.policies.gpi import config as gpi
 from scripts.policies.gpi.policy import load_geometric_policy
@@ -57,17 +57,24 @@ def _build_gpi_policy_factory() -> PolicyFactory:
 
 
 def _build_avoidance_policy_factory() -> PolicyFactory:
-    def factory(*, seed: int) -> Policy:
-        def policy(*, observation: npt.NDArray[np.float32]) -> npt.NDArray[np.float32]:
-            agent_position = observation[:2]
-            block_position = observation[2:4]
-            away_vector = agent_position - block_position
-            distance = float(np.linalg.norm(away_vector))
-            away_direction = (
-                away_vector / distance if distance > 1e-6 else np.array([1.0, 0.0])
-            )
-            target = block_position + away_direction * 150.0
-            return target.astype(np.float32)
+    def factory(*, seeds: list[int]) -> Policy:
+        del seeds
+
+        def policy(
+            *, observations: dict[int, npt.NDArray[np.float32]]
+        ) -> dict[int, npt.NDArray[np.float32]]:
+            actions = {}
+            for episode_index, observation in observations.items():
+                agent_position = observation[:2]
+                block_position = observation[2:4]
+                away_vector = agent_position - block_position
+                distance = float(np.linalg.norm(away_vector))
+                away_direction = (
+                    away_vector / distance if distance > 1e-6 else np.array([1.0, 0.0])
+                )
+                target = block_position + away_direction * 150.0
+                actions[episode_index] = target.astype(np.float32)
+            return actions
 
         return policy
 
@@ -100,23 +107,21 @@ def main(use_gpi_policy: bool = False) -> None:
             render_settings=RenderSettings(size=RENDER_SIZE, supersample_factor=1),
         )
         try:
-            episode_result = roll_out_episode(
-                environment=environment,
-                policy=policy_factory(seed=seed),
-                seed=seed,
+            (episode_record,) = roll_out_episodes(
+                environments=[environment],
+                seeds=[seed],
+                policy=policy_factory(seeds=[seed]),
                 render=True,
             )
         finally:
             environment.close()
 
         surfaces = build_annotated_surfaces(
-            episode_result=episode_result,
+            episode_record=episode_record,
             condition=condition,
             policy_label="dp (DDIM)   diffusion-policy-eternal-sweep-6:v0",
             notes="eval-lip-1-action-0.1-error-0.5",
-            seed=seed,
             percentile=75,
-            episode_reward=episode_result.reward,
         )
 
         # Play the episode, then hold on the final frame, matching the recorded freeze.
