@@ -68,7 +68,7 @@ def log_rollout_statistics(
                 values=values, column_name=name
             )
 
-    run.log(data=histogram_panels, step=0)
+    run.log(data=histogram_panels)
 
 
 def log_dataset_statistics(
@@ -117,8 +117,7 @@ def log_dataset_statistics(
             "distributions_synthetic_part_lengths": _distribution_panel(
                 values=synthetic_part_lengths, column_name="synthetic_part_length"
             )
-        },
-        step=0,
+        }
     )
 
 

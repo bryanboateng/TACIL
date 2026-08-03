@@ -59,33 +59,47 @@ def _run(*, config: Config) -> None:
         config=asdict(config),
         dir=OUTPUT_DIRECTORY_PATH,
     ) as run:
-        condition = Condition(
-            floor_condition=config.floor_condition,
-            disturbance_level=config.disturbance_level,
-        )
-        policy_factory = _build_policy_factory(config=config, run=run, device=device)
-
-        episode_records = run_scored_episodes(
-            policy_factory=policy_factory,
-            start_episode_seed=1_000_000,
-            episode_count=config.episode_count,
-            condition=condition,
-        )
-
-        _write_summary(
-            run=run,
-            condition=condition,
-            reward=reward_statistics(episode_records),
-            success_fraction=success_rate(episode_records),
-        )
-        record_condition(
-            policy_label=_describe_policy(policy=config.policy),
-            condition=condition,
-            episode_records=pick_representative_episodes(
-                episode_records=episode_records
+        evaluate_policy(
+            policy_factory=(
+                _build_policy_factory(config=config, run=run, device=device)
             ),
+            policy_label=_describe_policy(policy=config.policy),
+            condition=Condition(
+                floor_condition=config.floor_condition,
+                disturbance_level=config.disturbance_level,
+            ),
+            episode_count=config.episode_count,
             run=run,
         )
+
+
+def evaluate_policy(
+    *,
+    policy_factory: PolicyFactory,
+    policy_label: str,
+    condition: Condition,
+    episode_count: int,
+    run: Run,
+) -> None:
+    episode_records = run_scored_episodes(
+        policy_factory=policy_factory,
+        start_episode_seed=1_000_000,
+        episode_count=episode_count,
+        condition=condition,
+    )
+
+    _write_summary(
+        run=run,
+        condition=condition,
+        reward=reward_statistics(episode_records),
+        success_fraction=success_rate(episode_records),
+    )
+    record_condition(
+        policy_label=policy_label,
+        condition=condition,
+        episode_records=pick_representative_episodes(episode_records=episode_records),
+        run=run,
+    )
 
 
 def _build_policy_factory(

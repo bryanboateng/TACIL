@@ -21,6 +21,10 @@ class BehaviorCloningCheckpoint:
 
 Policy = DiffusionPolicyCheckpoint | BehaviorCloningCheckpoint | gpi.Config
 
+# How many episodes a policy is scored over. Enough that the reward mean is
+# steady from one evaluation to the next.
+DEFAULT_EPISODE_COUNT = 100
+
 
 @dataclass(frozen=True)
 class Config:
@@ -35,5 +39,5 @@ class Config:
     floor_condition: FloorCondition
     disturbance_level: DisturbanceLevel | None
 
-    episode_count: int = 100
+    episode_count: int = DEFAULT_EPISODE_COUNT
     seed: int = 42

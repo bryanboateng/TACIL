@@ -39,12 +39,16 @@ from scripts.data.augmentation.tacil.models.error_model import (
     fit_error_model,
 )
 from scripts.data.augmentation.tacil.models.normalizers import Normalizers
-from scripts.shared.data import load_episode_store
+from scripts.shared.data import EpisodeStore, load_episode_store
 from scripts.shared.log import create_logger, log_device_info
 from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
 from scripts.shared.seed import set_seed
 
 logger = create_logger()
+
+# The x-axis of this stage's curves. The run may be shared with the rest of the
+# pipeline, whose implicit step counter is not the training epoch.
+EPOCH_METRIC_NAME = "dynamics/epoch"
 
 
 def main():
@@ -54,8 +58,6 @@ def main():
 
 
 def _run(*, config: Config) -> None:
-    set_seed(seed=config.seed)
-
     device = torch.device(device="cuda" if torch.cuda.is_available() else "cpu")
     log_device_info(device=device, logger=logger)
 
@@ -66,107 +68,16 @@ def _run(*, config: Config) -> None:
         config=asdict(obj=config),
         dir=OUTPUT_DIRECTORY_PATH,
     ) as run:
-        training_episodes, validation_episodes = train_test_split(
-            extract_transitions(
-                episode_store=load_episode_store(
-                    episode_file_path=Path(
-                        run.use_artifact(
-                            artifact_or_name=config.data.artifact
-                        ).download()
-                    )
+        dynamics_model_ensemble, error_model = train_dynamics_model_ensemble(
+            config=config,
+            episode_store=load_episode_store(
+                episode_file_path=Path(
+                    run.use_artifact(artifact_or_name=config.data.artifact).download()
                 )
             ),
-            test_size=config.data.split.validation_fraction,
-            random_state=config.data.split.seed,
-            shuffle=True,
-        )
-
-        training_transitions = concatenate_episodes(episodes=training_episodes)
-        validation_transitions = concatenate_episodes(episodes=validation_episodes)
-
-        train_state_windows, train_action_windows = build_windows(
-            episodes=training_episodes, window_length=config.data.loader.window_length
-        )
-        validation_state_windows, validation_action_windows = build_windows(
-            episodes=validation_episodes, window_length=config.data.loader.window_length
-        )
-        run.summary["window_count/training"] = train_action_windows.shape[0]
-        run.summary["window_count/validation"] = validation_action_windows.shape[0]
-
-        normalizers = Normalizers.from_transitions(
-            state_batch=torch.from_numpy(training_transitions.states).to(device=device),
-            action_batch=torch.from_numpy(training_transitions.actions).to(
-                device=device
-            ),
-            next_state_batch=torch.from_numpy(training_transitions.next_states).to(
-                device=device
-            ),
-        ).to(device=device)
-
-        training_context = TrainingContext(
-            config=config,
-            normalizers=normalizers,
-            training_transitions=training_transitions,
-            validation_transitions=validation_transitions,
-            train_state_windows=torch.from_numpy(train_state_windows).to(device=device),
-            train_action_windows=torch.from_numpy(train_action_windows).to(
-                device=device
-            ),
-            validation_state_windows=validation_state_windows,
-            validation_action_windows=validation_action_windows,
-        )
-
-        member_training_states = [
-            create_member_training_state(
-                member_seed=int(member_seed),
-                config=config,
-                transitions=training_transitions,
-                device=device,
-            )
-            for member_seed in np.random.SeedSequence(
-                entropy=config.seed
-            ).generate_state(n_words=config.architecture.ensemble_size)
-        ]
-
-        for epoch_index in tqdm(
-            range(config.training.epoch_count), desc="training ensemble", unit="epoch"
-        ):
-            _log_epoch(
-                epoch_index=epoch_index,
-                per_member_metrics=[
-                    train_member_for_one_epoch(
-                        state=member_training_state,
-                        epoch_index=epoch_index,
-                        context=training_context,
-                    )
-                    for member_training_state in member_training_states
-                ],
-                run=run,
-            )
-
-        _log_checkpoint_summary(member_states=member_training_states, run=run)
-
-        dynamics_model_ensemble = DynamicsModelEnsemble(
-            normalizers=normalizers,
-            dynamics_models=[
-                load_best_member_model(member_training_state=member_training_state)
-                for member_training_state in member_training_states
-            ],
-        )
-        dynamics_model_ensemble.eval()
-
-        error_model, error_model_uncentered_r_squared = _create_error_model(
-            dynamics_model_ensemble=dynamics_model_ensemble,
-            validation_transitions=validation_transitions,
-            split_seed=config.seed,
             device=device,
+            run=run,
         )
-        for field_name, field_value in asdict(error_model).items():
-            run.summary[f"error_model/{field_name}"] = field_value
-        run.summary["error_model/uncentered_r_squared"] = (
-            error_model_uncentered_r_squared
-        )
-
         _upload_dynamics_model_ensemble(
             dynamics_model_ensemble=dynamics_model_ensemble,
             error_model=error_model,
@@ -174,10 +85,119 @@ def _run(*, config: Config) -> None:
         )
 
 
+def train_dynamics_model_ensemble(
+    *, config: Config, episode_store: EpisodeStore, device: torch.device, run: Run
+) -> tuple[DynamicsModelEnsemble, ErrorModel]:
+    set_seed(seed=config.seed)
+    _define_epoch_metrics(run=run)
+
+    training_episodes, validation_episodes = train_test_split(
+        extract_transitions(episode_store=episode_store),
+        test_size=config.data.split.validation_fraction,
+        random_state=config.data.split.seed,
+        shuffle=True,
+    )
+
+    training_transitions = concatenate_episodes(episodes=training_episodes)
+    validation_transitions = concatenate_episodes(episodes=validation_episodes)
+
+    train_state_windows, train_action_windows = build_windows(
+        episodes=training_episodes, window_length=config.data.loader.window_length
+    )
+    validation_state_windows, validation_action_windows = build_windows(
+        episodes=validation_episodes, window_length=config.data.loader.window_length
+    )
+    run.summary["window_count/training"] = train_action_windows.shape[0]
+    run.summary["window_count/validation"] = validation_action_windows.shape[0]
+
+    normalizers = Normalizers.from_transitions(
+        state_batch=torch.from_numpy(training_transitions.states).to(device=device),
+        action_batch=torch.from_numpy(training_transitions.actions).to(device=device),
+        next_state_batch=torch.from_numpy(training_transitions.next_states).to(
+            device=device
+        ),
+    ).to(device=device)
+
+    training_context = TrainingContext(
+        config=config,
+        normalizers=normalizers,
+        training_transitions=training_transitions,
+        validation_transitions=validation_transitions,
+        train_state_windows=torch.from_numpy(train_state_windows).to(device=device),
+        train_action_windows=torch.from_numpy(train_action_windows).to(device=device),
+        validation_state_windows=validation_state_windows,
+        validation_action_windows=validation_action_windows,
+    )
+
+    member_training_states = [
+        create_member_training_state(
+            member_seed=int(member_seed),
+            config=config,
+            transitions=training_transitions,
+            device=device,
+        )
+        for member_seed in np.random.SeedSequence(entropy=config.seed).generate_state(
+            n_words=config.architecture.ensemble_size
+        )
+    ]
+
+    for epoch_index in tqdm(
+        range(config.training.epoch_count), desc="training ensemble", unit="epoch"
+    ):
+        _log_epoch(
+            epoch_index=epoch_index,
+            per_member_metrics=[
+                train_member_for_one_epoch(
+                    state=member_training_state,
+                    epoch_index=epoch_index,
+                    context=training_context,
+                )
+                for member_training_state in member_training_states
+            ],
+            run=run,
+        )
+
+    _log_checkpoint_summary(member_states=member_training_states, run=run)
+
+    dynamics_model_ensemble = DynamicsModelEnsemble(
+        normalizers=normalizers,
+        dynamics_models=[
+            load_best_member_model(member_training_state=member_training_state)
+            for member_training_state in member_training_states
+        ],
+    )
+    dynamics_model_ensemble.eval()
+
+    error_model, error_model_uncentered_r_squared = _create_error_model(
+        dynamics_model_ensemble=dynamics_model_ensemble,
+        validation_transitions=validation_transitions,
+        split_seed=config.seed,
+        device=device,
+    )
+    for field_name, field_value in asdict(error_model).items():
+        run.summary[f"error_model/{field_name}"] = field_value
+    run.summary["error_model/uncentered_r_squared"] = error_model_uncentered_r_squared
+
+    return dynamics_model_ensemble, error_model
+
+
+def _define_epoch_metrics(*, run: Run) -> None:
+    run.define_metric(name=EPOCH_METRIC_NAME)
+    for metric_pattern in (
+        "loss_training/*",
+        "loss_validation/*",
+        "gradient_norm/*",
+        "lipschitz_distribution/*",
+    ):
+        run.define_metric(name=metric_pattern, step_metric=EPOCH_METRIC_NAME)
+
+
 def _log_epoch(
     *, epoch_index: int, per_member_metrics: list[MemberEpochMetrics], run: Run
 ) -> None:
-    logged_metrics: dict[str, float | wandb.Histogram] = {}
+    logged_metrics: dict[str, float | wandb.Histogram] = {
+        EPOCH_METRIC_NAME: epoch_index
+    }
     for member_index, metrics in enumerate(iterable=per_member_metrics):
         member = f"member_{member_index:02d}"
         logged_metrics[f"loss_training/{member}"] = metrics.training_loss
@@ -204,7 +224,7 @@ def _log_epoch(
             sequence=np.concatenate(member_split_lipschitz).tolist()
         )
 
-    run.log(logged_metrics, step=epoch_index)
+    run.log(data=logged_metrics)
 
 
 def _log_checkpoint_summary(

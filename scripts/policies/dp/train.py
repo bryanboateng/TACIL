@@ -11,6 +11,7 @@ from diffusers.optimization import get_scheduler
 from diffusers.training_utils import EMAModel
 from rich.pretty import pretty_repr
 from tqdm.auto import tqdm
+from wandb import Run
 
 from scripts.evaluation.core.condition import Condition
 from scripts.evaluation.core.scoring import (
@@ -25,12 +26,16 @@ from scripts.policies.dp.network import ConditionalUnet1d
 from scripts.policies.dp.noise_scheduler import get_ddpm_scheduler
 from scripts.policies.dp.policy import load_diffusion_policy, save_diffusion_policy
 from scripts.policies.shared.checkpoint import Checkpoint
-from scripts.shared.data import load_episode_store
+from scripts.shared.data import EpisodeStore, load_episode_store
 from scripts.shared.log import create_logger, log_device_info
 from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
 from scripts.shared.seed import set_seed
 
 logger = create_logger()
+
+# The x-axis of this stage's curves. The run may be shared with the rest of the
+# pipeline, whose implicit step counter is not the optimization step.
+STEP_METRIC_NAME = "policy/step"
 
 
 def main():
@@ -40,9 +45,48 @@ def main():
 
 
 def _run(*, config: Config) -> None:
-    set_seed(seed=config.seed)
     device = torch.device(device="cuda" if torch.cuda.is_available() else "cpu")
     log_device_info(device=device, logger=logger)
+
+    with (
+        wandb.init(
+            project=config.wandb.project,
+            notes=config.wandb.notes,
+            job_type="train-diffusion-policy",
+            config=asdict(config),
+            dir=OUTPUT_DIRECTORY_PATH,
+        ) as run,
+        tempfile.TemporaryDirectory() as checkpoint_directory,
+    ):
+        train_diffusion_policy(
+            config=config,
+            episode_store=load_episode_store(
+                episode_file_path=Path(
+                    run.use_artifact(
+                        artifact_or_name=config.dataset_artifact
+                    ).download()
+                )
+            ),
+            checkpoint_directory_path=Path(checkpoint_directory),
+            device=device,
+            run=run,
+        )
+
+
+def train_diffusion_policy(
+    *,
+    config: Config,
+    episode_store: EpisodeStore,
+    checkpoint_directory_path: Path,
+    device: torch.device,
+    run: Run,
+) -> Path:
+    """Train on *episode_store*, keeping the periodically evaluated EMA
+    checkpoint that scored best. It is logged to *run* as an artifact and
+    written into *checkpoint_directory_path*, whose lifetime the caller owns.
+    """
+    set_seed(seed=config.seed)
+    _define_step_metrics(run=run)
 
     condition_dimensionality = (
         config.dimensionality.observation * config.horizon_length.observation
@@ -68,187 +112,175 @@ def _run(*, config: Config) -> None:
         weight_decay=config.optimization.weight_decay,
     )
 
-    with (
-        wandb.init(
-            project=config.wandb.project,
-            notes=config.wandb.notes,
-            job_type="train-diffusion-policy",
-            config=asdict(config),
-            dir=OUTPUT_DIRECTORY_PATH,
-        ) as run,
-        tempfile.TemporaryDirectory() as checkpoint_directory,
+    dataset = Dataset(
+        episode_store=episode_store,
+        prediction_horizon_length=config.horizon_length.prediction,
+        observation_horizon_length=config.horizon_length.observation,
+        action_horizon_length=config.horizon_length.action,
+    )
+
+    noise_prediction_network.initialize_normalizers(
+        observation_normalizer=dataset.observation_normalizer,
+        action_normalizer=dataset.action_normalizer,
+    )
+
+    dataloader = torch.utils.data.DataLoader(
+        dataset=dataset,
+        batch_size=config.optimization.batch_size,
+        shuffle=True,
+        pin_memory=(device.type == "cuda"),
+        num_workers=1,
+        persistent_workers=True,
+    )
+
+    learning_rate_scheduler = get_scheduler(
+        name="cosine",
+        optimizer=optimizer,
+        num_warmup_steps=config.optimization.learning_rate_warmup_step_count,
+        num_training_steps=len(dataloader) * config.optimization.epoch_count,
+    )
+
+    global_step = 0
+
+    best_checkpoint: Checkpoint | None = None
+
+    for epoch_number in tqdm(
+        iterable=range(config.optimization.epoch_count),
+        desc="Epoch",
+        unit="epoch",
+        dynamic_ncols=True,
+        position=0,
     ):
-        checkpoint_directory_path = Path(checkpoint_directory)
+        run.log(data={"policy/epoch": epoch_number, STEP_METRIC_NAME: global_step})
+        noise_prediction_network.train()
 
-        dataset = Dataset(
-            episode_store=load_episode_store(
-                episode_file_path=Path(
-                    run.use_artifact(
-                        artifact_or_name=config.dataset_artifact
-                    ).download()
-                )
-            ),
-            prediction_horizon_length=config.horizon_length.prediction,
-            observation_horizon_length=config.horizon_length.observation,
-            action_horizon_length=config.horizon_length.action,
-        )
-
-        noise_prediction_network.initialize_normalizers(
-            observation_normalizer=dataset.observation_normalizer,
-            action_normalizer=dataset.action_normalizer,
-        )
-
-        dataloader = torch.utils.data.DataLoader(
-            dataset=dataset,
-            batch_size=config.optimization.batch_size,
-            shuffle=True,
-            pin_memory=(device.type == "cuda"),
-            num_workers=1,
-            persistent_workers=True,
-        )
-
-        learning_rate_scheduler = get_scheduler(
-            name="cosine",
-            optimizer=optimizer,
-            num_warmup_steps=config.optimization.learning_rate_warmup_step_count,
-            num_training_steps=len(dataloader) * config.optimization.epoch_count,
-        )
-
-        global_step = 0
-
-        best_checkpoint: Checkpoint | None = None
-
-        for epoch_number in tqdm(
-            iterable=range(config.optimization.epoch_count),
-            desc="Epoch",
-            unit="epoch",
+        for training_batch in tqdm(
+            iterable=dataloader,
+            desc="Batch",
+            unit="batch",
+            leave=False,
             dynamic_ncols=True,
-            position=0,
+            position=1,
         ):
-            run.log(data={"epoch": epoch_number}, step=global_step)
-            noise_prediction_network.train()
-
-            for training_batch in tqdm(
-                iterable=dataloader,
-                desc="Batch",
-                unit="batch",
-                leave=False,
-                dynamic_ncols=True,
-                position=1,
-            ):
-                loss = _compute_denoising_loss(
-                    noise_prediction_network=noise_prediction_network,
-                    training_batch=training_batch,
-                    noise_scheduler=noise_scheduler,
-                    observation_horizon_length=config.horizon_length.observation,
-                    device=device,
-                )
-
-                loss.backward()
-
-                gradient_norm = torch.norm(
-                    input=torch.stack(
-                        tensors=[
-                            parameter.grad.norm()
-                            for parameter in noise_prediction_network.parameters()
-                            if parameter.grad is not None
-                        ]
-                    )
-                )
-
-                optimizer.step()
-                optimizer.zero_grad()
-                learning_rate_scheduler.step()
-                noise_prediction_network_ema.step(noise_prediction_network.parameters())
-
-                run.log(
-                    data={
-                        "training/loss": loss.item(),
-                        "training/learning_rate": learning_rate_scheduler.get_last_lr()[
-                            0
-                        ],
-                        "training/gradient_norm": gradient_norm.item(),
-                    },
-                    step=global_step,
-                )
-                global_step += 1
-
-            periodic_eval_is_due = (
-                epoch_number + 1
-            ) % config.evaluation.periodic_interval_epoch_count == 0 or (
-                epoch_number + 1
-            ) == config.optimization.epoch_count
-            if not periodic_eval_is_due:
-                continue
-
-            checkpoint_path = checkpoint_directory_path / "checkpoint.pt"
-            ema_state_dict = _save_ema_checkpoint(
-                path=checkpoint_path,
-                network=noise_prediction_network,
-                ema=noise_prediction_network_ema,
-                horizon_length=config.horizon_length,
-                dimensionality=config.dimensionality,
-                condition_dimensionality=condition_dimensionality,
-                hidden_channel_counts=config.hidden_channel_counts,
-            )
-
-            validation_reward = _evaluate(
-                checkpoint_path=checkpoint_path,
-                episode_count=config.evaluation.episode_count,
-                sampler=config.evaluation.sampler,
-                condition=Condition(
-                    floor_condition=config.evaluation.floor_condition,
-                    disturbance_level=config.evaluation.disturbance_level,
-                ),
+            loss = _compute_denoising_loss(
+                noise_prediction_network=noise_prediction_network,
+                training_batch=training_batch,
+                noise_scheduler=noise_scheduler,
+                observation_horizon_length=config.horizon_length.observation,
                 device=device,
             )
-            run.log(
-                data={
-                    "validation/reward_mean": validation_reward.mean,
-                    "validation/reward_std": validation_reward.std,
-                },
-                step=global_step,
+
+            loss.backward()
+
+            gradient_norm = torch.norm(
+                input=torch.stack(
+                    tensors=[
+                        parameter.grad.norm()
+                        for parameter in noise_prediction_network.parameters()
+                        if parameter.grad is not None
+                    ]
+                )
             )
 
-            if (
-                best_checkpoint is None
-                or validation_reward.mean > best_checkpoint.validation_reward_mean
-            ):
-                best_checkpoint = Checkpoint(
-                    validation_reward_mean=validation_reward.mean,
-                    validation_reward_std=validation_reward.std,
-                    epoch=epoch_number,
-                    state_dict=ema_state_dict,
-                )
+            optimizer.step()
+            optimizer.zero_grad()
+            learning_rate_scheduler.step()
+            noise_prediction_network_ema.step(noise_prediction_network.parameters())
 
-        if best_checkpoint is None:
-            raise ValueError("No checkpoint was recorded")
+            run.log(
+                data={
+                    "training/loss": loss.item(),
+                    "training/learning_rate": learning_rate_scheduler.get_last_lr()[0],
+                    "training/gradient_norm": gradient_norm.item(),
+                    STEP_METRIC_NAME: global_step,
+                }
+            )
+            global_step += 1
 
-        logger.info(
-            "Selected best epoch %d (validation max reward %.4f).",
-            best_checkpoint.epoch,
-            best_checkpoint.validation_reward_mean,
-        )
+        periodic_eval_is_due = (
+            epoch_number + 1
+        ) % config.evaluation.periodic_interval_epoch_count == 0 or (
+            epoch_number + 1
+        ) == config.optimization.epoch_count
+        if not periodic_eval_is_due:
+            continue
 
-        run.summary["selected/epoch"] = best_checkpoint.epoch
-        run.summary["selected/reward_mean"] = best_checkpoint.validation_reward_mean
-        run.summary["selected/reward_std"] = best_checkpoint.validation_reward_std
-
-        noise_prediction_network.load_state_dict(best_checkpoint.state_dict)
-        final_path = checkpoint_directory_path / "checkpoint.pt"
-        save_diffusion_policy(
-            path=final_path,
-            noise_prediction_network=noise_prediction_network,
-            action_dimensionality=config.dimensionality.action,
+        checkpoint_path = checkpoint_directory_path / "checkpoint.pt"
+        ema_state_dict = _save_ema_checkpoint(
+            path=checkpoint_path,
+            network=noise_prediction_network,
+            ema=noise_prediction_network_ema,
+            horizon_length=config.horizon_length,
+            dimensionality=config.dimensionality,
             condition_dimensionality=condition_dimensionality,
             hidden_channel_counts=config.hidden_channel_counts,
-            observation_horizon_length=config.horizon_length.observation,
-            prediction_horizon_length=config.horizon_length.prediction,
-            action_horizon_length=config.horizon_length.action,
         )
-        artifact = wandb.Artifact(name=f"diffusion-policy-{run.name}", type="model")
-        artifact.add_file(str(final_path))
-        run.log_artifact(artifact)
+
+        validation_reward = _evaluate(
+            checkpoint_path=checkpoint_path,
+            episode_count=config.evaluation.episode_count,
+            sampler=config.evaluation.sampler,
+            condition=Condition(
+                floor_condition=config.evaluation.floor_condition,
+                disturbance_level=config.evaluation.disturbance_level,
+            ),
+            device=device,
+        )
+        run.log(
+            data={
+                "validation/reward_mean": validation_reward.mean,
+                "validation/reward_std": validation_reward.std,
+                STEP_METRIC_NAME: global_step,
+            }
+        )
+
+        if (
+            best_checkpoint is None
+            or validation_reward.mean > best_checkpoint.validation_reward_mean
+        ):
+            best_checkpoint = Checkpoint(
+                validation_reward_mean=validation_reward.mean,
+                validation_reward_std=validation_reward.std,
+                epoch=epoch_number,
+                state_dict=ema_state_dict,
+            )
+
+    if best_checkpoint is None:
+        raise ValueError("No checkpoint was recorded")
+
+    logger.info(
+        "Selected best epoch %d (validation max reward %.4f).",
+        best_checkpoint.epoch,
+        best_checkpoint.validation_reward_mean,
+    )
+
+    run.summary["selected/epoch"] = best_checkpoint.epoch
+    run.summary["selected/reward_mean"] = best_checkpoint.validation_reward_mean
+    run.summary["selected/reward_std"] = best_checkpoint.validation_reward_std
+
+    noise_prediction_network.load_state_dict(best_checkpoint.state_dict)
+    final_path = checkpoint_directory_path / "checkpoint.pt"
+    save_diffusion_policy(
+        path=final_path,
+        noise_prediction_network=noise_prediction_network,
+        action_dimensionality=config.dimensionality.action,
+        condition_dimensionality=condition_dimensionality,
+        hidden_channel_counts=config.hidden_channel_counts,
+        observation_horizon_length=config.horizon_length.observation,
+        prediction_horizon_length=config.horizon_length.prediction,
+        action_horizon_length=config.horizon_length.action,
+    )
+    artifact = wandb.Artifact(name=f"diffusion-policy-{run.name}", type="model")
+    artifact.add_file(str(final_path))
+    run.log_artifact(artifact)
+
+    return final_path
+
+
+def _define_step_metrics(*, run: Run) -> None:
+    run.define_metric(name=STEP_METRIC_NAME)
+    for metric_pattern in ("policy/epoch", "training/*", "validation/*"):
+        run.define_metric(name=metric_pattern, step_metric=STEP_METRIC_NAME)
 
 
 @torch.no_grad()
