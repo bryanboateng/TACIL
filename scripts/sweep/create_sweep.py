@@ -24,6 +24,7 @@ from scripts.evaluation.core.condition import (
     DisturbanceLevel,
     FloorCondition,
 )
+from scripts.evaluation.evaluate_policy import STAGE_PREFIX
 from scripts.shared.log import create_logger
 
 logger = create_logger()
@@ -84,7 +85,11 @@ def _build_sweep_configuration(
     return {
         "program": "scripts/sweep/run_pipeline.py",
         "method": "bayes",
-        "metric": {"name": f"{condition.label}/reward_mean", "goal": "maximize"},
+        # Written by the evaluation stage, which owns the prefix.
+        "metric": {
+            "name": f"{STAGE_PREFIX}{condition.label}/reward_mean",
+            "goal": "maximize",
+        },
         # run_pipeline is a module, not a script: it imports from the repository
         # root, which is only on the path when python is started with -m.
         "command": [

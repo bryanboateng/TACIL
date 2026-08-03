@@ -17,7 +17,7 @@ from scripts.data.augmentation.tacil.create_dynamics.train_dynamics_model_ensemb
 )
 from scripts.evaluation.config import DEFAULT_EPISODE_COUNT
 from scripts.evaluation.core.condition import Condition
-from scripts.evaluation.evaluate_policy import evaluate_policy
+from scripts.evaluation.evaluate_policy import STAGE_PREFIX, evaluate_policy
 from scripts.policies.dp import config as policy_config
 from scripts.policies.dp.policy import load_diffusion_policy
 from scripts.policies.dp.train import train_diffusion_policy
@@ -112,7 +112,7 @@ def _run(*, config: Config) -> None:
             logger.info("Stage 4/4: done.")
 
         # What the sweep maximizes.
-        reward_key = f"{condition.label}/reward_mean"
+        reward_key = f"{STAGE_PREFIX}{condition.label}/reward_mean"
         logger.info("Trial finished: %s = %s", reward_key, run.summary[reward_key])
 
 

@@ -19,6 +19,7 @@ from scripts.data.augmentation.tacil.create_data.episode_assembly import (
     create_augmented_episodes,
 )
 from scripts.data.augmentation.tacil.create_data.statistics_logging import (
+    STAGE_PREFIX,
     log_dataset_statistics,
     log_rollout_statistics,
 )
@@ -75,7 +76,7 @@ def _run(*, config: Config) -> None:
         # Only worth recording where the error model arrives as an opaque
         # artifact; the stage that fits it logs the same numbers itself.
         for field_name, field_value in asdict(error_model).items():
-            run.summary[f"1_error_model/{field_name}"] = field_value
+            run.summary[f"{STAGE_PREFIX}1_error_model/{field_name}"] = field_value
 
         upload_episode_store(
             episode_store=create_augmented_data(

@@ -18,9 +18,15 @@ from scripts.data.augmentation.tacil.create_data.episode_assembly import (  # no
     AugmentationResult,
 )
 
-# Summary groups carry numeric prefixes so wandb's alphabetical summary table
-# shows them in pipeline order: error model -> rollout -> termination ->
-# augmented episodes -> combined dataset.
+# Every key this stage logs starts with it, so a stage run and a pipeline run
+# report the same numbers under the same names. wandb groups panels by the part
+# before the first slash, so the stage joins the group with a hyphen rather than
+# a slash of its own.
+STAGE_PREFIX = "2_data-"
+
+# The groups under it carry numeric prefixes of their own, so wandb's
+# alphabetical summary table shows them in pipeline order: error model ->
+# rollout -> termination -> augmented episodes -> combined dataset.
 
 
 def log_rollout_statistics(
@@ -34,13 +40,17 @@ def log_rollout_statistics(
         rollout_diagnostics.termination_reasons_batch.cpu().numpy()
     )  # (anchor_count,)
 
-    run.summary["2_rollout/median_expert_step_distance"] = median_expert_step_distance
-    run.summary["2_rollout/error_limit"] = error_limit
-    run.summary["2_rollout/anchor_count"] = int(termination_reasons.shape[0])
+    run.summary[f"{STAGE_PREFIX}2_rollout/median_expert_step_distance"] = (
+        median_expert_step_distance
+    )
+    run.summary[f"{STAGE_PREFIX}2_rollout/error_limit"] = error_limit
+    run.summary[f"{STAGE_PREFIX}2_rollout/anchor_count"] = int(
+        termination_reasons.shape[0]
+    )
     for termination_reason in TerminationReason:
-        run.summary[f"3_termination_reason/{termination_reason.name.lower()}"] = int(
-            (termination_reasons == termination_reason).sum()
-        )
+        run.summary[
+            f"{STAGE_PREFIX}3_termination_reason/{termination_reason.name.lower()}"
+        ] = int((termination_reasons == termination_reason).sum())
 
     histogram_panels: dict[str, wandb.Image] = {}
     for name, values_batch in (
@@ -64,8 +74,8 @@ def log_rollout_statistics(
     ):
         values = values_batch.cpu().numpy()
         if values.size > 0:
-            histogram_panels[f"distributions_{name}"] = _distribution_panel(
-                values=values, column_name=name
+            histogram_panels[f"{STAGE_PREFIX}distributions/{name}"] = (
+                _distribution_panel(values=values, column_name=name)
             )
 
     run.log(data=histogram_panels)
@@ -83,38 +93,40 @@ def log_dataset_statistics(
 
     # counts.accepted equals the number of augmented episodes, and
     # counts.empty equals anchor_count - accepted: each value appears once.
-    run.summary["2_rollout/accepted_anchor_count"] = counts.accepted
-    run.summary["2_rollout/accepted_anchor_fraction"] = counts.accepted / (
-        counts.accepted + counts.empty
+    run.summary[f"{STAGE_PREFIX}2_rollout/accepted_anchor_count"] = counts.accepted
+    run.summary[f"{STAGE_PREFIX}2_rollout/accepted_anchor_fraction"] = (
+        counts.accepted / (counts.accepted + counts.empty)
     )
 
     augmented_transition_count = int(augmentation_result.episode_store.states.shape[0])
     synthetic_transition_count = int(synthetic_part_lengths.sum())
-    run.summary["4_augmented_episodes/synthetic_part_length_mean"] = float(
-        synthetic_part_lengths.mean()
+    run.summary[f"{STAGE_PREFIX}4_augmented_episodes/synthetic_part_length_mean"] = (
+        float(synthetic_part_lengths.mean())
     )
-    run.summary["4_augmented_episodes/synthetic_part_length_max"] = int(
+    run.summary[f"{STAGE_PREFIX}4_augmented_episodes/synthetic_part_length_max"] = int(
         synthetic_part_lengths.max()
     )
-    run.summary["4_augmented_episodes/synthetic_transition_count"] = (
+    run.summary[f"{STAGE_PREFIX}4_augmented_episodes/synthetic_transition_count"] = (
         synthetic_transition_count
     )
-    run.summary["4_augmented_episodes/copied_expert_transition_count"] = (
-        augmented_transition_count - synthetic_transition_count
-    )
+    run.summary[
+        f"{STAGE_PREFIX}4_augmented_episodes/copied_expert_transition_count"
+    ] = augmented_transition_count - synthetic_transition_count
 
     combined_transition_count = source_transition_count + augmented_transition_count
-    run.summary["5_combined_dataset/episode_count"] = (
+    run.summary[f"{STAGE_PREFIX}5_combined_dataset/episode_count"] = (
         source_episode_count + counts.accepted
     )
-    run.summary["5_combined_dataset/transition_count"] = combined_transition_count
-    run.summary["5_combined_dataset/synthetic_transition_fraction"] = (
+    run.summary[f"{STAGE_PREFIX}5_combined_dataset/transition_count"] = (
+        combined_transition_count
+    )
+    run.summary[f"{STAGE_PREFIX}5_combined_dataset/synthetic_transition_fraction"] = (
         synthetic_transition_count / combined_transition_count
     )
 
     run.log(
         data={
-            "distributions_synthetic_part_lengths": _distribution_panel(
+            f"{STAGE_PREFIX}distributions/synthetic_part_lengths": _distribution_panel(
                 values=synthetic_part_lengths, column_name="synthetic_part_length"
             )
         }

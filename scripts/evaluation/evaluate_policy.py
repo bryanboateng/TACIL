@@ -34,6 +34,12 @@ from scripts.shared.seed import set_seed
 
 logger = create_logger()
 
+# Every key this stage logs starts with it, so a stage run and a pipeline run
+# report the same numbers under the same names. wandb groups panels by the part
+# before the first slash, so the stage joins the group with a hyphen rather than
+# a slash of its own. The sweep optimizes a key built from it, in create_sweep.
+STAGE_PREFIX = "4_evaluation-"
+
 
 def main():
     config = tyro.cli(
@@ -98,6 +104,7 @@ def evaluate_policy(
         policy_label=policy_label,
         condition=condition,
         episode_records=pick_representative_episodes(episode_records=episode_records),
+        key_prefix=STAGE_PREFIX,
         run=run,
     )
 
@@ -158,9 +165,9 @@ def _describe_policy(*, policy: Policy) -> str:
 def _write_summary(
     *, run: Run, condition: Condition, reward: RewardStatistics, success_fraction: float
 ) -> None:
-    run.summary[f"{condition.label}/reward_mean"] = reward.mean
-    run.summary[f"{condition.label}/reward_std"] = reward.std
-    run.summary[f"{condition.label}/success_rate"] = success_fraction
+    run.summary[f"{STAGE_PREFIX}{condition.label}/reward_mean"] = reward.mean
+    run.summary[f"{STAGE_PREFIX}{condition.label}/reward_std"] = reward.std
+    run.summary[f"{STAGE_PREFIX}{condition.label}/success_rate"] = success_fraction
 
 
 if __name__ == "__main__":

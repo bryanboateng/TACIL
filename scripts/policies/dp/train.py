@@ -33,9 +33,15 @@ from scripts.shared.seed import set_seed
 
 logger = create_logger()
 
+# Every key this stage logs starts with it, so a stage run and a pipeline run
+# report the same numbers under the same names. wandb groups panels by the part
+# before the first slash, so the stage joins the group with a hyphen rather than
+# a slash of its own.
+STAGE_PREFIX = "3_policy-"
+
 # The x-axis of this stage's curves. The run may be shared with the rest of the
 # pipeline, whose implicit step counter is not the optimization step.
-STEP_METRIC_NAME = "policy/step"
+STEP_METRIC_NAME = f"{STAGE_PREFIX}step"
 
 
 def main():
@@ -151,7 +157,9 @@ def train_diffusion_policy(
         dynamic_ncols=True,
         position=0,
     ):
-        run.log(data={"policy/epoch": epoch_number, STEP_METRIC_NAME: global_step})
+        run.log(
+            data={f"{STAGE_PREFIX}epoch": epoch_number, STEP_METRIC_NAME: global_step}
+        )
         noise_prediction_network.train()
 
         for training_batch in tqdm(
@@ -189,9 +197,11 @@ def train_diffusion_policy(
 
             run.log(
                 data={
-                    "training/loss": loss.item(),
-                    "training/learning_rate": learning_rate_scheduler.get_last_lr()[0],
-                    "training/gradient_norm": gradient_norm.item(),
+                    f"{STAGE_PREFIX}training/loss": loss.item(),
+                    f"{STAGE_PREFIX}training/learning_rate": (
+                        learning_rate_scheduler.get_last_lr()[0]
+                    ),
+                    f"{STAGE_PREFIX}training/gradient_norm": gradient_norm.item(),
                     STEP_METRIC_NAME: global_step,
                 }
             )
@@ -228,8 +238,8 @@ def train_diffusion_policy(
         )
         run.log(
             data={
-                "validation/reward_mean": validation_reward.mean,
-                "validation/reward_std": validation_reward.std,
+                f"{STAGE_PREFIX}validation/reward_mean": validation_reward.mean,
+                f"{STAGE_PREFIX}validation/reward_std": validation_reward.std,
                 STEP_METRIC_NAME: global_step,
             }
         )
@@ -254,9 +264,13 @@ def train_diffusion_policy(
         best_checkpoint.validation_reward_mean,
     )
 
-    run.summary["selected/epoch"] = best_checkpoint.epoch
-    run.summary["selected/reward_mean"] = best_checkpoint.validation_reward_mean
-    run.summary["selected/reward_std"] = best_checkpoint.validation_reward_std
+    run.summary[f"{STAGE_PREFIX}selected/epoch"] = best_checkpoint.epoch
+    run.summary[f"{STAGE_PREFIX}selected/reward_mean"] = (
+        best_checkpoint.validation_reward_mean
+    )
+    run.summary[f"{STAGE_PREFIX}selected/reward_std"] = (
+        best_checkpoint.validation_reward_std
+    )
 
     noise_prediction_network.load_state_dict(best_checkpoint.state_dict)
     final_path = checkpoint_directory_path / "checkpoint.pt"
@@ -279,8 +293,10 @@ def train_diffusion_policy(
 
 def _define_step_metrics(*, run: Run) -> None:
     run.define_metric(name=STEP_METRIC_NAME)
-    for metric_pattern in ("policy/epoch", "training/*", "validation/*"):
-        run.define_metric(name=metric_pattern, step_metric=STEP_METRIC_NAME)
+    for metric_pattern in ("epoch", "training/*", "validation/*"):
+        run.define_metric(
+            name=f"{STAGE_PREFIX}{metric_pattern}", step_metric=STEP_METRIC_NAME
+        )
 
 
 @torch.no_grad()

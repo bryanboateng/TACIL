@@ -46,9 +46,15 @@ from scripts.shared.seed import set_seed
 
 logger = create_logger()
 
+# Every key this stage logs starts with it, so a stage run and a pipeline run
+# report the same numbers under the same names. wandb groups panels by the part
+# before the first slash, so the stage joins the group with a hyphen rather than
+# a slash of its own.
+STAGE_PREFIX = "1_dynamics-"
+
 # The x-axis of this stage's curves. The run may be shared with the rest of the
 # pipeline, whose implicit step counter is not the training epoch.
-EPOCH_METRIC_NAME = "dynamics/epoch"
+EPOCH_METRIC_NAME = f"{STAGE_PREFIX}epoch"
 
 
 def main():
@@ -107,8 +113,10 @@ def train_dynamics_model_ensemble(
     validation_state_windows, validation_action_windows = build_windows(
         episodes=validation_episodes, window_length=config.data.loader.window_length
     )
-    run.summary["window_count/training"] = train_action_windows.shape[0]
-    run.summary["window_count/validation"] = validation_action_windows.shape[0]
+    run.summary[f"{STAGE_PREFIX}window_count/training"] = train_action_windows.shape[0]
+    run.summary[f"{STAGE_PREFIX}window_count/validation"] = (
+        validation_action_windows.shape[0]
+    )
 
     normalizers = Normalizers.from_transitions(
         state_batch=torch.from_numpy(training_transitions.states).to(device=device),
@@ -175,8 +183,10 @@ def train_dynamics_model_ensemble(
         device=device,
     )
     for field_name, field_value in asdict(error_model).items():
-        run.summary[f"error_model/{field_name}"] = field_value
-    run.summary["error_model/uncentered_r_squared"] = error_model_uncentered_r_squared
+        run.summary[f"{STAGE_PREFIX}error_model/{field_name}"] = field_value
+    run.summary[f"{STAGE_PREFIX}error_model/uncentered_r_squared"] = (
+        error_model_uncentered_r_squared
+    )
 
     return dynamics_model_ensemble, error_model
 
@@ -189,7 +199,9 @@ def _define_epoch_metrics(*, run: Run) -> None:
         "gradient_norm/*",
         "lipschitz_distribution/*",
     ):
-        run.define_metric(name=metric_pattern, step_metric=EPOCH_METRIC_NAME)
+        run.define_metric(
+            name=f"{STAGE_PREFIX}{metric_pattern}", step_metric=EPOCH_METRIC_NAME
+        )
 
 
 def _log_epoch(
@@ -200,9 +212,11 @@ def _log_epoch(
     }
     for member_index, metrics in enumerate(iterable=per_member_metrics):
         member = f"member_{member_index:02d}"
-        logged_metrics[f"loss_training/{member}"] = metrics.training_loss
-        logged_metrics[f"loss_validation/{member}"] = metrics.validation_loss
-        logged_metrics[f"gradient_norm/{member}"] = metrics.gradient_norm
+        logged_metrics[f"{STAGE_PREFIX}loss_training/{member}"] = metrics.training_loss
+        logged_metrics[f"{STAGE_PREFIX}loss_validation/{member}"] = (
+            metrics.validation_loss
+        )
+        logged_metrics[f"{STAGE_PREFIX}gradient_norm/{member}"] = metrics.gradient_norm
 
     for split, member_split_lipschitz in (
         (
@@ -220,8 +234,8 @@ def _log_epoch(
             ],
         ),
     ):
-        logged_metrics[f"lipschitz_distribution/{split}"] = wandb.Histogram(
-            sequence=np.concatenate(member_split_lipschitz).tolist()
+        logged_metrics[f"{STAGE_PREFIX}lipschitz_distribution/{split}"] = (
+            wandb.Histogram(sequence=np.concatenate(member_split_lipschitz).tolist())
         )
 
     run.log(data=logged_metrics)
@@ -236,10 +250,10 @@ def _log_checkpoint_summary(
             raise ValueError("No checkpoint was recorded")
         checkpoints.append(member_state.best_checkpoint)
 
-    run.summary["checkpoint/validation_loss_mean"] = float(
+    run.summary[f"{STAGE_PREFIX}checkpoint/validation_loss_mean"] = float(
         np.mean(a=[checkpoint.validation_loss for checkpoint in checkpoints])
     )
-    run.summary["checkpoint/epoch_mean"] = float(
+    run.summary[f"{STAGE_PREFIX}checkpoint/epoch_mean"] = float(
         np.mean(a=[checkpoint.epoch for checkpoint in checkpoints])
     )
 
