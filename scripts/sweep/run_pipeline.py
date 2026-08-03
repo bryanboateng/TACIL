@@ -64,13 +64,16 @@ def _run(*, config: Config) -> None:
             )
         )
 
+        logger.info("Stage 1/4: training the dynamics model ensemble.")
         dynamics_model_ensemble, error_model = train_dynamics_model_ensemble(
             config=_build_dynamics_config(config=config),
             episode_store=expert_episode_store,
             device=device,
             run=run,
         )
+        logger.info("Stage 1/4: done.")
 
+        logger.info("Stage 2/4: creating the augmented dataset.")
         augmented_episode_store = create_augmented_data(
             config=_build_data_config(config=config),
             episode_store=expert_episode_store,
@@ -79,9 +82,11 @@ def _run(*, config: Config) -> None:
             device=device,
             run=run,
         )
+        logger.info("Stage 2/4: done.")
 
         policy_training_config = _build_policy_config(config=config)
         with tempfile.TemporaryDirectory() as checkpoint_directory:
+            logger.info("Stage 3/4: training the diffusion policy.")
             checkpoint_path = train_diffusion_policy(
                 config=policy_training_config,
                 episode_store=augmented_episode_store,
@@ -89,10 +94,12 @@ def _run(*, config: Config) -> None:
                 device=device,
                 run=run,
             )
+            logger.info("Stage 3/4: done.")
 
             # Score the selected checkpoint the way it was selected.
             sampler = policy_training_config.evaluation.sampler
             set_seed(seed=config.seed)
+            logger.info("Stage 4/4: evaluating the policy.")
             evaluate_policy(
                 policy_factory=load_diffusion_policy(
                     checkpoint_path=checkpoint_path, sampler=sampler, device=device
@@ -102,6 +109,7 @@ def _run(*, config: Config) -> None:
                 episode_count=DEFAULT_EPISODE_COUNT,
                 run=run,
             )
+            logger.info("Stage 4/4: done.")
 
         # What the sweep maximizes.
         reward_key = f"{condition.label}/reward_mean"
