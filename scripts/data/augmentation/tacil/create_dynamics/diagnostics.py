@@ -10,6 +10,7 @@ from tqdm import tqdm
 from wandb import Run
 
 matplotlib.use(backend="Agg")
+from matplotlib import patches  # noqa: E402
 from matplotlib import pyplot as plt  # noqa: E402
 
 plt.style.use(style="seaborn-v0_8-whitegrid")
@@ -128,7 +129,6 @@ def diagnose_dynamics_model_ensemble(
                 backward_true_errors_per_depth=(
                     backward_chain_measurements.true_errors.cpu().numpy()
                 ),
-                median_expert_step_distance=median_expert_step_distance,
             ),
             f"{_LOG_PREFIX}/disagreement_vs_true_error": (
                 _disagreement_scatter_panel(
@@ -136,8 +136,6 @@ def diagnose_dynamics_model_ensemble(
                     forward_true_errors=forward_true_errors,
                     backward_disagreements=backward_disagreements,
                     backward_true_errors=backward_true_errors,
-                    forward_spearman=forward_spearman,
-                    backward_spearman=backward_spearman,
                 )
             ),
             **_member_fan_panels(
@@ -393,15 +391,14 @@ def _error_over_depth_panel(
     backward_true_errors_per_depth: npt.NDArray[
         np.floating
     ],  # (chain_count, depth_count), NaN allowed
-    median_expert_step_distance: float,
 ) -> wandb.Image:
-    """Both directions in one picture: backward steps run to the left of the
-    start state (negative x), forward steps to the right."""
+    """Backward steps run to the left of 0, forward steps to the right.
+    Line = median, band = 10th–90th percentile."""
     figure, axes = plt.subplots(figsize=(9, 4.5))
 
-    for true_errors_per_depth, direction_sign, direction_label, color in (
-        (backward_true_errors_per_depth, -1, "backward chain", _BACKWARD_COLOR),
-        (forward_true_errors_per_depth, +1, "forward chain", _FORWARD_COLOR),
+    for true_errors_per_depth, direction_sign, color in (
+        (backward_true_errors_per_depth, -1, _BACKWARD_COLOR),
+        (forward_true_errors_per_depth, +1, _FORWARD_COLOR),
     ):
         depth_count = true_errors_per_depth.shape[1]
         step_positions = direction_sign * np.arange(1, depth_count + 1)
@@ -411,7 +408,6 @@ def _error_over_depth_panel(
             marker="o",
             markersize=3,
             color=color,
-            label=f"{direction_label}, median error",
         )
         axes.fill_between(
             step_positions,
@@ -419,32 +415,27 @@ def _error_over_depth_panel(
             np.nanpercentile(true_errors_per_depth, q=90, axis=0),
             alpha=0.2,
             color=color,
-            label=f"{direction_label}, 10th–90th percentile",
         )
 
     axes.axvline(x=0, color="black", linewidth=1.0)
-    axes.annotate(
-        text="start state",
-        xy=(0, 0.02),
-        xycoords=("data", "axes fraction"),
-        xytext=(5, 0),
-        textcoords="offset points",
-        ha="left",
-        va="bottom",
-        fontsize=9,
-    )
-    axes.axhline(
-        y=median_expert_step_distance,
-        linestyle="--",
-        color="gray",
-        label="size of one typical expert step",
-    )
     axes.xaxis.set_major_locator(plt.MaxNLocator(integer=True))
-    axes.set_xlabel(xlabel="steps taken by the model (negative = backward)")
-    axes.set_ylabel(ylabel="distance to the real state (normalized)")
+    axes.set_xlabel(xlabel="steps (negative = backward)")
+    axes.set_ylabel(ylabel="error (normalized)")
     axes.set_yscale(value="log")
-    axes.set_title(label="How fast the prediction error grows with each step")
-    axes.legend(fontsize=8)
+    axes.set_title(label="Prediction error vs. number of steps")
+    axes.legend(
+        handles=[
+            plt.Line2D([], [], color=_FORWARD_COLOR, label="forward"),
+            plt.Line2D([], [], color=_BACKWARD_COLOR, label="backward"),
+            plt.Line2D(
+                [], [], color="black", marker="o", markersize=3, label="median"
+            ),
+            patches.Patch(
+                facecolor="gray", alpha=0.25, label="10th–90th percentile"
+            ),
+        ],
+        fontsize=8,
+    )
     figure.tight_layout()
 
     image = wandb.Image(figure)
@@ -458,43 +449,37 @@ def _disagreement_scatter_panel(
     forward_true_errors: npt.NDArray[np.floating],  # (point_count,)
     backward_disagreements: npt.NDArray[np.floating],  # (point_count,)
     backward_true_errors: npt.NDArray[np.floating],  # (point_count,)
-    forward_spearman: float,
-    backward_spearman: float,
 ) -> wandb.Image:
-    """One dot per chain step: what the ensemble predicted its uncertainty to
-    be, against the error the held-out trajectory actually shows there. Rank
-    correlation near 1 means the ensemble knows where it is wrong."""
-    figure, axes = plt.subplots(figsize=(6.5, 5))
-    for disagreements, true_errors, direction_label, rank_correlation, color in (
+    """One dot per chain step. A cloud rising to the right means the
+    ensemble's uncertainty tracks its real error."""
+    figure, (forward_axes, backward_axes) = plt.subplots(
+        ncols=2, figsize=(10, 5), sharex=True, sharey=True
+    )
+
+    for axes, disagreements, true_errors, direction_label, color in (
         (
+            forward_axes,
             forward_disagreements,
             forward_true_errors,
-            "forward chains",
-            forward_spearman,
+            "forward",
             _FORWARD_COLOR,
         ),
         (
+            backward_axes,
             backward_disagreements,
             backward_true_errors,
-            "backward chains",
-            backward_spearman,
+            "backward",
             _BACKWARD_COLOR,
         ),
     ):
-        axes.scatter(
-            disagreements,
-            true_errors,
-            s=4,
-            alpha=0.3,
-            color=color,
-            label=f"{direction_label} (rank correlation {rank_correlation:.2f})",
-        )
-    axes.set_xlabel(xlabel="uncertainty the ensemble predicts (disagreement)")
-    axes.set_ylabel(ylabel="error the chain actually has (normalized)")
-    axes.set_xscale(value="log")
-    axes.set_yscale(value="log")
-    axes.set_title(label="Does the predicted uncertainty match the actual error?")
-    axes.legend(fontsize=8)
+        axes.scatter(disagreements, true_errors, s=4, alpha=0.3, color=color)
+        axes.set_title(label=direction_label)
+        axes.set_xlabel(xlabel="predicted uncertainty (disagreement)")
+        axes.set_xscale(value="log")
+        axes.set_yscale(value="log")
+
+    forward_axes.set_ylabel(ylabel="actual error")
+    figure.suptitle(t="Predicted uncertainty vs. actual error")
     figure.tight_layout()
 
     image = wandb.Image(figure)
@@ -543,8 +528,9 @@ def _member_fan_panel(
     its own predictions. Where the thin lines spread, the ensemble is
     uncertain; where they leave the recorded path, it is wrong. State layout is
     PushT: agent x/y, block x/y, angle."""
-    member_count = member_trajectories.shape[0]
-    figure, (agent_axes, block_axes) = plt.subplots(ncols=2, figsize=(10, 5))
+    figure, (agent_axes, block_axes) = plt.subplots(
+        ncols=2, figsize=(10, 5), sharex=True, sharey=True
+    )
 
     for axes, dimension_slice, title in (
         (agent_axes, slice(0, 2), "agent position"),
@@ -561,11 +547,7 @@ def _member_fan_panel(
                 alpha=0.35,
                 color=_FORWARD_COLOR,
                 # One legend entry for all members.
-                label=(
-                    f"model prediction ({member_count} models)"
-                    if member_index == 0
-                    else None
-                ),
+                label="model predictions" if member_index == 0 else None,
             )
         true_path = true_trajectory[:, dimension_slice]
         axes.plot(
@@ -597,16 +579,14 @@ def _member_fan_panel(
         axes.set_title(label=title)
         axes.set_xlabel(xlabel="x position")
         axes.set_ylabel(ylabel="y position")
-        axes.set_aspect(aspect="equal", adjustable="datalim")
+        # "box" because the two subplots share their axes ranges.
+        axes.set_aspect(aspect="equal", adjustable="box")
 
     # One legend for the whole figure; both subplots share the same entries.
     handles, labels = agent_axes.get_legend_handles_labels()
     figure.legend(handles=handles, labels=labels, loc="lower center", ncol=4)
     figure.suptitle(
-        t=(
-            f"Models replay the recorded actions of held-out episode "
-            f"{episode_index}"
-        )
+        t=f"Replay: true dynamics vs. model (held-out episode {episode_index})"
     )
     figure.tight_layout(rect=(0, 0.08, 1, 1))
 
