@@ -40,8 +40,8 @@ logger = create_logger()
 # redundant anyway.
 _CHAIN_DEPTH = 20
 _CHAIN_COUNT = 1024
-_FAN_EPISODE_COUNT = 3
-_FAN_STEP_COUNT = 100
+_REPLAY_EPISODE_COUNT = 3
+_REPLAY_STEP_COUNT = 100
 _SUBSAMPLE_SEED = 0
 
 # Joins the training stage's wandb panel group.
@@ -130,7 +130,7 @@ def diagnose_dynamics_model_ensemble(
                     backward_chain_measurements.true_errors.cpu().numpy()
                 ),
             ),
-            f"{_LOG_PREFIX}/disagreement_vs_true_error": (
+            f"{_LOG_PREFIX}/uncertainty_vs_error": (
                 _disagreement_scatter_panel(
                     forward_disagreements=forward_disagreements,
                     forward_true_errors=forward_true_errors,
@@ -138,7 +138,7 @@ def diagnose_dynamics_model_ensemble(
                     backward_true_errors=backward_true_errors,
                 )
             ),
-            **_member_fan_panels(
+            **_replay_panels(
                 dynamics_model_ensemble=dynamics_model_ensemble,
                 validation_episodes=validation_episodes,
                 device=device,
@@ -399,12 +399,62 @@ def _error_over_depth_panel(
     Line = median, band = 10th–90th percentile."""
     figure, axes = plt.subplots(figsize=(9, 4.5))
 
+    # One shared error grid (log-spaced) for both directions' densities.
+    finite_errors = np.concatenate(
+        [
+            forward_true_errors_per_depth[
+                np.isfinite(forward_true_errors_per_depth)
+            ],
+            backward_true_errors_per_depth[
+                np.isfinite(backward_true_errors_per_depth)
+            ],
+        ]
+    )
+    log_error_grid = np.linspace(
+        np.log10(finite_errors.min()), np.log10(finite_errors.max()), 150
+    )
+
     for true_errors_per_depth, direction_sign, color in (
         (backward_true_errors_per_depth, -1, _BACKWARD_COLOR),
         (forward_true_errors_per_depth, +1, _FORWARD_COLOR),
     ):
         depth_count = true_errors_per_depth.shape[1]
         step_positions = direction_sign * np.arange(1, depth_count + 1)
+
+        # Continuous density per depth: a kernel density estimate over the
+        # log errors, rendered as a transparent-to-color image.
+        density_columns = np.zeros((log_error_grid.size, depth_count))
+        for depth_index in range(depth_count):
+            depth_errors = true_errors_per_depth[:, depth_index]
+            depth_errors = depth_errors[np.isfinite(depth_errors)]
+            if depth_errors.size >= 5:
+                density = scipy.stats.gaussian_kde(np.log10(depth_errors))(
+                    log_error_grid
+                )
+                density_columns[:, depth_index] = density / density.max()
+
+        ascending_order = np.argsort(step_positions)
+        sorted_positions = step_positions[ascending_order]
+        step_edges = np.concatenate(
+            [sorted_positions - 0.5, [sorted_positions[-1] + 0.5]]
+        )
+        grid_spacing = log_error_grid[1] - log_error_grid[0]
+        error_edges = 10 ** np.concatenate(
+            [
+                log_error_grid - grid_spacing / 2,
+                [log_error_grid[-1] + grid_spacing / 2],
+            ]
+        )
+        axes.pcolormesh(
+            step_edges,
+            error_edges,
+            density_columns[:, ascending_order],
+            cmap=matplotlib.colors.LinearSegmentedColormap.from_list(
+                "density", [(1.0, 1.0, 1.0, 0.0), color]
+            ),
+            rasterized=True,
+        )
+
         axes.plot(
             step_positions,
             np.nanmedian(true_errors_per_depth, axis=0),
@@ -412,23 +462,10 @@ def _error_over_depth_panel(
             markersize=3,
             color=color,
         )
-        # Nested percentile bands; their overlap darkens toward the median,
-        # so the shading reads as a density gradient.
-        for lower_quantile in (10, 20, 30, 40):
-            axes.fill_between(
-                step_positions,
-                np.nanpercentile(true_errors_per_depth, q=lower_quantile, axis=0),
-                np.nanpercentile(
-                    true_errors_per_depth, q=100 - lower_quantile, axis=0
-                ),
-                alpha=0.12,
-                color=color,
-                linewidth=0,
-            )
 
     axes.axvline(x=0, color="black", linewidth=1.0)
     axes.xaxis.set_major_locator(plt.MaxNLocator(integer=True))
-    axes.set_xlabel(xlabel="steps (negative = backward)")
+    axes.set_xlabel(xlabel="steps")
     axes.set_ylabel(ylabel="error (normalized)")
     axes.set_yscale(value="log")
     axes.set_title(label="Prediction error vs. number of steps")
@@ -440,7 +477,7 @@ def _error_over_depth_panel(
                 [], [], color="black", marker="o", markersize=3, label="median"
             ),
             patches.Patch(
-                facecolor="gray", alpha=0.35, label="spread (darker = denser)"
+                facecolor="gray", alpha=0.35, label="density (darker = denser)"
             ),
         ],
         fontsize=8,
@@ -498,16 +535,16 @@ def _disagreement_scatter_panel(
     return image
 
 
-def _member_fan_panels(
+def _replay_panels(
     *,
     dynamics_model_ensemble: DynamicsModelEnsemble,
     validation_episodes: list[TransitionSet],
     device: torch.device,
 ) -> dict[str, wandb.Image]:
-    fan_panels: dict[str, wandb.Image] = {}
-    for episode_index in range(min(_FAN_EPISODE_COUNT, len(validation_episodes))):
+    replay_panels: dict[str, wandb.Image] = {}
+    for episode_index in range(min(_REPLAY_EPISODE_COUNT, len(validation_episodes))):
         episode = validation_episodes[episode_index]
-        step_count = min(_FAN_STEP_COUNT, episode.actions.shape[0])
+        step_count = min(_REPLAY_STEP_COUNT, episode.actions.shape[0])
 
         true_trajectory = np.concatenate(
             [episode.states[:step_count], episode.next_states[[step_count - 1]]], axis=0
@@ -519,15 +556,15 @@ def _member_fan_panels(
             actions=torch.from_numpy(episode.actions[:step_count]).to(device=device),
         )
 
-        fan_panels[f"{_LOG_PREFIX}/fan_episode_{episode_index}"] = _member_fan_panel(
+        replay_panels[f"{_LOG_PREFIX}/replay_episode_{episode_index}"] = _replay_panel(
             member_trajectories=member_trajectories.cpu().numpy(),
             true_trajectory=true_trajectory,
             episode_index=episode_index,
         )
-    return fan_panels
+    return replay_panels
 
 
-def _member_fan_panel(
+def _replay_panel(
     *,
     member_trajectories: npt.NDArray[
         np.floating
@@ -535,12 +572,12 @@ def _member_fan_panel(
     true_trajectory: npt.NDArray[np.floating],  # (step_count + 1, state_dimensionality)
     episode_index: int,
 ) -> wandb.Image:
-    """The MBPO-style fan: every ensemble model replays the recorded actions on
-    its own predictions. Where the thin lines spread, the ensemble is
-    uncertain; where they leave the recorded path, it is wrong. State layout is
-    PushT: agent x/y, block x/y, angle."""
-    figure, (agent_axes, block_axes) = plt.subplots(
-        ncols=2, figsize=(10, 5), sharex=True, sharey=True
+    """Every ensemble model replays the recorded actions on its own
+    predictions. Where the thin lines spread, the ensemble is uncertain;
+    where they leave the recorded path, it is wrong. State layout is PushT:
+    agent x/y, block x/y, angle."""
+    figure, (agent_axes, block_axes, angle_axes) = plt.subplots(
+        ncols=3, figsize=(14, 5)
     )
 
     for axes, dimension_slice, title in (
@@ -592,12 +629,42 @@ def _member_fan_panel(
         axes.set_ylabel(ylabel="y position")
         axes.set_xlim(left=0, right=_ARENA_SIZE)
         axes.set_ylim(bottom=0, top=_ARENA_SIZE)
-        # "box" because the two subplots share their axes ranges.
         axes.set_aspect(aspect="equal", adjustable="box")
-        # sharey hides the right subplot's tick labels; bring them back.
-        axes.tick_params(labelleft=True)
 
-    # One legend for the whole figure; both subplots share the same entries.
+    # The angle has no place on the position maps, so it gets its own
+    # subplot over time.
+    steps = np.arange(true_trajectory.shape[0])
+    for member_trajectory in member_trajectories:
+        angle_axes.plot(
+            steps,
+            member_trajectory[:, 4],
+            linewidth=0.6,
+            alpha=0.35,
+            color=_FORWARD_COLOR,
+        )
+    angle_axes.plot(steps, true_trajectory[:, 4], linewidth=2.0, color="black")
+    angle_axes.plot(
+        steps[0],
+        true_trajectory[0, 4],
+        marker="o",
+        markersize=9,
+        color="black",
+        markerfacecolor="white",
+        linestyle="none",
+    )
+    angle_axes.plot(
+        steps[-1],
+        true_trajectory[-1, 4],
+        marker="X",
+        markersize=9,
+        color="black",
+        linestyle="none",
+    )
+    angle_axes.set_title(label="block orientation")
+    angle_axes.set_xlabel(xlabel="step")
+    angle_axes.set_ylabel(ylabel="angle (rad)")
+
+    # One legend for the whole figure; the subplots share the same entries.
     handles, labels = agent_axes.get_legend_handles_labels()
     figure.legend(handles=handles, labels=labels, loc="lower center", ncol=4)
     figure.suptitle(
