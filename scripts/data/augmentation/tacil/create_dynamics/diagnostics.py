@@ -498,12 +498,15 @@ def _error_over_depth_panel(
         # below stay visible.
         color_with_alpha = np.tile(matplotlib.colors.to_rgba(color), (256, 1))
         color_with_alpha[:, 3] = np.linspace(0.0, 1.0, 256)
+        # Flat cells: gouraud's overlapping triangles leave a dot pattern
+        # when the colormap carries alpha. The field is smoothed and
+        # upsampled, so flat cells still read as continuous.
         axes.pcolormesh(
             fine_positions,
             10**log_error_grid,
             fine_density,
             cmap=matplotlib.colors.ListedColormap(colors=color_with_alpha),
-            shading="gouraud",
+            shading="nearest",
             antialiased=False,
             rasterized=True,
         )
