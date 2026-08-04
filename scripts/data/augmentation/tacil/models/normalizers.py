@@ -12,12 +12,14 @@ _BLOCK_SLICE = slice(2, 4)
 _ANGLE_INDEX = 4
 
 
-def agent_relative_input_dimensionality(
-    *, state_dimensionality: int, action_dimensionality: int
+def network_input_dimensionality(
+    *, state_dimensionality: int, action_dimensionality: int, agent_relative: bool
 ) -> int:
-    """Same as state plus action, minus the agent's own position: measured
-    from the agent, that position is always zero."""
-    return state_dimensionality - 2 + action_dimensionality
+    frame_count = state_dimensionality // _FRAME_SIZE
+    # Each frame's angle turns into a cosine and a sine: one number more.
+    dimensionality = state_dimensionality + frame_count + action_dimensionality
+    # Measured from the agent, the agent's own position is always zero.
+    return dimensionality - 2 if agent_relative else dimensionality
 
 
 class Normalizers(torch.nn.Module):
@@ -95,62 +97,65 @@ class Normalizers(torch.nn.Module):
     ) -> torch.Tensor:  # (batch_size, state_dimensionality)
         return self.state_normalizer.denormalize(value_batch=normalized_state_batch)
 
-    def normalized_input(
+    def network_input(
         self,
         *,
         state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
         action_batch: torch.Tensor,  # (batch_size, action_dimensionality)
-    ) -> torch.Tensor:  # (batch_size, state_dimensionality + action_dimensionality)
-        return torch.cat(
-            tensors=[
-                self.state_normalizer.normalize(value_batch=state_batch),
-                self.action_normalizer.normalize(value_batch=action_batch),
-            ],
-            dim=-1,
-        )
+        agent_relative: bool,
+    ) -> torch.Tensor:  # (batch_size, network_input_dimensionality)
+        """Everything the network sees.
 
-    def agent_relative_input(
-        self,
-        *,
-        state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
-        action_batch: torch.Tensor,  # (batch_size, action_dimensionality)
-    ) -> torch.Tensor:  # (batch_size, agent_relative_input_dimensionality)
-        """The network input measured from the agent's current position.
+        With agent_relative, positions are measured from the agent instead of
+        from the arena corner: contact depends on where things are relative to
+        the agent, not on where in the arena that happens, so the model learns
+        the contact rule once instead of once per place.
 
-        Contact depends on where things are relative to the agent, not on
-        where in the arena that happens. Feeding differences instead of
-        absolute coordinates lets the model learn the contact rule once
-        instead of once per place. Scales stay the plain per-quantity ones,
-        so the inputs keep a sane magnitude.
+        The orientation is always a point on the unit circle. Two states that
+        show the same block orientation then look the same to the network,
+        whether the recorded angle reads 0.3 or 0.3 + 2*pi.
         """
         agent_position_batch = state_batch[:, _AGENT_SLICE]
+
         parts = [
             (action_batch - agent_position_batch) / self.action_normalizer.std
+            if agent_relative
+            else self.action_normalizer.normalize(value_batch=action_batch)
         ]
 
         for frame_start in range(0, state_batch.shape[-1], _FRAME_SIZE):
             frame_batch = state_batch[:, frame_start : frame_start + _FRAME_SIZE]
+            frame_shift = self.state_normalizer.mean[
+                frame_start : frame_start + _FRAME_SIZE
+            ]
             frame_scale = self.state_normalizer.std[
                 frame_start : frame_start + _FRAME_SIZE
             ]
-            if frame_start > 0:
-                # The current agent position is the origin, so only earlier
-                # frames still carry one.
+
+            if agent_relative:
+                if frame_start > 0:
+                    # The current agent position is the origin, so only
+                    # earlier frames still carry one.
+                    parts.append(
+                        (frame_batch[:, _AGENT_SLICE] - agent_position_batch)
+                        / frame_scale[_AGENT_SLICE]
+                    )
                 parts.append(
-                    (frame_batch[:, _AGENT_SLICE] - agent_position_batch)
-                    / frame_scale[_AGENT_SLICE]
+                    (frame_batch[:, _BLOCK_SLICE] - agent_position_batch)
+                    / frame_scale[_BLOCK_SLICE]
                 )
-            parts.append(
-                (frame_batch[:, _BLOCK_SLICE] - agent_position_batch)
-                / frame_scale[_BLOCK_SLICE]
-            )
-            # The angle needs no origin; it is normalized as usual.
-            parts.append(
-                (
-                    frame_batch[:, _ANGLE_INDEX : _ANGLE_INDEX + 1]
-                    - self.state_normalizer.mean[frame_start + _ANGLE_INDEX]
+            else:
+                positions_slice = slice(_AGENT_SLICE.start, _BLOCK_SLICE.stop)
+                parts.append(
+                    (frame_batch[:, positions_slice] - frame_shift[positions_slice])
+                    / frame_scale[positions_slice]
                 )
-                / frame_scale[_ANGLE_INDEX]
+
+            angle_batch = frame_batch[:, _ANGLE_INDEX : _ANGLE_INDEX + 1]
+            parts.append(
+                torch.cat(
+                    tensors=[torch.cos(angle_batch), torch.sin(angle_batch)], dim=-1
+                )
             )
 
         return torch.cat(tensors=parts, dim=-1)

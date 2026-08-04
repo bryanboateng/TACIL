@@ -5,7 +5,7 @@ from scripts.data.augmentation.tacil.models.lipschitz_constrained_linear import 
 )
 from scripts.data.augmentation.tacil.models.normalizers import (
     Normalizers,
-    agent_relative_input_dimensionality,
+    network_input_dimensionality,
 )
 
 # Maximum factor by which SiLU stretches space, i.e. its (global) Lipschitz constant.
@@ -31,13 +31,10 @@ class DynamicsModel(torch.nn.Module):
         self.agent_relative_inputs = agent_relative_inputs
 
         self._network = _create_network(
-            input_dimensionality=(
-                agent_relative_input_dimensionality(
-                    state_dimensionality=state_dimensionality,
-                    action_dimensionality=action_dimensionality,
-                )
-                if agent_relative_inputs
-                else state_dimensionality + action_dimensionality
+            input_dimensionality=network_input_dimensionality(
+                state_dimensionality=state_dimensionality,
+                action_dimensionality=action_dimensionality,
+                agent_relative=agent_relative_inputs,
             ),
             output_dimensionality=state_dimensionality,
             hidden_dimensionalities=hidden_dimensionalities,
@@ -46,23 +43,21 @@ class DynamicsModel(torch.nn.Module):
 
     def forward(
         self,
-        normalized_input_batch: torch.Tensor,  # (batch_size, state_dimensionality + action_dimensionality)
+        network_input_batch: torch.Tensor,  # (batch_size, input_dimensionality)
     ) -> torch.Tensor:  # (batch_size, state_dimensionality)
-        return self._network(normalized_input_batch)
+        return self._network(network_input_batch)
 
-    def normalized_input(
+    def network_input(
         self,
         *,
         normalizers: Normalizers,
         state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
         action_batch: torch.Tensor,  # (batch_size, action_dimensionality)
     ) -> torch.Tensor:  # (batch_size, input_dimensionality)
-        if self.agent_relative_inputs:
-            return normalizers.agent_relative_input(
-                state_batch=state_batch, action_batch=action_batch
-            )
-        return normalizers.normalized_input(
-            state_batch=state_batch, action_batch=action_batch
+        return normalizers.network_input(
+            state_batch=state_batch,
+            action_batch=action_batch,
+            agent_relative=self.agent_relative_inputs,
         )
 
     def predict_next_state(
@@ -73,7 +68,7 @@ class DynamicsModel(torch.nn.Module):
         action_batch: torch.Tensor,  # (batch_size, action_dimensionality)
     ) -> torch.Tensor:  # (batch_size, state_dimensionality)
         normalized_state_displacement_batch = self._network(
-            self.normalized_input(
+            self.network_input(
                 normalizers=normalizers,
                 state_batch=state_batch,
                 action_batch=action_batch,
@@ -94,7 +89,7 @@ class DynamicsModel(torch.nn.Module):
         state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
         action_batch: torch.Tensor,  # (batch_size, action_dimensionality)
     ) -> torch.Tensor:  # (batch_size,)
-        normalized_input_batch = self.normalized_input(
+        network_input_batch = self.network_input(
             normalizers=normalizers,
             state_batch=state_batch,
             action_batch=action_batch,
@@ -102,7 +97,7 @@ class DynamicsModel(torch.nn.Module):
         jacobian_batch: torch.Tensor = torch.vmap(
             func=torch.func.jacrev(func=self._network)
         )(
-            normalized_input_batch
+            network_input_batch
         )  # (batch_size, state_dimensionality, state_dimensionality + action_dimensionality)
 
         return torch.linalg.matrix_norm(jacobian_batch, ord=2)  # (batch_size,)
