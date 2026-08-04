@@ -11,6 +11,7 @@ from wandb import Run
 
 matplotlib.use(backend="Agg")
 from matplotlib import patches  # noqa: E402
+from matplotlib import patheffects  # noqa: E402
 from matplotlib import pyplot as plt  # noqa: E402
 
 plt.style.use(style="seaborn-v0_8-whitegrid")
@@ -434,24 +435,16 @@ def _error_over_depth_panel(
                 density_columns[:, depth_index] = density / density.max()
 
         ascending_order = np.argsort(step_positions)
-        sorted_positions = step_positions[ascending_order]
-        step_edges = np.concatenate(
-            [sorted_positions - 0.5, [sorted_positions[-1] + 0.5]]
-        )
-        grid_spacing = log_error_grid[1] - log_error_grid[0]
-        error_edges = 10 ** np.concatenate(
-            [
-                log_error_grid - grid_spacing / 2,
-                [log_error_grid[-1] + grid_spacing / 2],
-            ]
-        )
+        # Gouraud shading interpolates between neighboring depth columns, so
+        # the density reads as one smooth ribbon instead of stacked stripes.
         axes.pcolormesh(
-            step_edges,
-            error_edges,
+            step_positions[ascending_order],
+            10**log_error_grid,
             density_columns[:, ascending_order],
             cmap=matplotlib.colors.LinearSegmentedColormap.from_list(
                 "density", [(1.0, 1.0, 1.0, 0.0), color]
             ),
+            shading="gouraud",
             rasterized=True,
         )
 
@@ -461,6 +454,8 @@ def _error_over_depth_panel(
             marker="o",
             markersize=3,
             color=color,
+            # White halo keeps the median readable on top of the density.
+            path_effects=[patheffects.withStroke(linewidth=3, foreground="white")],
         )
 
     axes.axvline(x=0, color="black", linewidth=1.0)
