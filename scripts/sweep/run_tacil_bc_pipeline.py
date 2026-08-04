@@ -127,6 +127,7 @@ def _build_dynamics_config(*, config: Config) -> dynamics_config.Config:
                 config=config
             ),
             include_previous_state=config.include_previous_state,
+            agent_relative_inputs=config.agent_relative_inputs,
         ),
         training=dynamics_config.TrainingConfig(),
         seed=config.seed,
@@ -175,6 +176,7 @@ def _build_note(*, config: Config, condition: Condition) -> str:
         f"|err={config.error_limit_fraction:.4f}"
         f"|dw={config.disagreement_weight:.2f}"
         f"|prev={config.include_previous_state}"
+        f"|rel={config.agent_relative_inputs}"
         f"|cond={condition.label}"
     )
 

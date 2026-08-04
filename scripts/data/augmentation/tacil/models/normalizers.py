@@ -4,6 +4,21 @@ import torch
 
 from scripts.shared.normalization import ZScoreNormalizer
 
+# PushT frame layout: agent x/y, block x/y, block angle. The dynamics state is
+# one such frame, or two when the previous state is stacked in.
+_FRAME_SIZE = 5
+_AGENT_SLICE = slice(0, 2)
+_BLOCK_SLICE = slice(2, 4)
+_ANGLE_INDEX = 4
+
+
+def agent_relative_input_dimensionality(
+    *, state_dimensionality: int, action_dimensionality: int
+) -> int:
+    """Same as state plus action, minus the agent's own position: measured
+    from the agent, that position is always zero."""
+    return state_dimensionality - 2 + action_dimensionality
+
 
 class Normalizers(torch.nn.Module):
     state_normalizer: ZScoreNormalizer
@@ -85,6 +100,52 @@ class Normalizers(torch.nn.Module):
             ],
             dim=-1,
         )
+
+    def agent_relative_input(
+        self,
+        *,
+        state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
+        action_batch: torch.Tensor,  # (batch_size, action_dimensionality)
+    ) -> torch.Tensor:  # (batch_size, agent_relative_input_dimensionality)
+        """The network input measured from the agent's current position.
+
+        Contact depends on where things are relative to the agent, not on
+        where in the arena that happens. Feeding differences instead of
+        absolute coordinates lets the model learn the contact rule once
+        instead of once per place. Scales stay the plain per-quantity ones,
+        so the inputs keep a sane magnitude.
+        """
+        agent_position_batch = state_batch[:, _AGENT_SLICE]
+        parts = [
+            (action_batch - agent_position_batch) / self.action_normalizer.std
+        ]
+
+        for frame_start in range(0, state_batch.shape[-1], _FRAME_SIZE):
+            frame_batch = state_batch[:, frame_start : frame_start + _FRAME_SIZE]
+            frame_scale = self.state_normalizer.std[
+                frame_start : frame_start + _FRAME_SIZE
+            ]
+            if frame_start > 0:
+                # The current agent position is the origin, so only earlier
+                # frames still carry one.
+                parts.append(
+                    (frame_batch[:, _AGENT_SLICE] - agent_position_batch)
+                    / frame_scale[_AGENT_SLICE]
+                )
+            parts.append(
+                (frame_batch[:, _BLOCK_SLICE] - agent_position_batch)
+                / frame_scale[_BLOCK_SLICE]
+            )
+            # The angle needs no origin; it is normalized as usual.
+            parts.append(
+                (
+                    frame_batch[:, _ANGLE_INDEX : _ANGLE_INDEX + 1]
+                    - self.state_normalizer.mean[frame_start + _ANGLE_INDEX]
+                )
+                / frame_scale[_ANGLE_INDEX]
+            )
+
+        return torch.cat(tensors=parts, dim=-1)
 
     def denormalize_state_displacement(
         self,

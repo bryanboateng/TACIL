@@ -36,6 +36,9 @@ class ArchitectureConfig:
     # Stack the previous state into the dynamics state so velocities become
     # readable.
     include_previous_state: bool = False
+    # Feed the network positions measured from the agent instead of absolute
+    # ones, so the contact rule is the same everywhere in the arena.
+    agent_relative_inputs: bool = False
 
     def __post_init__(self) -> None:
         if self.ensemble_size < 1:

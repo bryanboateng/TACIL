@@ -68,6 +68,8 @@ _TACIL_PARAMETERS: dict[str, Any] = {
     # Stack the previous state in so the dynamics model can read velocities
     # (the block keeps sliding after contact).
     "include_previous_state": {"values": [False, True]},
+    # Positions measured from the agent instead of absolute ones.
+    "agent_relative_inputs": {"values": [False, True]},
 }
 
 # Their configs pick one Lipschitz variant per environment; here the sweep

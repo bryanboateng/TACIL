@@ -24,5 +24,6 @@ class Config:
     # A default, so the command line takes it as a flag: the sweep passes
     # --include-previous-state and omits it otherwise.
     include_previous_state: bool = False
+    agent_relative_inputs: bool = False
 
     seed: int = 42
