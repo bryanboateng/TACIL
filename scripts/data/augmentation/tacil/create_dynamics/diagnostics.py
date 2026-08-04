@@ -93,6 +93,18 @@ def diagnose_dynamics_model_ensemble(
 
     run.summary[f"{_LOG_PREFIX}/spearman_forward"] = forward_spearman
     run.summary[f"{_LOG_PREFIX}/spearman_backward"] = backward_spearman
+    # One number per state part: the median single-step error, the cleanest
+    # "which part of the state does the model get wrong" comparison.
+    for group_name, group_slice in _STATE_GROUPS:
+        one_step_group_errors = np.linalg.norm(
+            forward_chain_measurements.state_differences[:, 0, group_slice]
+            .cpu()
+            .numpy(),
+            axis=-1,
+        )
+        run.summary[f"{_LOG_PREFIX}/one_step_error_{group_name}"] = float(
+            np.median(one_step_group_errors)
+        )
     run.summary[f"{_LOG_PREFIX}/backward_full_depth_fraction"] = float(
         np.isfinite(backward_chain_measurements.true_errors[:, -1].cpu().numpy()).mean()
     )
@@ -132,6 +144,14 @@ def diagnose_dynamics_model_ensemble(
                     backward_chain_measurements.true_errors.cpu().numpy()
                 ),
             ),
+            f"{_LOG_PREFIX}/error_over_depth_by_group": _group_error_panel(
+                forward_state_differences=(
+                    forward_chain_measurements.state_differences.cpu().numpy()
+                ),
+                backward_state_differences=(
+                    backward_chain_measurements.state_differences.cpu().numpy()
+                ),
+            ),
             f"{_LOG_PREFIX}/uncertainty_vs_error": (
                 _disagreement_scatter_panel(
                     forward_disagreements=forward_disagreements,
@@ -162,6 +182,8 @@ class _ForwardChainMeasurements:
 
     # Distance between the model's prediction and the real state.
     true_errors: torch.Tensor  # (chain_count, depth_count)
+    # The same deviation kept per state dimension (normalized units).
+    state_differences: torch.Tensor  # (chain_count, depth_count, state_dim)
     # Ensemble disagreement at the state the prediction was made from.
     disagreements: torch.Tensor  # (chain_count, depth_count)
 
@@ -177,6 +199,8 @@ class _BackwardChainMeasurements:
 
     # Distance between the solved predecessor and the real predecessor.
     true_errors: torch.Tensor  # (chain_count, depth_count)
+    # The same deviation kept per state dimension (normalized units).
+    state_differences: torch.Tensor  # (chain_count, depth_count, state_dim)
     # The two filter signals, evaluated at the solved predecessor.
     disagreements: torch.Tensor  # (chain_count, depth_count)
     sensitivity_scaled_step_distances: torch.Tensor  # (chain_count, depth_count)
@@ -214,7 +238,7 @@ def _measure_forward_chains(
     depth_count = action_windows.shape[1]
 
     current_state_batch = state_windows[:, 0, :]
-    true_error_columns: list[torch.Tensor] = []
+    difference_columns: list[torch.Tensor] = []
     disagreement_columns: list[torch.Tensor] = []
 
     for depth_index in range(depth_count):
@@ -227,16 +251,18 @@ def _measure_forward_chains(
         current_state_batch = dynamics_model_ensemble.predict_next_state(
             state_batch=current_state_batch, action_batch=action_batch
         )
-        true_error_columns.append(
-            _normalized_distances(
+        difference_columns.append(
+            _normalized_differences(
                 dynamics_model_ensemble=dynamics_model_ensemble,
                 state_batch=current_state_batch,
                 other_state_batch=state_windows[:, depth_index + 1, :],
             )
         )
 
+    state_differences = torch.stack(tensors=difference_columns, dim=1)
     return _ForwardChainMeasurements(
-        true_errors=torch.stack(tensors=true_error_columns, dim=1),
+        true_errors=torch.linalg.norm(state_differences, dim=-1),
+        state_differences=state_differences,
         disagreements=torch.stack(tensors=disagreement_columns, dim=1),
     )
 
@@ -257,6 +283,11 @@ def _measure_backward_chains(
 
     true_errors = torch.full(
         size=(chain_count, depth_count), fill_value=float("nan"), device=device
+    )
+    state_differences = torch.full(
+        size=(chain_count, depth_count, state_windows.shape[-1]),
+        fill_value=float("nan"),
+        device=device,
     )
     disagreements = torch.full_like(true_errors, fill_value=float("nan"))
     sensitivity_scaled_step_distances = torch.full_like(
@@ -295,10 +326,14 @@ def _measure_backward_chains(
         ]
         converged_action_batch = action_batch[converged_mask_batch]
 
-        true_errors[converged_indices, depth_index] = _normalized_distances(
+        difference_batch = _normalized_differences(
             dynamics_model_ensemble=dynamics_model_ensemble,
             state_batch=predecessor_state_batch,
             other_state_batch=state_windows[converged_indices, window_index, :],
+        )
+        state_differences[converged_indices, depth_index] = difference_batch
+        true_errors[converged_indices, depth_index] = torch.linalg.norm(
+            difference_batch, dim=-1
         )
         disagreements[converged_indices, depth_index] = (
             dynamics_model_ensemble.disagreements_about_next_state(
@@ -317,6 +352,7 @@ def _measure_backward_chains(
 
     return _BackwardChainMeasurements(
         true_errors=true_errors,
+        state_differences=state_differences,
         disagreements=disagreements,
         sensitivity_scaled_step_distances=sensitivity_scaled_step_distances,
     )
@@ -348,17 +384,15 @@ def _roll_out_members_forward(
     return torch.stack(tensors=member_trajectories, dim=0)
 
 
-def _normalized_distances(
+def _normalized_differences(
     *,
     dynamics_model_ensemble: DynamicsModelEnsemble,
     state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
     other_state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
-) -> torch.Tensor:  # (batch_size,)
-    return torch.linalg.norm(
-        dynamics_model_ensemble.normalize_state(state_batch=state_batch)
-        - dynamics_model_ensemble.normalize_state(state_batch=other_state_batch),
-        dim=-1,
-    )
+) -> torch.Tensor:  # (batch_size, state_dimensionality)
+    return dynamics_model_ensemble.normalize_state(
+        state_batch=state_batch
+    ) - dynamics_model_ensemble.normalize_state(state_batch=other_state_batch)
 
 
 def _spearman_correlation(*, claims: torch.Tensor, truths: torch.Tensor) -> float:
@@ -386,6 +420,15 @@ _BACKWARD_COLOR = "#d62728"
 
 # PushT's quadratic arena (gym_pusht window size, pixels).
 _ARENA_SIZE = 512
+
+# The state's parts (PushT layout), each measured separately in the group
+# error breakdown.
+_STATE_GROUPS = (
+    ("agent", slice(0, 2)),
+    ("block", slice(2, 4)),
+    ("angle", slice(4, 5)),
+)
+_GROUP_COLORS = {"agent": "#2ca02c", "block": "#9467bd", "angle": "#ff7f0e"}
 
 
 def _error_over_depth_panel(
@@ -449,39 +492,85 @@ def _error_over_depth_panel(
         fine_density = scipy.ndimage.gaussian_filter(fine_density, sigma=(2.0, 4.0))
         fine_density /= max(fine_density.max(), 1e-12)
 
+        # A single-color colormap whose alpha channel carries the density:
+        # seam-free (unlike a stepped transparent colormap, the smoothed and
+        # upsampled field varies gently between cells) and it lets the grid
+        # below stay visible.
+        color_with_alpha = np.tile(matplotlib.colors.to_rgba(color), (256, 1))
+        color_with_alpha[:, 3] = np.linspace(0.0, 1.0, 256)
         axes.pcolormesh(
             fine_positions,
             10**log_error_grid,
             fine_density,
-            # Opaque white-to-color scale: transparent colormaps leave
-            # antialiasing seams between the mesh cells.
-            cmap=matplotlib.colors.LinearSegmentedColormap.from_list(
-                "density", ["white", color]
-            ),
+            cmap=matplotlib.colors.ListedColormap(colors=color_with_alpha),
             shading="gouraud",
             antialiased=False,
             rasterized=True,
         )
 
     axes.axvline(x=0, color="black", linewidth=1.0)
-    # The opaque density would hide the grid everywhere but the gap at 0;
-    # half-visible grid lines look broken, so none at all.
-    axes.grid(visible=False)
     axes.xaxis.set_major_locator(plt.MaxNLocator(integer=True))
     axes.set_xlabel(xlabel="steps")
     axes.set_ylabel(ylabel="error (normalized)")
     axes.set_yscale(value="log")
     axes.set_title(label="Prediction error vs. number of steps")
+    # Backward on top: it is also the left half of the plot.
     axes.legend(
         handles=[
-            patches.Patch(facecolor=_FORWARD_COLOR, label="forward"),
             patches.Patch(facecolor=_BACKWARD_COLOR, label="backward"),
-            patches.Patch(
-                facecolor="gray", alpha=0.35, label="density (darker = denser)"
-            ),
+            patches.Patch(facecolor=_FORWARD_COLOR, label="forward"),
         ],
         fontsize=8,
     )
+    figure.tight_layout()
+
+    image = wandb.Image(figure)
+    plt.close(fig=figure)
+    return image
+
+
+def _group_error_panel(
+    *,
+    forward_state_differences: npt.NDArray[
+        np.floating
+    ],  # (chain_count, depth_count, state_dim)
+    backward_state_differences: npt.NDArray[
+        np.floating
+    ],  # (chain_count, depth_count, state_dim), NaN allowed
+) -> wandb.Image:
+    """The total error split into the state's parts: which part of the state
+    does the model get wrong? Median per depth, backward left, forward
+    right."""
+    figure, (backward_axes, forward_axes) = plt.subplots(
+        ncols=2, figsize=(10, 4.5), sharey=True
+    )
+
+    for axes, state_differences, direction_sign, direction_label in (
+        (backward_axes, backward_state_differences, -1, "backward"),
+        (forward_axes, forward_state_differences, +1, "forward"),
+    ):
+        depth_count = state_differences.shape[1]
+        step_positions = direction_sign * np.arange(1, depth_count + 1)
+        for group_name, group_slice in _STATE_GROUPS:
+            group_errors = np.linalg.norm(
+                state_differences[:, :, group_slice], axis=-1
+            )  # (chain_count, depth_count)
+            axes.plot(
+                step_positions,
+                np.nanmedian(group_errors, axis=0),
+                marker="o",
+                markersize=3,
+                color=_GROUP_COLORS[group_name],
+                label=group_name,
+            )
+        axes.set_title(label=direction_label)
+        axes.xaxis.set_major_locator(plt.MaxNLocator(integer=True))
+        axes.set_xlabel(xlabel="steps")
+        axes.set_yscale(value="log")
+
+    backward_axes.set_ylabel(ylabel="median error (normalized)")
+    forward_axes.legend(fontsize=8)
+    figure.suptitle(t="Prediction error per state part")
     figure.tight_layout()
 
     image = wandb.Image(figure)
