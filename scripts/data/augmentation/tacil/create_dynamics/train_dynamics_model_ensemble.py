@@ -23,6 +23,7 @@ from scripts.data.augmentation.tacil.create_dynamics.data import (
 from scripts.data.augmentation.tacil.create_dynamics.diagnostics import (
     diagnose_dynamics_model_ensemble,
 )
+from scripts.data.augmentation.tacil.frame_stacking import stack_previous_state
 from scripts.data.augmentation.tacil.create_dynamics.dynamics_model_training import (
     MemberEpochMetrics,
     MemberTrainingState,
@@ -90,6 +91,11 @@ def train_dynamics_model_ensemble(
 ) -> DynamicsModelEnsemble:
     set_seed(seed=config.seed)
     _define_epoch_metrics(run=run)
+
+    if config.architecture.include_previous_state:
+        # Everything downstream — training, diagnostics, the returned
+        # ensemble — works on the stacked dynamics state.
+        episode_store = stack_previous_state(episode_store=episode_store)
 
     training_episodes, validation_episodes = train_test_split(
         extract_transitions(episode_store=episode_store),

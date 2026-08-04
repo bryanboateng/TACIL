@@ -21,6 +21,9 @@ class Config:
 
     disagreement_weight: float = 0.5
 
+    # Must match the setting the dynamics model was trained with.
+    include_previous_state: bool = False
+
     seed: int = 42
 
     def __post_init__(self) -> None:

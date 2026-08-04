@@ -33,6 +33,9 @@ class ArchitectureConfig:
     hidden_layer_sizes: tuple[int, ...] = (256, 256)
     lipschitz_constant_upper_bound: float | None = None
     ensemble_size: int = 20
+    # Stack the previous state into the dynamics state so velocities become
+    # readable.
+    include_previous_state: bool = False
 
     def __post_init__(self) -> None:
         if self.ensemble_size < 1:

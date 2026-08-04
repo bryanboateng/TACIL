@@ -12,8 +12,10 @@ from scripts.data.augmentation.tacil.create_data.anchor_selection import (
     get_anchor_indices,
 )
 from scripts.data.augmentation.tacil.create_data.backward_rollout import (
+    BackwardTrajectories,
     roll_out_backward,
 )
+from scripts.data.augmentation.tacil.frame_stacking import stack_previous_state
 from scripts.data.augmentation.tacil.create_data.config import Config
 from scripts.data.augmentation.tacil.create_data.episode_assembly import (
     create_augmented_episodes,
@@ -119,17 +121,25 @@ def create_augmented_data(
     #  We use the median (rather than the mean) because it's robust to
     #  outliers.
     #  A handful of unusually large jumps won't skew the result the way they would an average.
+    # The dynamics model works on the stacked state; the policy data below
+    # keeps the plain one.
+    if config.include_previous_state:
+        dynamics_episode_store = stack_previous_state(episode_store=episode_store)
+    else:
+        dynamics_episode_store = episode_store
+
     median_expert_step_distance = calculate_median_step_distance(
-        episode_store=episode_store, dynamics_model_ensemble=dynamics_model_ensemble
+        episode_store=dynamics_episode_store,
+        dynamics_model_ensemble=dynamics_model_ensemble,
     )
 
     error_limit = config.error_limit_fraction * median_expert_step_distance
 
     backward_trajectories, rollout_diagnostics = roll_out_backward(
         dynamics_model_ensemble=dynamics_model_ensemble,
-        anchor_state_batch=torch.as_tensor(episode_store.states[anchor_indices]).to(
-            device=device
-        ),
+        anchor_state_batch=torch.as_tensor(
+            dynamics_episode_store.states[anchor_indices]
+        ).to(device=device),
         anchor_action_batch=torch.as_tensor(episode_store.actions[anchor_indices]).to(
             device=device
         ),
@@ -145,6 +155,17 @@ def create_augmented_data(
         error_limit=error_limit,
         run=run,
     )
+
+    if config.include_previous_state:
+        # The labels keep only the current-frame part — the policy never
+        # sees the stacked history.
+        backward_trajectories = BackwardTrajectories(
+            predecessor_states_batch=backward_trajectories.predecessor_states_batch[
+                ..., : episode_store.states.shape[1]
+            ],
+            predecessor_actions_batch=backward_trajectories.predecessor_actions_batch,
+            step_count_batch=backward_trajectories.step_count_batch,
+        )
 
     augmentation_result = create_augmented_episodes(
         backward_trajectories=backward_trajectories,

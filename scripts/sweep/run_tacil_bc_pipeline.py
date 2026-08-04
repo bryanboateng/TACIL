@@ -125,7 +125,8 @@ def _build_dynamics_config(*, config: Config) -> dynamics_config.Config:
         architecture=dynamics_config.ArchitectureConfig(
             lipschitz_constant_upper_bound=_lipschitz_constant_upper_bound(
                 config=config
-            )
+            ),
+            include_previous_state=config.include_previous_state,
         ),
         training=dynamics_config.TrainingConfig(),
         seed=config.seed,
@@ -140,6 +141,7 @@ def _build_data_config(*, config: Config) -> data_config.Config:
         action_noise_fraction=config.action_noise_fraction,
         error_limit_fraction=config.error_limit_fraction,
         disagreement_weight=config.disagreement_weight,
+        include_previous_state=config.include_previous_state,
         seed=config.seed,
     )
 
@@ -172,6 +174,7 @@ def _build_note(*, config: Config, condition: Condition) -> str:
         f"|noise={config.action_noise_fraction:.4f}"
         f"|err={config.error_limit_fraction:.4f}"
         f"|dw={config.disagreement_weight:.2f}"
+        f"|prev={config.include_previous_state}"
         f"|cond={condition.label}"
     )
 

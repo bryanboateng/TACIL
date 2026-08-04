@@ -65,6 +65,9 @@ _TACIL_PARAMETERS: dict[str, Any] = {
         "max": 32.0,
     },
     "disagreement_weight": {"distribution": "uniform", "min": 0.0, "max": 1.0},
+    # Stack the previous state in so the dynamics model can read velocities
+    # (the block keeps sliding after contact).
+    "include_previous_state": {"values": [False, True]},
 }
 
 # Their configs pick one Lipschitz variant per environment; here the sweep
@@ -182,7 +185,9 @@ def _build_sweep_configuration(
             f"--floor-condition={config.floor_condition.name}",
             f"--disturbance-level={_disturbance_level_argument(config=config)}",
             *METHOD_FIXED_ARGUMENTS.get(config.method, []),
-            "${args}",
+            # Booleans arrive as flags (present or absent) rather than
+            # --flag=True, which is what the pipeline's command line takes.
+            "${args_no_boolean_flags}",
         ],
         "parameters": METHOD_PARAMETERS[config.method],
     }
