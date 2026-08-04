@@ -121,15 +121,14 @@ def diagnose_dynamics_model_ensemble(
     )
     run.log(
         data={
-            f"{_LOG_PREFIX}/error_over_depth_forward": _error_over_depth_panel(
-                true_errors=forward_chain_measurements.true_errors.cpu().numpy(),
+            f"{_LOG_PREFIX}/error_over_depth": _error_over_depth_panel(
+                forward_true_errors_per_depth=(
+                    forward_chain_measurements.true_errors.cpu().numpy()
+                ),
+                backward_true_errors_per_depth=(
+                    backward_chain_measurements.true_errors.cpu().numpy()
+                ),
                 median_expert_step_distance=median_expert_step_distance,
-                direction_label="forward",
-            ),
-            f"{_LOG_PREFIX}/error_over_depth_backward": _error_over_depth_panel(
-                true_errors=backward_chain_measurements.true_errors.cpu().numpy(),
-                median_expert_step_distance=median_expert_step_distance,
-                direction_label="backward",
             ),
             f"{_LOG_PREFIX}/disagreement_vs_true_error": (
                 _disagreement_scatter_panel(
@@ -381,37 +380,71 @@ def _finite_pairs(
 # ---- Private: panels ------------------------------------
 
 
+# One fixed color per chain direction, reused across all panels.
+_FORWARD_COLOR = "#1f77b4"
+_BACKWARD_COLOR = "#d62728"
+
+
 def _error_over_depth_panel(
     *,
-    true_errors: npt.NDArray[np.floating],  # (chain_count, depth_count), NaN allowed
+    forward_true_errors_per_depth: npt.NDArray[
+        np.floating
+    ],  # (chain_count, depth_count)
+    backward_true_errors_per_depth: npt.NDArray[
+        np.floating
+    ],  # (chain_count, depth_count), NaN allowed
     median_expert_step_distance: float,
-    direction_label: str,
 ) -> wandb.Image:
-    """Median true error per depth with a 10–90% band, against the typical
-    expert step as reference scale."""
-    depth_count = true_errors.shape[1]
-    depths = np.arange(1, depth_count + 1)
+    """Both directions in one picture: backward steps run to the left of the
+    start state (negative x), forward steps to the right."""
+    figure, axes = plt.subplots(figsize=(9, 4.5))
 
-    figure, axes = plt.subplots(figsize=(6, 4))
-    axes.plot(depths, np.nanmedian(true_errors, axis=0), marker="o", label="median")
-    axes.fill_between(
-        depths,
-        np.nanpercentile(true_errors, q=10, axis=0),
-        np.nanpercentile(true_errors, q=90, axis=0),
-        alpha=0.25,
-        label="10–90%",
+    for true_errors_per_depth, direction_sign, direction_label, color in (
+        (backward_true_errors_per_depth, -1, "backward chain", _BACKWARD_COLOR),
+        (forward_true_errors_per_depth, +1, "forward chain", _FORWARD_COLOR),
+    ):
+        depth_count = true_errors_per_depth.shape[1]
+        step_positions = direction_sign * np.arange(1, depth_count + 1)
+        axes.plot(
+            step_positions,
+            np.nanmedian(true_errors_per_depth, axis=0),
+            marker="o",
+            markersize=3,
+            color=color,
+            label=f"{direction_label}, median error",
+        )
+        axes.fill_between(
+            step_positions,
+            np.nanpercentile(true_errors_per_depth, q=10, axis=0),
+            np.nanpercentile(true_errors_per_depth, q=90, axis=0),
+            alpha=0.2,
+            color=color,
+            label=f"{direction_label}, 10th–90th percentile",
+        )
+
+    axes.axvline(x=0, color="black", linewidth=1.0)
+    axes.annotate(
+        text="start state",
+        xy=(0, 0.02),
+        xycoords=("data", "axes fraction"),
+        xytext=(5, 0),
+        textcoords="offset points",
+        ha="left",
+        va="bottom",
+        fontsize=9,
     )
     axes.axhline(
         y=median_expert_step_distance,
         linestyle="--",
         color="gray",
-        label="median expert step",
+        label="size of one typical expert step",
     )
-    axes.set_xlabel(xlabel="depth (steps)")
-    axes.set_ylabel(ylabel="true error (normalized state units)")
+    axes.xaxis.set_major_locator(plt.MaxNLocator(integer=True))
+    axes.set_xlabel(xlabel="steps taken by the model (negative = backward)")
+    axes.set_ylabel(ylabel="distance to the real state (normalized)")
     axes.set_yscale(value="log")
-    axes.set_title(label=f"error growth, {direction_label}")
-    axes.legend()
+    axes.set_title(label="How fast the prediction error grows with each step")
+    axes.legend(fontsize=8)
     figure.tight_layout()
 
     image = wandb.Image(figure)
@@ -428,29 +461,40 @@ def _disagreement_scatter_panel(
     forward_spearman: float,
     backward_spearman: float,
 ) -> wandb.Image:
-    """Claim against truth: what the ensemble asserts about its uncertainty
-    versus the error the held-out chain actually shows."""
-    figure, axes = plt.subplots(figsize=(6, 5))
-    axes.scatter(
-        forward_disagreements,
-        forward_true_errors,
-        s=4,
-        alpha=0.3,
-        label=f"forward (spearman {forward_spearman:.2f})",
-    )
-    axes.scatter(
-        backward_disagreements,
-        backward_true_errors,
-        s=4,
-        alpha=0.3,
-        label=f"backward (spearman {backward_spearman:.2f})",
-    )
-    axes.set_xlabel(xlabel="ensemble disagreement")
-    axes.set_ylabel(ylabel="true error")
+    """One dot per chain step: what the ensemble predicted its uncertainty to
+    be, against the error the held-out trajectory actually shows there. Rank
+    correlation near 1 means the ensemble knows where it is wrong."""
+    figure, axes = plt.subplots(figsize=(6.5, 5))
+    for disagreements, true_errors, direction_label, rank_correlation, color in (
+        (
+            forward_disagreements,
+            forward_true_errors,
+            "forward chains",
+            forward_spearman,
+            _FORWARD_COLOR,
+        ),
+        (
+            backward_disagreements,
+            backward_true_errors,
+            "backward chains",
+            backward_spearman,
+            _BACKWARD_COLOR,
+        ),
+    ):
+        axes.scatter(
+            disagreements,
+            true_errors,
+            s=4,
+            alpha=0.3,
+            color=color,
+            label=f"{direction_label} (rank correlation {rank_correlation:.2f})",
+        )
+    axes.set_xlabel(xlabel="uncertainty the ensemble predicts (disagreement)")
+    axes.set_ylabel(ylabel="error the chain actually has (normalized)")
     axes.set_xscale(value="log")
     axes.set_yscale(value="log")
-    axes.set_title(label="disagreement vs. true error")
-    axes.legend()
+    axes.set_title(label="Does the predicted uncertainty match the actual error?")
+    axes.legend(fontsize=8)
     figure.tight_layout()
 
     image = wandb.Image(figure)
@@ -482,7 +526,7 @@ def _member_fan_panels(
         fan_panels[f"{_LOG_PREFIX}/fan_episode_{episode_index}"] = _member_fan_panel(
             member_trajectories=member_trajectories.cpu().numpy(),
             true_trajectory=true_trajectory,
-            episode_label=f"held-out episode {episode_index}",
+            episode_index=episode_index,
         )
     return fan_panels
 
@@ -493,37 +537,78 @@ def _member_fan_panel(
         np.floating
     ],  # (member_count, step_count + 1, state_dimensionality)
     true_trajectory: npt.NDArray[np.floating],  # (step_count + 1, state_dimensionality)
-    episode_label: str,
+    episode_index: int,
 ) -> wandb.Image:
-    """The MBPO-style fan: every member imagines the same expert actions;
-    where the fan opens, the ensemble is uncertain, where it leaves the bold
-    line, it is wrong. State layout is PushT: agent x/y, block x/y, angle."""
+    """The MBPO-style fan: every ensemble model replays the recorded actions on
+    its own predictions. Where the thin lines spread, the ensemble is
+    uncertain; where they leave the recorded path, it is wrong. State layout is
+    PushT: agent x/y, block x/y, angle."""
+    member_count = member_trajectories.shape[0]
     figure, (agent_axes, block_axes) = plt.subplots(ncols=2, figsize=(10, 5))
 
     for axes, dimension_slice, title in (
         (agent_axes, slice(0, 2), "agent position"),
         (block_axes, slice(2, 4), "block position"),
     ):
-        for member_trajectory in member_trajectories:
+        for member_index, member_trajectory in enumerate(
+            iterable=member_trajectories
+        ):
+            path = member_trajectory[:, dimension_slice]
             axes.plot(
-                member_trajectory[:, dimension_slice][:, 0],
-                member_trajectory[:, dimension_slice][:, 1],
+                path[:, 0],
+                path[:, 1],
                 linewidth=0.6,
                 alpha=0.35,
+                color=_FORWARD_COLOR,
+                # One legend entry for all members.
+                label=(
+                    f"model prediction ({member_count} models)"
+                    if member_index == 0
+                    else None
+                ),
             )
+        true_path = true_trajectory[:, dimension_slice]
         axes.plot(
-            true_trajectory[:, dimension_slice][:, 0],
-            true_trajectory[:, dimension_slice][:, 1],
+            true_path[:, 0],
+            true_path[:, 1],
             linewidth=2.0,
             color="black",
-            label="expert",
+            label="recorded episode",
+        )
+        axes.plot(
+            true_path[0, 0],
+            true_path[0, 1],
+            marker="o",
+            markersize=9,
+            color="black",
+            markerfacecolor="white",
+            linestyle="none",
+            label="start",
+        )
+        axes.plot(
+            true_path[-1, 0],
+            true_path[-1, 1],
+            marker="X",
+            markersize=9,
+            color="black",
+            linestyle="none",
+            label="end (recorded)",
         )
         axes.set_title(label=title)
+        axes.set_xlabel(xlabel="x position")
+        axes.set_ylabel(ylabel="y position")
         axes.set_aspect(aspect="equal", adjustable="datalim")
-        axes.legend()
 
-    figure.suptitle(t=f"member fan, {episode_label}")
-    figure.tight_layout()
+    # One legend for the whole figure; both subplots share the same entries.
+    handles, labels = agent_axes.get_legend_handles_labels()
+    figure.legend(handles=handles, labels=labels, loc="lower center", ncol=4)
+    figure.suptitle(
+        t=(
+            f"Models replay the recorded actions of held-out episode "
+            f"{episode_index}"
+        )
+    )
+    figure.tight_layout(rect=(0, 0.08, 1, 1))
 
     image = wandb.Image(figure)
     plt.close(fig=figure)
