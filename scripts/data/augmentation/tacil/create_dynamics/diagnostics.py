@@ -2,6 +2,8 @@ from dataclasses import dataclass
 
 import matplotlib
 import numpy as np
+import scipy.interpolate
+import scipy.ndimage
 import scipy.stats
 import torch
 import wandb
@@ -11,7 +13,6 @@ from wandb import Run
 
 matplotlib.use(backend="Agg")
 from matplotlib import patches  # noqa: E402
-from matplotlib import patheffects  # noqa: E402
 from matplotlib import pyplot as plt  # noqa: E402
 
 plt.style.use(style="seaborn-v0_8-whitegrid")
@@ -435,30 +436,37 @@ def _error_over_depth_panel(
                 density_columns[:, depth_index] = density / density.max()
 
         ascending_order = np.argsort(step_positions)
-        # Gouraud shading interpolates between neighboring depth columns, so
-        # the density reads as one smooth ribbon instead of stacked stripes.
+        sorted_positions = step_positions[ascending_order]
+
+        # Upsample between the integer depths and smooth slightly, so the
+        # density reads as one continuous cloud — no seams at the columns.
+        fine_positions = np.linspace(
+            sorted_positions[0], sorted_positions[-1], num=depth_count * 8
+        )
+        fine_density = scipy.interpolate.interp1d(
+            sorted_positions, density_columns[:, ascending_order], axis=1
+        )(fine_positions)
+        fine_density = scipy.ndimage.gaussian_filter(fine_density, sigma=(2.0, 4.0))
+        fine_density /= max(fine_density.max(), 1e-12)
+
         axes.pcolormesh(
-            step_positions[ascending_order],
+            fine_positions,
             10**log_error_grid,
-            density_columns[:, ascending_order],
+            fine_density,
+            # Opaque white-to-color scale: transparent colormaps leave
+            # antialiasing seams between the mesh cells.
             cmap=matplotlib.colors.LinearSegmentedColormap.from_list(
-                "density", [(1.0, 1.0, 1.0, 0.0), color]
+                "density", ["white", color]
             ),
             shading="gouraud",
+            antialiased=False,
             rasterized=True,
         )
 
-        axes.plot(
-            step_positions,
-            np.nanmedian(true_errors_per_depth, axis=0),
-            marker="o",
-            markersize=3,
-            color=color,
-            # White halo keeps the median readable on top of the density.
-            path_effects=[patheffects.withStroke(linewidth=3, foreground="white")],
-        )
-
     axes.axvline(x=0, color="black", linewidth=1.0)
+    # The opaque density would hide the grid everywhere but the gap at 0;
+    # half-visible grid lines look broken, so none at all.
+    axes.grid(visible=False)
     axes.xaxis.set_major_locator(plt.MaxNLocator(integer=True))
     axes.set_xlabel(xlabel="steps")
     axes.set_ylabel(ylabel="error (normalized)")
@@ -466,11 +474,8 @@ def _error_over_depth_panel(
     axes.set_title(label="Prediction error vs. number of steps")
     axes.legend(
         handles=[
-            plt.Line2D([], [], color=_FORWARD_COLOR, label="forward"),
-            plt.Line2D([], [], color=_BACKWARD_COLOR, label="backward"),
-            plt.Line2D(
-                [], [], color="black", marker="o", markersize=3, label="median"
-            ),
+            patches.Patch(facecolor=_FORWARD_COLOR, label="forward"),
+            patches.Patch(facecolor=_BACKWARD_COLOR, label="backward"),
             patches.Patch(
                 facecolor="gray", alpha=0.35, label="density (darker = denser)"
             ),
