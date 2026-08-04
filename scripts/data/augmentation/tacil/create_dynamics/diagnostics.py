@@ -382,6 +382,9 @@ def _finite_pairs(
 _FORWARD_COLOR = "#1f77b4"
 _BACKWARD_COLOR = "#d62728"
 
+# PushT's quadratic arena (gym_pusht window size, pixels).
+_ARENA_SIZE = 512
+
 
 def _error_over_depth_panel(
     *,
@@ -409,13 +412,19 @@ def _error_over_depth_panel(
             markersize=3,
             color=color,
         )
-        axes.fill_between(
-            step_positions,
-            np.nanpercentile(true_errors_per_depth, q=10, axis=0),
-            np.nanpercentile(true_errors_per_depth, q=90, axis=0),
-            alpha=0.2,
-            color=color,
-        )
+        # Nested percentile bands; their overlap darkens toward the median,
+        # so the shading reads as a density gradient.
+        for lower_quantile in (10, 20, 30, 40):
+            axes.fill_between(
+                step_positions,
+                np.nanpercentile(true_errors_per_depth, q=lower_quantile, axis=0),
+                np.nanpercentile(
+                    true_errors_per_depth, q=100 - lower_quantile, axis=0
+                ),
+                alpha=0.12,
+                color=color,
+                linewidth=0,
+            )
 
     axes.axvline(x=0, color="black", linewidth=1.0)
     axes.xaxis.set_major_locator(plt.MaxNLocator(integer=True))
@@ -431,7 +440,7 @@ def _error_over_depth_panel(
                 [], [], color="black", marker="o", markersize=3, label="median"
             ),
             patches.Patch(
-                facecolor="gray", alpha=0.25, label="10th–90th percentile"
+                facecolor="gray", alpha=0.35, label="spread (darker = denser)"
             ),
         ],
         fontsize=8,
@@ -452,18 +461,13 @@ def _disagreement_scatter_panel(
 ) -> wandb.Image:
     """One dot per chain step. A cloud rising to the right means the
     ensemble's uncertainty tracks its real error."""
-    figure, (forward_axes, backward_axes) = plt.subplots(
+    # Backward on the left, forward on the right — same order as the
+    # error-over-depth panel.
+    figure, (backward_axes, forward_axes) = plt.subplots(
         ncols=2, figsize=(10, 5), sharex=True, sharey=True
     )
 
     for axes, disagreements, true_errors, direction_label, color in (
-        (
-            forward_axes,
-            forward_disagreements,
-            forward_true_errors,
-            "forward",
-            _FORWARD_COLOR,
-        ),
         (
             backward_axes,
             backward_disagreements,
@@ -471,14 +475,21 @@ def _disagreement_scatter_panel(
             "backward",
             _BACKWARD_COLOR,
         ),
+        (
+            forward_axes,
+            forward_disagreements,
+            forward_true_errors,
+            "forward",
+            _FORWARD_COLOR,
+        ),
     ):
         axes.scatter(disagreements, true_errors, s=4, alpha=0.3, color=color)
         axes.set_title(label=direction_label)
-        axes.set_xlabel(xlabel="predicted uncertainty (disagreement)")
+        axes.set_xlabel(xlabel="predicted uncertainty")
         axes.set_xscale(value="log")
         axes.set_yscale(value="log")
 
-    forward_axes.set_ylabel(ylabel="actual error")
+    backward_axes.set_ylabel(ylabel="actual error")
     figure.suptitle(t="Predicted uncertainty vs. actual error")
     figure.tight_layout()
 
@@ -579,8 +590,12 @@ def _member_fan_panel(
         axes.set_title(label=title)
         axes.set_xlabel(xlabel="x position")
         axes.set_ylabel(ylabel="y position")
+        axes.set_xlim(left=0, right=_ARENA_SIZE)
+        axes.set_ylim(bottom=0, top=_ARENA_SIZE)
         # "box" because the two subplots share their axes ranges.
         axes.set_aspect(aspect="equal", adjustable="box")
+        # sharey hides the right subplot's tick labels; bring them back.
+        axes.tick_params(labelleft=True)
 
     # One legend for the whole figure; both subplots share the same entries.
     handles, labels = agent_axes.get_legend_handles_labels()
@@ -588,7 +603,7 @@ def _member_fan_panel(
     figure.suptitle(
         t=f"Replay: true dynamics vs. model (held-out episode {episode_index})"
     )
-    figure.tight_layout(rect=(0, 0.08, 1, 1))
+    figure.tight_layout(rect=(0, 0.08, 1, 0.94))
 
     image = wandb.Image(figure)
     plt.close(fig=figure)
