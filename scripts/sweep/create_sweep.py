@@ -122,6 +122,7 @@ def _build_sweep_configuration(
                 "min": 0.125,
                 "max": 32.0,
             },
+            "disagreement_weight": {"distribution": "uniform", "min": 0.0, "max": 1.0},
         },
     }
 

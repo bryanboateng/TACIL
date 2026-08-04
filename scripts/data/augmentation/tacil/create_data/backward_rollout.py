@@ -10,7 +10,6 @@ from scripts.data.augmentation.tacil.create_data.inverse_dynamics import (
 from scripts.data.augmentation.tacil.models.dynamics_model_ensemble import (
     DynamicsModelEnsemble,
 )
-from scripts.data.augmentation.tacil.models.error_model import ErrorModel
 from scripts.shared.log import create_logger
 
 logger = create_logger()
@@ -60,7 +59,7 @@ def roll_out_backward(
     anchor_state_batch: torch.Tensor,  # (anchor_count, state_dimensionality)
     anchor_action_batch: torch.Tensor,  # (anchor_count, action_dimensionality)
     action_noise_std: torch.Tensor,  # (action_dimensionality,)
-    error_model: ErrorModel,
+    disagreement_weight: float,
     error_limit: float,
     convergence_tolerance: float,
 ) -> tuple[BackwardTrajectories, RolloutDiagnostics]:
@@ -116,7 +115,7 @@ def roll_out_backward(
             state_batch=current_state_batch[active_indices],
             action_batch=anchor_action_batch[active_indices],
             action_noise_std=action_noise_std,
-            error_model=error_model,
+            disagreement_weight=disagreement_weight,
             convergence_tolerance=convergence_tolerance,
         )
 
@@ -237,7 +236,7 @@ def _compute_backward_step(
     state_batch: torch.Tensor,  # (active_count, state_dimensionality)
     action_batch: torch.Tensor,  # (active_count, action_dimensionality)
     action_noise_std: torch.Tensor,  # (action_dimensionality,)
-    error_model: ErrorModel,
+    disagreement_weight: float,
     convergence_tolerance: float,
 ) -> _BackwardStep:
     """Noise the base action, solve for the predecessor, estimate the step's
@@ -272,14 +271,16 @@ def _compute_backward_step(
         )
     )  # (active_count,)
 
+    step_error_estimate_batch = (
+        disagreement_weight * disagreement_about_next_state_batch
+        + (1.0 - disagreement_weight) * sensitivity_scaled_step_distance_batch
+    )  # (active_count,)
+
     return _BackwardStep(
         predecessor_state_batch=predecessor_state_batch,
         action_batch=noisy_action_batch,
         converged_batch=inverse_dynamics_solution.converged_batch,
-        step_error_estimate_batch=error_model.estimate_step_errors(
-            disagreement_batch=disagreement_about_next_state_batch,
-            sensitivity_scaled_step_distance_batch=sensitivity_scaled_step_distance_batch,
-        ),
+        step_error_estimate_batch=step_error_estimate_batch,
         disagreement_about_next_state_batch=disagreement_about_next_state_batch,
         sensitivity_scaled_step_distance_batch=sensitivity_scaled_step_distance_batch,
         local_transition_lipschitz_constant_batch=dynamics_model_ensemble.local_transition_lipschitz_constants(

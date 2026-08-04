@@ -19,5 +19,6 @@ class Config:
     window_length: int
     action_noise_fraction: float
     error_limit_fraction: float
+    disagreement_weight: float
 
     seed: int = 42

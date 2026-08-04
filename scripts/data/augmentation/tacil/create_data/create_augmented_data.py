@@ -19,13 +19,11 @@ from scripts.data.augmentation.tacil.create_data.episode_assembly import (
     create_augmented_episodes,
 )
 from scripts.data.augmentation.tacil.create_data.statistics_logging import (
-    STAGE_PREFIX,
     log_dataset_statistics,
     log_rollout_statistics,
 )
 from scripts.data.augmentation.tacil.create_dynamics.checkpoint import (
     load_dynamics_model_ensemble,
-    load_error_model,
 )
 from scripts.data.augmentation.tacil.create_data.step_distance import (
     calculate_median_step_distance,
@@ -33,7 +31,6 @@ from scripts.data.augmentation.tacil.create_data.step_distance import (
 from scripts.data.augmentation.tacil.models.dynamics_model_ensemble import (
     DynamicsModelEnsemble,
 )
-from scripts.data.augmentation.tacil.models.error_model import ErrorModel
 from scripts.shared.data import (
     EpisodeStore,
     combine_episode_stores,
@@ -71,12 +68,6 @@ def _run(*, config: Config) -> None:
             directory_path=model_directory_path, device=device
         )
         dynamics_model_ensemble.eval()
-        error_model = load_error_model(directory_path=model_directory_path)
-        logger.info(pretty_repr(error_model))
-        # Only worth recording where the error model arrives as an opaque
-        # artifact; the stage that fits it logs the same numbers itself.
-        for field_name, field_value in asdict(error_model).items():
-            run.summary[f"{STAGE_PREFIX}1_error_model/{field_name}"] = field_value
 
         upload_episode_store(
             episode_store=create_augmented_data(
@@ -89,7 +80,6 @@ def _run(*, config: Config) -> None:
                     )
                 ),
                 dynamics_model_ensemble=dynamics_model_ensemble,
-                error_model=error_model,
                 device=device,
                 run=run,
             ),
@@ -103,7 +93,6 @@ def create_augmented_data(
     config: Config,
     episode_store: EpisodeStore,
     dynamics_model_ensemble: DynamicsModelEnsemble,
-    error_model: ErrorModel,
     device: torch.device,
     run: Run,
 ) -> EpisodeStore:
@@ -145,7 +134,7 @@ def create_augmented_data(
             device=device
         ),
         action_noise_std=torch.as_tensor(action_noise_std).to(device=device),
-        error_model=error_model,
+        disagreement_weight=config.disagreement_weight,
         error_limit=error_limit,
         convergence_tolerance=1e-3 * median_expert_step_distance,
     )

@@ -65,7 +65,7 @@ def _run(*, config: Config) -> None:
         )
 
         logger.info("Stage 1/4: training the dynamics model ensemble.")
-        dynamics_model_ensemble, error_model = train_dynamics_model_ensemble(
+        dynamics_model_ensemble = train_dynamics_model_ensemble(
             config=_build_dynamics_config(config=config),
             episode_store=expert_episode_store,
             device=device,
@@ -78,7 +78,6 @@ def _run(*, config: Config) -> None:
             config=_build_data_config(config=config),
             episode_store=expert_episode_store,
             dynamics_model_ensemble=dynamics_model_ensemble,
-            error_model=error_model,
             device=device,
             run=run,
         )
@@ -146,6 +145,7 @@ def _build_data_config(*, config: Config) -> data_config.Config:
         dataset_artifact=config.expert_dataset_artifact,
         action_noise_fraction=config.action_noise_fraction,
         error_limit_fraction=config.error_limit_fraction,
+        disagreement_weight=config.disagreement_weight,
         seed=config.seed,
     )
 
@@ -180,6 +180,7 @@ def _build_note(*, config: Config, condition: Condition) -> str:
         f"|seed={config.seed}"
         f"|noise={config.action_noise_fraction:.4f}"
         f"|err={config.error_limit_fraction:.4f}"
+        f"|dw={config.disagreement_weight:.2f}"
         f"|cond={condition.label}"
     )
 

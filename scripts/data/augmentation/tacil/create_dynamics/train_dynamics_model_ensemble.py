@@ -13,14 +13,15 @@ from wandb import Run
 
 from scripts.data.augmentation.tacil.create_dynamics.checkpoint import (
     save_dynamics_model_ensemble,
-    save_error_model,
 )
 from scripts.data.augmentation.tacil.create_dynamics.config import Config
 from scripts.data.augmentation.tacil.create_dynamics.data import (
-    TransitionSet,
     build_windows,
     concatenate_episodes,
     extract_transitions,
+)
+from scripts.data.augmentation.tacil.create_dynamics.diagnostics import (
+    diagnose_dynamics_model_ensemble,
 )
 from scripts.data.augmentation.tacil.create_dynamics.dynamics_model_training import (
     MemberEpochMetrics,
@@ -32,11 +33,6 @@ from scripts.data.augmentation.tacil.create_dynamics.dynamics_model_training imp
 )
 from scripts.data.augmentation.tacil.models.dynamics_model_ensemble import (
     DynamicsModelEnsemble,
-)
-from scripts.data.augmentation.tacil.models.error_model import (
-    ErrorModel,
-    compute_error_model_training_data,
-    fit_error_model,
 )
 from scripts.data.augmentation.tacil.models.normalizers import Normalizers
 from scripts.shared.data import EpisodeStore, load_episode_store
@@ -74,7 +70,7 @@ def _run(*, config: Config) -> None:
         config=asdict(obj=config),
         dir=OUTPUT_DIRECTORY_PATH,
     ) as run:
-        dynamics_model_ensemble, error_model = train_dynamics_model_ensemble(
+        dynamics_model_ensemble = train_dynamics_model_ensemble(
             config=config,
             episode_store=load_episode_store(
                 episode_file_path=Path(
@@ -85,15 +81,13 @@ def _run(*, config: Config) -> None:
             run=run,
         )
         _upload_dynamics_model_ensemble(
-            dynamics_model_ensemble=dynamics_model_ensemble,
-            error_model=error_model,
-            run=run,
+            dynamics_model_ensemble=dynamics_model_ensemble, run=run
         )
 
 
 def train_dynamics_model_ensemble(
     *, config: Config, episode_store: EpisodeStore, device: torch.device, run: Run
-) -> tuple[DynamicsModelEnsemble, ErrorModel]:
+) -> DynamicsModelEnsemble:
     set_seed(seed=config.seed)
     _define_epoch_metrics(run=run)
 
@@ -176,19 +170,14 @@ def train_dynamics_model_ensemble(
     )
     dynamics_model_ensemble.eval()
 
-    error_model, error_model_uncentered_r_squared = _create_error_model(
+    diagnose_dynamics_model_ensemble(
         dynamics_model_ensemble=dynamics_model_ensemble,
-        validation_transitions=validation_transitions,
-        split_seed=config.seed,
-        device=device,
-    )
-    for field_name, field_value in asdict(error_model).items():
-        run.summary[f"{STAGE_PREFIX}error_model/{field_name}"] = field_value
-    run.summary[f"{STAGE_PREFIX}error_model/uncentered_r_squared"] = (
-        error_model_uncentered_r_squared
+        validation_episodes=validation_episodes,
+        episode_store=episode_store,
+        run=run,
     )
 
-    return dynamics_model_ensemble, error_model
+    return dynamics_model_ensemble
 
 
 def _define_epoch_metrics(*, run: Run) -> None:
@@ -258,35 +247,14 @@ def _log_checkpoint_summary(
     )
 
 
-def _create_error_model(
-    *,
-    dynamics_model_ensemble: DynamicsModelEnsemble,
-    validation_transitions: TransitionSet,
-    split_seed: int,
-    device: torch.device,
-) -> tuple[ErrorModel, float]:
-    training_data = compute_error_model_training_data(
-        dynamics_model_ensemble=dynamics_model_ensemble,
-        states=torch.from_numpy(validation_transitions.states).to(device=device),
-        actions=torch.from_numpy(validation_transitions.actions).to(device=device),
-        next_states=torch.from_numpy(validation_transitions.next_states).to(
-            device=device
-        ),
-    )
-    return fit_error_model(training_data=training_data, split_seed=split_seed)
-
-
 def _upload_dynamics_model_ensemble(
-    *, dynamics_model_ensemble: DynamicsModelEnsemble, error_model: ErrorModel, run: Run
+    *, dynamics_model_ensemble: DynamicsModelEnsemble, run: Run
 ) -> None:
     with tempfile.TemporaryDirectory() as temporary_directory:
         ensemble_directory_path = Path(temporary_directory)
         save_dynamics_model_ensemble(
             dynamics_model_ensemble=dynamics_model_ensemble,
             directory_path=ensemble_directory_path,
-        )
-        save_error_model(
-            error_model=error_model, directory_path=ensemble_directory_path
         )
         model_artifact = wandb.Artifact(
             name=f"tacil-dynamics-model-{run.name}", type="model"
