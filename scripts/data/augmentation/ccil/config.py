@@ -9,8 +9,6 @@ AugmentationType = Literal["noisy_action", "backward_euler_fast"]
 
 @dataclass(frozen=True)
 class DynamicsConfig:
-    """CCIL's WorldModel training, defaults from their config files."""
-
     hidden_layer_sizes: tuple[int, ...] = (512, 512)
     learning_rate: float = 1e-3
     weight_decay: float = 1e-5

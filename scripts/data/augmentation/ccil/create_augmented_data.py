@@ -1,22 +1,10 @@
-"""Faithful port of CCIL's label generation (correct_il/gen_aug_label.py,
-their default aug type 'noisy_action').
-
-Per expert transition (s, a, s'): draw noisy actions ã = a + N(0, δ), compute
-the label state in closed form, s^G = s' − f(s', ã), and keep the label
-(s^G, ã) if ‖s^G − s‖ ≤ ε (raw state units). No solver, no ensemble, no error
-account — deliberately independent of the TaCIL machinery.
-
-Each accepted label becomes its own one-transition episode; the dataset is
-meant for behavior cloning, which trains on flat pairs.
-"""
-
 from dataclasses import asdict
+from pathlib import Path
 
 import numpy as np
 import torch
 import tyro
 import wandb
-from pathlib import Path
 from rich.pretty import pretty_repr
 from wandb import Run
 
@@ -70,15 +58,8 @@ def _run(*, config: Config) -> None:
 
 
 def create_ccil_augmented_data(
-    *,
-    config: Config,
-    episode_store: EpisodeStore,
-    device: torch.device,
-    run: Run,
+    *, config: Config, episode_store: EpisodeStore, device: torch.device, run: Run
 ) -> EpisodeStore:
-    """Train CCIL's world model on the expert transitions, generate noisy-action
-    labels, and return the expert data with the accepted labels appended as
-    one-transition episodes."""
     set_seed(seed=config.seed)
 
     states, actions, next_states = _transitions(episode_store=episode_store)
@@ -130,8 +111,8 @@ def create_ccil_augmented_data(
     run.summary[f"{STAGE_PREFIX}2_labels/transition_count"] = states.shape[0]
     run.summary[f"{STAGE_PREFIX}2_labels/label_count"] = label_count
     run.summary[f"{STAGE_PREFIX}2_labels/accepted_count"] = accepted_count
-    run.summary[f"{STAGE_PREFIX}2_labels/accepted_fraction"] = (
-        accepted_count / max(label_count, 1)
+    run.summary[f"{STAGE_PREFIX}2_labels/accepted_fraction"] = accepted_count / max(
+        label_count, 1
     )
     run.summary[f"{STAGE_PREFIX}2_labels/distance_median"] = float(
         np.median(label_distances)

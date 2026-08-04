@@ -1,11 +1,3 @@
-"""Port of CCIL's dynamics model (correct_il/models/nn_dynamics.py).
-
-One MLP predicting the state residual, inputs shifted by the mean and scaled
-by the mean absolute deviation, trained with single-step MSE plus the
-soft-sampling Lipschitz penalty. No ensemble, no multi-step windows — this is
-deliberately the baseline as published, independent of the TaCIL machinery.
-"""
-
 from dataclasses import dataclass
 
 import torch
@@ -31,9 +23,7 @@ class _SpectralNormClamp(torch.nn.Module):
 
     def forward(self, weight: torch.Tensor) -> torch.Tensor:
         spectral_norm = torch.linalg.matrix_norm(weight, ord=2)
-        return weight / torch.clamp(
-            spectral_norm / self.lipschitz_constraint, min=1.0
-        )
+        return weight / torch.clamp(spectral_norm / self.lipschitz_constraint, min=1.0)
 
 
 class WorldModel(torch.nn.Module):
@@ -55,8 +45,7 @@ class WorldModel(torch.nn.Module):
         self._layers = torch.nn.ModuleList(
             modules=[
                 torch.nn.Linear(
-                    in_features=layer_sizes[index],
-                    out_features=layer_sizes[index + 1],
+                    in_features=layer_sizes[index], out_features=layer_sizes[index + 1]
                 )
                 for index in range(len(layer_sizes) - 1)
             ]
@@ -248,6 +237,9 @@ def _soft_sampling_lipschitz_penalty(
         repeated_predictions - noisy_predictions, dim=-1
     )
 
-    return config.soft_lipschitz_penalty_weight * torch.relu(
-        prediction_differences - config.lipschitz_constraint * noise_magnitudes
-    ).mean()
+    return (
+        config.soft_lipschitz_penalty_weight
+        * torch.relu(
+            prediction_differences - config.lipschitz_constraint * noise_magnitudes
+        ).mean()
+    )
