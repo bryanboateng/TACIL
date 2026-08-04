@@ -3,7 +3,7 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from scripts.shared.normalization import MinMaxNormalizer
+from scripts.shared.normalization import MinMaxNormalizer, ZScoreNormalizer
 from scripts.shared.paths import PROJECT_ROOT_DIRECTORY_PATH
 from scripts.shared.policy_types import Policy, PolicyFactory
 
@@ -26,11 +26,12 @@ def _create_network(
         torch.nn.Linear(
             in_features=hidden_dimensionality, out_features=action_dimensionality
         ),
+        torch.nn.Tanh(),
     )
 
 
 class BehaviorCloningPolicy(torch.nn.Module):
-    observation_normalizer: MinMaxNormalizer
+    observation_normalizer: ZScoreNormalizer
     action_normalizer: MinMaxNormalizer
 
     def __init__(
@@ -53,9 +54,9 @@ class BehaviorCloningPolicy(torch.nn.Module):
         )
 
         # Placeholders, overwritten later
-        self.observation_normalizer = MinMaxNormalizer(
-            minimum=torch.zeros(observation_dimensionality),
-            maximum=torch.ones(observation_dimensionality),
+        self.observation_normalizer = ZScoreNormalizer(
+            mean=torch.zeros(observation_dimensionality),
+            std=torch.ones(observation_dimensionality),
         )
         self.action_normalizer = MinMaxNormalizer(
             minimum=torch.zeros(action_dimensionality),
@@ -69,7 +70,7 @@ class BehaviorCloningPolicy(torch.nn.Module):
         observation_batch: torch.Tensor,  # (N, observation_dimensionality)
         action_batch: torch.Tensor,  # (N, action_dimensionality)
     ) -> None:
-        self.observation_normalizer = MinMaxNormalizer.from_values(
+        self.observation_normalizer = ZScoreNormalizer.from_values(
             value_batch=observation_batch
         )
         self.action_normalizer = MinMaxNormalizer.from_values(value_batch=action_batch)

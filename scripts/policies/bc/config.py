@@ -13,7 +13,7 @@ class DimensionalityConfig:
 
 @dataclass(frozen=True)
 class OptimizationConfig:
-    batch_size: int = 64
+    batch_size: int = 100
     epoch_count: int = 100
     learning_rate: float = 1e-3
 

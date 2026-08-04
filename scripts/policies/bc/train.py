@@ -26,12 +26,16 @@ from scripts.policies.bc.policy import (
     save_behavior_cloning_policy,
 )
 from scripts.policies.shared.checkpoint import Checkpoint
-from scripts.shared.data import load_episode_store
+from scripts.shared.data import EpisodeStore, load_episode_store
 from scripts.shared.log import create_logger, log_device_info
 from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
 from scripts.shared.seed import set_seed
 
 logger = create_logger()
+
+# Every key this stage logs starts with it, so a stage run and a pipeline run
+# report the same numbers under the same names.
+STAGE_PREFIX = "3_policy-"
 
 
 def main():
@@ -41,11 +45,8 @@ def main():
 
 
 def _run(*, config: Config) -> None:
-    set_seed(seed=config.seed)
     device = torch.device(device="cuda" if torch.cuda.is_available() else "cpu")
     log_device_info(device=device, logger=logger)
-
-    loss_function = torch.nn.MSELoss()
 
     with (
         wandb.init(
@@ -57,127 +58,143 @@ def _run(*, config: Config) -> None:
         ) as run,
         tempfile.TemporaryDirectory() as checkpoint_directory,
     ):
-        checkpoint_directory_path = Path(checkpoint_directory)
-
-        dataset = Dataset(
+        train_behavior_cloning_policy(
+            config=config,
             episode_store=load_episode_store(
                 episode_file_path=Path(
                     run.use_artifact(
                         artifact_or_name=config.dataset_artifact
                     ).download()
                 )
-            )
+            ),
+            checkpoint_directory_path=Path(checkpoint_directory),
+            device=device,
+            run=run,
         )
 
-        data_loader = DataLoader(
-            dataset=dataset,
-            batch_size=config.optimization.batch_size,
-            shuffle=True,
-            pin_memory=device.type == "cuda",
-        )
 
-        policy = BehaviorCloningPolicy(
-            observation_dimensionality=config.dimensionality.observation,
-            action_dimensionality=config.dimensionality.action,
-            hidden_dimensionality=config.dimensionality.hidden,
-        ).to(device=device)
+def train_behavior_cloning_policy(
+    *,
+    config: Config,
+    episode_store: EpisodeStore,
+    checkpoint_directory_path: Path,
+    device: torch.device,
+    run: Run,
+) -> Path:
+    set_seed(seed=config.seed)
 
-        policy.initialize_normalizers(
-            observation_batch=dataset.states.to(device=device),
-            action_batch=dataset.actions.to(device=device),
-        )
+    loss_function = torch.nn.MSELoss()
 
-        optimizer = Adam(
-            params=policy.parameters(), lr=config.optimization.learning_rate
-        )
+    dataset = Dataset(episode_store=episode_store)
 
-        best_checkpoint: Checkpoint | None = None
+    data_loader = DataLoader(
+        dataset=dataset,
+        batch_size=config.optimization.batch_size,
+        shuffle=True,
+        pin_memory=device.type == "cuda",
+    )
 
-        for epoch_index in tqdm(
-            iterable=range(config.optimization.epoch_count), desc="Epoch", unit="epoch"
-        ):
-            policy.train()
-            for observation_batch, action_batch in data_loader:
-                observation_batch = observation_batch.to(
-                    device=device
-                )  # (batch_size, observation_dimensionality)
-                action_batch = action_batch.to(
-                    device=device
-                )  # (batch_size, action_dimensionality)
+    policy = BehaviorCloningPolicy(
+        observation_dimensionality=config.dimensionality.observation,
+        action_dimensionality=config.dimensionality.action,
+        hidden_dimensionality=config.dimensionality.hidden,
+    ).to(device=device)
 
-                optimizer.zero_grad()
+    policy.initialize_normalizers(
+        observation_batch=dataset.states.to(device=device),
+        action_batch=dataset.actions.to(device=device),
+    )
 
-                predicted_action_batch = policy.predict_action(
-                    observation=observation_batch
-                )  # (batch_size, action_dimensionality)
-                loss = loss_function(
-                    policy.normalize_action(action=predicted_action_batch),
-                    policy.normalize_action(action=action_batch),
-                )
+    optimizer = Adam(params=policy.parameters(), lr=config.optimization.learning_rate)
 
-                loss.backward()
+    best_checkpoint: Checkpoint | None = None
 
-                optimizer.step()
+    for epoch_index in tqdm(
+        iterable=range(config.optimization.epoch_count), desc="Epoch", unit="epoch"
+    ):
+        policy.train()
+        for observation_batch, action_batch in data_loader:
+            observation_batch = observation_batch.to(
+                device=device
+            )  # (batch_size, observation_dimensionality)
+            action_batch = action_batch.to(
+                device=device
+            )  # (batch_size, action_dimensionality)
 
-                run.log(data={"train/loss": loss.item()})
+            optimizer.zero_grad()
 
-            periodic_eval_is_due = (
-                (epoch_index + 1) % config.evaluation.periodic_interval_epoch_count == 0
-            ) or ((epoch_index + 1) == config.optimization.epoch_count)
-            if not periodic_eval_is_due:
-                continue
-
-            checkpoint_path = checkpoint_directory_path / "checkpoint.pt"
-            save_behavior_cloning_policy(policy=policy, path=checkpoint_path)
-            validation_reward = _evaluate(
-                checkpoint_path=checkpoint_path,
-                episode_count=config.evaluation.episode_count,
-                condition=Condition(
-                    floor_condition=config.evaluation.floor_condition,
-                    disturbance_level=config.evaluation.disturbance_level,
-                ),
-                device=device,
-            )
-            run.log(
-                data={
-                    "validation/reward_mean": validation_reward.mean,
-                    "validation/reward_std": validation_reward.std,
-                    "epoch": epoch_index,
-                }
+            predicted_action_batch = policy.predict_action(
+                observation=observation_batch
+            )  # (batch_size, action_dimensionality)
+            loss = loss_function(
+                policy.normalize_action(action=predicted_action_batch),
+                policy.normalize_action(action=action_batch),
             )
 
-            if (
-                best_checkpoint is None
-                or validation_reward.mean > best_checkpoint.validation_reward_mean
-            ):
-                best_checkpoint = Checkpoint(
-                    validation_reward_mean=validation_reward.mean,
-                    validation_reward_std=validation_reward.std,
-                    epoch=epoch_index,
-                    state_dict=copy.deepcopy(policy.state_dict()),
-                )
+            loss.backward()
 
-        if best_checkpoint is None:
-            raise ValueError("No checkpoint was recorded")
+            optimizer.step()
 
-        run.summary["selected/epoch"] = best_checkpoint.epoch
-        run.summary["selected/reward_mean"] = best_checkpoint.validation_reward_mean
-        run.summary["selected/reward_std"] = best_checkpoint.validation_reward_std
+            run.log(data={f"{STAGE_PREFIX}training/loss": loss.item()})
 
-        policy.load_state_dict(state_dict=best_checkpoint.state_dict)
-        _upload_policy(policy=policy, run=run)
+        periodic_eval_is_due = (
+            (epoch_index + 1) % config.evaluation.periodic_interval_epoch_count == 0
+        ) or ((epoch_index + 1) == config.optimization.epoch_count)
+        if not periodic_eval_is_due:
+            continue
 
-
-def _upload_policy(*, policy: BehaviorCloningPolicy, run: Run) -> None:
-    with tempfile.TemporaryDirectory() as temporary_directory:
-        checkpoint_path = Path(temporary_directory) / "checkpoint.pt"
+        checkpoint_path = checkpoint_directory_path / "checkpoint.pt"
         save_behavior_cloning_policy(policy=policy, path=checkpoint_path)
-
-        model_artifact = wandb.Artifact(
-            name=f"behavior-cloning-policy-{run.name}", type="model"
+        validation_reward = _evaluate(
+            checkpoint_path=checkpoint_path,
+            episode_count=config.evaluation.episode_count,
+            condition=Condition(
+                floor_condition=config.evaluation.floor_condition,
+                disturbance_level=config.evaluation.disturbance_level,
+            ),
+            device=device,
         )
-        model_artifact.add_file(local_path=str(checkpoint_path), name="checkpoint.pt")
-        run.log_artifact(model_artifact).wait()
+        run.log(
+            data={
+                f"{STAGE_PREFIX}validation/reward_mean": validation_reward.mean,
+                f"{STAGE_PREFIX}validation/reward_std": validation_reward.std,
+                f"{STAGE_PREFIX}epoch": epoch_index,
+            }
+        )
+
+        if (
+            best_checkpoint is None
+            or validation_reward.mean > best_checkpoint.validation_reward_mean
+        ):
+            best_checkpoint = Checkpoint(
+                validation_reward_mean=validation_reward.mean,
+                validation_reward_std=validation_reward.std,
+                epoch=epoch_index,
+                state_dict=copy.deepcopy(policy.state_dict()),
+            )
+
+    if best_checkpoint is None:
+        raise ValueError("No checkpoint was recorded")
+
+    run.summary[f"{STAGE_PREFIX}selected/epoch"] = best_checkpoint.epoch
+    run.summary[f"{STAGE_PREFIX}selected/reward_mean"] = (
+        best_checkpoint.validation_reward_mean
+    )
+    run.summary[f"{STAGE_PREFIX}selected/reward_std"] = (
+        best_checkpoint.validation_reward_std
+    )
+
+    policy.load_state_dict(state_dict=best_checkpoint.state_dict)
+
+    final_path = checkpoint_directory_path / "checkpoint.pt"
+    save_behavior_cloning_policy(policy=policy, path=final_path)
+    model_artifact = wandb.Artifact(
+        name=f"behavior-cloning-policy-{run.name}", type="model"
+    )
+    model_artifact.add_file(local_path=str(final_path), name="checkpoint.pt")
+    run.log_artifact(model_artifact)
+
+    return final_path
 
 
 def _evaluate(
