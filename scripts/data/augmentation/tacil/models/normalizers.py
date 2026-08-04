@@ -94,3 +94,12 @@ class Normalizers(torch.nn.Module):
         return self.state_displacement_normalizer.denormalize(
             value_batch=normalized_state_displacement_batch
         )
+
+    def scale_to_step_units(
+        self,
+        *,
+        state_difference_batch: torch.Tensor,  # (..., state_dimensionality)
+    ) -> torch.Tensor:  # (..., state_dimensionality)
+        """A state difference measured in typical one-step motion per
+        dimension. Only the scale applies — a difference needs no shift."""
+        return state_difference_batch / self.state_displacement_normalizer.std

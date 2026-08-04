@@ -53,6 +53,7 @@ _LOG_PREFIX = "1_dynamics-diagnostics"
 def diagnose_dynamics_model_ensemble(
     *,
     dynamics_model_ensemble: DynamicsModelEnsemble,
+    training_episodes: list[TransitionSet],
     validation_episodes: list[TransitionSet],
     episode_store: EpisodeStore,
     run: Run,
@@ -93,18 +94,24 @@ def diagnose_dynamics_model_ensemble(
 
     run.summary[f"{_LOG_PREFIX}/spearman_forward"] = forward_spearman
     run.summary[f"{_LOG_PREFIX}/spearman_backward"] = backward_spearman
-    # One number per state part: the median single-step error, the cleanest
-    # "which part of the state does the model get wrong" comparison.
-    for group_name, group_slice in _STATE_GROUPS:
-        one_step_group_errors = np.linalg.norm(
-            forward_chain_measurements.state_differences[:, 0, group_slice]
-            .cpu()
-            .numpy(),
-            axis=-1,
+
+    # The single-step error per state part on both splits: equal values mean
+    # the model is as good as it can be on this data, a training value far
+    # below the validation one means it memorized instead of generalized.
+    one_step_errors_per_split = {
+        split_name: _one_step_group_errors(
+            dynamics_model_ensemble=dynamics_model_ensemble, episodes=episodes
         )
-        run.summary[f"{_LOG_PREFIX}/one_step_error_{group_name}"] = float(
-            np.median(one_step_group_errors)
+        for split_name, episodes in (
+            ("training", training_episodes),
+            ("validation", validation_episodes),
         )
+    }
+    for split_name, group_errors in one_step_errors_per_split.items():
+        for group_name, group_error in group_errors.items():
+            run.summary[
+                f"{_LOG_PREFIX}/one_step_error_{group_name}/{split_name}"
+            ] = group_error
     run.summary[f"{_LOG_PREFIX}/backward_full_depth_fraction"] = float(
         np.isfinite(backward_chain_measurements.true_errors[:, -1].cpu().numpy()).mean()
     )
@@ -143,6 +150,9 @@ def diagnose_dynamics_model_ensemble(
                 backward_true_errors_per_depth=(
                     backward_chain_measurements.true_errors.cpu().numpy()
                 ),
+            ),
+            f"{_LOG_PREFIX}/one_step_error_by_split": _split_comparison_panel(
+                one_step_errors_per_split=one_step_errors_per_split
             ),
             f"{_LOG_PREFIX}/error_over_depth_by_group": _group_error_panel(
                 forward_state_differences=(
@@ -206,26 +216,61 @@ class _BackwardChainMeasurements:
     sensitivity_scaled_step_distances: torch.Tensor  # (chain_count, depth_count)
 
 
+@torch.no_grad()
+def _one_step_group_errors(
+    *,
+    dynamics_model_ensemble: DynamicsModelEnsemble,
+    episodes: list[TransitionSet],
+) -> dict[str, float]:
+    """Median error per state part after a single forward step — the model's
+    quality without any compounding mixed in."""
+    device = next(dynamics_model_ensemble.parameters()).device
+    state_windows, action_windows = _subsample(
+        *build_windows(episodes=episodes, window_length=1)
+    )
+
+    measurements = _measure_forward_chains(
+        dynamics_model_ensemble=dynamics_model_ensemble,
+        state_windows=torch.from_numpy(state_windows).to(device=device),
+        action_windows=torch.from_numpy(action_windows).to(device=device),
+    )
+    differences = (
+        measurements.state_differences[:, 0, :].cpu().numpy()
+    )  # (chain_count, state_dimensionality)
+
+    return {
+        group_name: float(
+            np.median(np.linalg.norm(differences[:, group_slice], axis=-1))
+        )
+        for group_name, group_slice in _STATE_GROUPS
+    }
+
+
 def _draw_chain_windows(
     *, validation_episodes: list[TransitionSet]
 ) -> tuple[
     npt.NDArray[np.float32],  # (chain_count, _CHAIN_DEPTH + 1, state_dimensionality)
     npt.NDArray[np.float32],  # (chain_count, _CHAIN_DEPTH, action_dimensionality)
 ]:
-    state_windows, action_windows = build_windows(
-        episodes=validation_episodes, window_length=_CHAIN_DEPTH
+    return _subsample(
+        *build_windows(episodes=validation_episodes, window_length=_CHAIN_DEPTH)
     )
 
+
+def _subsample(
+    state_windows: npt.NDArray[np.float32],  # (window_count, length + 1, state_dim)
+    action_windows: npt.NDArray[np.float32],  # (window_count, length, action_dim)
+) -> tuple[npt.NDArray[np.float32], npt.NDArray[np.float32]]:
+    """Cap the number of windows. They overlap heavily (stride 1), so a random
+    subset loses no coverage, only redundancy."""
     window_count = state_windows.shape[0]
     if window_count <= _CHAIN_COUNT:
         return state_windows, action_windows
 
-    # The windows overlap heavily (stride 1), so a random subset loses no
-    # coverage, only redundancy.
-    chain_indices = np.random.default_rng(seed=_SUBSAMPLE_SEED).choice(
+    window_indices = np.random.default_rng(seed=_SUBSAMPLE_SEED).choice(
         window_count, size=_CHAIN_COUNT, replace=False
     )
-    return state_windows[chain_indices], action_windows[chain_indices]
+    return state_windows[window_indices], action_windows[window_indices]
 
 
 @torch.no_grad()
@@ -525,6 +570,39 @@ def _error_over_depth_panel(
         ],
         fontsize=8,
     )
+    figure.tight_layout()
+
+    image = wandb.Image(figure)
+    plt.close(fig=figure)
+    return image
+
+
+def _split_comparison_panel(
+    *,
+    one_step_errors_per_split: dict[str, dict[str, float]],
+) -> wandb.Image:
+    """Training against validation, per state part. Equal bars mean the model
+    generalizes; a much lower training bar means it overfits."""
+    group_names = [group_name for group_name, _ in _STATE_GROUPS]
+    group_positions = np.arange(len(group_names))
+    bar_width = 0.38
+
+    figure, axes = plt.subplots(figsize=(6.5, 4))
+    for offset, (split_name, group_errors) in zip(
+        (-bar_width / 2, bar_width / 2), one_step_errors_per_split.items(), strict=True
+    ):
+        axes.bar(
+            group_positions + offset,
+            [group_errors[group_name] for group_name in group_names],
+            width=bar_width,
+            label=split_name,
+        )
+
+    axes.set_xticks(ticks=group_positions, labels=group_names)
+    axes.set_ylabel(ylabel="median one-step error (normalized)")
+    axes.set_yscale(value="log")
+    axes.set_title(label="One-step error: training vs. validation")
+    axes.legend(fontsize=8)
     figure.tight_layout()
 
     image = wandb.Image(figure)
