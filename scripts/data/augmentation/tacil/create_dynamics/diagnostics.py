@@ -38,6 +38,7 @@ from scripts.shared.pusht_state import (  # noqa: E402
     ANGLE_INDEX,
     ARENA_SIZE,
     FRAME_SIZE,
+    FULL_TURN,
     STATE_GROUPS,
     shortest_angle_differences,
 )
@@ -482,6 +483,9 @@ def _finite_pairs(
 _FORWARD_COLOR = "#1f77b4"
 _BACKWARD_COLOR = "#d62728"
 
+# How far past the circle the faded repeats are drawn.
+_GHOST_MARGIN = 0.9
+
 # The state's parts (PushT layout), each measured separately in the group
 # error breakdown.
 _GROUP_COLORS = {"agent": "#2ca02c", "block": "#9467bd", "angle": "#ff7f0e"}
@@ -745,6 +749,42 @@ def _replay_panels(
     return replay_panels
 
 
+def _plot_on_circle(
+    *,
+    axes: plt.Axes,
+    steps: npt.NDArray[np.integer],  # (step_count,)
+    angles: npt.NDArray[np.floating],  # (step_count,)
+    linewidth: float,
+    alpha: float,
+    color: str,
+) -> None:
+    """One angle trajectory on a [0, 2π) axis.
+
+    The line is cut where it wraps, so no false vertical jump is drawn, and
+    it is repeated once above and once below at lower opacity: where a line
+    leaves the circle at one end, its repeat shows it coming back at the
+    other.
+    """
+    wrapped_angles = angles % FULL_TURN
+    # A gap between the two samples that straddle the wrap.
+    wrap_indices = np.nonzero(np.abs(np.diff(wrapped_angles)) > np.pi)[0] + 1
+    broken_steps = np.insert(steps.astype(float), wrap_indices, np.nan)
+    broken_angles = np.insert(wrapped_angles, wrap_indices, np.nan)
+
+    for offset, opacity in (
+        (0.0, alpha),
+        (FULL_TURN, alpha * 0.4),
+        (-FULL_TURN, alpha * 0.4),
+    ):
+        axes.plot(
+            broken_steps,
+            broken_angles + offset,
+            linewidth=linewidth,
+            alpha=opacity,
+            color=color,
+        )
+
+
 def _replay_panel(
     *,
     member_trajectories: npt.NDArray[
@@ -757,12 +797,9 @@ def _replay_panel(
     predictions. Where the thin lines spread, the ensemble is uncertain;
     where they leave the recorded path, it is wrong. State layout is PushT:
     agent x/y, block x/y, angle."""
-    figure = plt.figure(figsize=(14, 5))
-    agent_axes = figure.add_subplot(1, 3, 1)
-    block_axes = figure.add_subplot(1, 3, 2)
-    # An orientation lives on a circle, so it is drawn on one: the angle is
-    # the angle, and time runs outwards. No axis end, so nothing to jump over.
-    angle_axes = figure.add_subplot(1, 3, 3, projection="polar")
+    figure, (agent_axes, block_axes, angle_axes) = plt.subplots(
+        ncols=3, figsize=(14, 5)
+    )
 
     for axes, dimension_slice, title in (
         (agent_axes, slice(0, 2), "agent position"),
@@ -815,20 +852,30 @@ def _replay_panel(
         axes.set_ylim(bottom=0, top=ARENA_SIZE)
         axes.set_aspect(aspect="equal", adjustable="box")
 
+    # The angle has no place on the position maps, so it gets its own
+    # subplot over time, drawn on its full circle.
     steps = np.arange(true_trajectory.shape[0])
-    recorded_angles = true_trajectory[:, ANGLE_INDEX]
+    recorded_angles = true_trajectory[:, ANGLE_INDEX] % FULL_TURN
     for member_trajectory in member_trajectories:
-        angle_axes.plot(
-            member_trajectory[:, ANGLE_INDEX],
-            steps,
+        _plot_on_circle(
+            axes=angle_axes,
+            steps=steps,
+            angles=member_trajectory[:, ANGLE_INDEX],
             linewidth=0.6,
             alpha=0.35,
             color=_FORWARD_COLOR,
         )
-    angle_axes.plot(recorded_angles, steps, linewidth=2.0, color="black")
+    _plot_on_circle(
+        axes=angle_axes,
+        steps=steps,
+        angles=recorded_angles,
+        linewidth=2.0,
+        alpha=1.0,
+        color="black",
+    )
     angle_axes.plot(
-        recorded_angles[0],
         steps[0],
+        recorded_angles[0],
         marker="o",
         markersize=9,
         color="black",
@@ -836,27 +883,26 @@ def _replay_panel(
         linestyle="none",
     )
     angle_axes.plot(
-        recorded_angles[-1],
         steps[-1],
+        recorded_angles[-1],
         marker="X",
         markersize=9,
         color="black",
         linestyle="none",
     )
-    # Step 0 sits on a small circle rather than in the centre, so the early
-    # steps do not collapse into a point.
-    angle_axes.set_rorigin(-0.15 * steps[-1])
-    angle_axes.set_xticks(
-        ticks=[0.0, np.pi / 2, np.pi, 3 * np.pi / 2],
-        labels=["0", "π/2", "π", "3π/2"],
+    # 0 and 2π are the same orientation. The faded repeats above and below
+    # show where a line continues when it leaves the circle at one end and
+    # comes back in at the other.
+    for boundary in (0.0, FULL_TURN):
+        angle_axes.axhline(y=boundary, color="gray", linewidth=0.8, linestyle="--")
+    angle_axes.set_ylim(bottom=-_GHOST_MARGIN, top=FULL_TURN + _GHOST_MARGIN)
+    angle_axes.set_yticks(
+        ticks=[0.0, np.pi / 2, np.pi, 3 * np.pi / 2, FULL_TURN],
+        labels=["0", "π/2", "π", "3π/2", "2π"],
     )
-    # The rings are there to give a sense of time; their numbers would only
-    # sit in the way of the data, and the start and end markers already say
-    # which way time runs.
-    angle_axes.set_yticks(ticks=np.linspace(0, steps[-1], 4))
-    angle_axes.set_yticklabels(labels=[])
-    angle_axes.tick_params(labelsize=8)
-    angle_axes.set_title(label="block orientation (time runs outwards)", pad=16)
+    angle_axes.set_title(label="block orientation")
+    angle_axes.set_xlabel(xlabel="step")
+    angle_axes.set_ylabel(ylabel="angle")
 
     # One legend for the whole figure; the subplots share the same entries.
     handles, labels = agent_axes.get_legend_handles_labels()
@@ -864,7 +910,7 @@ def _replay_panel(
     figure.suptitle(
         t=f"Replay: true dynamics vs. model (held-out episode {episode_index})"
     )
-    figure.tight_layout(rect=(0, 0.10, 1, 0.94))
+    figure.tight_layout(rect=(0, 0.08, 1, 0.94))
 
     image = wandb.Image(figure)
     plt.close(fig=figure)
