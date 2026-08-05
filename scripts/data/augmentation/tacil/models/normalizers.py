@@ -29,11 +29,19 @@ class Normalizers(torch.nn.Module):
         action_batch: torch.Tensor,  # (batch_size, action_dimensionality)
         next_state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
     ) -> Self:
+        state_displacement_batch = next_state_batch - state_batch
         return cls(
             state_normalizer=ZScoreNormalizer.from_values(value_batch=state_batch),
             action_normalizer=ZScoreNormalizer.from_values(value_batch=action_batch),
-            state_displacement_normalizer=ZScoreNormalizer.from_values(
-                value_batch=next_state_batch - state_batch
+            # Scale only, no shift. The shift would be the average motion in
+            # the demonstrations, which is a property of the task (the expert
+            # pushes the block toward one goal), not of the dynamics. As a
+            # shift it becomes the model's default answer whenever the network
+            # says nothing — so a block that is standing still, which it is in
+            # most steps, would still drift in the expert's direction.
+            state_displacement_normalizer=ZScoreNormalizer(
+                mean=torch.zeros_like(input=state_displacement_batch[0]),
+                std=state_displacement_batch.std(dim=0).clamp(min=1e-8),
             ),
         )
 
@@ -79,3 +87,12 @@ class Normalizers(torch.nn.Module):
         return self.state_displacement_normalizer.denormalize(
             value_batch=normalized_state_displacement_batch
         )
+
+    def scale_to_step_units(
+        self,
+        *,
+        state_difference_batch: torch.Tensor,  # (..., state_dimensionality)
+    ) -> torch.Tensor:  # (..., state_dimensionality)
+        """A state difference measured in typical one-step motion per
+        dimension. Only the scale applies — a difference needs no shift."""
+        return state_difference_batch / self.state_displacement_normalizer.std

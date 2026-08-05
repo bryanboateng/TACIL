@@ -17,7 +17,7 @@ from scripts.data.augmentation.tacil.create_data.backward_rollout import (
     roll_out_backward,
 )
 from scripts.data.augmentation.tacil.dynamics_state import stack_previous_state
-from scripts.shared.pusht_state import wrap_angles
+from scripts.shared.pusht_state import unwrap_angles, wrap_angles
 from scripts.data.augmentation.tacil.create_data.config import Config
 from scripts.data.augmentation.tacil.create_data.episode_assembly import (
     create_augmented_episodes,
@@ -126,7 +126,7 @@ def create_augmented_data(
     #  A handful of unusually large jumps won't skew the result the way they would an average.
     # The dynamics model works on the dynamics state; the policy data below
     # keeps the plain one.
-    dynamics_episode_store = episode_store
+    dynamics_episode_store = unwrap_angles(episode_store=episode_store)
     if config.include_previous_state:
         dynamics_episode_store = stack_previous_state(
             episode_store=dynamics_episode_store
