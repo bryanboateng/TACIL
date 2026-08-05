@@ -1,13 +1,14 @@
 from dataclasses import asdict
 from pathlib import Path
 
+import numpy as np
 import torch
 import tyro
 import wandb
+from numpy import typing as npt
 from rich.pretty import pretty_repr
 from wandb import Run
 
-from scripts.data.augmentation.create_noise_augmentation import compute_noise_std
 from scripts.data.augmentation.tacil.create_data.anchor_selection import (
     get_anchor_indices,
 )
@@ -194,3 +195,18 @@ def create_augmented_data(
 
 if __name__ == "__main__":
     main()
+
+
+def compute_noise_std(
+    *,
+    samples: npt.NDArray[np.float32],  # (N, dimensionality)
+    noise_fraction: float,
+) -> npt.NDArray[np.float32]:  # (dimensionality,)
+    min_per_dimension: npt.NDArray[np.float32] = samples.min(
+        axis=0
+    )  # (dimensionality,)
+    max_per_dimension: npt.NDArray[np.float32] = samples.max(
+        axis=0
+    )  # (dimensionality,)
+    range_per_dimension = max_per_dimension - min_per_dimension  # (dimensionality,)
+    return noise_fraction * range_per_dimension
