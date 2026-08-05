@@ -843,7 +843,7 @@ def _replay_panel(
             markersize=9,
             color="black",
             linestyle="none",
-            label="end (recorded)",
+            label="end",
         )
         axes.set_title(label=title)
         axes.set_xlabel(xlabel="x position")
