@@ -64,7 +64,7 @@ def _run(*, config: Config) -> None:
         ) as run,
         tempfile.TemporaryDirectory() as checkpoint_directory,
     ):
-        train_diffusion_policy(
+        checkpoint_path = train_diffusion_policy(
             config=config,
             episode_store=load_episode_store(
                 episode_file_path=Path(
@@ -77,6 +77,7 @@ def _run(*, config: Config) -> None:
             device=device,
             run=run,
         )
+        _upload_checkpoint(checkpoint_path=checkpoint_path, run=run)
 
 
 def train_diffusion_policy(
@@ -284,11 +285,16 @@ def train_diffusion_policy(
         prediction_horizon_length=config.horizon_length.prediction,
         action_horizon_length=config.horizon_length.action,
     )
-    artifact = wandb.Artifact(name=f"diffusion-policy-{run.name}", type="model")
-    artifact.add_file(str(final_path))
-    run.log_artifact(artifact)
-
     return final_path
+
+
+def _upload_checkpoint(*, checkpoint_path: Path, run: Run) -> None:
+    """Only the standalone script does this. A sweep trial scores its policy
+    in the same run and never opens the checkpoint again, so keeping one per
+    trial would be hundreds of megabytes of dead weight each."""
+    artifact = wandb.Artifact(name=f"diffusion-policy-{run.name}", type="model")
+    artifact.add_file(str(checkpoint_path))
+    run.log_artifact(artifact)
 
 
 def _define_step_metrics(*, run: Run) -> None:

@@ -58,7 +58,7 @@ def _run(*, config: Config) -> None:
         ) as run,
         tempfile.TemporaryDirectory() as checkpoint_directory,
     ):
-        train_behavior_cloning_policy(
+        checkpoint_path = train_behavior_cloning_policy(
             config=config,
             episode_store=load_episode_store(
                 episode_file_path=Path(
@@ -71,6 +71,7 @@ def _run(*, config: Config) -> None:
             device=device,
             run=run,
         )
+        _upload_checkpoint(checkpoint_path=checkpoint_path, run=run)
 
 
 def train_behavior_cloning_policy(
@@ -188,13 +189,17 @@ def train_behavior_cloning_policy(
 
     final_path = checkpoint_directory_path / "checkpoint.pt"
     save_behavior_cloning_policy(policy=policy, path=final_path)
+    return final_path
+
+
+def _upload_checkpoint(*, checkpoint_path: Path, run: Run) -> None:
+    """Only the standalone script does this; see the note in the diffusion
+    policy's training script."""
     model_artifact = wandb.Artifact(
         name=f"behavior-cloning-policy-{run.name}", type="model"
     )
-    model_artifact.add_file(local_path=str(final_path), name="checkpoint.pt")
+    model_artifact.add_file(local_path=str(checkpoint_path), name="checkpoint.pt")
     run.log_artifact(model_artifact)
-
-    return final_path
 
 
 def _evaluate(
