@@ -33,8 +33,11 @@ DatasetLabel = Literal["full", "sub025"]
 
 # The two CCIL label generators are separate methods: a shared sweep would
 # spend its budget exploring the action noise in trials that ignore it.
+# The unaugmented baselines are not here: with the policy hyperparameters
+# fixed they have nothing to search, so they are single runs of
+# run_dp_pipeline and run_bc_pipeline rather than sweeps.
 MethodLabel = Literal[
-    "tacil-dp", "tacil-bc", "ccil-bc-noisy", "ccil-bc-euler", "bc", "gpi"
+    "tacil-dp", "tacil-bc", "ccil-bc-noisy", "ccil-bc-euler", "gpi"
 ]
 
 # The pipeline module each method's trials run.
@@ -43,7 +46,6 @@ METHOD_MODULES: dict[MethodLabel, str] = {
     "tacil-bc": "scripts.sweep.run_tacil_bc_pipeline",
     "ccil-bc-noisy": "scripts.sweep.run_ccil_bc_pipeline",
     "ccil-bc-euler": "scripts.sweep.run_ccil_bc_pipeline",
-    "bc": "scripts.sweep.run_bc_pipeline",
     "gpi": "scripts.sweep.run_gpi_pipeline",
 }
 
@@ -98,13 +100,6 @@ METHOD_PARAMETERS: dict[MethodLabel, dict[str, Any]] = {
         },
     },
     "ccil-bc-euler": _CCIL_SHARED_PARAMETERS,
-    "bc": {
-        "learning_rate": {
-            "distribution": "log_uniform_values",
-            "min": 1e-4,
-            "max": 1e-2,
-        }
-    },
     "gpi": {
         "lambda1": {"distribution": "log_uniform_values", "min": 0.1, "max": 10.0},
         "action_horizon": {"distribution": "int_uniform", "min": 1, "max": 16},

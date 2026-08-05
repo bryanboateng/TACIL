@@ -1,5 +1,7 @@
-"""Pipeline for one sweep trial: plain behavior cloning on the raw expert
-data — the baseline every augmentation has to beat."""
+"""Plain behavior cloning on the raw expert data.
+
+The baseline every augmentation has to beat. With the policy hyperparameters
+fixed there is nothing to search, so this runs once rather than as a sweep."""
 
 import tempfile
 from dataclasses import asdict, dataclass
@@ -39,10 +41,6 @@ class Config:
 
     expert_dataset_artifact: str
 
-    # ---- Swept ----------------------------------------------
-
-    learning_rate: float
-
     seed: int = 42
 
 
@@ -64,7 +62,6 @@ def _run(*, config: Config) -> None:
         project=config.wandb.project,
         notes=(
             f"data={config.expert_dataset_artifact}"
-            f"|lr={config.learning_rate:.5f}"
             f"|seed={config.seed}"
             f"|cond={condition.label}"
         ),
@@ -86,9 +83,7 @@ def _run(*, config: Config) -> None:
                 config=bc_config.Config(
                     wandb=WandbConfig(project=config.wandb.project),
                     dimensionality=bc_config.DimensionalityConfig(),
-                    optimization=bc_config.OptimizationConfig(
-                        learning_rate=config.learning_rate
-                    ),
+                    optimization=bc_config.OptimizationConfig(),
                     evaluation=bc_config.EvaluationConfig(
                         floor_condition=config.floor_condition,
                         disturbance_level=config.disturbance_level,
