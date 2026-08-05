@@ -23,6 +23,7 @@ from scripts.data.augmentation.tacil.create_data.episode_assembly import (
     create_augmented_episodes,
 )
 from scripts.data.augmentation.tacil.create_data.statistics_logging import (
+    STAGE_PREFIX,
     log_dataset_statistics,
     log_rollout_statistics,
 )
@@ -158,6 +159,21 @@ def create_augmented_data(
         error_limit=error_limit,
         run=run,
     )
+
+    if not bool((backward_trajectories.step_count_batch > 0).any()):
+        # Not a failure: the budget rejected every first backward step, so
+        # this configuration contributes no labels and the policy trains on
+        # the expert data alone. Reporting it as an ordinary trial lets the
+        # sweep see the reward such a setting earns; raising would leave the
+        # whole corner a blind spot it keeps proposing into — and enough
+        # failures in a row make the agent give up altogether.
+        logger.warning(
+            "No anchor survived its first backward step, so no labels were "
+            "generated. Continuing with the expert data alone."
+        )
+        run.summary[f"{STAGE_PREFIX}2_rollout/accepted_anchor_count"] = 0
+        run.summary[f"{STAGE_PREFIX}2_rollout/accepted_anchor_fraction"] = 0.0
+        return episode_store
 
     # Turn the labels back into policy states: drop the stacked history and
     # put the angle back into [0, 2π).

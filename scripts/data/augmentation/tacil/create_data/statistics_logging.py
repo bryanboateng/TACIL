@@ -133,25 +133,47 @@ def log_dataset_statistics(
     )
 
 
+def _bins(*, values: np.ndarray) -> np.ndarray | int:
+    """Bin edges that are guaranteed to be usable.
+
+    Values that are all the same, or so close together that twenty edges
+    between them do not come out distinct in floating point, get a single
+    bin — matplotlib would otherwise refuse to draw at all.
+    """
+    if np.issubdtype(values.dtype, np.integer):
+        # One bar per integer value, centered on it.
+        return np.arange(values.min() - 0.5, values.max() + 1.5)
+
+    edges = np.linspace(float(values.min()), float(values.max()), num=21)
+    return edges if np.all(np.diff(edges) > 0.0) else 1
+
+
 def _distribution_panel(*, values: np.ndarray, column_name: str) -> wandb.Image:
     """Histogram rendered with matplotlib and logged as an image.
 
     None of wandb's interactive chart types draws a one-off distribution
     readably (its histogram bins in the browser, its bar chart is horizontal
     with transposed axes), so we render the figure ourselves."""
-    clipped_values = values[
-        values <= float(np.percentile(a=values, q=99.5))
-    ]  # (clipped_count,)
-
-    if np.issubdtype(clipped_values.dtype, np.integer):
-        # One bar per integer value, centered on it.
-        bins = np.arange(clipped_values.min() - 0.5, clipped_values.max() + 1.5)
-    else:
-        bins = 20
+    # A run whose budget rejects everything, or whose model blows up, can
+    # leave these values infinite or all the same. Neither is a reason to
+    # lose the trial, so the panel says so instead of raising.
+    finite_values = values[np.isfinite(values)]  # (finite_count,)
+    dropped_count = int(values.size - finite_values.size)
 
     figure, axes = plt.subplots(figsize=(6, 4))
-    axes.hist(clipped_values, bins=bins, edgecolor="white")
-    axes.set_xlabel(xlabel=column_name)
+    if finite_values.size == 0:
+        axes.set_title(label=f"no finite values ({values.size} discarded)")
+    else:
+        clipped_values = finite_values[
+            finite_values <= float(np.percentile(a=finite_values, q=99.5))
+        ]  # (clipped_count,)
+        axes.hist(clipped_values, bins=_bins(values=clipped_values), edgecolor="white")
+
+    axes.set_xlabel(
+        xlabel=column_name
+        if dropped_count == 0
+        else f"{column_name} ({dropped_count} non-finite discarded)"
+    )
     axes.set_ylabel(ylabel="count")
     figure.tight_layout()
 
