@@ -38,7 +38,6 @@ from scripts.shared.pusht_state import (  # noqa: E402
     ANGLE_INDEX,
     ARENA_SIZE,
     FRAME_SIZE,
-    FULL_TURN,
     STATE_GROUPS,
     shortest_angle_differences,
 )
@@ -483,9 +482,6 @@ def _finite_pairs(
 _FORWARD_COLOR = "#1f77b4"
 _BACKWARD_COLOR = "#d62728"
 
-# How far past the circle the faded repeats are drawn.
-_GHOST_MARGIN = 0.9
-
 # The state's parts (PushT layout), each measured separately in the group
 # error breakdown.
 _GROUP_COLORS = {"agent": "#2ca02c", "block": "#9467bd", "angle": "#ff7f0e"}
@@ -749,42 +745,6 @@ def _replay_panels(
     return replay_panels
 
 
-def _plot_on_circle(
-    *,
-    axes: plt.Axes,
-    steps: npt.NDArray[np.integer],  # (step_count,)
-    angles: npt.NDArray[np.floating],  # (step_count,)
-    linewidth: float,
-    alpha: float,
-    color: str,
-) -> None:
-    """One angle trajectory on a [0, 2π) axis.
-
-    The line is cut where it wraps, so no false vertical jump is drawn, and
-    it is repeated once above and once below at lower opacity: where a line
-    leaves the circle at one end, its repeat shows it coming back at the
-    other.
-    """
-    wrapped_angles = angles % FULL_TURN
-    # A gap between the two samples that straddle the wrap.
-    wrap_indices = np.nonzero(np.abs(np.diff(wrapped_angles)) > np.pi)[0] + 1
-    broken_steps = np.insert(steps.astype(float), wrap_indices, np.nan)
-    broken_angles = np.insert(wrapped_angles, wrap_indices, np.nan)
-
-    for offset, opacity in (
-        (0.0, alpha),
-        (FULL_TURN, alpha * 0.4),
-        (-FULL_TURN, alpha * 0.4),
-    ):
-        axes.plot(
-            broken_steps,
-            broken_angles + offset,
-            linewidth=linewidth,
-            alpha=opacity,
-            color=color,
-        )
-
-
 def _replay_panel(
     *,
     member_trajectories: npt.NDArray[
@@ -852,30 +812,26 @@ def _replay_panel(
         axes.set_ylim(bottom=0, top=ARENA_SIZE)
         axes.set_aspect(aspect="equal", adjustable="box")
 
-    # The angle has no place on the position maps, so it gets its own
-    # subplot over time, drawn on its full circle.
+    # How far the block has turned since the episode started, rather than the
+    # angle itself: the zero of an angle is arbitrary, turning is what the
+    # model has to get right, and a rotation past a full turn just keeps
+    # counting instead of falling off the axis.
     steps = np.arange(true_trajectory.shape[0])
-    recorded_angles = true_trajectory[:, ANGLE_INDEX] % FULL_TURN
+    recorded_rotation = (
+        true_trajectory[:, ANGLE_INDEX] - true_trajectory[0, ANGLE_INDEX]
+    )
     for member_trajectory in member_trajectories:
-        _plot_on_circle(
-            axes=angle_axes,
-            steps=steps,
-            angles=member_trajectory[:, ANGLE_INDEX],
+        angle_axes.plot(
+            steps,
+            member_trajectory[:, ANGLE_INDEX] - member_trajectory[0, ANGLE_INDEX],
             linewidth=0.6,
             alpha=0.35,
             color=_FORWARD_COLOR,
         )
-    _plot_on_circle(
-        axes=angle_axes,
-        steps=steps,
-        angles=recorded_angles,
-        linewidth=2.0,
-        alpha=1.0,
-        color="black",
-    )
+    angle_axes.plot(steps, recorded_rotation, linewidth=2.0, color="black")
     angle_axes.plot(
         steps[0],
-        recorded_angles[0],
+        recorded_rotation[0],
         marker="o",
         markersize=9,
         color="black",
@@ -884,25 +840,16 @@ def _replay_panel(
     )
     angle_axes.plot(
         steps[-1],
-        recorded_angles[-1],
+        recorded_rotation[-1],
         marker="X",
         markersize=9,
         color="black",
         linestyle="none",
     )
-    # 0 and 2π are the same orientation. The faded repeats above and below
-    # show where a line continues when it leaves the circle at one end and
-    # comes back in at the other.
-    for boundary in (0.0, FULL_TURN):
-        angle_axes.axhline(y=boundary, color="gray", linewidth=0.8, linestyle="--")
-    angle_axes.set_ylim(bottom=-_GHOST_MARGIN, top=FULL_TURN + _GHOST_MARGIN)
-    angle_axes.set_yticks(
-        ticks=[0.0, np.pi / 2, np.pi, 3 * np.pi / 2, FULL_TURN],
-        labels=["0", "π/2", "π", "3π/2", "2π"],
-    )
+    angle_axes.axhline(y=0.0, color="gray", linewidth=0.8, linestyle="--")
     angle_axes.set_title(label="block orientation")
     angle_axes.set_xlabel(xlabel="step")
-    angle_axes.set_ylabel(ylabel="angle")
+    angle_axes.set_ylabel(ylabel="turned since start (rad)")
 
     # One legend for the whole figure; the subplots share the same entries.
     handles, labels = agent_axes.get_legend_handles_labels()
