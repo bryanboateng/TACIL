@@ -24,7 +24,6 @@ from scripts.data.augmentation.tacil.create_dynamics.diagnostics import (
     diagnose_dynamics_model_ensemble,
 )
 from scripts.data.augmentation.tacil.dynamics_state import stack_previous_state
-from scripts.shared.pusht_state import unwrap_angles
 from scripts.data.augmentation.tacil.create_dynamics.dynamics_model_training import (
     MemberEpochMetrics,
     MemberTrainingState,
@@ -95,7 +94,6 @@ def train_dynamics_model_ensemble(
 
     # Everything downstream — training, diagnostics, the returned ensemble —
     # works on the dynamics state.
-    episode_store = unwrap_angles(episode_store=episode_store)
     if config.architecture.include_previous_state:
         episode_store = stack_previous_state(episode_store=episode_store)
 

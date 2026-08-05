@@ -40,17 +40,7 @@ def compute_loss(
         :, 1 : window_length + 1, :
     ]  # (window_count, window_length, state_dimensionality)
 
-    # Measured in typical one-step motion, not in the spread of the whole
-    # state: a dimension that barely moves per step (the block, which only
-    # moves on contact) would otherwise cost almost nothing to get wrong, and
-    # predicting "stays where it is" would be a good enough answer. This is
-    # also the space the network itself predicts in.
-    return (
-        normalizers.scale_to_step_units(
-            state_difference_batch=(
-                predicted_state_trajectory_batch - target_state_trajectory_batch
-            )
-        )
-        .square()
-        .mean()
+    return torch.nn.functional.mse_loss(
+        input=normalizers.normalize_state(state_batch=predicted_state_trajectory_batch),
+        target=normalizers.normalize_state(state_batch=target_state_trajectory_batch),
     )
