@@ -31,6 +31,8 @@ logger = create_logger()
 
 DatasetLabel = Literal["full", "sub025"]
 
+SearchLabel = Literal["bayes", "random"]
+
 # The two CCIL label generators are separate methods: a shared sweep would
 # spend its budget exploring the action noise in trials that ignore it.
 # The unaugmented baselines are not here: with the policy hyperparameters
@@ -122,6 +124,14 @@ class Config:
     floor_condition: FloorCondition
     disturbance_level: DisturbanceLevel | None
 
+    # How the next trial is chosen. Bayesian search models the reward from the
+    # finished trials and proposes where it looks best, which pays off in a
+    # small space. Random search ignores the finished trials: in a space with
+    # many parameters it takes a long time before the model is worth
+    # anything, and random draws stay independent no matter how many agents
+    # run at once.
+    search: SearchLabel = "bayes"
+
     entity: str = "bryanboateng-team"
 
 
@@ -136,6 +146,10 @@ def main() -> None:
     project = (
         f"{config.project_prefix}-{config.dataset}-{config.method}-{condition.label}"
     )
+    if config.search != "bayes":
+        # Two searches over the same method and condition are separate
+        # experiments, so they get separate projects.
+        project = f"{project}-{config.search}"
 
     sweep_configuration = _build_sweep_configuration(
         config=config, condition=condition, project=project
@@ -163,7 +177,7 @@ def _build_sweep_configuration(
     pipeline_module = METHOD_MODULES[config.method]
     return {
         "program": pipeline_module.replace(".", "/") + ".py",
-        "method": "bayes",
+        "method": config.search,
         # Written by the evaluation stage, which owns the prefix.
         "metric": {
             "name": f"{STAGE_PREFIX}{condition.label}/reward_mean",
