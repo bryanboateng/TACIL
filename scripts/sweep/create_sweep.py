@@ -146,10 +146,6 @@ def main() -> None:
     project = (
         f"{config.project_prefix}-{config.dataset}-{config.method}-{condition.label}"
     )
-    if config.search != "bayes":
-        # Two searches over the same method and condition are separate
-        # experiments, so they get separate projects.
-        project = f"{project}-{config.search}"
 
     sweep_configuration = _build_sweep_configuration(
         config=config, condition=condition, project=project

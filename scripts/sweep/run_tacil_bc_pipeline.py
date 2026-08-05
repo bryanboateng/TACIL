@@ -137,6 +137,9 @@ def _build_data_config(*, config: Config) -> data_config.Config:
         wandb=WandbConfig(project=config.wandb.project),
         model_artifact=PASSED_IN_MEMORY,
         dataset_artifact=config.expert_dataset_artifact,
+        # Behavior cloning trains on single (state, action) pairs, so the
+        # labels need no expert continuation behind them.
+        expert_part_length=0,
         action_noise_fraction=config.action_noise_fraction,
         error_limit_fraction=config.error_limit_fraction,
         disagreement_weight=config.disagreement_weight,

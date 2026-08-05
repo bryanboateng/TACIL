@@ -109,8 +109,11 @@ def combine_episode_stores(
     """Append augmented episodes to the expert data they were derived from.
 
     The expert store is plain recorded data — no artificial ends, no intended
-    prediction horizon. The augmented store carries both, and its values
-    become the combined store's.
+    prediction horizon. The augmented store carries an artificial end mask,
+    and its intended prediction horizon becomes the combined store's. That
+    horizon is None when the augmented episodes were laid out for a policy
+    that trains on single (state, action) pairs and therefore promise no
+    window layout at all.
     """
     if (
         expert_episode_store.artificial_end_mask is not None
@@ -129,11 +132,6 @@ def combine_episode_stores(
     if augmented_episode_store.artificial_end_mask is None:
         raise ValueError(
             "The augmented episode store must carry an artificial end mask."
-        )
-
-    if augmented_episode_store.intended_prediction_horizon is None:
-        raise ValueError(
-            "The augmented episode store must carry an intended prediction horizon."
         )
 
     expert_timestep_count = expert_episode_store.states.shape[0]
