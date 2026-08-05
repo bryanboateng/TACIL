@@ -123,9 +123,7 @@ def _build_dynamics_config(*, config: Config) -> dynamics_config.Config:
             loader=dynamics_config.DataLoaderConfig(window_length=config.window_length),
         ),
         architecture=dynamics_config.ArchitectureConfig(
-            lipschitz_constant_upper_bound=_lipschitz_constant_upper_bound(
-                config=config
-            ),
+            lipschitz_constant_upper_bound=config.lipschitz_constant_upper_bound,
             include_previous_state=config.include_previous_state,
             agent_relative_inputs=config.agent_relative_inputs,
         ),
@@ -159,11 +157,6 @@ def _build_policy_config(*, config: Config) -> bc_config.Config:
         dataset_artifact=PASSED_IN_MEMORY,
         seed=config.seed,
     )
-
-
-def _lipschitz_constant_upper_bound(*, config: Config) -> float | None:
-    value = config.lipschitz_constant_upper_bound
-    return None if value.lower() == "none" else float(value)
 
 
 def _build_note(*, config: Config, condition: Condition) -> str:

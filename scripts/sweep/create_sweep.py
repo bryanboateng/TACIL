@@ -54,9 +54,10 @@ METHOD_FIXED_ARGUMENTS: dict[MethodLabel, list[str]] = {
 }
 
 _TACIL_PARAMETERS: dict[str, Any] = {
-    "lipschitz_constant_upper_bound": {
-        "values": ["none", "1", "2", "5", "10", "20", "50", "100"]
-    },
+    # A ceiling on how steep the dynamics model may be. None is a real
+    # option, not a stand-in number: the model is then built without the
+    # bounding layer at all, which the held-out chains say contact needs.
+    "lipschitz_constant_upper_bound": {"values": [None, 1, 2, 5, 10, 20, 50, 100]},
     "window_length": {"distribution": "int_uniform", "min": 1, "max": 15},
     "action_noise_fraction": {"distribution": "uniform", "min": 0.0, "max": 1.0},
     "error_limit_fraction": {
@@ -75,9 +76,7 @@ _TACIL_PARAMETERS: dict[str, Any] = {
 # Their configs pick one Lipschitz variant per environment; here the sweep
 # chooses. The two "slack" variants are not ported (second network).
 _CCIL_SHARED_PARAMETERS: dict[str, Any] = {
-    "lipschitz_type": {
-        "values": ["soft_sampling", "spectral_normalization", "none"]
-    },
+    "lipschitz_type": {"values": ["soft_sampling", "spectral_normalization", "none"]},
     # Values around their configs (they use 1.0 to 4.0).
     "lipschitz_constraint": {"values": [0.5, 1.0, 2.0, 3.0, 4.0, 5.0]},
     # The paper's rejection quantile (its Fig. 5).
