@@ -14,9 +14,6 @@ class EpochLosses:
 
 
 class _SpectralNormClamp(torch.nn.Module):
-    """Their spectral_norm.py in effect: scale a weight down only when its
-    spectral norm exceeds the constraint."""
-
     def __init__(self, *, lipschitz_constraint: float) -> None:
         super().__init__()
         self.lipschitz_constraint = lipschitz_constraint
@@ -126,7 +123,6 @@ def fit_world_model(
     action_batch: torch.Tensor,  # (transition_count, action_dimensionality)
     next_state_batch: torch.Tensor,  # (transition_count, state_dimensionality)
 ) -> list[EpochLosses]:
-    """Their fit_dynamics + soft_sampling_lipschitz_loss, single-step."""
     world_model.initialize_transformations(
         state_batch=state_batch,
         action_batch=action_batch,
@@ -211,8 +207,6 @@ def _soft_sampling_lipschitz_penalty(
     predicted_residual_batch: torch.Tensor,  # (batch_size, state_dimensionality)
     config: DynamicsConfig,
 ) -> torch.Tensor:  # scalar
-    """Their sample_estimate_lipschitz + relu penalty: perturb every input a
-    few times, punish output changes steeper than the constraint allows."""
     sample_count = config.soft_lipschitz_sample_count
 
     repeated_states = state_batch.repeat_interleave(repeats=sample_count, dim=0)

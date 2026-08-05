@@ -478,6 +478,10 @@ _BACKWARD_COLOR = "#d62728"
 # PushT's quadratic arena (gym_pusht window size, pixels).
 _ARENA_SIZE = 512
 
+# A full turn, and how far past it the faded repeats are drawn.
+_FULL_TURN = 2.0 * np.pi
+_GHOST_MARGIN = 0.9
+
 # The state's parts (PushT layout), each measured separately in the group
 # error breakdown.
 # PushT frame layout. Everything is measured on the current frame only, so the
@@ -750,6 +754,42 @@ def _replay_panels(
     return replay_panels
 
 
+def _plot_on_circle(
+    *,
+    axes: plt.Axes,
+    steps: npt.NDArray[np.integer],  # (step_count,)
+    angles: npt.NDArray[np.floating],  # (step_count,)
+    linewidth: float,
+    alpha: float,
+    color: str,
+) -> None:
+    """One angle trajectory on a [0, 2π) axis.
+
+    The line is cut where it wraps, so no false vertical jump is drawn, and
+    it is repeated once above and once below at lower opacity: where a line
+    leaves the circle at one end, its repeat shows it coming back at the
+    other.
+    """
+    wrapped_angles = angles % _FULL_TURN
+    # A gap between the two samples that straddle the wrap.
+    wrap_indices = np.nonzero(np.abs(np.diff(wrapped_angles)) > np.pi)[0] + 1
+    broken_steps = np.insert(steps.astype(float), wrap_indices, np.nan)
+    broken_angles = np.insert(wrapped_angles, wrap_indices, np.nan)
+
+    for offset, opacity in (
+        (0.0, alpha),
+        (_FULL_TURN, alpha * 0.4),
+        (-_FULL_TURN, alpha * 0.4),
+    ):
+        axes.plot(
+            broken_steps,
+            broken_angles + offset,
+            linewidth=linewidth,
+            alpha=opacity,
+            color=color,
+        )
+
+
 def _replay_panel(
     *,
     member_trajectories: npt.NDArray[
@@ -818,23 +858,26 @@ def _replay_panel(
         axes.set_aspect(aspect="equal", adjustable="box")
 
     # The angle has no place on the position maps, so it gets its own
-    # subplot over time.
+    # subplot over time, drawn on its full circle.
     steps = np.arange(true_trajectory.shape[0])
-    recorded_angles = true_trajectory[:, _ANGLE_INDEX]
+    recorded_angles = true_trajectory[:, _ANGLE_INDEX] % _FULL_TURN
     for member_trajectory in member_trajectories:
-        # Draw the deviation the shorter way round, the same way the error is
-        # measured: a full turn apart is the same orientation, not a gap.
-        angle_deviation = (
-            member_trajectory[:, _ANGLE_INDEX] - recorded_angles + np.pi
-        ) % (2 * np.pi) - np.pi
-        angle_axes.plot(
-            steps,
-            recorded_angles + angle_deviation,
+        _plot_on_circle(
+            axes=angle_axes,
+            steps=steps,
+            angles=member_trajectory[:, _ANGLE_INDEX],
             linewidth=0.6,
             alpha=0.35,
             color=_FORWARD_COLOR,
         )
-    angle_axes.plot(steps, recorded_angles, linewidth=2.0, color="black")
+    _plot_on_circle(
+        axes=angle_axes,
+        steps=steps,
+        angles=recorded_angles,
+        linewidth=2.0,
+        alpha=1.0,
+        color="black",
+    )
     angle_axes.plot(
         steps[0],
         recorded_angles[0],
@@ -852,9 +895,19 @@ def _replay_panel(
         color="black",
         linestyle="none",
     )
+    # 0 and 2π are the same orientation. The faded repeats above and below
+    # show where a line continues when it leaves the circle at one end and
+    # comes back in at the other.
+    for boundary in (0.0, _FULL_TURN):
+        angle_axes.axhline(y=boundary, color="gray", linewidth=0.8, linestyle="--")
+    angle_axes.set_ylim(bottom=-_GHOST_MARGIN, top=_FULL_TURN + _GHOST_MARGIN)
+    angle_axes.set_yticks(
+        ticks=[0.0, np.pi / 2, np.pi, 3 * np.pi / 2, _FULL_TURN],
+        labels=["0", "π/2", "π", "3π/2", "2π"],
+    )
     angle_axes.set_title(label="block orientation")
     angle_axes.set_xlabel(xlabel="step")
-    angle_axes.set_ylabel(ylabel="angle (rad)")
+    angle_axes.set_ylabel(ylabel="angle")
 
     # One legend for the whole figure; the subplots share the same entries.
     handles, labels = agent_axes.get_legend_handles_labels()
