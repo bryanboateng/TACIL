@@ -16,11 +16,8 @@ from scripts.data.augmentation.tacil.create_data.backward_rollout import (
     BackwardTrajectories,
     roll_out_backward,
 )
-from scripts.data.augmentation.tacil.dynamics_state import (
-    stack_previous_state,
-    unwrap_angles,
-    wrap_angles,
-)
+from scripts.data.augmentation.tacil.dynamics_state import stack_previous_state
+from scripts.shared.pusht_state import unwrap_angles, wrap_angles
 from scripts.data.augmentation.tacil.create_data.config import Config
 from scripts.data.augmentation.tacil.create_data.episode_assembly import (
     create_augmented_episodes,

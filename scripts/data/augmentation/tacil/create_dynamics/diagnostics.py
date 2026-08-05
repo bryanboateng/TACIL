@@ -34,6 +34,14 @@ from scripts.data.augmentation.tacil.models.dynamics_model_ensemble import (  # 
 )
 from scripts.shared.data import EpisodeStore  # noqa: E402
 from scripts.shared.log import create_logger  # noqa: E402
+from scripts.shared.pusht_state import (  # noqa: E402
+    ANGLE_INDEX,
+    ARENA_SIZE,
+    FRAME_SIZE,
+    FULL_TURN,
+    STATE_GROUPS,
+    shortest_angle_differences,
+)
 
 logger = create_logger()
 
@@ -193,7 +201,7 @@ class _ForwardChainMeasurements:
     # Distance between the model's prediction and the real state.
     true_errors: torch.Tensor  # (chain_count, depth_count)
     # The same deviation kept per dimension of the current frame.
-    state_differences: torch.Tensor  # (chain_count, depth_count, _FRAME_SIZE)
+    state_differences: torch.Tensor  # (chain_count, depth_count, FRAME_SIZE)
     # Ensemble disagreement at the state the prediction was made from.
     disagreements: torch.Tensor  # (chain_count, depth_count)
 
@@ -210,7 +218,7 @@ class _BackwardChainMeasurements:
     # Distance between the solved predecessor and the real predecessor.
     true_errors: torch.Tensor  # (chain_count, depth_count)
     # The same deviation kept per dimension of the current frame.
-    state_differences: torch.Tensor  # (chain_count, depth_count, _FRAME_SIZE)
+    state_differences: torch.Tensor  # (chain_count, depth_count, FRAME_SIZE)
     # The two filter signals, evaluated at the solved predecessor.
     disagreements: torch.Tensor  # (chain_count, depth_count)
     sensitivity_scaled_step_distances: torch.Tensor  # (chain_count, depth_count)
@@ -242,7 +250,7 @@ def _one_step_group_errors(
         group_name: float(
             np.median(np.linalg.norm(differences[:, group_slice], axis=-1))
         )
-        for group_name, group_slice in _STATE_GROUPS
+        for group_name, group_slice in STATE_GROUPS
     }
 
 
@@ -330,7 +338,7 @@ def _measure_backward_chains(
         size=(chain_count, depth_count), fill_value=float("nan"), device=device
     )
     state_differences = torch.full(
-        size=(chain_count, depth_count, _FRAME_SIZE),
+        size=(chain_count, depth_count, FRAME_SIZE),
         fill_value=float("nan"),
         device=device,
     )
@@ -434,21 +442,21 @@ def _normalized_differences(
     dynamics_model_ensemble: DynamicsModelEnsemble,
     state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
     other_state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
-) -> torch.Tensor:  # (batch_size, _FRAME_SIZE)
+) -> torch.Tensor:  # (batch_size, FRAME_SIZE)
     """How far the two states are apart, per dimension of the current frame,
     in units of that dimension's spread."""
     difference_batch = (
-        state_batch[:, :_FRAME_SIZE] - other_state_batch[:, :_FRAME_SIZE]
+        state_batch[:, :FRAME_SIZE] - other_state_batch[:, :FRAME_SIZE]
     ).clone()
 
     # An orientation is periodic: being a full turn apart means being in the
     # same place, so take the shorter way round.
-    difference_batch[:, _ANGLE_INDEX] = (
-        difference_batch[:, _ANGLE_INDEX] + torch.pi
-    ) % (2 * torch.pi) - torch.pi
+    difference_batch[:, ANGLE_INDEX] = shortest_angle_differences(
+        angle_batch=difference_batch[:, ANGLE_INDEX]
+    )
 
     return difference_batch / dynamics_model_ensemble.normalizers.state_normalizer.std[
-        :_FRAME_SIZE
+        :FRAME_SIZE
     ]
 
 
@@ -475,24 +483,11 @@ def _finite_pairs(
 _FORWARD_COLOR = "#1f77b4"
 _BACKWARD_COLOR = "#d62728"
 
-# PushT's quadratic arena (gym_pusht window size, pixels).
-_ARENA_SIZE = 512
-
-# A full turn, and how far past it the faded repeats are drawn.
-_FULL_TURN = 2.0 * np.pi
+# How far past the circle the faded repeats are drawn.
 _GHOST_MARGIN = 0.9
 
 # The state's parts (PushT layout), each measured separately in the group
 # error breakdown.
-# PushT frame layout. Everything is measured on the current frame only, so the
-# numbers stay comparable whether or not the previous state is stacked in.
-_FRAME_SIZE = 5
-_ANGLE_INDEX = 4
-_STATE_GROUPS = (
-    ("agent", slice(0, 2)),
-    ("block", slice(2, 4)),
-    ("angle", slice(_ANGLE_INDEX, _ANGLE_INDEX + 1)),
-)
 _GROUP_COLORS = {"agent": "#2ca02c", "block": "#9467bd", "angle": "#ff7f0e"}
 
 
@@ -603,7 +598,7 @@ def _split_comparison_panel(
 ) -> wandb.Image:
     """Training against validation, per state part. Equal bars mean the model
     generalizes; a much lower training bar means it overfits."""
-    group_names = [group_name for group_name, _ in _STATE_GROUPS]
+    group_names = [group_name for group_name, _ in STATE_GROUPS]
     group_positions = np.arange(len(group_names))
     bar_width = 0.38
 
@@ -652,7 +647,7 @@ def _group_error_panel(
     ):
         depth_count = state_differences.shape[1]
         step_positions = direction_sign * np.arange(1, depth_count + 1)
-        for group_name, group_slice in _STATE_GROUPS:
+        for group_name, group_slice in STATE_GROUPS:
             group_errors = np.linalg.norm(
                 state_differences[:, :, group_slice], axis=-1
             )  # (chain_count, depth_count)
@@ -770,7 +765,7 @@ def _plot_on_circle(
     leaves the circle at one end, its repeat shows it coming back at the
     other.
     """
-    wrapped_angles = angles % _FULL_TURN
+    wrapped_angles = angles % FULL_TURN
     # A gap between the two samples that straddle the wrap.
     wrap_indices = np.nonzero(np.abs(np.diff(wrapped_angles)) > np.pi)[0] + 1
     broken_steps = np.insert(steps.astype(float), wrap_indices, np.nan)
@@ -778,8 +773,8 @@ def _plot_on_circle(
 
     for offset, opacity in (
         (0.0, alpha),
-        (_FULL_TURN, alpha * 0.4),
-        (-_FULL_TURN, alpha * 0.4),
+        (FULL_TURN, alpha * 0.4),
+        (-FULL_TURN, alpha * 0.4),
     ):
         axes.plot(
             broken_steps,
@@ -853,19 +848,19 @@ def _replay_panel(
         axes.set_title(label=title)
         axes.set_xlabel(xlabel="x position")
         axes.set_ylabel(ylabel="y position")
-        axes.set_xlim(left=0, right=_ARENA_SIZE)
-        axes.set_ylim(bottom=0, top=_ARENA_SIZE)
+        axes.set_xlim(left=0, right=ARENA_SIZE)
+        axes.set_ylim(bottom=0, top=ARENA_SIZE)
         axes.set_aspect(aspect="equal", adjustable="box")
 
     # The angle has no place on the position maps, so it gets its own
     # subplot over time, drawn on its full circle.
     steps = np.arange(true_trajectory.shape[0])
-    recorded_angles = true_trajectory[:, _ANGLE_INDEX] % _FULL_TURN
+    recorded_angles = true_trajectory[:, ANGLE_INDEX] % FULL_TURN
     for member_trajectory in member_trajectories:
         _plot_on_circle(
             axes=angle_axes,
             steps=steps,
-            angles=member_trajectory[:, _ANGLE_INDEX],
+            angles=member_trajectory[:, ANGLE_INDEX],
             linewidth=0.6,
             alpha=0.35,
             color=_FORWARD_COLOR,
@@ -898,11 +893,11 @@ def _replay_panel(
     # 0 and 2π are the same orientation. The faded repeats above and below
     # show where a line continues when it leaves the circle at one end and
     # comes back in at the other.
-    for boundary in (0.0, _FULL_TURN):
+    for boundary in (0.0, FULL_TURN):
         angle_axes.axhline(y=boundary, color="gray", linewidth=0.8, linestyle="--")
-    angle_axes.set_ylim(bottom=-_GHOST_MARGIN, top=_FULL_TURN + _GHOST_MARGIN)
+    angle_axes.set_ylim(bottom=-_GHOST_MARGIN, top=FULL_TURN + _GHOST_MARGIN)
     angle_axes.set_yticks(
-        ticks=[0.0, np.pi / 2, np.pi, 3 * np.pi / 2, _FULL_TURN],
+        ticks=[0.0, np.pi / 2, np.pi, 3 * np.pi / 2, FULL_TURN],
         labels=["0", "π/2", "π", "3π/2", "2π"],
     )
     angle_axes.set_title(label="block orientation")

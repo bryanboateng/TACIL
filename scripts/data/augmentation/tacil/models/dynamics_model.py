@@ -3,10 +3,8 @@ import torch
 from scripts.data.augmentation.tacil.models.lipschitz_constrained_linear import (
     LipschitzConstrainedLinear,
 )
-from scripts.data.augmentation.tacil.models.normalizers import (
-    Normalizers,
-    network_input_dimensionality,
-)
+from scripts.data.augmentation.tacil.models.normalizers import Normalizers
+from scripts.shared.pusht_state import network_input, network_input_dimensionality
 
 # Maximum factor by which SiLU stretches space, i.e. its (global) Lipschitz constant.
 _SILU_LIPSCHITZ_CONSTANT = 1.099839320
@@ -54,7 +52,8 @@ class DynamicsModel(torch.nn.Module):
         state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
         action_batch: torch.Tensor,  # (batch_size, action_dimensionality)
     ) -> torch.Tensor:  # (batch_size, input_dimensionality)
-        return normalizers.network_input(
+        return network_input(
+            normalizers=normalizers,
             state_batch=state_batch,
             action_batch=action_batch,
             agent_relative=self.agent_relative_inputs,

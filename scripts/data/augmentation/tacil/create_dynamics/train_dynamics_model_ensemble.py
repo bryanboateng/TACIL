@@ -23,10 +23,8 @@ from scripts.data.augmentation.tacil.create_dynamics.data import (
 from scripts.data.augmentation.tacil.create_dynamics.diagnostics import (
     diagnose_dynamics_model_ensemble,
 )
-from scripts.data.augmentation.tacil.dynamics_state import (
-    stack_previous_state,
-    unwrap_angles,
-)
+from scripts.data.augmentation.tacil.dynamics_state import stack_previous_state
+from scripts.shared.pusht_state import unwrap_angles
 from scripts.data.augmentation.tacil.create_dynamics.dynamics_model_training import (
     MemberEpochMetrics,
     MemberTrainingState,
