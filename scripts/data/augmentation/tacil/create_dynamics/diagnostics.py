@@ -192,8 +192,8 @@ class _ForwardChainMeasurements:
 
     # Distance between the model's prediction and the real state.
     true_errors: torch.Tensor  # (chain_count, depth_count)
-    # The same deviation kept per state dimension (normalized units).
-    state_differences: torch.Tensor  # (chain_count, depth_count, state_dim)
+    # The same deviation kept per dimension of the current frame.
+    state_differences: torch.Tensor  # (chain_count, depth_count, _FRAME_SIZE)
     # Ensemble disagreement at the state the prediction was made from.
     disagreements: torch.Tensor  # (chain_count, depth_count)
 
@@ -209,8 +209,8 @@ class _BackwardChainMeasurements:
 
     # Distance between the solved predecessor and the real predecessor.
     true_errors: torch.Tensor  # (chain_count, depth_count)
-    # The same deviation kept per state dimension (normalized units).
-    state_differences: torch.Tensor  # (chain_count, depth_count, state_dim)
+    # The same deviation kept per dimension of the current frame.
+    state_differences: torch.Tensor  # (chain_count, depth_count, _FRAME_SIZE)
     # The two filter signals, evaluated at the solved predecessor.
     disagreements: torch.Tensor  # (chain_count, depth_count)
     sensitivity_scaled_step_distances: torch.Tensor  # (chain_count, depth_count)
@@ -330,7 +330,7 @@ def _measure_backward_chains(
         size=(chain_count, depth_count), fill_value=float("nan"), device=device
     )
     state_differences = torch.full(
-        size=(chain_count, depth_count, state_windows.shape[-1]),
+        size=(chain_count, depth_count, _FRAME_SIZE),
         fill_value=float("nan"),
         device=device,
     )
@@ -434,10 +434,22 @@ def _normalized_differences(
     dynamics_model_ensemble: DynamicsModelEnsemble,
     state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
     other_state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
-) -> torch.Tensor:  # (batch_size, state_dimensionality)
-    return dynamics_model_ensemble.normalize_state(
-        state_batch=state_batch
-    ) - dynamics_model_ensemble.normalize_state(state_batch=other_state_batch)
+) -> torch.Tensor:  # (batch_size, _FRAME_SIZE)
+    """How far the two states are apart, per dimension of the current frame,
+    in units of that dimension's spread."""
+    difference_batch = (
+        state_batch[:, :_FRAME_SIZE] - other_state_batch[:, :_FRAME_SIZE]
+    ).clone()
+
+    # An orientation is periodic: being a full turn apart means being in the
+    # same place, so take the shorter way round.
+    difference_batch[:, _ANGLE_INDEX] = (
+        difference_batch[:, _ANGLE_INDEX] + torch.pi
+    ) % (2 * torch.pi) - torch.pi
+
+    return difference_batch / dynamics_model_ensemble.normalizers.state_normalizer.std[
+        :_FRAME_SIZE
+    ]
 
 
 def _spearman_correlation(*, claims: torch.Tensor, truths: torch.Tensor) -> float:
@@ -468,10 +480,14 @@ _ARENA_SIZE = 512
 
 # The state's parts (PushT layout), each measured separately in the group
 # error breakdown.
+# PushT frame layout. Everything is measured on the current frame only, so the
+# numbers stay comparable whether or not the previous state is stacked in.
+_FRAME_SIZE = 5
+_ANGLE_INDEX = 4
 _STATE_GROUPS = (
     ("agent", slice(0, 2)),
     ("block", slice(2, 4)),
-    ("angle", slice(4, 5)),
+    ("angle", slice(_ANGLE_INDEX, _ANGLE_INDEX + 1)),
 )
 _GROUP_COLORS = {"agent": "#2ca02c", "block": "#9467bd", "angle": "#ff7f0e"}
 
@@ -804,18 +820,24 @@ def _replay_panel(
     # The angle has no place on the position maps, so it gets its own
     # subplot over time.
     steps = np.arange(true_trajectory.shape[0])
+    recorded_angles = true_trajectory[:, _ANGLE_INDEX]
     for member_trajectory in member_trajectories:
+        # Draw the deviation the shorter way round, the same way the error is
+        # measured: a full turn apart is the same orientation, not a gap.
+        angle_deviation = (
+            member_trajectory[:, _ANGLE_INDEX] - recorded_angles + np.pi
+        ) % (2 * np.pi) - np.pi
         angle_axes.plot(
             steps,
-            member_trajectory[:, 4],
+            recorded_angles + angle_deviation,
             linewidth=0.6,
             alpha=0.35,
             color=_FORWARD_COLOR,
         )
-    angle_axes.plot(steps, true_trajectory[:, 4], linewidth=2.0, color="black")
+    angle_axes.plot(steps, recorded_angles, linewidth=2.0, color="black")
     angle_axes.plot(
         steps[0],
-        true_trajectory[0, 4],
+        recorded_angles[0],
         marker="o",
         markersize=9,
         color="black",
@@ -824,7 +846,7 @@ def _replay_panel(
     )
     angle_axes.plot(
         steps[-1],
-        true_trajectory[-1, 4],
+        recorded_angles[-1],
         marker="X",
         markersize=9,
         color="black",

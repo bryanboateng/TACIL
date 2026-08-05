@@ -33,7 +33,7 @@ class ArchitectureConfig:
     hidden_layer_sizes: tuple[int, ...] = (256, 256)
     lipschitz_constant_upper_bound: float | None = None
     ensemble_size: int = 20
-    # Stack the previous state into the dynamics state so velocities become
+    # Include the previous state into the dynamics state so velocities become
     # readable.
     include_previous_state: bool = False
     # Feed the network positions measured from the agent instead of absolute
