@@ -9,7 +9,7 @@ and what follows from that:
   model can predict (unwrap_angles removes it, wrap_angles puts labels back
   into the range the policy uses);
 - contact depends on where things are relative to the agent, not on where in
-  the arena that happens (agent_relative in network_input);
+  the arena that happens (measure_positions_from_agent in network_input);
 - two states showing the same orientation should look the same to a network
   (the angle enters as a point on the unit circle).
 """
@@ -89,13 +89,16 @@ def shortest_angle_differences(
 
 
 def network_input_dimensionality(
-    *, state_dimensionality: int, action_dimensionality: int, agent_relative: bool
+    *,
+    state_dimensionality: int,
+    action_dimensionality: int,
+    measure_positions_from_agent: bool,
 ) -> int:
     frame_count = state_dimensionality // FRAME_SIZE
     # Each frame's angle turns into a cosine and a sine: one number more.
     dimensionality = state_dimensionality + frame_count + action_dimensionality
     # Measured from the agent, the agent's own position is always zero.
-    return dimensionality - 2 if agent_relative else dimensionality
+    return dimensionality - 2 if measure_positions_from_agent else dimensionality
 
 
 def network_input(
@@ -103,14 +106,14 @@ def network_input(
     normalizers: Normalizers,
     state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
     action_batch: torch.Tensor,  # (batch_size, action_dimensionality)
-    agent_relative: bool,
+    measure_positions_from_agent: bool,
 ) -> torch.Tensor:  # (batch_size, network_input_dimensionality)
     """Everything the network sees.
 
-    With agent_relative, positions are measured from the agent instead of from
-    the arena corner: contact depends on where things are relative to the
-    agent, not on where in the arena that happens, so the model learns the
-    contact rule once instead of once per place.
+    With measure_positions_from_agent, positions are measured from the agent
+    instead of from the arena corner: contact depends on where things are
+    relative to the agent, not on where in the arena that happens, so the model
+    learns the contact rule once instead of once per place.
 
     The orientation is always a point on the unit circle. Two states that show
     the same block orientation then look the same to the network, whether the
@@ -120,7 +123,7 @@ def network_input(
 
     parts = [
         (action_batch - agent_position_batch) / normalizers.action_normalizer.std
-        if agent_relative
+        if measure_positions_from_agent
         else normalizers.action_normalizer.normalize(value_batch=action_batch)
     ]
 
@@ -133,7 +136,7 @@ def network_input(
             frame_start : frame_start + FRAME_SIZE
         ]
 
-        if agent_relative:
+        if measure_positions_from_agent:
             if frame_start > 0:
                 # The current agent position is the origin, so only earlier
                 # frames still carry one.

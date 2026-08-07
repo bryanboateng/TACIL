@@ -18,7 +18,7 @@ class DynamicsModel(torch.nn.Module):
         action_dimensionality: int,
         hidden_dimensionalities: tuple[int, ...],
         lipschitz_constant_upper_bound: float | None,
-        agent_relative_inputs: bool = False,
+        measure_positions_from_agent: bool = False,
     ):
         super().__init__()
 
@@ -26,13 +26,13 @@ class DynamicsModel(torch.nn.Module):
         self.action_dimensionality = action_dimensionality
         self.hidden_dimensionalities = hidden_dimensionalities
         self.lipschitz_constant_upper_bound = lipschitz_constant_upper_bound
-        self.agent_relative_inputs = agent_relative_inputs
+        self.measure_positions_from_agent = measure_positions_from_agent
 
         self._network = _create_network(
             input_dimensionality=network_input_dimensionality(
                 state_dimensionality=state_dimensionality,
                 action_dimensionality=action_dimensionality,
-                agent_relative=agent_relative_inputs,
+                measure_positions_from_agent=measure_positions_from_agent,
             ),
             output_dimensionality=state_dimensionality,
             hidden_dimensionalities=hidden_dimensionalities,
@@ -56,7 +56,7 @@ class DynamicsModel(torch.nn.Module):
             normalizers=normalizers,
             state_batch=state_batch,
             action_batch=action_batch,
-            agent_relative=self.agent_relative_inputs,
+            measure_positions_from_agent=self.measure_positions_from_agent,
         )
 
     def predict_next_state(

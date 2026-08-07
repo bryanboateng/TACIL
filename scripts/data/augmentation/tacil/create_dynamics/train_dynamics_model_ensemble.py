@@ -248,12 +248,27 @@ def _log_checkpoint_summary(
             raise ValueError("No checkpoint was recorded")
         checkpoints.append(member_state.best_checkpoint)
 
+    validation_losses = np.array(
+        [checkpoint.validation_loss for checkpoint in checkpoints]
+    )
+    epochs = np.array([checkpoint.epoch for checkpoint in checkpoints])
+
     run.summary[f"{STAGE_PREFIX}checkpoint/validation_loss_mean"] = float(
-        np.mean(a=[checkpoint.validation_loss for checkpoint in checkpoints])
+        validation_losses.mean()
     )
-    run.summary[f"{STAGE_PREFIX}checkpoint/epoch_mean"] = float(
-        np.mean(a=[checkpoint.epoch for checkpoint in checkpoints])
+    run.summary[f"{STAGE_PREFIX}checkpoint/epoch_mean"] = float(epochs.mean())
+    # The spread over the members. It shows how much the result depends on the
+    # initialization of one member.
+    run.summary[f"{STAGE_PREFIX}checkpoint/validation_loss_std"] = _member_spread(
+        values=validation_losses
     )
+    run.summary[f"{STAGE_PREFIX}checkpoint/epoch_std"] = _member_spread(values=epochs)
+
+
+def _member_spread(*, values: np.ndarray) -> float:
+    # ddof=1, because the members are a sample of the possible initializations.
+    # A single member has no spread.
+    return float(values.std(ddof=1)) if values.shape[0] > 1 else 0.0
 
 
 def _upload_dynamics_model_ensemble(

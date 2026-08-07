@@ -167,6 +167,12 @@ def _write_summary(
 ) -> None:
     run.summary[f"{STAGE_PREFIX}{condition.label}/reward_mean"] = reward.mean
     run.summary[f"{STAGE_PREFIX}{condition.label}/reward_std"] = reward.std
+    run.summary[f"{STAGE_PREFIX}{condition.label}/reward_standard_error"] = (
+        reward.standard_error
+    )
+    run.summary[f"{STAGE_PREFIX}{condition.label}/episode_count"] = (
+        reward.episode_count
+    )
     run.summary[f"{STAGE_PREFIX}{condition.label}/success_rate"] = success_fraction
 
 

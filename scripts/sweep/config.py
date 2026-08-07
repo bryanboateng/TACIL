@@ -27,6 +27,6 @@ class Config:
     # Both carry a default so the command line takes them as flags: the sweep
     # passes the flag when the value is true and omits it otherwise.
     include_previous_state: bool = False
-    agent_relative_inputs: bool = False
+    measure_positions_from_agent: bool = False
 
     seed: int = 42

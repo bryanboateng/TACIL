@@ -81,7 +81,7 @@ def create_member_training_state(
         action_dimensionality=transitions.actions.shape[1],
         hidden_dimensionalities=config.architecture.hidden_layer_sizes,
         lipschitz_constant_upper_bound=config.architecture.lipschitz_constant_upper_bound,
-        agent_relative_inputs=config.architecture.agent_relative_inputs,
+        measure_positions_from_agent=config.architecture.measure_positions_from_agent,
     ).to(device=device)
 
     return MemberTrainingState(

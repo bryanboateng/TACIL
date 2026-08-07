@@ -103,6 +103,9 @@ def log_dataset_statistics(
     run.summary[f"{STAGE_PREFIX}4_augmented_episodes/synthetic_part_length_mean"] = (
         float(synthetic_part_lengths.mean())
     )
+    run.summary[f"{STAGE_PREFIX}4_augmented_episodes/synthetic_part_length_std"] = (
+        float(synthetic_part_lengths.std())
+    )
     run.summary[f"{STAGE_PREFIX}4_augmented_episodes/synthetic_part_length_max"] = int(
         synthetic_part_lengths.max()
     )

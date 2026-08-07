@@ -15,7 +15,12 @@ from scripts.shared.policy_types import PolicyFactory
 @dataclass(frozen=True)
 class RewardStatistics:
     mean: float
+    # The spread of the episodes around the mean.
     std: float
+    # The uncertainty of the mean itself. A comparison of two methods needs
+    # this value, not the spread of the episodes.
+    standard_error: float
+    episode_count: int
 
 
 @torch.no_grad()
@@ -44,7 +49,24 @@ def run_scored_episodes(
 
 def reward_statistics(episode_records: list[EpisodeRecord]) -> RewardStatistics:
     rewards = np.array([record.reward for record in episode_records])
-    return RewardStatistics(mean=float(rewards.mean()), std=float(rewards.std()))
+    episode_count = int(rewards.shape[0])
+    if episode_count == 0:
+        return RewardStatistics(
+            mean=float("nan"),
+            std=float("nan"),
+            standard_error=float("nan"),
+            episode_count=0,
+        )
+
+    # ddof=1, because these episodes are a sample of the possible seeds. They
+    # are not the full population.
+    std = float(rewards.std(ddof=1)) if episode_count > 1 else 0.0
+    return RewardStatistics(
+        mean=float(rewards.mean()),
+        std=std,
+        standard_error=std / float(np.sqrt(episode_count)),
+        episode_count=episode_count,
+    )
 
 
 def success_rate(episode_records: list[EpisodeRecord]) -> float:

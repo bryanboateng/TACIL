@@ -74,7 +74,7 @@ _TACIL_PARAMETERS: dict[str, Any] = {
     # (the block keeps sliding after contact).
     "include_previous_state": {"values": [False, True]},
     # Positions measured from the agent instead of absolute ones.
-    "agent_relative_inputs": {"values": [False, True]},
+    "measure_positions_from_agent": {"values": [False, True]},
 }
 
 # Their configs pick one Lipschitz variant per environment; here the sweep

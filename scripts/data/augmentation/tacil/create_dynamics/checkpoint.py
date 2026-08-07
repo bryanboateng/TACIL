@@ -63,7 +63,7 @@ class _CheckpointKeys(StrEnum):
     ACTION_DIMENSIONALITY = "action_dimensionality"
     HIDDEN_DIMENSIONALITIES = "hidden_dimensionalities"
     LIPSCHITZ_CONSTANT_UPPER_BOUND = "lipschitz_constant_upper_bound"
-    AGENT_RELATIVE_INPUTS = "agent_relative_inputs"
+    MEASURE_POSITIONS_FROM_AGENT = "measure_positions_from_agent"
 
 
 def _save_normalizers(
@@ -101,7 +101,7 @@ def _save_dynamics_model(*, dynamics_model: DynamicsModel, path: Path) -> None:
             _CheckpointKeys.ACTION_DIMENSIONALITY: dynamics_model.action_dimensionality,
             _CheckpointKeys.HIDDEN_DIMENSIONALITIES: dynamics_model.hidden_dimensionalities,
             _CheckpointKeys.LIPSCHITZ_CONSTANT_UPPER_BOUND: dynamics_model.lipschitz_constant_upper_bound,
-            _CheckpointKeys.AGENT_RELATIVE_INPUTS: dynamics_model.agent_relative_inputs,
+            _CheckpointKeys.MEASURE_POSITIONS_FROM_AGENT: dynamics_model.measure_positions_from_agent,
         },
         f=path,
     )
@@ -118,7 +118,9 @@ def _load_dynamics_model(*, path: Path, device: torch.device) -> DynamicsModel:
         lipschitz_constant_upper_bound=checkpoint[
             _CheckpointKeys.LIPSCHITZ_CONSTANT_UPPER_BOUND
         ],
-        agent_relative_inputs=checkpoint[_CheckpointKeys.AGENT_RELATIVE_INPUTS],
+        measure_positions_from_agent=checkpoint[
+            _CheckpointKeys.MEASURE_POSITIONS_FROM_AGENT
+        ],
     )
     dynamics_model.load_state_dict(
         state_dict=checkpoint[_CheckpointKeys.STATE_DICTIONARY]

@@ -125,7 +125,7 @@ def _build_dynamics_config(*, config: Config) -> dynamics_config.Config:
         architecture=dynamics_config.ArchitectureConfig(
             lipschitz_constant_upper_bound=config.lipschitz_constant_upper_bound,
             include_previous_state=config.include_previous_state,
-            agent_relative_inputs=config.agent_relative_inputs,
+            measure_positions_from_agent=config.measure_positions_from_agent,
         ),
         training=dynamics_config.TrainingConfig(),
         seed=config.seed,
@@ -172,7 +172,7 @@ def _build_note(*, config: Config, condition: Condition) -> str:
         f"|err={config.error_limit_fraction:.4f}"
         f"|dw={config.disagreement_weight:.2f}"
         f"|prev={config.include_previous_state}"
-        f"|rel={config.agent_relative_inputs}"
+        f"|rel={config.measure_positions_from_agent}"
         f"|cond={condition.label}"
     )
 

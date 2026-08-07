@@ -5,7 +5,9 @@ from scripts.shared.wandb_config import WandbConfig
 
 @dataclass(frozen=True)
 class DataSplitConfig:
+    # The seed used to select the validation episodes.
     seed: int = 0
+    # This fraction of the episodes goes to validation.
     validation_fraction: float = 0.2
 
     def __post_init__(self) -> None:
@@ -17,13 +19,16 @@ class DataSplitConfig:
 
 @dataclass(frozen=True)
 class DataLoaderConfig:
+    # The number of windows in one gradient step.
     batch_size: int = 2_048
+    # The model predicts this number of steps from its own output. Then the
+    # loss compares the predictions with the data.
     window_length: int = 3
 
 
 @dataclass(frozen=True)
 class DataConfig:
-    artifact: str
+    artifact: str  # The wandb artifact with the expert episodes.
     split: DataSplitConfig
     loader: DataLoaderConfig
 
@@ -31,14 +36,19 @@ class DataConfig:
 @dataclass(frozen=True)
 class ArchitectureConfig:
     hidden_layer_sizes: tuple[int, ...] = (256, 256)
+    # The maximum steepness of the model. If you give None, the model has no
+    # Lipschitz layer.
     lipschitz_constant_upper_bound: float | None = None
+    # The number of models in the ensemble. The augmentation reads the
+    # disagreement between these models.
     ensemble_size: int = 20
-    # Include the previous state into the dynamics state so velocities become
-    # readable.
+
+    # Add the previous state to the input. Then the model can read the
+    # velocities.
     include_previous_state: bool = False
-    # Feed the network positions measured from the agent instead of absolute
-    # ones, so the contact rule is the same everywhere in the arena.
-    agent_relative_inputs: bool = False
+    # Measure all positions from the agent. If false, the positions start at
+    # the corner of the arena.
+    measure_positions_from_agent: bool = False
 
     def __post_init__(self) -> None:
         if self.ensemble_size < 1:
@@ -49,7 +59,11 @@ class ArchitectureConfig:
 class TrainingConfig:
     learning_rate: float = 1e-3
     weight_decay: float = 1e-5
+    # The number of epochs for each model. The training keeps the epoch with
+    # the lowest validation loss.
     epoch_count: int = 500
+    # The moving average of the weights keeps this fraction of its old value
+    # at each update.
     ema_decay: float = 0.9
 
     def __post_init__(self) -> None:
@@ -64,4 +78,6 @@ class Config:
     data: DataConfig
     architecture: ArchitectureConfig
     training: TrainingConfig
+    # The seed of the run. Each model in the ensemble gets its own seed from
+    # this seed.
     seed: int = 42
