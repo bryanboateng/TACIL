@@ -24,6 +24,7 @@ from scripts.policies.bc.policy import (
 from scripts.policies.shared.checkpoint import Checkpoint
 from scripts.shared.normalization import MinMaxNormalizer, ZScoreNormalizer
 from scripts.shared.log import create_logger
+from scripts.shared.pusht_state import ACTION_DIMENSIONALITY, STATE_DIMENSIONALITY
 from scripts.shared.seeding import set_seed
 
 logger = create_logger()
@@ -37,11 +38,13 @@ def train_behavior_cloning_policy(
     *,
     config: Config,
     transitions: TransitionBatch,
+    condition: Condition,
+    seed: int,
     checkpoint_directory_path: Path,
     device: torch.device,
     run: Run,
 ) -> Path:
-    set_seed(seed=config.seed)
+    set_seed(seed=seed)
 
     loss_function = torch.nn.MSELoss()
 
@@ -55,9 +58,9 @@ def train_behavior_cloning_policy(
     )
 
     policy = BehaviorCloningPolicy(
-        observation_dimensionality=config.dimensionality.observation,
-        action_dimensionality=config.dimensionality.action,
-        hidden_dimensionality=config.dimensionality.hidden,
+        observation_dimensionality=STATE_DIMENSIONALITY,
+        action_dimensionality=ACTION_DIMENSIONALITY,
+        hidden_dimensionality=config.hidden_layer_dimensionality,
         observation_normalizer=ZScoreNormalizer.from_values(
             value_batch=dataset.states.to(device=device)
         ),
@@ -109,10 +112,7 @@ def train_behavior_cloning_policy(
         validation_reward = _evaluate(
             checkpoint_path=checkpoint_path,
             episode_count=config.evaluation.episode_count,
-            condition=Condition(
-                floor_condition=config.evaluation.floor_condition,
-                disturbance_level=config.evaluation.disturbance_level,
-            ),
+            condition=condition,
             device=device,
         )
         run.log(

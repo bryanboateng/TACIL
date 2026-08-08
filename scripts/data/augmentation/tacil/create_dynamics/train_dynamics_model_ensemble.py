@@ -45,9 +45,14 @@ EPOCH_METRIC_NAME = f"{STAGE_PREFIX}epoch"
 
 
 def train_dynamics_model_ensemble(
-    *, config: Config, episode_store: EpisodeStore, device: torch.device, run: Run
+    *,
+    config: Config,
+    episode_store: EpisodeStore,
+    seed: int,
+    device: torch.device,
+    run: Run,
 ) -> DynamicsModelEnsemble:
-    set_seed(seed=config.seed)
+    set_seed(seed=seed)
     _define_epoch_metrics(run=run)
 
     training_episodes, validation_episodes = train_test_split(
@@ -106,7 +111,7 @@ def train_dynamics_model_ensemble(
             transitions=training_transitions,
             device=device,
         )
-        for member_seed in np.random.SeedSequence(entropy=config.seed).generate_state(
+        for member_seed in np.random.SeedSequence(entropy=seed).generate_state(
             n_words=config.ensemble_size
         )
     ]

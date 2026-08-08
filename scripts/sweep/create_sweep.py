@@ -55,31 +55,39 @@ METHOD_MODULES: dict[MethodLabel, str] = {
 METHOD_FIXED_ARGUMENTS: dict[MethodLabel, list[str]] = {
     "tacil-dp": ["augmentation:tacil"],
     "tacil-bc": ["augmentation:tacil"],
-    "ccil-bc-noisy": ["augmentation:ccil", "--augmentation.type=noisy_action"],
-    "ccil-bc-euler": ["augmentation:ccil", "--augmentation.type=backward_euler_fast"],
+    "ccil-bc-noisy": ["augmentation:ccil", "--augmentation.labels.type=noisy_action"],
+    "ccil-bc-euler": [
+        "augmentation:ccil",
+        "--augmentation.labels.type=backward_euler_fast",
+    ],
 }
 
 # Every swept parameter configures the augmentation, so the keys carry its
-# prefix: wandb turns each into --augmentation.<name>=<value>.
+# prefix and the stage it belongs to: wandb turns each into
+# --augmentation.<stage>.<name>=<value>.
 _TACIL_PARAMETERS: dict[str, Any] = {
     # A ceiling on how steep the dynamics model may be. None is a real
     # option, not a stand-in number: the model is then built without the
     # bounding layer at all, which the held-out chains say contact needs.
-    "augmentation.lipschitz_constant_upper_bound": {
+    "augmentation.dynamics.lipschitz_constant_upper_bound": {
         "values": [None, 1, 2, 5, 10, 20, 50, 100]
     },
-    "augmentation.window_length": {"distribution": "int_uniform", "min": 1, "max": 15},
-    "augmentation.action_noise_fraction": {
+    "augmentation.dynamics.window_length": {
+        "distribution": "int_uniform",
+        "min": 1,
+        "max": 15,
+    },
+    "augmentation.data.action_noise_fraction": {
         "distribution": "uniform",
         "min": 0.0,
         "max": 1.0,
     },
-    "augmentation.error_limit_fraction": {
+    "augmentation.data.error_limit_fraction": {
         "distribution": "log_uniform_values",
         "min": 0.125,
         "max": 32.0,
     },
-    "augmentation.disagreement_weight": {
+    "augmentation.data.disagreement_weight": {
         "distribution": "uniform",
         "min": 0.0,
         "max": 1.0,
@@ -89,13 +97,15 @@ _TACIL_PARAMETERS: dict[str, Any] = {
 # Their configs pick one Lipschitz variant per environment; here the sweep
 # chooses. The two "slack" variants are not ported (second network).
 _CCIL_SHARED_PARAMETERS: dict[str, Any] = {
-    "augmentation.lipschitz_type": {
+    "augmentation.dynamics.lipschitz_type": {
         "values": ["soft_sampling", "spectral_normalization", "none"]
     },
     # Values around their configs (they use 1.0 to 4.0).
-    "augmentation.lipschitz_constraint": {"values": [0.5, 1.0, 2.0, 3.0, 4.0, 5.0]},
+    "augmentation.dynamics.lipschitz_constraint": {
+        "values": [0.5, 1.0, 2.0, 3.0, 4.0, 5.0]
+    },
     # The paper's rejection quantile (its Fig. 5).
-    "augmentation.rejection_quantile": {
+    "augmentation.labels.rejection_quantile": {
         "distribution": "uniform",
         "min": 0.0,
         "max": 1.0,
@@ -110,7 +120,7 @@ METHOD_PARAMETERS: dict[MethodLabel, dict[str, Any]] = {
         **_CCIL_SHARED_PARAMETERS,
         # Their delta, absolute in raw action units (their configs use 1e-5;
         # PushT actions are pixels, so the sweep spans up to pixel scale).
-        "augmentation.action_noise_std": {
+        "augmentation.labels.action_noise_std": {
             "distribution": "log_uniform_values",
             "min": 1e-5,
             "max": 10.0,

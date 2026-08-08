@@ -39,8 +39,11 @@ import torch
 
 from scripts.data.augmentation.tacil.models.normalizers import Normalizers
 
-# Layout: agent x/y, block x/y, block angle.
+# Layout: agent x/y, block x/y, block angle. Both widths are dictated by the
+# environment, so they are stated here once rather than configured per policy.
 STATE_DIMENSIONALITY = 5
+# An action is the agent's target position.
+ACTION_DIMENSIONALITY = 2
 AGENT_POSITION_SLICE = slice(0, 2)
 BLOCK_POSITION_SLICE = slice(2, 4)
 POSITION_SLICE = slice(0, 4)

@@ -6,7 +6,7 @@ would be nothing to reuse it for.
 """
 
 import tempfile
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Annotated
 
@@ -17,6 +17,7 @@ from rich.pretty import pretty_repr
 from wandb import Run
 
 from scripts.data.augmentation.ccil import augmentation as ccil
+from scripts.data.augmentation.ccil import config as ccil_config
 from scripts.data.augmentation.ccil.f import (
     TransitionBatch,
     concatenate_transitions,
@@ -49,7 +50,7 @@ logger = create_logger()
 # expert data and drown the labels.
 Augmentation = (
     Annotated[tacil.Config, tyro.conf.subcommand(name="tacil")]
-    | Annotated[ccil.Config, tyro.conf.subcommand(name="ccil")]
+    | Annotated[ccil_config.Config, tyro.conf.subcommand(name="ccil")]
     | None
 )
 
@@ -66,6 +67,8 @@ class Config:
     seed: int
 
     augmentation: Augmentation = None
+    # How the policy itself is trained. Declared once, in bc/config.py.
+    policy: bc_config.Config = field(default_factory=bc_config.Config)
 
 
 def main() -> None:
@@ -105,17 +108,10 @@ def _run(*, config: Config) -> None:
 
         logger.info("Stage 2/3: training the behavior-cloning policy.")
         checkpoint_path = train_behavior_cloning_policy(
-            config=bc_config.Config(
-                wandb=WandbConfig(project=config.wandb.project),
-                dimensionality=bc_config.DimensionalityConfig(),
-                optimization=bc_config.OptimizationConfig(),
-                evaluation=bc_config.EvaluationConfig(
-                    floor_condition=config.floor_condition,
-                    disturbance_level=config.disturbance_level,
-                ),
-                seed=config.seed,
-            ),
+            config=config.policy,
             transitions=transitions,
+            condition=condition,
+            seed=config.seed,
             checkpoint_directory_path=Path(checkpoint_directory),
             device=device,
             run=run,
@@ -147,7 +143,7 @@ def _build_transitions(
     match config.augmentation:
         case None:
             return expert_transitions
-        case ccil.Config() as ccil_configuration:
+        case ccil_config.Config() as ccil_configuration:
             label_transitions = ccil.augment(
                 config=ccil_configuration,
                 expert_episode_store=expert_episodes,
@@ -178,23 +174,23 @@ def _build_note(*, config: Config, condition: Condition) -> str:
     match config.augmentation:
         case None:
             augmentation_note = "aug=none"
-        case ccil.Config() as ccil_configuration:
+        case ccil_config.Config() as ccil_configuration:
             augmentation_note = (
                 f"aug=ccil"
-                f"|ltype={ccil_configuration.lipschitz_type}"
-                f"|lip={ccil_configuration.lipschitz_constraint:.3f}"
-                f"|type={ccil_configuration.type}"
-                f"|anoise={ccil_configuration.action_noise_std:.5f}"
-                f"|q={ccil_configuration.rejection_quantile:.3f}"
+                f"|ltype={ccil_configuration.dynamics.lipschitz_type}"
+                f"|lip={ccil_configuration.dynamics.lipschitz_constraint:.3f}"
+                f"|type={ccil_configuration.labels.type}"
+                f"|anoise={ccil_configuration.labels.action_noise_std:.5f}"
+                f"|q={ccil_configuration.labels.rejection_quantile:.3f}"
             )
         case tacil.Config() as tacil_configuration:
             augmentation_note = (
                 f"aug=tacil"
-                f"|lip={tacil_configuration.lipschitz_constant_upper_bound}"
-                f"|win={tacil_configuration.window_length}"
-                f"|noise={tacil_configuration.action_noise_fraction:.4f}"
-                f"|err={tacil_configuration.error_limit_fraction:.4f}"
-                f"|dw={tacil_configuration.disagreement_weight:.2f}"
+                f"|lip={tacil_configuration.dynamics.lipschitz_constant_upper_bound}"
+                f"|win={tacil_configuration.dynamics.window_length}"
+                f"|noise={tacil_configuration.data.action_noise_fraction:.4f}"
+                f"|err={tacil_configuration.data.error_limit_fraction:.4f}"
+                f"|dw={tacil_configuration.data.disagreement_weight:.2f}"
             )
 
     return (

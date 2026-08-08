@@ -1,14 +1,12 @@
-from dataclasses import dataclass
+"""How the diffusion policy is trained.
+
+The condition it is evaluated in, the seed, the dataset and the wandb project
+belong to the run, not to the training, so they are not here. See
+scripts/policies/dp/run.py.
+"""
+
+from dataclasses import dataclass, field
 from typing import Literal
-
-from scripts.evaluation.core.condition import DisturbanceLevel, FloorCondition
-from scripts.shared.wandb_config import WandbConfig
-
-
-@dataclass(frozen=True)
-class DimensionalityConfig:
-    observation: int = 5
-    action: int = 2
 
 
 @dataclass(frozen=True)
@@ -30,9 +28,6 @@ class OptimizationConfig:
 
 @dataclass(frozen=True)
 class EvaluationConfig:
-    floor_condition: FloorCondition
-    disturbance_level: DisturbanceLevel | None
-
     periodic_interval_epoch_count: int = 20
     episode_count: int = 30
     sampler: Literal["ddim", "ddpm"] = "ddim"
@@ -40,11 +35,7 @@ class EvaluationConfig:
 
 @dataclass(frozen=True)
 class Config:
-    wandb: WandbConfig
-
-    dimensionality: DimensionalityConfig
-    horizon_length: HorizonLengthConfig
-    optimization: OptimizationConfig
-    evaluation: EvaluationConfig
-    seed: int
+    horizon_length: HorizonLengthConfig = field(default_factory=HorizonLengthConfig)
+    optimization: OptimizationConfig = field(default_factory=OptimizationConfig)
+    evaluation: EvaluationConfig = field(default_factory=EvaluationConfig)
     hidden_channel_counts: tuple[int, ...] = (256, 512, 1024)

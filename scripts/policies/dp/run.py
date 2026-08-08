@@ -9,7 +9,7 @@ cannot fill a window.
 """
 
 import tempfile
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Annotated
 
@@ -55,6 +55,8 @@ class Config:
     seed: int
 
     augmentation: Augmentation = None
+    # How the policy itself is trained. Declared once, in dp/config.py.
+    policy: policy_config.Config = field(default_factory=policy_config.Config)
 
 
 def main() -> None:
@@ -70,18 +72,6 @@ def _run(*, config: Config) -> None:
     )
     device = torch.device(device="cuda" if torch.cuda.is_available() else "cpu")
     log_device_info(device=device, logger=logger)
-
-    policy_training_config = policy_config.Config(
-        wandb=WandbConfig(project=config.wandb.project),
-        dimensionality=policy_config.DimensionalityConfig(),
-        horizon_length=policy_config.HorizonLengthConfig(),
-        optimization=policy_config.OptimizationConfig(),
-        evaluation=policy_config.EvaluationConfig(
-            floor_condition=config.floor_condition,
-            disturbance_level=config.disturbance_level,
-        ),
-        seed=config.seed,
-    )
 
     with (
         wandb.init(
@@ -105,7 +95,7 @@ def _run(*, config: Config) -> None:
                 expert_episode_store=expert_episodes,
                 # The expert continuation behind every synthetic state is sized
                 # against this horizon.
-                prediction_horizon=policy_training_config.horizon_length.prediction,
+                prediction_horizon=config.policy.horizon_length.prediction,
                 seed=config.seed,
                 device=device,
                 run=run,
@@ -114,9 +104,11 @@ def _run(*, config: Config) -> None:
 
         logger.info("Stage 2/3: training the diffusion policy.")
         checkpoint_path = train_diffusion_policy(
-            config=policy_training_config,
+            config=config.policy,
             expert_episodes=expert_episodes,
             augmented_episodes=augmented_episodes,
+            condition=condition,
+            seed=config.seed,
             checkpoint_directory_path=Path(checkpoint_directory),
             device=device,
             run=run,
@@ -124,7 +116,7 @@ def _run(*, config: Config) -> None:
         logger.info("Stage 2/3: done.")
 
         # Score the selected checkpoint the way it was selected.
-        sampler = policy_training_config.evaluation.sampler
+        sampler = config.policy.evaluation.sampler
         set_seed(seed=config.seed)
         logger.info("Stage 3/3: evaluating the policy.")
         evaluate_policy(
@@ -149,11 +141,11 @@ def _build_note(*, config: Config, condition: Condition) -> str:
         if augmentation is None
         else (
             f"aug=tacil"
-            f"|lip={augmentation.lipschitz_constant_upper_bound}"
-            f"|win={augmentation.window_length}"
-            f"|noise={augmentation.action_noise_fraction:.4f}"
-            f"|err={augmentation.error_limit_fraction:.4f}"
-            f"|dw={augmentation.disagreement_weight:.2f}"
+            f"|lip={augmentation.dynamics.lipschitz_constant_upper_bound}"
+            f"|win={augmentation.dynamics.window_length}"
+            f"|noise={augmentation.data.action_noise_fraction:.4f}"
+            f"|err={augmentation.data.error_limit_fraction:.4f}"
+            f"|dw={augmentation.data.disagreement_weight:.2f}"
         )
     )
 

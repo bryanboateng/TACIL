@@ -17,11 +17,16 @@ _BATCH_SIZE = 4_096
 
 
 def create_ccil_augmented_data(
-    *, config: Config, episode_store: EpisodeStore, device: torch.device, run: Run
+    *,
+    config: Config,
+    episode_store: EpisodeStore,
+    seed: int,
+    device: torch.device,
+    run: Run,
 ) -> TransitionBatch:
     """The accepted labels alone. A label is a single (state, action) pair, so
     the caller appends them to the expert transitions."""
-    set_seed(seed=config.seed)
+    set_seed(seed=seed)
 
     states, actions, next_states = _transitions(episode_store=episode_store)
     state_batch = torch.from_numpy(states).to(device=device)
@@ -62,7 +67,7 @@ def create_ccil_augmented_data(
     )
 
     distance_threshold = float(
-        np.quantile(a=label_distances, q=config.augmentation.rejection_quantile)
+        np.quantile(a=label_distances, q=config.labels.rejection_quantile)
     )
     accepted_mask = label_distances <= distance_threshold
     accepted_count = int(accepted_mask.sum())
@@ -119,8 +124,8 @@ def _generate_labels(
     noisy_action (gen_noisy_action_be): s^G = s' − f(s', ã) with noised ã.
     backward_euler_fast: s^G = s − f(s, a) with the true action (Eq. 4).
     """
-    if config.augmentation.type == "noisy_action":
-        label_count_per_transition = config.augmentation.label_count_per_transition
+    if config.labels.type == "noisy_action":
+        label_count_per_transition = config.labels.label_count_per_transition
     else:
         label_count_per_transition = 1
 
@@ -137,13 +142,13 @@ def _generate_labels(
             repeats=label_count_per_transition, dim=0
         )
 
-        if config.augmentation.type == "noisy_action":
+        if config.labels.type == "noisy_action":
             repeated_next_states = next_state_batch[batch_slice].repeat_interleave(
                 repeats=label_count_per_transition, dim=0
             )
             label_actions = repeated_actions + torch.normal(
                 mean=0.0,
-                std=config.augmentation.action_noise_std,
+                std=config.labels.action_noise_std,
                 size=repeated_actions.shape,
                 device=repeated_actions.device,
             )

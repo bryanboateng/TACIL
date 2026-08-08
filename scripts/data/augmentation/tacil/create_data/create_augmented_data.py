@@ -37,6 +37,7 @@ def create_augmented_data(
     episode_store: EpisodeStore,
     dynamics_model_ensemble: DynamicsModelEnsemble,
     prediction_horizon: int | None,
+    seed: int,
     device: torch.device,
     run: Run,
 ) -> EpisodeStore | None:
@@ -50,7 +51,7 @@ def create_augmented_data(
     the other kind needs none, and copying expert data would only drown its
     labels.
     """
-    set_seed(seed=config.seed)
+    set_seed(seed=seed)
 
     expert_part_length = prediction_horizon - 1 if prediction_horizon is not None else 0
 

@@ -21,7 +21,7 @@ class DynamicsConfig:
 
 
 @dataclass(frozen=True)
-class AugmentationConfig:
+class LabelConfig:
     type: AugmentationType = "noisy_action"
     # Only noisy_action uses these two.
     label_count_per_transition: int = 20
@@ -31,7 +31,7 @@ class AugmentationConfig:
 
 @dataclass(frozen=True)
 class Config:
-    seed: int
-
     dynamics: DynamicsConfig = field(default_factory=DynamicsConfig)
-    augmentation: AugmentationConfig = field(default_factory=AugmentationConfig)
+    # Named for what the stage produces, rather than after the method, so the
+    # command line does not repeat the word twice in one path.
+    labels: LabelConfig = field(default_factory=LabelConfig)

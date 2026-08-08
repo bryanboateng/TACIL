@@ -15,7 +15,7 @@ from scripts.evaluation.core.scoring import (
     reward_statistics,
     run_scored_episodes,
 )
-from scripts.policies.dp.config import Config, DimensionalityConfig, HorizonLengthConfig
+from scripts.policies.dp.config import Config, HorizonLengthConfig
 from scripts.policies.dp.dataset import Dataset
 from scripts.policies.dp.loss import _compute_denoising_loss
 from scripts.policies.dp.network import ConditionalUnet1d
@@ -23,6 +23,7 @@ from scripts.policies.dp.noise_scheduler import get_ddpm_scheduler
 from scripts.policies.dp.policy import load_diffusion_policy, save_diffusion_policy
 from scripts.policies.shared.checkpoint import Checkpoint
 from scripts.shared.log import create_logger
+from scripts.shared.pusht_state import ACTION_DIMENSIONALITY, STATE_DIMENSIONALITY
 from scripts.shared.seeding import set_seed
 
 logger = create_logger()
@@ -43,6 +44,8 @@ def train_diffusion_policy(
     config: Config,
     expert_episodes: EpisodeStore,
     augmented_episodes: EpisodeStore | None,
+    condition: Condition,
+    seed: int,
     checkpoint_directory_path: Path,
     device: torch.device,
     run: Run,
@@ -51,12 +54,10 @@ def train_diffusion_policy(
     keeping the periodically evaluated EMA checkpoint that scored best. It is
     written into *checkpoint_directory_path*, whose lifetime the caller owns.
     """
-    set_seed(seed=config.seed)
+    set_seed(seed=seed)
     _define_step_metrics(run=run)
 
-    condition_dimensionality = (
-        config.dimensionality.observation * config.horizon_length.observation
-    )
+    condition_dimensionality = STATE_DIMENSIONALITY * config.horizon_length.observation
 
     noise_scheduler = get_ddpm_scheduler()
 
@@ -70,8 +71,8 @@ def train_diffusion_policy(
     )
 
     noise_prediction_network = ConditionalUnet1d(
-        input_channel_count=config.dimensionality.action,
-        observation_dimensionality=config.dimensionality.observation,
+        input_channel_count=ACTION_DIMENSIONALITY,
+        observation_dimensionality=STATE_DIMENSIONALITY,
         condition_dimensionality=condition_dimensionality,
         hidden_channel_counts=config.hidden_channel_counts,
         observation_normalizer=dataset.observation_normalizer,
@@ -180,7 +181,6 @@ def train_diffusion_policy(
             network=noise_prediction_network,
             ema=noise_prediction_network_ema,
             horizon_length=config.horizon_length,
-            dimensionality=config.dimensionality,
             condition_dimensionality=condition_dimensionality,
             hidden_channel_counts=config.hidden_channel_counts,
         )
@@ -189,10 +189,7 @@ def train_diffusion_policy(
             checkpoint_path=checkpoint_path,
             episode_count=config.evaluation.episode_count,
             sampler=config.evaluation.sampler,
-            condition=Condition(
-                floor_condition=config.evaluation.floor_condition,
-                disturbance_level=config.evaluation.disturbance_level,
-            ),
+            condition=condition,
             device=device,
         )
         run.log(
@@ -236,7 +233,7 @@ def train_diffusion_policy(
     save_diffusion_policy(
         path=final_path,
         noise_prediction_network=noise_prediction_network,
-        action_dimensionality=config.dimensionality.action,
+        action_dimensionality=ACTION_DIMENSIONALITY,
         condition_dimensionality=condition_dimensionality,
         hidden_channel_counts=config.hidden_channel_counts,
         observation_horizon_length=config.horizon_length.observation,
@@ -282,7 +279,6 @@ def _save_ema_checkpoint(
     network: ConditionalUnet1d,
     ema: EMAModel,
     horizon_length: HorizonLengthConfig,
-    dimensionality: DimensionalityConfig,
     condition_dimensionality: int,
     hidden_channel_counts: tuple[int, ...],
 ) -> dict:
@@ -298,7 +294,7 @@ def _save_ema_checkpoint(
         save_diffusion_policy(
             path=path,
             noise_prediction_network=network,
-            action_dimensionality=dimensionality.action,
+            action_dimensionality=ACTION_DIMENSIONALITY,
             condition_dimensionality=condition_dimensionality,
             hidden_channel_counts=hidden_channel_counts,
             observation_horizon_length=horizon_length.observation,

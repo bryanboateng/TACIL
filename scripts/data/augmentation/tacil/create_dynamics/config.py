@@ -11,10 +11,9 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class Config:
-    seed: int
     # The model predicts this number of steps from its own output. Then the
     # loss compares the predictions with the data.
-    window_length: int
+    window_length: int = 3
     # The maximum steepness of the model. If you give None, the model has no
     # Lipschitz layer.
     lipschitz_constant_upper_bound: float | None = None

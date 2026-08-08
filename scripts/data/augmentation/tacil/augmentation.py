@@ -5,7 +5,7 @@ together and never leave this process. What the policy gets back is the
 synthetic episodes alone.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import torch
 from wandb import Run
@@ -23,24 +23,14 @@ from scripts.data.base.episode_store import EpisodeStore
 
 @dataclass(frozen=True)
 class Config:
-    # The model predicts this number of steps from its own output.
-    window_length: int = 3
-    action_noise_fraction: float = 0.1
-    # Fraction of the median expert step distance. It caps how far a synthetic
-    # prefix may drift from its anchor.
-    error_limit_fraction: float = 0.5
-    disagreement_weight: float = 0.5
+    """The two stages' own configs, and nothing of its own.
 
-    # None builds the dynamics model without the bounding layer at all, which
-    # is a real option rather than a stand-in number.
-    lipschitz_constant_upper_bound: float | None = None
+    Every setting is declared once, where the stage that reads it lives. The
+    seed is not here: it belongs to the run, not to the method.
+    """
 
-    # The dynamics model's shape and ensemble size. Not swept — the sweep would
-    # spend budget on them — but reachable here, so an ablation needs no code
-    # change.
-    ensemble_size: int = 20
-    hidden_layer_count: int = 2
-    hidden_layer_dimensionality: int = 256
+    dynamics: dynamics_config.Config = field(default_factory=dynamics_config.Config)
+    data: data_config.Config = field(default_factory=data_config.Config)
 
 
 def augment(
@@ -54,29 +44,19 @@ def augment(
 ) -> EpisodeStore | None:
     """The synthetic episodes, or None when the rollout produced nothing."""
     dynamics_model_ensemble = train_dynamics_model_ensemble(
-        config=dynamics_config.Config(
-            seed=seed,
-            window_length=config.window_length,
-            lipschitz_constant_upper_bound=config.lipschitz_constant_upper_bound,
-            ensemble_size=config.ensemble_size,
-            hidden_layer_count=config.hidden_layer_count,
-            hidden_layer_dimensionality=config.hidden_layer_dimensionality,
-        ),
+        config=config.dynamics,
         episode_store=expert_episode_store,
+        seed=seed,
         device=device,
         run=run,
     )
 
     return create_augmented_data(
-        config=data_config.Config(
-            action_noise_fraction=config.action_noise_fraction,
-            error_limit_fraction=config.error_limit_fraction,
-            disagreement_weight=config.disagreement_weight,
-            seed=seed,
-        ),
+        config=config.data,
         episode_store=expert_episode_store,
         dynamics_model_ensemble=dynamics_model_ensemble,
         prediction_horizon=prediction_horizon,
+        seed=seed,
         device=device,
         run=run,
     )
