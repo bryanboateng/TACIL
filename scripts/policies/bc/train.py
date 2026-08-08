@@ -1,5 +1,4 @@
 import copy
-from pathlib import Path
 
 import torch
 from torch.optim import Adam
@@ -18,12 +17,11 @@ from scripts.policies.bc.config import Config
 from scripts.policies.bc.dataset import Dataset
 from scripts.policies.bc.policy import (
     BehaviorCloningPolicy,
-    load_behavior_cloning_policy,
-    save_behavior_cloning_policy,
+    build_behavior_cloning_policy_factory,
 )
 from scripts.policies.shared.checkpoint import Checkpoint
-from scripts.shared.normalization import MinMaxNormalizer, ZScoreNormalizer
 from scripts.shared.log import create_logger
+from scripts.shared.normalization import MinMaxNormalizer, ZScoreNormalizer
 from scripts.shared.pusht_state import ACTION_DIMENSIONALITY, STATE_DIMENSIONALITY
 from scripts.shared.seeding import set_seed
 
@@ -40,10 +38,9 @@ def train_behavior_cloning_policy(
     transitions: TransitionBatch,
     condition: Condition,
     seed: int,
-    checkpoint_directory_path: Path,
     device: torch.device,
     run: Run,
-) -> Path:
+) -> BehaviorCloningPolicy:
     set_seed(seed=seed)
 
     loss_function = torch.nn.MSELoss()
@@ -107,10 +104,8 @@ def train_behavior_cloning_policy(
         if not periodic_eval_is_due:
             continue
 
-        checkpoint_path = checkpoint_directory_path / "checkpoint.pt"
-        save_behavior_cloning_policy(policy=policy, path=checkpoint_path)
         validation_reward = _evaluate(
-            checkpoint_path=checkpoint_path,
+            policy_model=policy,
             episode_count=config.evaluation.episode_count,
             condition=condition,
             device=device,
@@ -146,21 +141,18 @@ def train_behavior_cloning_policy(
     )
 
     policy.load_state_dict(state_dict=best_checkpoint.state_dict)
-
-    final_path = checkpoint_directory_path / "checkpoint.pt"
-    save_behavior_cloning_policy(policy=policy, path=final_path)
-    return final_path
+    return policy
 
 
 def _evaluate(
     *,
-    checkpoint_path: Path,
+    policy_model: BehaviorCloningPolicy,
     episode_count: int,
     condition: Condition,
     device: torch.device,
 ) -> RewardStatistics:
-    policy_factory = load_behavior_cloning_policy(
-        checkpoint_path=checkpoint_path, device=device
+    policy_factory = build_behavior_cloning_policy_factory(
+        policy_model=policy_model, device=device
     )
     return reward_statistics(
         episode_records=run_scored_episodes(

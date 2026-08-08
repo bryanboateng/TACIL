@@ -1,6 +1,4 @@
 import copy
-from pathlib import Path
-from typing import Literal
 
 import torch
 from diffusers.optimization import get_scheduler
@@ -15,15 +13,16 @@ from scripts.evaluation.core.scoring import (
     reward_statistics,
     run_scored_episodes,
 )
-from scripts.policies.dp.config import Config, HorizonLengthConfig
+from scripts.policies.dp.config import Config
 from scripts.policies.dp.dataset import Dataset
 from scripts.policies.dp.loss import _compute_denoising_loss
 from scripts.policies.dp.network import ConditionalUnet1d
 from scripts.policies.dp.noise_scheduler import get_ddpm_scheduler
-from scripts.policies.dp.policy import load_diffusion_policy, save_diffusion_policy
+from scripts.policies.dp.policy import build_diffusion_policy_factory
 from scripts.policies.shared.checkpoint import Checkpoint
 from scripts.shared.log import create_logger
 from scripts.shared.pusht_state import ACTION_DIMENSIONALITY, STATE_DIMENSIONALITY
+from scripts.shared.policy_types import PolicyFactory
 from scripts.shared.seeding import set_seed
 
 logger = create_logger()
@@ -46,14 +45,11 @@ def train_diffusion_policy(
     augmented_episodes: EpisodeStore | None,
     condition: Condition,
     seed: int,
-    checkpoint_directory_path: Path,
     device: torch.device,
     run: Run,
-) -> Path:
-    """Train on the recorded episodes plus whatever augmentation produced,
-    keeping the periodically evaluated EMA checkpoint that scored best. It is
-    written into *checkpoint_directory_path*, whose lifetime the caller owns.
-    """
+) -> ConditionalUnet1d:
+    """Train on the recorded episodes plus whatever augmentation produced, and
+    return the network holding the averaged weights that scored best."""
     set_seed(seed=seed)
     _define_step_metrics(run=run)
 
@@ -175,23 +171,26 @@ def train_diffusion_policy(
         if not periodic_eval_is_due:
             continue
 
-        checkpoint_path = checkpoint_directory_path / "checkpoint.pt"
-        ema_state_dict = _save_ema_checkpoint(
-            path=checkpoint_path,
-            network=noise_prediction_network,
-            ema=noise_prediction_network_ema,
-            horizon_length=config.horizon_length,
-            condition_dimensionality=condition_dimensionality,
-            hidden_channel_counts=config.hidden_channel_counts,
+        # What gets scored are the averaged weights, so they move into the
+        # network for the duration of the evaluation and are taken out again.
+        noise_prediction_network_ema.store(
+            parameters=noise_prediction_network.parameters()
         )
-
-        validation_reward = _evaluate(
-            checkpoint_path=checkpoint_path,
-            episode_count=config.evaluation.episode_count,
-            sampler=config.evaluation.sampler,
-            condition=condition,
-            device=device,
+        noise_prediction_network_ema.copy_to(
+            parameters=noise_prediction_network.parameters()
         )
+        try:
+            ema_state_dict = copy.deepcopy(noise_prediction_network.state_dict())
+            validation_reward = _evaluate(
+                config=config,
+                noise_prediction_network=noise_prediction_network,
+                condition=condition,
+                device=device,
+            )
+        finally:
+            noise_prediction_network_ema.restore(
+                parameters=noise_prediction_network.parameters()
+            )
         run.log(
             data={
                 f"{STAGE_PREFIX}validation/reward_mean": validation_reward.mean,
@@ -229,18 +228,23 @@ def train_diffusion_policy(
     )
 
     noise_prediction_network.load_state_dict(best_checkpoint.state_dict)
-    final_path = checkpoint_directory_path / "checkpoint.pt"
-    save_diffusion_policy(
-        path=final_path,
+    return noise_prediction_network
+
+
+def build_policy_factory(
+    *, config: Config, noise_prediction_network: ConditionalUnet1d, device: torch.device
+) -> PolicyFactory:
+    """The evaluation's view of a trained network. Kept here because the horizon
+    lengths and the sampler come from this stage's config."""
+    return build_diffusion_policy_factory(
         noise_prediction_network=noise_prediction_network,
         action_dimensionality=ACTION_DIMENSIONALITY,
-        condition_dimensionality=condition_dimensionality,
-        hidden_channel_counts=config.hidden_channel_counts,
         observation_horizon_length=config.horizon_length.observation,
         prediction_horizon_length=config.horizon_length.prediction,
         action_horizon_length=config.horizon_length.action,
+        sampler=config.evaluation.sampler,
+        device=device,
     )
-    return final_path
 
 
 def _define_step_metrics(*, run: Run) -> None:
@@ -254,53 +258,19 @@ def _define_step_metrics(*, run: Run) -> None:
 @torch.no_grad()
 def _evaluate(
     *,
-    checkpoint_path: Path,
-    episode_count: int,
-    sampler: Literal["ddim", "ddpm"],
+    config: Config,
+    noise_prediction_network: ConditionalUnet1d,
     condition: Condition,
     device: torch.device,
 ) -> RewardStatistics:
-    policy_factory = load_diffusion_policy(
-        checkpoint_path=checkpoint_path, sampler=sampler, device=device
+    policy_factory = build_policy_factory(
+        config=config, noise_prediction_network=noise_prediction_network, device=device
     )
     return reward_statistics(
         episode_records=run_scored_episodes(
             policy_factory=policy_factory,
             start_episode_seed=100_000,
-            episode_count=episode_count,
+            episode_count=config.evaluation.episode_count,
             condition=condition,
         )
     )
-
-
-def _save_ema_checkpoint(
-    *,
-    path: Path,
-    network: ConditionalUnet1d,
-    ema: EMAModel,
-    horizon_length: HorizonLengthConfig,
-    condition_dimensionality: int,
-    hidden_channel_counts: tuple[int, ...],
-) -> dict:
-    """Save EMA weights to *path* without permanently modifying the network.
-
-    Returns a deep copy of the EMA state dict so the caller can keep the best
-    checkpoint in memory without re-reading the file.
-    """
-    ema.store(parameters=network.parameters())
-    ema.copy_to(parameters=network.parameters())
-    try:
-        state_dict = copy.deepcopy(network.state_dict())
-        save_diffusion_policy(
-            path=path,
-            noise_prediction_network=network,
-            action_dimensionality=ACTION_DIMENSIONALITY,
-            condition_dimensionality=condition_dimensionality,
-            hidden_channel_counts=hidden_channel_counts,
-            observation_horizon_length=horizon_length.observation,
-            prediction_horizon_length=horizon_length.prediction,
-            action_horizon_length=horizon_length.action,
-        )
-        return state_dict
-    finally:
-        ema.restore(parameters=network.parameters())

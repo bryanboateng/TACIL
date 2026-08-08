@@ -1,6 +1,5 @@
 import collections
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Literal
 
 import numpy as np
@@ -8,8 +7,6 @@ import torch
 
 from scripts.policies.dp.network import ConditionalUnet1d
 from scripts.policies.dp.noise_scheduler import get_ddim_scheduler, get_ddpm_scheduler
-from scripts.shared.normalization import MinMaxNormalizer
-from scripts.shared.paths import PROJECT_ROOT_DIRECTORY_PATH
 from scripts.shared.policy_types import Policy, PolicyFactory
 
 
@@ -20,66 +17,28 @@ class _EpisodeState:
     action_queue: collections.deque
 
 
-def save_diffusion_policy(
+def build_diffusion_policy_factory(
     *,
-    path: Path,
     noise_prediction_network: ConditionalUnet1d,
     action_dimensionality: int,
-    condition_dimensionality: int,
-    hidden_channel_counts: tuple[int, ...],
     observation_horizon_length: int,
     prediction_horizon_length: int,
     action_horizon_length: int,
-) -> None:
-    torch.save(
-        obj={
-            "noise_prediction_network_state_dict": noise_prediction_network.state_dict(),
-            "observation_dimensionality": noise_prediction_network.observation_dimensionality,
-            "action_dimensionality": action_dimensionality,
-            "condition_dimensionality": condition_dimensionality,
-            "hidden_channel_counts": hidden_channel_counts,
-            "observation_horizon_length": observation_horizon_length,
-            "prediction_horizon_length": prediction_horizon_length,
-            "action_horizon_length": action_horizon_length,
-        },
-        f=path,
-    )
-
-
-def load_diffusion_policy(
-    *, checkpoint_path: Path, sampler: Literal["ddim", "ddpm"], device: torch.device
+    sampler: Literal["ddim", "ddpm"],
+    device: torch.device,
 ) -> PolicyFactory:
-    checkpoint = torch.load(
-        f=PROJECT_ROOT_DIRECTORY_PATH / checkpoint_path, map_location=device
-    )
+    """Wrap a trained network so the evaluation can drive it.
 
-    observation_horizon_length = checkpoint["observation_horizon_length"]
-    prediction_horizon_length = checkpoint["prediction_horizon_length"]
-    action_horizon_length = checkpoint["action_horizon_length"]
-    action_dimensionality = checkpoint["action_dimensionality"]
-
+    Takes the network as it is, holding whichever weights the caller put there.
+    Nothing is written to disk and read back: a round trip through a file would
+    only be a slower way of copying weights that are already in this process.
+    """
     match sampler:
         case "ddim":
             noise_scheduler = get_ddim_scheduler()
         case "ddpm":
             noise_scheduler = get_ddpm_scheduler()
 
-    network_state_dict = checkpoint["noise_prediction_network_state_dict"]
-    noise_prediction_network = ConditionalUnet1d(
-        input_channel_count=action_dimensionality,
-        observation_dimensionality=checkpoint["observation_dimensionality"],
-        condition_dimensionality=checkpoint["condition_dimensionality"],
-        hidden_channel_counts=checkpoint["hidden_channel_counts"],
-        observation_normalizer=MinMaxNormalizer(
-            minimum=network_state_dict["observation_normalizer.minimum"],
-            maximum=network_state_dict["observation_normalizer.maximum"],
-        ),
-        action_normalizer=MinMaxNormalizer(
-            minimum=network_state_dict["action_normalizer.minimum"],
-            maximum=network_state_dict["action_normalizer.maximum"],
-        ),
-    ).to(device)
-    noise_prediction_network.load_state_dict(state_dict=network_state_dict)
     noise_prediction_network.eval()
 
     def make_policy(*, seeds: list[int]) -> Policy:

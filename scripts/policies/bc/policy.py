@@ -1,10 +1,7 @@
-from pathlib import Path
-
 import numpy as np
 import torch
 
 from scripts.shared.normalization import MinMaxNormalizer, ZScoreNormalizer
-from scripts.shared.paths import PROJECT_ROOT_DIRECTORY_PATH
 from scripts.shared.policy_types import Policy, PolicyFactory
 
 
@@ -86,41 +83,9 @@ class BehaviorCloningPolicy(torch.nn.Module):
         )  # (batch_size, action_dimensionality)
 
 
-def save_behavior_cloning_policy(*, policy: BehaviorCloningPolicy, path: Path) -> None:
-    """Save the policy. The normalization ranges ride along inside state_dict()."""
-    torch.save(
-        obj={
-            "policy_state_dict": policy.state_dict(),
-            "observation_dimensionality": policy.observation_dimensionality,
-            "action_dimensionality": policy.action_dimensionality,
-            "hidden_dimensionality": policy.hidden_dimensionality,
-        },
-        f=path,
-    )
-
-
-def load_behavior_cloning_policy(
-    *, checkpoint_path: Path, device: torch.device
+def build_behavior_cloning_policy_factory(
+    *, policy_model: BehaviorCloningPolicy, device: torch.device
 ) -> PolicyFactory:
-    checkpoint = torch.load(
-        f=PROJECT_ROOT_DIRECTORY_PATH / checkpoint_path, map_location=device
-    )
-    policy_state_dict = checkpoint["policy_state_dict"]
-
-    policy_model = BehaviorCloningPolicy(
-        observation_dimensionality=checkpoint["observation_dimensionality"],
-        action_dimensionality=checkpoint["action_dimensionality"],
-        hidden_dimensionality=checkpoint["hidden_dimensionality"],
-        observation_normalizer=ZScoreNormalizer(
-            mean=policy_state_dict["observation_normalizer.mean"],
-            std=policy_state_dict["observation_normalizer.std"],
-        ),
-        action_normalizer=MinMaxNormalizer(
-            minimum=policy_state_dict["action_normalizer.minimum"],
-            maximum=policy_state_dict["action_normalizer.maximum"],
-        ),
-    ).to(device=device)
-    policy_model.load_state_dict(state_dict=policy_state_dict)
     policy_model.eval()
 
     def make_policy(*, seeds: list[int]) -> Policy:  # seeds unused: BC is deterministic

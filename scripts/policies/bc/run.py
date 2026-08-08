@@ -5,9 +5,7 @@ artifact. Every trial searches parameters that change that output, so there
 would be nothing to reuse it for.
 """
 
-import tempfile
 from dataclasses import asdict
-from pathlib import Path
 from typing import Annotated, TypeAlias
 
 import torch
@@ -33,7 +31,7 @@ from scripts.evaluation.evaluate_policy import (
     evaluate_policy,
 )
 from scripts.policies.bc import config as bc_config
-from scripts.policies.bc.policy import load_behavior_cloning_policy
+from scripts.policies.bc.policy import build_behavior_cloning_policy_factory
 from scripts.policies.bc.train import train_behavior_cloning_policy
 from scripts.policies.shared.run_config import RunConfig
 from scripts.shared.log import create_logger, log_device_info
@@ -63,16 +61,13 @@ def _run(*, config: Config) -> None:
     device = torch.device(device="cuda" if torch.cuda.is_available() else "cpu")
     log_device_info(device=device, logger=logger)
 
-    with (
-        wandb.init(
-            project=config.wandb.project,
-            notes=_build_note(config=config, condition=condition),
-            job_type="bc-pipeline",
-            config=asdict(obj=config),
-            dir=OUTPUT_DIRECTORY_PATH,
-        ) as run,
-        tempfile.TemporaryDirectory() as checkpoint_directory,
-    ):
+    with wandb.init(
+        project=config.wandb.project,
+        notes=_build_note(config=config, condition=condition),
+        job_type="bc-pipeline",
+        config=asdict(obj=config),
+        dir=OUTPUT_DIRECTORY_PATH,
+    ) as run:
         expert_episodes = download_episode_store(
             artifact_name=config.expert_dataset_artifact, run=run
         )
@@ -85,12 +80,11 @@ def _run(*, config: Config) -> None:
         logger.info("Stage 1/3: done.")
 
         logger.info("Stage 2/3: training the behavior-cloning policy.")
-        checkpoint_path = train_behavior_cloning_policy(
+        policy_model = train_behavior_cloning_policy(
             config=config.policy,
             transitions=transitions,
             condition=condition,
             seed=config.seed,
-            checkpoint_directory_path=Path(checkpoint_directory),
             device=device,
             run=run,
         )
@@ -99,8 +93,8 @@ def _run(*, config: Config) -> None:
         set_seed(seed=config.seed)
         logger.info("Stage 3/3: evaluating the policy.")
         evaluate_policy(
-            policy_factory=load_behavior_cloning_policy(
-                checkpoint_path=checkpoint_path, device=device
+            policy_factory=build_behavior_cloning_policy_factory(
+                policy_model=policy_model, device=device
             ),
             policy_label=f"bc   behavior-cloning-policy-{run.name!s}",
             condition=condition,
