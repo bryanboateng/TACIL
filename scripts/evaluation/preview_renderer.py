@@ -38,21 +38,14 @@ def _build_gpi_policy_factory() -> PolicyFactory:
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     log_device_info(device=device, logger=logger)
 
-    config = gpi.Config(
-        dataset_artifact="abc/expert-dataset:latest",
-        noise=gpi.ObservationNoiseConfig(),
-        retrieval=gpi.RetrievalConfig(),
-        guidance=gpi.GuidanceConfig(),
-        seed=42,
-        action_horizon=8,
-    )
+    dataset_artifact = "abc/expert-dataset:latest"
     return load_geometric_policy(
         episode_store=read_episode_store(
             episode_file_path=(
-                Path(wandb.Api().artifact(name=config.dataset_artifact).download())
+                Path(wandb.Api().artifact(name=dataset_artifact).download())
             )
         ),
-        config=config,
+        config=gpi.Config(),
         device=device,
     )
 

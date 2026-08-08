@@ -9,7 +9,7 @@ cannot fill a window.
 """
 
 import tempfile
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict
 from pathlib import Path
 from typing import Annotated
 
@@ -20,11 +20,7 @@ from rich.pretty import pretty_repr
 
 from scripts.data.augmentation.tacil import augmentation as tacil
 from scripts.data.base.episode_store import download_episode_store
-from scripts.evaluation.core.condition import (
-    Condition,
-    DisturbanceLevel,
-    FloorCondition,
-)
+from scripts.evaluation.core.condition import Condition
 from scripts.evaluation.evaluate_policy import (
     DEFAULT_EPISODE_COUNT,
     STAGE_PREFIX,
@@ -33,30 +29,15 @@ from scripts.evaluation.evaluate_policy import (
 from scripts.policies.dp import config as policy_config
 from scripts.policies.dp.policy import load_diffusion_policy
 from scripts.policies.dp.train import train_diffusion_policy
+from scripts.policies.shared.run_config import RunConfig
 from scripts.shared.log import create_logger, log_device_info
 from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
 from scripts.shared.seeding import set_seed
-from scripts.shared.wandb_config import WandbConfig
 
 logger = create_logger()
 
-Augmentation = Annotated[tacil.Config, tyro.conf.subcommand(name="tacil")] | None
-
-
-@dataclass(frozen=True)
-class Config:
-    wandb: WandbConfig
-
-    floor_condition: FloorCondition
-    disturbance_level: DisturbanceLevel | None
-
-    expert_dataset_artifact: str
-
-    seed: int
-
-    augmentation: Augmentation = None
-    # How the policy itself is trained. Declared once, in dp/config.py.
-    policy: policy_config.Config = field(default_factory=policy_config.Config)
+Augmentation = Annotated[tacil.Config, tyro.conf.subcommand(name="tacil")]
+Config = RunConfig[policy_config.Config, Augmentation]
 
 
 def main() -> None:

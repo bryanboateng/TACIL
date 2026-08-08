@@ -6,7 +6,7 @@ would be nothing to reuse it for.
 """
 
 import tempfile
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict
 from pathlib import Path
 from typing import Annotated
 
@@ -25,11 +25,7 @@ from scripts.data.augmentation.ccil.f import (
 )
 from scripts.data.augmentation.tacil import augmentation as tacil
 from scripts.data.base.episode_store import EpisodeStore, download_episode_store
-from scripts.evaluation.core.condition import (
-    Condition,
-    DisturbanceLevel,
-    FloorCondition,
-)
+from scripts.evaluation.core.condition import Condition
 from scripts.evaluation.evaluate_policy import (
     DEFAULT_EPISODE_COUNT,
     STAGE_PREFIX,
@@ -38,10 +34,10 @@ from scripts.evaluation.evaluate_policy import (
 from scripts.policies.bc import config as bc_config
 from scripts.policies.bc.policy import load_behavior_cloning_policy
 from scripts.policies.bc.train import train_behavior_cloning_policy
+from scripts.policies.shared.run_config import RunConfig
 from scripts.shared.log import create_logger, log_device_info
 from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
 from scripts.shared.seeding import set_seed
-from scripts.shared.wandb_config import WandbConfig
 
 logger = create_logger()
 
@@ -51,24 +47,10 @@ logger = create_logger()
 Augmentation = (
     Annotated[tacil.Config, tyro.conf.subcommand(name="tacil")]
     | Annotated[ccil_config.Config, tyro.conf.subcommand(name="ccil")]
-    | None
 )
 
 
-@dataclass(frozen=True)
-class Config:
-    wandb: WandbConfig
-
-    floor_condition: FloorCondition
-    disturbance_level: DisturbanceLevel | None
-
-    expert_dataset_artifact: str
-
-    seed: int
-
-    augmentation: Augmentation = None
-    # How the policy itself is trained. Declared once, in bc/config.py.
-    policy: bc_config.Config = field(default_factory=bc_config.Config)
+Config = RunConfig[bc_config.Config, Augmentation]
 
 
 def main() -> None:
