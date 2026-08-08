@@ -13,7 +13,7 @@ from scripts.shared.wandb_config import WandbConfig
 
 
 @dataclass(frozen=True)
-class RunConfig[PolicyConfigT, AugmentationT = None]:
+class RunConfig[PolicyConfigT, AugmentationT]:
     wandb: WandbConfig
 
     floor_condition: FloorCondition
@@ -28,5 +28,8 @@ class RunConfig[PolicyConfigT, AugmentationT = None]:
     # How the policy itself is trained, declared in the policy's own config.
     policy: PolicyConfigT
 
-    # None trains on the expert data alone.
+    # None trains on the expert data alone. A policy that takes no augmentation
+    # at all passes None for AugmentationT, which leaves this the only value it
+    # can hold. No type-parameter default here on purpose: not every checker
+    # supports them, and one explicit None reads the same.
     augmentation: AugmentationT | None = None

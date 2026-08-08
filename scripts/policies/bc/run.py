@@ -41,16 +41,13 @@ from scripts.shared.seeding import set_seed
 
 logger = create_logger()
 
-# Behavior cloning trains on single (state, action) pairs, so no augmentation
-# here gets a windowed layout: expert continuations would only repeat the
-# expert data and drown the labels.
-Augmentation = (
-    Annotated[tacil.Config, tyro.conf.subcommand(name="tacil")]
-    | Annotated[ccil_config.Config, tyro.conf.subcommand(name="ccil")]
-)
-
-
-Config = RunConfig[bc_config.Config, Augmentation]
+Config = RunConfig[
+    bc_config.Config,
+    (
+        Annotated[tacil.Config, tyro.conf.subcommand(name="tacil")]
+        | Annotated[ccil_config.Config, tyro.conf.subcommand(name="ccil")]
+    ),
+]
 
 
 def main() -> None:

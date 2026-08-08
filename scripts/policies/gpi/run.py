@@ -25,7 +25,7 @@ from scripts.shared.seeding import set_seed
 logger = create_logger()
 
 
-Config = RunConfig[gpi_config.Config]
+Config = RunConfig[gpi_config.Config, None]
 
 
 def main() -> None:
