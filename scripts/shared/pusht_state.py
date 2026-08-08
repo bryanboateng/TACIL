@@ -1,12 +1,12 @@
 """What the numbers in a PushT state mean.
 
-A PushT state is four positions and one orientation. The orientation is
-periodic, so the state is not a plain vector: 0.01 and 2π - 0.01 are almost the
-same orientation, but they are far apart as numbers. Only this one fact makes
-the module necessary. Everything below follows from it.
+A state is four positions and one orientation. The orientation is periodic, so
+the state is not a plain vector: 0.01 and 2π - 0.01 are almost the same
+orientation but far apart as numbers. Only this one fact makes the module
+necessary. Everything below follows from it.
 
-The standard remedy is to leave the state alone and to replace the three
-arithmetic operations that would otherwise be wrong:
+The remedy is to leave the state alone and to replace the three arithmetic
+operations that would otherwise be wrong at that seam:
 
     a - b        ->  state_differences(a, b)
     a + d        ->  advance_states(a, d)
@@ -17,6 +17,11 @@ two operators ⊟ and ⊞ and name exactly this pattern; see "Integrating generi
 sensor fusion algorithms with sound state representations through encapsulation
 of manifolds", Information Fusion 14(1), 2013, arXiv:1107.1119. average_states
 is the matching circular mean from directional statistics.
+
+The state carries no velocity, and it does not need one. With gym_pusht's
+default damping the block's velocity is destroyed every substep, so the next
+state is a function of this state and the action alone. Measured: a block given
+150 px/s stands still one step later.
 
 Two more layout facts live here, both unrelated to the periodicity:
 
@@ -30,14 +35,12 @@ import torch
 
 from scripts.data.augmentation.tacil.models.normalizers import Normalizers
 
-# Frame layout: agent x/y, block x/y, block angle. A dynamics state is one
-# such frame, or two when the previous state is stacked in.
-FRAME_SIZE = 5
+# Layout: agent x/y, block x/y, block angle.
+STATE_DIMENSIONALITY = 5
 AGENT_POSITION_SLICE = slice(0, 2)
 BLOCK_POSITION_SLICE = slice(2, 4)
+POSITION_SLICE = slice(0, 4)
 ANGLE_INDEX = 4
-# Every frame carries an angle, so this picks all of them at once.
-ANGLE_SLICE = slice(ANGLE_INDEX, None, FRAME_SIZE)
 
 # The parts a state error is broken down into.
 STATE_GROUPS = (
@@ -63,53 +66,54 @@ def shortest_angle_differences(
 
 def state_differences(
     *,
-    state_batch: torch.Tensor,  # (..., state_dimensionality)
-    other_state_batch: torch.Tensor,  # (..., state_dimensionality)
-) -> torch.Tensor:  # (..., state_dimensionality)
-    """State minus state. Positions subtract, orientations go the shorter way
-    round, so two states one full turn apart differ by zero rather than by 2π.
+    state_batch: torch.Tensor,  # (..., STATE_DIMENSIONALITY)
+    other_state_batch: torch.Tensor,  # (..., STATE_DIMENSIONALITY)
+) -> torch.Tensor:  # (..., STATE_DIMENSIONALITY)
+    """State minus state. Positions subtract, the orientation goes the shorter
+    way round, so two states one full turn apart differ by zero rather than by
+    2π.
 
     Every distance and every residual in the pipeline is built from this, which
     is why no stage needs a continuous stand-in for the angle.
     """
     difference_batch = state_batch - other_state_batch
-    difference_batch[..., ANGLE_SLICE] = shortest_angle_differences(
-        angle_batch=difference_batch[..., ANGLE_SLICE]
+    difference_batch[..., ANGLE_INDEX] = shortest_angle_differences(
+        angle_batch=difference_batch[..., ANGLE_INDEX]
     )
     return difference_batch
 
 
 def advance_states(
     *,
-    state_batch: torch.Tensor,  # (..., state_dimensionality)
-    state_displacement_batch: torch.Tensor,  # (..., state_dimensionality)
-) -> torch.Tensor:  # (..., state_dimensionality)
-    """State plus displacement, with orientations kept inside [0, 2π)."""
+    state_batch: torch.Tensor,  # (..., STATE_DIMENSIONALITY)
+    state_displacement_batch: torch.Tensor,  # (..., STATE_DIMENSIONALITY)
+) -> torch.Tensor:  # (..., STATE_DIMENSIONALITY)
+    """State plus displacement, with the orientation kept inside [0, 2π)."""
     advanced_state_batch = state_batch + state_displacement_batch
     # Not ``%=``: vmap has no batching rule for the in-place remainder and
     # falls back to a loop, which costs 6x here. This runs inside every
     # Jacobian.
-    advanced_state_batch[..., ANGLE_SLICE] = (
-        advanced_state_batch[..., ANGLE_SLICE] % FULL_TURN
+    advanced_state_batch[..., ANGLE_INDEX] = (
+        advanced_state_batch[..., ANGLE_INDEX] % FULL_TURN
     )
     return advanced_state_batch
 
 
 def average_states(
     *,
-    state_batch: torch.Tensor,  # (..., state_dimensionality)
+    state_batch: torch.Tensor,  # (..., STATE_DIMENSIONALITY)
     dim: int,
-) -> torch.Tensor:  # (..., state_dimensionality)
-    """The mean state. Positions average arithmetically, orientations as
-    directions on the unit circle.
+) -> torch.Tensor:  # (..., STATE_DIMENSIONALITY)
+    """The mean state. Positions average arithmetically, the orientation as a
+    direction on the unit circle.
 
     The arithmetic mean of 0.01 and 2π - 0.01 is π — the exact opposite of the
     two orientations it averages. Averaging the unit vectors instead gives the
     orientation they actually surround.
     """
     average_batch = state_batch.mean(dim=dim)
-    angle_batch = state_batch[..., ANGLE_SLICE]
-    average_batch[..., ANGLE_SLICE] = (
+    angle_batch = state_batch[..., ANGLE_INDEX]
+    average_batch[..., ANGLE_INDEX] = (
         torch.atan2(
             input=torch.sin(input=angle_batch).mean(dim=dim),
             other=torch.cos(input=angle_batch).mean(dim=dim),
@@ -120,22 +124,18 @@ def average_states(
 
 
 def network_input_dimensionality(
-    *,
-    state_dimensionality: int,
-    action_dimensionality: int,
-    measure_positions_from_agent: bool,
+    *, action_dimensionality: int, measure_positions_from_agent: bool
 ) -> int:
-    frame_count = state_dimensionality // FRAME_SIZE
-    # Each frame's angle turns into a cosine and a sine: one number more.
-    dimensionality = state_dimensionality + frame_count + action_dimensionality
-    # Measured from the agent, the agent's own position is always zero.
-    return dimensionality - 2 if measure_positions_from_agent else dimensionality
+    # The positions, plus the angle as a cosine and a sine. Measured from the
+    # agent, the agent's own position is always zero.
+    position_dimensionality = 2 if measure_positions_from_agent else 4
+    return position_dimensionality + 2 + action_dimensionality
 
 
 def network_input(
     *,
     normalizers: Normalizers,
-    state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
+    state_batch: torch.Tensor,  # (batch_size, STATE_DIMENSIONALITY)
     action_batch: torch.Tensor,  # (batch_size, action_dimensionality)
     measure_positions_from_agent: bool,
 ) -> torch.Tensor:  # (batch_size, network_input_dimensionality)
@@ -151,6 +151,7 @@ def network_input(
     angle reads 0.3 or 0.3 + 2π.
     """
     agent_position_batch = state_batch[:, AGENT_POSITION_SLICE]
+    state_scale = normalizers.state_normalizer.std
 
     parts = [
         (action_batch - agent_position_batch) / normalizers.action_normalizer.std
@@ -158,39 +159,23 @@ def network_input(
         else normalizers.action_normalizer.normalize(value_batch=action_batch)
     ]
 
-    for frame_start in range(0, state_batch.shape[-1], FRAME_SIZE):
-        frame_batch = state_batch[:, frame_start : frame_start + FRAME_SIZE]
-        frame_shift = normalizers.state_normalizer.mean[
-            frame_start : frame_start + FRAME_SIZE
-        ]
-        frame_scale = normalizers.state_normalizer.std[
-            frame_start : frame_start + FRAME_SIZE
-        ]
-
-        if measure_positions_from_agent:
-            if frame_start > 0:
-                # The current agent position is the origin, so only earlier
-                # frames still carry one.
-                parts.append(
-                    (frame_batch[:, AGENT_POSITION_SLICE] - agent_position_batch)
-                    / frame_scale[AGENT_POSITION_SLICE]
-                )
-            parts.append(
-                (frame_batch[:, BLOCK_POSITION_SLICE] - agent_position_batch)
-                / frame_scale[BLOCK_POSITION_SLICE]
-            )
-        else:
-            positions_slice = slice(
-                AGENT_POSITION_SLICE.start, BLOCK_POSITION_SLICE.stop
-            )
-            parts.append(
-                (frame_batch[:, positions_slice] - frame_shift[positions_slice])
-                / frame_scale[positions_slice]
-            )
-
-        angle_batch = frame_batch[:, ANGLE_INDEX : ANGLE_INDEX + 1]
+    if measure_positions_from_agent:
         parts.append(
-            torch.cat(tensors=[torch.cos(angle_batch), torch.sin(angle_batch)], dim=-1)
+            (state_batch[:, BLOCK_POSITION_SLICE] - agent_position_batch)
+            / state_scale[BLOCK_POSITION_SLICE]
         )
+    else:
+        parts.append(
+            (
+                state_batch[:, POSITION_SLICE]
+                - normalizers.state_normalizer.mean[POSITION_SLICE]
+            )
+            / state_scale[POSITION_SLICE]
+        )
+
+    angle_batch = state_batch[:, ANGLE_INDEX : ANGLE_INDEX + 1]
+    parts.append(
+        torch.cat(tensors=[torch.cos(angle_batch), torch.sin(angle_batch)], dim=-1)
+    )
 
     return torch.cat(tensors=parts, dim=-1)

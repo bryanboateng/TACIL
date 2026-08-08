@@ -34,7 +34,6 @@ class DynamicsModel(torch.nn.Module):
 
         self._network = _create_network(
             input_dimensionality=network_input_dimensionality(
-                state_dimensionality=state_dimensionality,
                 action_dimensionality=action_dimensionality,
                 measure_positions_from_agent=measure_positions_from_agent,
             ),

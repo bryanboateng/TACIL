@@ -30,7 +30,7 @@ class Normalizers(torch.nn.Module):
         action_batch: torch.Tensor,  # (batch_size, action_dimensionality)
         # Taken by the caller rather than computed here: subtracting two states
         # is the state layout's business, and this class knows only scales.
-        state_displacement_batch: torch.Tensor,  # (batch_size, state_dimensionality)
+        state_displacement_batch: torch.Tensor,  # (batch_size, STATE_DIMENSIONALITY)
     ) -> Self:
         return cls(
             state_normalizer=ZScoreNormalizer.from_values(value_batch=state_batch),
@@ -64,8 +64,8 @@ class Normalizers(torch.nn.Module):
     def denormalize_state_displacement(
         self,
         *,
-        normalized_state_displacement_batch: torch.Tensor,  # (batch_size, state_dimensionality)
-    ) -> torch.Tensor:  # (batch_size, state_dimensionality)
+        normalized_state_displacement_batch: torch.Tensor,  # (batch_size, STATE_DIMENSIONALITY)
+    ) -> torch.Tensor:  # (batch_size, STATE_DIMENSIONALITY)
         return self.state_displacement_normalizer.denormalize(
             value_batch=normalized_state_displacement_batch
         )
@@ -73,8 +73,8 @@ class Normalizers(torch.nn.Module):
     def scale_to_step_units(
         self,
         *,
-        state_difference_batch: torch.Tensor,  # (..., state_dimensionality)
-    ) -> torch.Tensor:  # (..., state_dimensionality)
+        state_difference_batch: torch.Tensor,  # (..., STATE_DIMENSIONALITY)
+    ) -> torch.Tensor:  # (..., STATE_DIMENSIONALITY)
         """A state difference measured in typical one-step motion per
         dimension. Only the scale applies — a difference needs no shift."""
         return state_difference_batch / self.state_displacement_normalizer.std

@@ -35,8 +35,6 @@ class Config:
     # is a real option rather than a stand-in number.
     lipschitz_constant_upper_bound: float | None = None
 
-    # Stack the previous state in so the dynamics model can read velocities.
-    include_previous_state: bool = False
     # Positions measured from the agent instead of absolute ones.
     measure_positions_from_agent: bool = False
 
@@ -61,7 +59,6 @@ def augment(
             ),
             architecture=dynamics_config.ArchitectureConfig(
                 lipschitz_constant_upper_bound=config.lipschitz_constant_upper_bound,
-                include_previous_state=config.include_previous_state,
                 measure_positions_from_agent=config.measure_positions_from_agent,
             ),
             training=dynamics_config.TrainingConfig(),
@@ -77,7 +74,6 @@ def augment(
             action_noise_fraction=config.action_noise_fraction,
             error_limit_fraction=config.error_limit_fraction,
             disagreement_weight=config.disagreement_weight,
-            include_previous_state=config.include_previous_state,
             seed=seed,
         ),
         episode_store=expert_episode_store,

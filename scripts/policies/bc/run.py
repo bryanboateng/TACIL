@@ -195,7 +195,6 @@ def _build_note(*, config: Config, condition: Condition) -> str:
                 f"|noise={tacil_configuration.action_noise_fraction:.4f}"
                 f"|err={tacil_configuration.error_limit_fraction:.4f}"
                 f"|dw={tacil_configuration.disagreement_weight:.2f}"
-                f"|prev={tacil_configuration.include_previous_state}"
                 f"|rel={tacil_configuration.measure_positions_from_agent}"
             )
 

@@ -37,7 +37,7 @@ from scripts.shared.log import create_logger  # noqa: E402
 from scripts.shared.pusht_state import (  # noqa: E402
     ANGLE_INDEX,
     ARENA_SIZE,
-    FRAME_SIZE,
+    STATE_DIMENSIONALITY,
     STATE_GROUPS,
     state_differences,
 )
@@ -200,7 +200,7 @@ class _ForwardChainMeasurements:
     # Distance between the model's prediction and the real state.
     true_errors: torch.Tensor  # (chain_count, depth_count)
     # The same deviation kept per dimension of the current frame.
-    state_differences: torch.Tensor  # (chain_count, depth_count, FRAME_SIZE)
+    state_differences: torch.Tensor  # (chain_count, depth_count, STATE_DIMENSIONALITY)
     # Ensemble disagreement at the state the prediction was made from.
     disagreements: torch.Tensor  # (chain_count, depth_count)
 
@@ -217,7 +217,7 @@ class _BackwardChainMeasurements:
     # Distance between the solved predecessor and the real predecessor.
     true_errors: torch.Tensor  # (chain_count, depth_count)
     # The same deviation kept per dimension of the current frame.
-    state_differences: torch.Tensor  # (chain_count, depth_count, FRAME_SIZE)
+    state_differences: torch.Tensor  # (chain_count, depth_count, STATE_DIMENSIONALITY)
     # The two filter signals, evaluated at the solved predecessor.
     disagreements: torch.Tensor  # (chain_count, depth_count)
     sensitivity_scaled_step_distances: torch.Tensor  # (chain_count, depth_count)
@@ -335,7 +335,7 @@ def _measure_backward_chains(
         size=(chain_count, depth_count), fill_value=float("nan"), device=device
     )
     state_differences = torch.full(
-        size=(chain_count, depth_count, FRAME_SIZE),
+        size=(chain_count, depth_count, STATE_DIMENSIONALITY),
         fill_value=float("nan"),
         device=device,
     )
@@ -454,14 +454,14 @@ def _normalized_differences(
     dynamics_model_ensemble: DynamicsModelEnsemble,
     state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
     other_state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
-) -> torch.Tensor:  # (batch_size, FRAME_SIZE)
-    """How far the two states are apart, per dimension of the current frame,
-    in units of that dimension's spread."""
+) -> torch.Tensor:  # (batch_size, STATE_DIMENSIONALITY)
+    """How far the two states are apart, per dimension, in units of that
+    dimension's spread."""
     return dynamics_model_ensemble.normalizers.scale_to_state_spread_units(
         state_difference_batch=state_differences(
             state_batch=state_batch, other_state_batch=other_state_batch
         )
-    )[:, :FRAME_SIZE]
+    )
 
 
 def _spearman_correlation(*, claims: torch.Tensor, truths: torch.Tensor) -> float:

@@ -84,9 +84,6 @@ _TACIL_PARAMETERS: dict[str, Any] = {
         "min": 0.0,
         "max": 1.0,
     },
-    # Stack the previous state in so the dynamics model can read velocities
-    # (the block keeps sliding after contact).
-    "augmentation.include_previous_state": {"values": [False, True]},
     # Positions measured from the agent instead of absolute ones.
     "augmentation.measure_positions_from_agent": {"values": [False, True]},
 }

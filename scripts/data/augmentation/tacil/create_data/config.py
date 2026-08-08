@@ -12,9 +12,6 @@ class Config:
 
     disagreement_weight: float = 0.5
 
-    # Must match the setting the dynamics model was trained with.
-    include_previous_state: bool = False
-
     def __post_init__(self) -> None:
         if not 0.0 <= self.disagreement_weight <= 1.0:
             raise ValueError(

@@ -22,7 +22,6 @@ from scripts.data.augmentation.tacil.create_dynamics.dynamics_model_training imp
     load_best_member_model,
     train_member_for_one_epoch,
 )
-from scripts.data.augmentation.tacil.dynamics_state import stack_previous_state
 from scripts.data.augmentation.tacil.models.dynamics_model_ensemble import (
     DynamicsModelEnsemble,
 )
@@ -50,11 +49,6 @@ def train_dynamics_model_ensemble(
 ) -> DynamicsModelEnsemble:
     set_seed(seed=config.seed)
     _define_epoch_metrics(run=run)
-
-    # Everything downstream — training, diagnostics, the returned ensemble —
-    # works on the dynamics state.
-    if config.architecture.include_previous_state:
-        episode_store = stack_previous_state(episode_store=episode_store)
 
     training_episodes, validation_episodes = train_test_split(
         extract_transitions(episode_store=episode_store),

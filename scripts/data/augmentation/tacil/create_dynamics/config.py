@@ -40,9 +40,6 @@ class ArchitectureConfig:
     # disagreement between these models.
     ensemble_size: int = 20
 
-    # Add the previous state to the input. Then the model can read the
-    # velocities.
-    include_previous_state: bool = False
     # Measure all positions from the agent. If false, the positions start at
     # the corner of the arena.
     measure_positions_from_agent: bool = False
