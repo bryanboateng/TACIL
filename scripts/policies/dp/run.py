@@ -11,7 +11,7 @@ cannot fill a window.
 import tempfile
 from dataclasses import asdict
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, TypeAlias
 
 import torch
 import tyro
@@ -19,6 +19,7 @@ import wandb
 from rich.pretty import pretty_repr
 
 from scripts.data.augmentation.tacil import augmentation as tacil
+from scripts.data.augmentation.tacil.augmentation import TacilConfig
 from scripts.data.base.episode_store import download_episode_store
 from scripts.evaluation.core.condition import Condition
 from scripts.evaluation.evaluate_policy import (
@@ -36,8 +37,8 @@ from scripts.shared.seeding import set_seed
 
 logger = create_logger()
 
-Augmentation = Annotated[tacil.Config, tyro.conf.subcommand(name="tacil")]
-Config = RunConfig[policy_config.Config, Augmentation]
+Augmentation: TypeAlias = Annotated[TacilConfig, tyro.conf.subcommand(name="tacil")]
+Config: TypeAlias = RunConfig[policy_config.Config, Augmentation]
 
 
 def main() -> None:
@@ -104,7 +105,7 @@ def _run(*, config: Config) -> None:
             policy_factory=load_diffusion_policy(
                 checkpoint_path=checkpoint_path, sampler=sampler, device=device
             ),
-            policy_label=f"dp ({sampler})   diffusion-policy-{run.name}",
+            policy_label=f"dp ({sampler})   diffusion-policy-{run.name!s}",
             condition=condition,
             episode_count=DEFAULT_EPISODE_COUNT,
             run=run,
@@ -122,7 +123,7 @@ def _build_note(*, config: Config, condition: Condition) -> str:
         if augmentation is None
         else (
             f"aug=tacil"
-            f"|lip={augmentation.dynamics.lipschitz_constant_upper_bound}"
+            f"|lip={augmentation.dynamics.lipschitz_constant_upper_bound!s}"
             f"|win={augmentation.dynamics.window_length}"
             f"|noise={augmentation.data.action_noise_fraction:.4f}"
             f"|err={augmentation.data.error_limit_fraction:.4f}"

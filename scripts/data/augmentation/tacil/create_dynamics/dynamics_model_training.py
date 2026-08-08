@@ -6,7 +6,7 @@ import torch
 from numpy import typing as npt
 from torch.optim.swa_utils import AveragedModel
 
-from scripts.data.augmentation.tacil.create_dynamics.config import Config
+from scripts.data.augmentation.tacil.create_dynamics.config import DynamicsConfig
 from scripts.data.augmentation.tacil.create_dynamics.data import TransitionSet
 from scripts.data.augmentation.tacil.create_dynamics.evaluation import (
     calculate_local_lipschitz_constants,
@@ -57,7 +57,7 @@ class MemberTrainingState:
 
 @dataclass
 class TrainingContext:
-    config: Config
+    config: DynamicsConfig
     normalizers: Normalizers
     training_transitions: TransitionSet
     validation_transitions: TransitionSet
@@ -70,7 +70,7 @@ class TrainingContext:
 def create_member_training_state(
     *,
     member_seed: int,
-    config: Config,
+    config: DynamicsConfig,
     transitions: TransitionSet,
     device: torch.device,
 ) -> MemberTrainingState:

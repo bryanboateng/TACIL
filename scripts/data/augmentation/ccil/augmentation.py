@@ -7,7 +7,7 @@ What the policy gets back is the accepted labels alone. A label is a single
 import torch
 from wandb import Run
 
-from scripts.data.augmentation.ccil import config as ccil_config
+from scripts.data.augmentation.ccil.config import CcilConfig
 from scripts.data.augmentation.ccil.create_augmented_data import (
     create_ccil_augmented_data,
 )
@@ -17,7 +17,7 @@ from scripts.data.base.episode_store import EpisodeStore
 
 def augment(
     *,
-    config: ccil_config.Config,
+    config: CcilConfig,
     expert_episode_store: EpisodeStore,
     seed: int,
     device: torch.device,

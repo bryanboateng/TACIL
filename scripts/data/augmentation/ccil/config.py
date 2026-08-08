@@ -30,7 +30,7 @@ class LabelConfig:
 
 
 @dataclass(frozen=True)
-class Config:
+class CcilConfig:
     dynamics: DynamicsConfig = field(default_factory=DynamicsConfig)
     # Named for what the stage produces, rather than after the method, so the
     # command line does not repeat the word twice in one path.

@@ -2,7 +2,7 @@ import numpy as np
 import torch
 from wandb import Run
 
-from scripts.data.augmentation.ccil.config import Config
+from scripts.data.augmentation.ccil.config import CcilConfig
 from scripts.data.augmentation.ccil.f import TransitionBatch
 from scripts.data.augmentation.ccil.world_model import WorldModel, fit_world_model
 from scripts.data.base.episode_store import EpisodeStore
@@ -18,7 +18,7 @@ _BATCH_SIZE = 4_096
 
 def create_ccil_augmented_data(
     *,
-    config: Config,
+    config: CcilConfig,
     episode_store: EpisodeStore,
     seed: int,
     device: torch.device,
@@ -116,7 +116,7 @@ def _generate_labels(
     state_batch: torch.Tensor,  # (transition_count, state_dimensionality)
     action_batch: torch.Tensor,  # (transition_count, action_dimensionality)
     next_state_batch: torch.Tensor,  # (transition_count, state_dimensionality)
-    config: Config,
+    config: CcilConfig,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Their generators, batched: labels, their actions, and the distances
     ‖s^G − s‖ used by the rejection filter.

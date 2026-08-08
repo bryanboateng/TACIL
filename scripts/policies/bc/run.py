@@ -8,7 +8,7 @@ would be nothing to reuse it for.
 import tempfile
 from dataclasses import asdict
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, TypeAlias
 
 import torch
 import tyro
@@ -17,13 +17,14 @@ from rich.pretty import pretty_repr
 from wandb import Run
 
 from scripts.data.augmentation.ccil import augmentation as ccil
-from scripts.data.augmentation.ccil import config as ccil_config
+from scripts.data.augmentation.ccil.config import CcilConfig
 from scripts.data.augmentation.ccil.f import (
     TransitionBatch,
     concatenate_transitions,
     to_transitions,
 )
 from scripts.data.augmentation.tacil import augmentation as tacil
+from scripts.data.augmentation.tacil.augmentation import TacilConfig
 from scripts.data.base.episode_store import EpisodeStore, download_episode_store
 from scripts.evaluation.core.condition import Condition
 from scripts.evaluation.evaluate_policy import (
@@ -41,13 +42,11 @@ from scripts.shared.seeding import set_seed
 
 logger = create_logger()
 
-Config = RunConfig[
-    bc_config.Config,
-    (
-        Annotated[tacil.Config, tyro.conf.subcommand(name="tacil")]
-        | Annotated[ccil_config.Config, tyro.conf.subcommand(name="ccil")]
-    ),
-]
+Augmentation: TypeAlias = (
+    Annotated[TacilConfig, tyro.conf.subcommand(name="tacil")]
+    | Annotated[CcilConfig, tyro.conf.subcommand(name="ccil")]
+)
+Config: TypeAlias = RunConfig[bc_config.Config, Augmentation]
 
 
 def main() -> None:
@@ -103,7 +102,7 @@ def _run(*, config: Config) -> None:
             policy_factory=load_behavior_cloning_policy(
                 checkpoint_path=checkpoint_path, device=device
             ),
-            policy_label=f"bc   behavior-cloning-policy-{run.name}",
+            policy_label=f"bc   behavior-cloning-policy-{run.name!s}",
             condition=condition,
             episode_count=DEFAULT_EPISODE_COUNT,
             run=run,
@@ -118,11 +117,12 @@ def _build_transitions(
     *, config: Config, expert_episodes: EpisodeStore, device: torch.device, run: Run
 ) -> TransitionBatch:
     expert_transitions = to_transitions(episode_store=expert_episodes)
+    augmentation = config.augmentation
 
-    match config.augmentation:
+    match augmentation:
         case None:
             return expert_transitions
-        case ccil_config.Config() as ccil_configuration:
+        case CcilConfig() as ccil_configuration:
             label_transitions = ccil.augment(
                 config=ccil_configuration,
                 expert_episode_store=expert_episodes,
@@ -130,7 +130,10 @@ def _build_transitions(
                 device=device,
                 run=run,
             )
-        case tacil.Config() as tacil_configuration:
+            return concatenate_transitions(
+                transition_batches=[expert_transitions, label_transitions]
+            )
+        case TacilConfig() as tacil_configuration:
             augmented_episodes = tacil.augment(
                 config=tacil_configuration,
                 expert_episode_store=expert_episodes,
@@ -142,19 +145,20 @@ def _build_transitions(
             )
             if augmented_episodes is None:
                 return expert_transitions
-            label_transitions = to_transitions(episode_store=augmented_episodes)
+            return concatenate_transitions(
+                transition_batches=[
+                    expert_transitions,
+                    to_transitions(episode_store=augmented_episodes),
+                ]
+            )
 
-    return concatenate_transitions(
-        transition_batches=[expert_transitions, label_transitions]
-    )
 
-
-def _build_note(*, config: Config, condition: Condition) -> str:
-    match config.augmentation:
+def _augmentation_note(*, augmentation: Augmentation | None) -> str:
+    match augmentation:
         case None:
-            augmentation_note = "aug=none"
-        case ccil_config.Config() as ccil_configuration:
-            augmentation_note = (
+            return "aug=none"
+        case CcilConfig() as ccil_configuration:
+            return (
                 f"aug=ccil"
                 f"|ltype={ccil_configuration.dynamics.lipschitz_type}"
                 f"|lip={ccil_configuration.dynamics.lipschitz_constraint:.3f}"
@@ -162,19 +166,21 @@ def _build_note(*, config: Config, condition: Condition) -> str:
                 f"|anoise={ccil_configuration.labels.action_noise_std:.5f}"
                 f"|q={ccil_configuration.labels.rejection_quantile:.3f}"
             )
-        case tacil.Config() as tacil_configuration:
-            augmentation_note = (
+        case TacilConfig() as tacil_configuration:
+            return (
                 f"aug=tacil"
-                f"|lip={tacil_configuration.dynamics.lipschitz_constant_upper_bound}"
+                f"|lip={tacil_configuration.dynamics.lipschitz_constant_upper_bound!s}"
                 f"|win={tacil_configuration.dynamics.window_length}"
                 f"|noise={tacil_configuration.data.action_noise_fraction:.4f}"
                 f"|err={tacil_configuration.data.error_limit_fraction:.4f}"
                 f"|dw={tacil_configuration.data.disagreement_weight:.2f}"
             )
 
+
+def _build_note(*, config: Config, condition: Condition) -> str:
     return (
         f"data={config.expert_dataset_artifact}"
-        f"|{augmentation_note}"
+        f"|{_augmentation_note(augmentation=config.augmentation)}"
         f"|seed={config.seed}"
         f"|cond={condition.label}"
     )

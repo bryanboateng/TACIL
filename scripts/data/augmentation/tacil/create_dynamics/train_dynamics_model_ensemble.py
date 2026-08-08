@@ -5,7 +5,7 @@ from sklearn.model_selection import train_test_split
 from tqdm import tqdm
 from wandb import Run
 
-from scripts.data.augmentation.tacil.create_dynamics.config import Config
+from scripts.data.augmentation.tacil.create_dynamics.config import DynamicsConfig
 from scripts.data.augmentation.tacil.create_dynamics.data import (
     build_windows,
     concatenate_episodes,
@@ -46,7 +46,7 @@ EPOCH_METRIC_NAME = f"{STAGE_PREFIX}epoch"
 
 def train_dynamics_model_ensemble(
     *,
-    config: Config,
+    config: DynamicsConfig,
     episode_store: EpisodeStore,
     seed: int,
     device: torch.device,

@@ -2,7 +2,7 @@ from dataclasses import dataclass
 
 
 @dataclass(frozen=True)
-class Config:
+class DataConfig:
     action_noise_fraction: float = 0.1
     # Fraction of the median expert step distance
     # It caps how far a synthetic prefix may drift from its anchor.

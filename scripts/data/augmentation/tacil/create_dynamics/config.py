@@ -10,7 +10,7 @@ from dataclasses import dataclass
 
 
 @dataclass(frozen=True)
-class Config:
+class DynamicsConfig:
     # The model predicts this number of steps from its own output. Then the
     # loss compares the predictions with the data.
     window_length: int = 3

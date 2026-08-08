@@ -2,6 +2,7 @@
 evaluation of the retrieval policy under the condition."""
 
 from dataclasses import asdict
+from typing import TypeAlias
 
 import torch
 import tyro
@@ -25,7 +26,7 @@ from scripts.shared.seeding import set_seed
 logger = create_logger()
 
 
-Config = RunConfig[gpi_config.Config, None]
+Config: TypeAlias = RunConfig[gpi_config.Config, None]
 
 
 def main() -> None:

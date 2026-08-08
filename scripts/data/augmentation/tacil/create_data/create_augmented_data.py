@@ -9,7 +9,7 @@ from scripts.data.augmentation.tacil.create_data.anchor_selection import (
 from scripts.data.augmentation.tacil.create_data.backward_rollout import (
     roll_out_backward,
 )
-from scripts.data.augmentation.tacil.create_data.config import Config
+from scripts.data.augmentation.tacil.create_data.config import DataConfig
 from scripts.data.augmentation.tacil.create_data.episode_assembly import (
     create_augmented_episodes,
 )
@@ -33,7 +33,7 @@ logger = create_logger()
 
 def create_augmented_data(
     *,
-    config: Config,
+    config: DataConfig,
     episode_store: EpisodeStore,
     dynamics_model_ensemble: DynamicsModelEnsemble,
     prediction_horizon: int | None,
