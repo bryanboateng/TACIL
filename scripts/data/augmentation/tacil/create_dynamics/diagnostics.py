@@ -54,7 +54,7 @@ _REPLAY_STEP_COUNT = 100
 _SUBSAMPLE_SEED = 0
 
 # Joins the training stage's wandb panel group.
-_LOG_PREFIX = "1_dynamics-diagnostics"
+_STAGE_NAME = "1_dynamics"
 
 
 def diagnose_dynamics_model_ensemble(
@@ -99,8 +99,8 @@ def diagnose_dynamics_model_ensemble(
         truths=backward_chain_measurements.true_errors,
     )
 
-    run.summary[f"{_LOG_PREFIX}/spearman_forward"] = forward_spearman
-    run.summary[f"{_LOG_PREFIX}/spearman_backward"] = backward_spearman
+    run.summary[f"{_STAGE_NAME}/6_spearman/forward"] = forward_spearman
+    run.summary[f"{_STAGE_NAME}/6_spearman/backward"] = backward_spearman
 
     # The single-step error per state part on both splits: equal values mean
     # the model is as good as it can be on this data, a training value far
@@ -116,10 +116,10 @@ def diagnose_dynamics_model_ensemble(
     }
     for split_name, group_errors in one_step_errors_per_split.items():
         for group_name, group_error in group_errors.items():
-            run.summary[f"{_LOG_PREFIX}/one_step_error_{group_name}/{split_name}"] = (
+            run.summary[f"{_STAGE_NAME}/5_one_step_error/{split_name}/{group_name}"] = (
                 group_error
             )
-    run.summary[f"{_LOG_PREFIX}/backward_full_depth_fraction"] = float(
+    run.summary[f"{_STAGE_NAME}/7_backward/full_depth_fraction"] = float(
         np.isfinite(backward_chain_measurements.true_errors[:, -1].cpu().numpy()).mean()
     )
     # How many times larger each raw filter signal is than the true error at
@@ -136,8 +136,8 @@ def diagnose_dynamics_model_ensemble(
             claims=signals, truths=backward_chain_measurements.true_errors
         )
         if signal_values.size > 0:
-            run.summary[f"{_LOG_PREFIX}/signal_over_truth_{signal_name}"] = float(
-                np.median(signal_values / np.maximum(truth_values, 1e-12))
+            run.summary[f"{_STAGE_NAME}/7_backward/signal_over_truth/{signal_name}"] = (
+                float(np.median(signal_values / np.maximum(truth_values, 1e-12)))
             )
 
     forward_disagreements, forward_true_errors = _finite_pairs(
@@ -150,7 +150,7 @@ def diagnose_dynamics_model_ensemble(
     )
     run.log(
         data={
-            f"{_LOG_PREFIX}/error_over_depth": _error_over_depth_panel(
+            f"{_STAGE_NAME}/9_panels/error_over_depth": _error_over_depth_panel(
                 forward_true_errors_per_depth=(
                     forward_chain_measurements.true_errors.cpu().numpy()
                 ),
@@ -158,10 +158,10 @@ def diagnose_dynamics_model_ensemble(
                     backward_chain_measurements.true_errors.cpu().numpy()
                 ),
             ),
-            f"{_LOG_PREFIX}/one_step_error_by_split": _split_comparison_panel(
+            f"{_STAGE_NAME}/9_panels/one_step_error_by_split": _split_comparison_panel(
                 one_step_errors_per_split=one_step_errors_per_split
             ),
-            f"{_LOG_PREFIX}/error_over_depth_by_group": _group_error_panel(
+            f"{_STAGE_NAME}/9_panels/error_over_depth_by_group": _group_error_panel(
                 forward_state_differences=(
                     forward_chain_measurements.state_differences.cpu().numpy()
                 ),
@@ -169,7 +169,7 @@ def diagnose_dynamics_model_ensemble(
                     backward_chain_measurements.state_differences.cpu().numpy()
                 ),
             ),
-            f"{_LOG_PREFIX}/uncertainty_vs_error": (
+            f"{_STAGE_NAME}/9_panels/uncertainty_vs_error": (
                 _disagreement_scatter_panel(
                     forward_disagreements=forward_disagreements,
                     forward_true_errors=forward_true_errors,
@@ -737,10 +737,12 @@ def _replay_panels(
             actions=torch.from_numpy(episode.actions[:step_count]).to(device=device),
         )
 
-        replay_panels[f"{_LOG_PREFIX}/replay_episode_{episode_index}"] = _replay_panel(
-            member_trajectories=member_trajectories.cpu().numpy(),
-            true_trajectory=true_trajectory,
-            episode_index=episode_index,
+        replay_panels[f"{_STAGE_NAME}/9_panels/replay_episode_{episode_index}"] = (
+            _replay_panel(
+                member_trajectories=member_trajectories.cpu().numpy(),
+                true_trajectory=true_trajectory,
+                episode_index=episode_index,
+            )
         )
     return replay_panels
 

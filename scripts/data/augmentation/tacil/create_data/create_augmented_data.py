@@ -14,7 +14,7 @@ from scripts.data.augmentation.tacil.create_data.episode_assembly import (
     create_augmented_episodes,
 )
 from scripts.data.augmentation.tacil.create_data.statistics_logging import (
-    STAGE_PREFIX,
+    STAGE_NAME,
     log_dataset_statistics,
     log_rollout_statistics,
 )
@@ -99,8 +99,8 @@ def create_augmented_data(
     )
 
     if not bool((backward_trajectories.step_count_batch > 0).any()):
-        run.summary[f"{STAGE_PREFIX}2_rollout/accepted_anchor_count"] = 0
-        run.summary[f"{STAGE_PREFIX}2_rollout/accepted_anchor_fraction"] = 0.0
+        run.summary[f"{STAGE_NAME}/1_rollout/accepted_count"] = 0
+        run.summary[f"{STAGE_NAME}/1_rollout/accepted_fraction"] = 0.0
         raise RuntimeError(
             "The error budget rejected every anchor's first backward step, so "
             "this configuration produced no labels. Training on the expert data "

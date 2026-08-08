@@ -27,7 +27,7 @@ from scripts.shared.seeding import set_seed
 
 logger = create_logger()
 
-STAGE_PREFIX = "3_policy-"
+STAGE_NAME = "3_policy"
 
 
 def train_behavior_cloning_policy(
@@ -99,7 +99,7 @@ def train_behavior_cloning_policy(
 
             optimizer.step()
 
-            run.log(data={f"{STAGE_PREFIX}training/loss": loss.item()})
+            run.log(data={f"{STAGE_NAME}/1_training/loss": loss.item()})
 
         periodic_evaluation_is_due = (
             (epoch_index + 1) % config.evaluation.periodic_interval_epoch_count == 0
@@ -115,9 +115,9 @@ def train_behavior_cloning_policy(
         )
         run.log(
             data={
-                f"{STAGE_PREFIX}validation/reward_mean": validation_reward.mean,
-                f"{STAGE_PREFIX}validation/reward_std": validation_reward.std,
-                f"{STAGE_PREFIX}epoch": epoch_index,
+                f"{STAGE_NAME}/2_validation/reward_mean": validation_reward.mean,
+                f"{STAGE_NAME}/2_validation/reward_std": validation_reward.std,
+                f"{STAGE_NAME}/epoch": epoch_index,
             }
         )
 
@@ -135,11 +135,11 @@ def train_behavior_cloning_policy(
     if best_checkpoint is None:
         raise ValueError("No checkpoint was recorded")
 
-    run.summary[f"{STAGE_PREFIX}selected/epoch"] = best_checkpoint.epoch
-    run.summary[f"{STAGE_PREFIX}selected/reward_mean"] = (
+    run.summary[f"{STAGE_NAME}/3_selected/epoch"] = best_checkpoint.epoch
+    run.summary[f"{STAGE_NAME}/3_selected/reward_mean"] = (
         best_checkpoint.validation_reward_mean
     )
-    run.summary[f"{STAGE_PREFIX}selected/reward_std"] = (
+    run.summary[f"{STAGE_NAME}/3_selected/reward_std"] = (
         best_checkpoint.validation_reward_std
     )
 

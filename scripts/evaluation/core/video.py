@@ -126,7 +126,7 @@ def record_condition(
     policy_label: str,
     condition: Condition,
     episode_records: dict[int, EpisodeRecord],
-    key_prefix: str,
+    stage_name: str,
     run: Run,
 ) -> None:
     render_settings = RenderSettings()
@@ -159,7 +159,7 @@ def record_condition(
 
             run.log(
                 data={
-                    f"{key_prefix}{condition.label}/video": wandb.Video(
+                    f"{stage_name}/{condition.label}/video": wandb.Video(
                         data_or_path=str(video_path), format="mp4"
                     )
                 }

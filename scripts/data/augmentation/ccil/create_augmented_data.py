@@ -10,7 +10,7 @@ from scripts.shared.seeding import set_seed
 
 logger = create_logger()
 
-STAGE_PREFIX = "2_data-"
+STAGE_NAME = "2_data"
 
 _BATCH_SIZE = 4_096
 
@@ -71,15 +71,15 @@ def create_ccil_augmented_data(
     accepted_mask = label_distances <= distance_threshold
     accepted_count = int(accepted_mask.sum())
     label_count = label_states.shape[0]
-    run.summary[f"{STAGE_PREFIX}2_labels/distance_threshold"] = distance_threshold
+    run.summary[f"{STAGE_NAME}/1_labels/distance_threshold"] = distance_threshold
 
-    run.summary[f"{STAGE_PREFIX}2_labels/transition_count"] = states.shape[0]
-    run.summary[f"{STAGE_PREFIX}2_labels/label_count"] = label_count
-    run.summary[f"{STAGE_PREFIX}2_labels/accepted_count"] = accepted_count
-    run.summary[f"{STAGE_PREFIX}2_labels/accepted_fraction"] = accepted_count / max(
+    run.summary[f"{STAGE_NAME}/1_labels/transition_count"] = states.shape[0]
+    run.summary[f"{STAGE_NAME}/1_labels/label_count"] = label_count
+    run.summary[f"{STAGE_NAME}/1_labels/accepted_count"] = accepted_count
+    run.summary[f"{STAGE_NAME}/1_labels/accepted_fraction"] = accepted_count / max(
         label_count, 1
     )
-    run.summary[f"{STAGE_PREFIX}2_labels/distance_median"] = float(
+    run.summary[f"{STAGE_NAME}/1_labels/distance_median"] = float(
         np.median(label_distances)
     )
 

@@ -24,7 +24,7 @@ from scripts.evaluation.core.condition import (
     DisturbanceLevel,
     FloorCondition,
 )
-from scripts.evaluation.evaluate_policy import STAGE_PREFIX
+from scripts.evaluation.evaluate_policy import STAGE_NAME
 from scripts.shared.log import create_logger
 
 logger = create_logger()
@@ -210,7 +210,7 @@ def _build_sweep_configuration(
         "method": config.search,
         # Written by the evaluation stage, which owns the prefix.
         "metric": {
-            "name": f"{STAGE_PREFIX}{condition.label}/reward_mean",
+            "name": f"{STAGE_NAME}/{condition.label}/reward_mean",
             "goal": "maximize",
         },
         # The pipeline is a module, not a script: it imports from the repository

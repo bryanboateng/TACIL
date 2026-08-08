@@ -37,11 +37,11 @@ logger = create_logger()
 # report the same numbers under the same names. wandb groups panels by the part
 # before the first slash, so the stage joins the group with a hyphen rather than
 # a slash of its own.
-STAGE_PREFIX = "1_dynamics-"
+STAGE_NAME = "1_dynamics"
 
 # The x-axis of this stage's curves. The run may be shared with the rest of the
 # pipeline, whose implicit step counter is not the training epoch.
-EPOCH_METRIC_NAME = f"{STAGE_PREFIX}epoch"
+EPOCH_METRIC_NAME = f"{STAGE_NAME}/epoch"
 
 
 def train_dynamics_model_ensemble(
@@ -73,10 +73,10 @@ def train_dynamics_model_ensemble(
     validation_state_windows, validation_action_windows = build_windows(
         episodes=validation_episodes, window_length=config.window_length
     )
-    run.summary[f"{STAGE_PREFIX}window_count/training"] = train_action_windows.shape[0]
-    run.summary[f"{STAGE_PREFIX}window_count/validation"] = (
-        validation_action_windows.shape[0]
-    )
+    run.summary[f"{STAGE_NAME}/4_windows/training"] = train_action_windows.shape[0]
+    run.summary[f"{STAGE_NAME}/4_windows/validation"] = validation_action_windows.shape[
+        0
+    ]
 
     state_batch = torch.from_numpy(training_transitions.states).to(device=device)
     next_state_batch = torch.from_numpy(training_transitions.next_states).to(
@@ -156,14 +156,9 @@ def train_dynamics_model_ensemble(
 
 def _define_epoch_metrics(*, run: Run) -> None:
     run.define_metric(name=EPOCH_METRIC_NAME)
-    for metric_pattern in (
-        "loss_training/*",
-        "loss_validation/*",
-        "gradient_norm/*",
-        "lipschitz_distribution/*",
-    ):
+    for metric_pattern in ("1_loss/*", "2_gradient_norm/*", "8_lipschitz/*"):
         run.define_metric(
-            name=f"{STAGE_PREFIX}{metric_pattern}", step_metric=EPOCH_METRIC_NAME
+            name=f"{STAGE_NAME}/{metric_pattern}", step_metric=EPOCH_METRIC_NAME
         )
 
 
@@ -175,11 +170,11 @@ def _log_epoch(
     }
     for member_index, metrics in enumerate(iterable=per_member_metrics):
         member = f"member_{member_index:02d}"
-        logged_metrics[f"{STAGE_PREFIX}loss_training/{member}"] = metrics.training_loss
-        logged_metrics[f"{STAGE_PREFIX}loss_validation/{member}"] = (
+        logged_metrics[f"{STAGE_NAME}/1_loss/training/{member}"] = metrics.training_loss
+        logged_metrics[f"{STAGE_NAME}/1_loss/validation/{member}"] = (
             metrics.validation_loss
         )
-        logged_metrics[f"{STAGE_PREFIX}gradient_norm/{member}"] = metrics.gradient_norm
+        logged_metrics[f"{STAGE_NAME}/2_gradient_norm/{member}"] = metrics.gradient_norm
 
     for split, member_split_lipschitz in (
         (
@@ -197,8 +192,8 @@ def _log_epoch(
             ],
         ),
     ):
-        logged_metrics[f"{STAGE_PREFIX}lipschitz_distribution/{split}"] = (
-            wandb.Histogram(sequence=np.concatenate(member_split_lipschitz).tolist())
+        logged_metrics[f"{STAGE_NAME}/8_lipschitz/{split}"] = wandb.Histogram(
+            sequence=np.concatenate(member_split_lipschitz).tolist()
         )
 
     run.log(data=logged_metrics)
@@ -218,16 +213,16 @@ def _log_checkpoint_summary(
     )
     epochs = np.array([checkpoint.epoch for checkpoint in checkpoints])
 
-    run.summary[f"{STAGE_PREFIX}checkpoint/validation_loss_mean"] = float(
+    run.summary[f"{STAGE_NAME}/3_checkpoint/loss_mean"] = float(
         validation_losses.mean()
     )
-    run.summary[f"{STAGE_PREFIX}checkpoint/epoch_mean"] = float(epochs.mean())
+    run.summary[f"{STAGE_NAME}/3_checkpoint/epoch_mean"] = float(epochs.mean())
     # The spread over the members. It shows how much the result depends on the
     # initialization of one member.
-    run.summary[f"{STAGE_PREFIX}checkpoint/validation_loss_std"] = _member_spread(
+    run.summary[f"{STAGE_NAME}/3_checkpoint/loss_std"] = _member_spread(
         values=validation_losses
     )
-    run.summary[f"{STAGE_PREFIX}checkpoint/epoch_std"] = _member_spread(values=epochs)
+    run.summary[f"{STAGE_NAME}/3_checkpoint/epoch_std"] = _member_spread(values=epochs)
 
 
 def _member_spread(*, values: np.ndarray) -> float:

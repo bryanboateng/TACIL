@@ -12,7 +12,7 @@ from rich.pretty import pretty_repr
 from scripts.evaluation.core.condition import Condition
 from scripts.evaluation.evaluate_policy import (
     DEFAULT_EPISODE_COUNT,
-    STAGE_PREFIX,
+    STAGE_NAME,
     evaluate_policy,
 )
 from scripts.policies.gpi import config as gpi_config
@@ -65,7 +65,7 @@ def _run(*, config: Config) -> None:
             run=run,
         )
 
-        reward_key = f"{STAGE_PREFIX}{condition.label}/reward_mean"
+        reward_key = f"{STAGE_NAME}/{condition.label}/reward_mean"
         logger.info("Trial finished: %s = %s", reward_key, run.summary[reward_key])
 
 
