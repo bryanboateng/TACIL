@@ -5,7 +5,7 @@ import tyro
 import wandb
 from rich.pretty import pretty_repr
 
-from scripts.shared.data import load_episode_store
+from scripts.shared.data import read_episode_store
 from scripts.shared.log import create_logger
 from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
 from scripts.shared.wandb_config import WandbConfig
@@ -36,7 +36,7 @@ def _run(*, config: Config) -> None:
         artifact.add_dir(local_path=str(config.expert_data_file_path))
         run.log_artifact(artifact_or_path=artifact)
 
-        episode_store = load_episode_store(
+        episode_store = read_episode_store(
             episode_file_path=config.expert_data_file_path
         )
         run.summary["episode_count"] = len(episode_store.episode_end_indices)

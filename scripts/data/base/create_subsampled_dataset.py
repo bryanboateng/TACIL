@@ -1,5 +1,4 @@
 from dataclasses import asdict, dataclass
-from pathlib import Path
 
 import numpy as np
 import tyro
@@ -7,7 +6,11 @@ import wandb
 from rich.pretty import pretty_repr
 from wandb import Run
 
-from scripts.shared.data import EpisodeStore, load_episode_store, upload_episode_store
+from scripts.shared.data import (
+    EpisodeStore,
+    download_episode_store,
+    upload_episode_store,
+)
 from scripts.shared.log import create_logger
 from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
 from scripts.shared.wandb_config import WandbConfig
@@ -43,10 +46,8 @@ def _run(*, config: Config):
         config=asdict(config),
         dir=OUTPUT_DIRECTORY_PATH,
     ) as run:
-        expert_episode_store = load_episode_store(
-            episode_file_path=Path(
-                run.use_artifact(artifact_or_name="expert-dataset:latest").download()
-            )
+        expert_episode_store = download_episode_store(
+            artifact_name="expert-dataset:latest", run=run
         )
 
         subsampled_episode_store = _subsample_episodes(

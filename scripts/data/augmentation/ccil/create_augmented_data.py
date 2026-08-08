@@ -1,5 +1,4 @@
 from dataclasses import asdict
-from pathlib import Path
 
 import numpy as np
 import torch
@@ -10,7 +9,11 @@ from wandb import Run
 
 from scripts.data.augmentation.ccil.config import Config
 from scripts.data.augmentation.ccil.world_model import WorldModel, fit_world_model
-from scripts.shared.data import EpisodeStore, load_episode_store, upload_episode_store
+from scripts.shared.data import (
+    EpisodeStore,
+    download_episode_store,
+    upload_episode_store,
+)
 from scripts.shared.log import create_logger, log_device_info
 from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
 from scripts.shared.seed import set_seed
@@ -42,12 +45,8 @@ def _run(*, config: Config) -> None:
         upload_episode_store(
             episode_store=create_ccil_augmented_data(
                 config=config,
-                episode_store=load_episode_store(
-                    episode_file_path=Path(
-                        run.use_artifact(
-                            artifact_or_name=config.dataset_artifact
-                        ).download()
-                    )
+                episode_store=download_episode_store(
+                    artifact_name=config.dataset_artifact, run=run
                 ),
                 device=device,
                 run=run,

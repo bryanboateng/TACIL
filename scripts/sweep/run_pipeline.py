@@ -21,7 +21,7 @@ from scripts.evaluation.evaluate_policy import STAGE_PREFIX, evaluate_policy
 from scripts.policies.dp import config as policy_config
 from scripts.policies.dp.policy import load_diffusion_policy
 from scripts.policies.dp.train import train_diffusion_policy
-from scripts.shared.data import load_episode_store
+from scripts.shared.data import download_episode_store
 from scripts.shared.log import create_logger, log_device_info
 from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
 from scripts.shared.seed import set_seed
@@ -56,12 +56,8 @@ def _run(*, config: Config) -> None:
         config=asdict(obj=config),
         dir=OUTPUT_DIRECTORY_PATH,
     ) as run:
-        expert_episode_store = load_episode_store(
-            episode_file_path=Path(
-                run.use_artifact(
-                    artifact_or_name=config.expert_dataset_artifact
-                ).download()
-            )
+        expert_episode_store = download_episode_store(
+            artifact_name=config.expert_dataset_artifact, run=run
         )
 
         logger.info("Stage 1/4: training the dynamics model ensemble.")

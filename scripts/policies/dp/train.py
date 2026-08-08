@@ -26,7 +26,7 @@ from scripts.policies.dp.network import ConditionalUnet1d
 from scripts.policies.dp.noise_scheduler import get_ddpm_scheduler
 from scripts.policies.dp.policy import load_diffusion_policy, save_diffusion_policy
 from scripts.policies.shared.checkpoint import Checkpoint
-from scripts.shared.data import EpisodeStore, load_episode_store
+from scripts.shared.data import EpisodeStore, download_episode_store
 from scripts.shared.log import create_logger, log_device_info
 from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
 from scripts.shared.seed import set_seed
@@ -66,12 +66,8 @@ def _run(*, config: Config) -> None:
     ):
         checkpoint_path = train_diffusion_policy(
             config=config,
-            episode_store=load_episode_store(
-                episode_file_path=Path(
-                    run.use_artifact(
-                        artifact_or_name=config.dataset_artifact
-                    ).download()
-                )
+            episode_store=download_episode_store(
+                artifact_name=config.dataset_artifact, run=run
             ),
             checkpoint_directory_path=Path(checkpoint_directory),
             device=device,

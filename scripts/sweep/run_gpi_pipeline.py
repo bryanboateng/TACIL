@@ -2,7 +2,6 @@
 evaluation of the retrieval policy under the condition."""
 
 from dataclasses import asdict, dataclass
-from pathlib import Path
 
 import torch
 import tyro
@@ -18,7 +17,7 @@ from scripts.evaluation.core.condition import (
 from scripts.evaluation.evaluate_policy import STAGE_PREFIX, evaluate_policy
 from scripts.policies.gpi import config as gpi_config
 from scripts.policies.gpi.policy import load_geometric_policy
-from scripts.shared.data import load_episode_store
+from scripts.shared.data import download_episode_store
 from scripts.shared.log import create_logger, log_device_info
 from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
 from scripts.shared.seed import set_seed
@@ -71,12 +70,8 @@ def _run(*, config: Config) -> None:
         config=asdict(obj=config),
         dir=OUTPUT_DIRECTORY_PATH,
     ) as run:
-        episode_store = load_episode_store(
-            episode_file_path=Path(
-                run.use_artifact(
-                    artifact_or_name=config.expert_dataset_artifact
-                ).download()
-            )
+        episode_store = download_episode_store(
+            artifact_name=config.expert_dataset_artifact, run=run
         )
 
         set_seed(seed=config.seed)

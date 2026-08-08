@@ -1,5 +1,6 @@
 import tempfile
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
 import numpy as np
@@ -25,30 +26,7 @@ class EpisodeStore:
     intended_prediction_horizon: int | None = None
 
 
-def save_episode_store(*, episode_store: EpisodeStore, save_file_path: Path):
-    root = zarr.open_group(str(save_file_path), mode="w")
-
-    data_group = root.create_group("data")
-    data_group.create_array("state", data=episode_store.states)
-    data_group.create_array("action", data=episode_store.actions)
-
-    meta_group = root.create_group("meta")
-    meta_group.create_array("episode_ends", data=episode_store.episode_end_indices)
-    meta_group.create_array(
-        "artificial_end_mask",
-        data=(
-            episode_store.artificial_end_mask
-            if episode_store.artificial_end_mask is not None
-            else np.zeros(len(episode_store.episode_end_indices), dtype=np.bool_)
-        ),
-    )
-    if episode_store.intended_prediction_horizon is not None:
-        meta_group.attrs["intended_prediction_horizon"] = int(
-            episode_store.intended_prediction_horizon
-        )
-
-
-def load_episode_store(*, episode_file_path: Path) -> EpisodeStore:
+def read_episode_store(*, episode_file_path: Path) -> EpisodeStore:
     store = zarr.open(store=episode_file_path, mode="r")
 
     if not isinstance(store, Group):
@@ -162,12 +140,52 @@ def combine_episode_stores(
     )
 
 
-def upload_episode_store(episode_store: EpisodeStore, name: str, run: Run):
+def download_episode_store(*, artifact_name: str, run: Run) -> EpisodeStore:
+    return read_episode_store(
+        episode_file_path=Path(
+            run.use_artifact(artifact_or_name=artifact_name).download()
+        )
+    )
+
+
+def upload_episode_store(*, episode_store: EpisodeStore, name: str, run: Run):
     with tempfile.TemporaryDirectory() as temporary_directory:
         output_zarr_path = Path(temporary_directory) / "dataset.zarr"
 
-        save_episode_store(episode_store=episode_store, save_file_path=output_zarr_path)
+        _write_episode_store(
+            episode_store=episode_store, save_file_path=output_zarr_path
+        )
 
-        new_artifact = wandb.Artifact(name=f"{name}-{run.name}", type="dataset")
+        run_name = run.name
+        new_artifact = wandb.Artifact(
+            name=f"{name}-{run_name if run_name is not None else datetime.now().isoformat()}",
+            type="dataset",
+        )
         new_artifact.add_dir(local_path=str(output_zarr_path))
         run.log_artifact(artifact_or_path=new_artifact)
+
+
+# ---- Private --------------------------------------------
+
+
+def _write_episode_store(*, episode_store: EpisodeStore, save_file_path: Path):
+    root = zarr.open_group(str(save_file_path), mode="w")
+
+    data_group = root.create_group("data")
+    data_group.create_array("state", data=episode_store.states)
+    data_group.create_array("action", data=episode_store.actions)
+
+    meta_group = root.create_group("meta")
+    meta_group.create_array("episode_ends", data=episode_store.episode_end_indices)
+    meta_group.create_array(
+        "artificial_end_mask",
+        data=(
+            episode_store.artificial_end_mask
+            if episode_store.artificial_end_mask is not None
+            else np.zeros(len(episode_store.episode_end_indices), dtype=np.bool_)
+        ),
+    )
+    if episode_store.intended_prediction_horizon is not None:
+        meta_group.attrs["intended_prediction_horizon"] = int(
+            episode_store.intended_prediction_horizon
+        )

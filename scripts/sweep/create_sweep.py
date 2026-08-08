@@ -38,9 +38,7 @@ SearchLabel = Literal["bayes", "random"]
 # The unaugmented baselines are not here: with the policy hyperparameters
 # fixed they have nothing to search, so they are single runs of
 # run_dp_pipeline and run_bc_pipeline rather than sweeps.
-MethodLabel = Literal[
-    "tacil-dp", "tacil-bc", "ccil-bc-noisy", "ccil-bc-euler", "gpi"
-]
+MethodLabel = Literal["tacil-dp", "tacil-bc", "ccil-bc-noisy", "ccil-bc-euler", "gpi"]
 
 # The pipeline module each method's trials run.
 METHOD_MODULES: dict[MethodLabel, str] = {

@@ -19,7 +19,7 @@ from scripts.evaluation.core.rollout import create_environment, roll_out_episode
 from scripts.evaluation.core.video import FREEZE_SECONDS, build_annotated_surfaces
 from scripts.policies.gpi import config as gpi
 from scripts.policies.gpi.policy import load_geometric_policy
-from scripts.shared.data import load_episode_store
+from scripts.shared.data import read_episode_store
 from scripts.shared.log import create_logger, log_device_info
 from scripts.shared.policy_types import Policy, PolicyFactory
 
@@ -46,7 +46,7 @@ def _build_gpi_policy_factory() -> PolicyFactory:
         action_horizon=8,
     )
     return load_geometric_policy(
-        episode_store=load_episode_store(
+        episode_store=read_episode_store(
             episode_file_path=(
                 Path(wandb.Api().artifact(name=config.dataset_artifact).download())
             )
