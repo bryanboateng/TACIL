@@ -11,6 +11,7 @@ from scripts.data.augmentation.ccil.config import Config
 from scripts.data.augmentation.ccil.world_model import WorldModel, fit_world_model
 from scripts.shared.data import (
     EpisodeStore,
+    combine_episode_stores,
     download_episode_store,
     upload_episode_store,
 )
@@ -215,31 +216,21 @@ def _append_label_episodes(
     label_states: np.ndarray,  # (label_count, state_dimensionality)
     label_actions: np.ndarray,  # (label_count, action_dimensionality)
 ) -> EpisodeStore:
-    expert_timestep_count = episode_store.states.shape[0]
-    expert_episode_count = len(episode_store.episode_end_indices)
     label_count = label_states.shape[0]
 
-    return EpisodeStore(
-        states=np.concatenate([episode_store.states, label_states], axis=0),
-        actions=np.concatenate(
-            [episode_store.actions, label_actions.astype(np.float32)], axis=0
+    return combine_episode_stores(
+        expert_episode_store=episode_store,
+        augmented_episode_store=EpisodeStore(
+            states=label_states,
+            actions=label_actions,
+            # Every label is its own episode of one timestep.
+            episode_end_indices=np.arange(1, label_count + 1, dtype=np.int64),
+            # Label episodes are artificial one-step cuts, not task completions.
+            artificial_end_mask=np.ones(label_count, dtype=np.bool_),
+            # No prediction-horizon layout: this dataset is meant for behavior
+            # cloning, which trains on flat (state, action) pairs.
+            intended_prediction_horizon=None,
         ),
-        episode_end_indices=np.concatenate(
-            [
-                episode_store.episode_end_indices,
-                expert_timestep_count + 1 + np.arange(label_count, dtype=np.int64),
-            ]
-        ),
-        # Label episodes are artificial one-step cuts, not task completions.
-        artificial_end_mask=np.concatenate(
-            [
-                np.zeros(expert_episode_count, dtype=np.bool_),
-                np.ones(label_count, dtype=np.bool_),
-            ]
-        ),
-        # No prediction-horizon layout: this dataset is meant for behavior
-        # cloning, which trains on flat (state, action) pairs.
-        intended_prediction_horizon=None,
     )
 
 
