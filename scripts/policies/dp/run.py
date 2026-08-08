@@ -24,10 +24,10 @@ from scripts.evaluation.evaluate_policy import (
     STAGE_NAME,
     evaluate_policy,
 )
-from scripts.shared.f import download_episode_store
 from scripts.policies.dp import config as policy_config
 from scripts.policies.dp.train import build_policy_factory, train_diffusion_policy
 from scripts.policies.shared.run_config import RunConfig
+from scripts.shared.f import download_episode_store
 from scripts.shared.log import create_logger, log_device_info
 from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
 
@@ -57,6 +57,10 @@ def _run(*, config: Config) -> None:
         config=asdict(obj=config),
         dir=OUTPUT_DIRECTORY_PATH,
     ) as run:
+        run_name = run.name
+        if run_name is None:
+            raise RuntimeError("wandb run name unexpectedly None")
+
         expert_episodes = download_episode_store(
             artifact_name=config.expert_dataset_artifact, run=run
         )
@@ -95,7 +99,7 @@ def _run(*, config: Config) -> None:
                 noise_prediction_network=noise_prediction_network,
                 device=device,
             ),
-            policy_label=f"dp ({config.policy.evaluation.sampler})   diffusion-policy-{run.name!s}",
+            policy_label=f"dp ({run_name})",
             condition=condition,
             episode_count=DEFAULT_EPISODE_COUNT,
             run=run,

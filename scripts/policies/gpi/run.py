@@ -49,6 +49,10 @@ def _run(*, config: Config) -> None:
         config=asdict(obj=config),
         dir=OUTPUT_DIRECTORY_PATH,
     ) as run:
+        run_name = run.name
+        if run_name is None:
+            raise RuntimeError("wandb run name unexpectedly None")
+
         episode_store = download_episode_store(
             artifact_name=config.expert_dataset_artifact, run=run
         )
@@ -59,7 +63,7 @@ def _run(*, config: Config) -> None:
             policy_factory=load_geometric_policy(
                 episode_store=episode_store, config=config.policy, device=device
             ),
-            policy_label=f"gpi   {config.expert_dataset_artifact}",
+            policy_label=f"gpi ({run_name})",
             condition=condition,
             episode_count=DEFAULT_EPISODE_COUNT,
             run=run,

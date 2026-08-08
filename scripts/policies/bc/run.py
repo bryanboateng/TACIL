@@ -55,6 +55,10 @@ def _run(*, config: Config) -> None:
         config=asdict(obj=config),
         dir=OUTPUT_DIRECTORY_PATH,
     ) as run:
+        run_name = run.name
+        if run_name is None:
+            raise RuntimeError("wandb run name unexpectedly None")
+
         expert_episodes = download_episode_store(
             artifact_name=config.expert_dataset_artifact, run=run
         )
@@ -101,7 +105,7 @@ def _run(*, config: Config) -> None:
             policy_factory=create_behavior_cloning_policy_factory(
                 policy_model=policy_model, device=device
             ),
-            policy_label=f"bc   behavior-cloning-policy-{run.name!s}",
+            policy_label=f"bc ({run_name})",
             condition=condition,
             episode_count=DEFAULT_EPISODE_COUNT,
             run=run,
