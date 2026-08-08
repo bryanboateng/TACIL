@@ -1,11 +1,4 @@
-"""How the behaviour-cloning policy is trained.
-
-The condition it is evaluated in, the seed, the dataset and the wandb project
-belong to the run, not to the training, so they are not here. See
-scripts/policies/bc/run.py.
-"""
-
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 
 @dataclass(frozen=True)
