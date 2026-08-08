@@ -8,6 +8,7 @@ from diffusers.training_utils import EMAModel
 from tqdm.auto import tqdm
 from wandb import Run
 
+from scripts.data.base.episode_store import EpisodeStore
 from scripts.evaluation.core.condition import Condition
 from scripts.evaluation.core.scoring import (
     RewardStatistics,
@@ -21,9 +22,8 @@ from scripts.policies.dp.network import ConditionalUnet1d
 from scripts.policies.dp.noise_scheduler import get_ddpm_scheduler
 from scripts.policies.dp.policy import load_diffusion_policy, save_diffusion_policy
 from scripts.policies.shared.checkpoint import Checkpoint
-from scripts.data.base.episode_store import EpisodeStore
 from scripts.shared.log import create_logger
-from scripts.shared.seed import set_seed
+from scripts.shared.seeding import set_seed
 
 logger = create_logger()
 

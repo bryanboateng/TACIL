@@ -30,7 +30,7 @@ from scripts.data.augmentation.tacil.models.normalizers import Normalizers
 from scripts.data.base.episode_store import EpisodeStore
 from scripts.shared.log import create_logger
 from scripts.shared.pusht_state import unwrap_angles
-from scripts.shared.seed import set_seed
+from scripts.shared.seeding import set_seed
 
 logger = create_logger()
 

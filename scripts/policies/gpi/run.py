@@ -23,7 +23,7 @@ from scripts.policies.gpi.policy import load_geometric_policy
 from scripts.data.base.episode_store import download_episode_store
 from scripts.shared.log import create_logger, log_device_info
 from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
-from scripts.shared.seed import set_seed
+from scripts.shared.seeding import set_seed
 from scripts.shared.wandb_config import WandbConfig
 
 logger = create_logger()

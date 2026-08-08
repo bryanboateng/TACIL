@@ -7,7 +7,7 @@ from scripts.data.augmentation.ccil.f import TransitionBatch
 from scripts.data.augmentation.ccil.world_model import WorldModel, fit_world_model
 from scripts.data.base.episode_store import EpisodeStore
 from scripts.shared.log import create_logger
-from scripts.shared.seed import set_seed
+from scripts.shared.seeding import set_seed
 
 logger = create_logger()
 

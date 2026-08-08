@@ -23,7 +23,7 @@ from scripts.policies.bc.policy import (
 )
 from scripts.policies.shared.checkpoint import Checkpoint
 from scripts.shared.log import create_logger
-from scripts.shared.seed import set_seed
+from scripts.shared.seeding import set_seed
 
 logger = create_logger()
 
