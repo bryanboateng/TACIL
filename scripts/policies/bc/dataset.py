@@ -1,6 +1,6 @@
 import torch
 
-from scripts.data.augmentation.ccil.f import TransitionBatch
+from scripts.shared.f import TransitionBatch
 
 
 class Dataset(torch.utils.data.Dataset):

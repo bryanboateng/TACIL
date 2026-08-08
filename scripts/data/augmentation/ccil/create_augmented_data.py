@@ -3,9 +3,8 @@ import torch
 from wandb import Run
 
 from scripts.data.augmentation.ccil.config import CcilConfig
-from scripts.data.augmentation.ccil.f import TransitionBatch
 from scripts.data.augmentation.ccil.world_model import WorldModel, fit_world_model
-from scripts.data.base.episode_store import EpisodeStore
+from scripts.shared.f import EpisodeStore, TransitionBatch
 from scripts.shared.log import create_logger
 from scripts.shared.seeding import set_seed
 

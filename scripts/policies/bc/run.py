@@ -1,6 +1,7 @@
 from dataclasses import asdict
 from typing import Annotated, TypeAlias
 
+import numpy as np
 import torch
 import tyro
 import wandb
@@ -9,14 +10,8 @@ from wandb import Run
 
 from scripts.data.augmentation.ccil import augmentation as ccil
 from scripts.data.augmentation.ccil.config import CcilConfig
-from scripts.data.augmentation.ccil.f import (
-    TransitionBatch,
-    concatenate_transitions,
-    to_transitions,
-)
 from scripts.data.augmentation.tacil import augmentation as tacil
 from scripts.data.augmentation.tacil.augmentation import TacilConfig
-from scripts.data.base.episode_store import EpisodeStore, download_episode_store
 from scripts.evaluation.core.condition import Condition
 from scripts.evaluation.evaluate_policy import (
     DEFAULT_EPISODE_COUNT,
@@ -27,6 +22,7 @@ from scripts.policies.bc import config as bc_config
 from scripts.policies.bc.policy import create_behavior_cloning_policy_factory
 from scripts.policies.bc.train import train_behavior_cloning_policy
 from scripts.policies.shared.run_config import RunConfig
+from scripts.shared.f import EpisodeStore, TransitionBatch, download_episode_store
 from scripts.shared.log import create_logger, log_device_info
 from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
 
@@ -64,7 +60,9 @@ def _run(*, config: Config) -> None:
         )
 
         logger.info("Stage 1/3: building the training transitions.")
-        expert_transitions = to_transitions(episode_store=expert_episodes)
+        expert_transitions = TransitionBatch(
+            states=expert_episodes.states, actions=expert_episodes.actions
+        )
         if config.augmentation is None:
             transitions = expert_transitions
         else:
@@ -75,8 +73,13 @@ def _run(*, config: Config) -> None:
                 device=device,
                 run=run,
             )
-            transitions = concatenate_transitions(
-                transition_batches=[expert_transitions, synthetic_transitions]
+            transitions = TransitionBatch(
+                states=np.concatenate(
+                    [expert_transitions.states, synthetic_transitions.states], axis=0
+                ),  # (transition_count, state_dimensionality)
+                actions=np.concatenate(
+                    [expert_transitions.actions, synthetic_transitions.actions], axis=0
+                ),  # (transition_count, action_dimensionality)
             )
 
         run.summary["transition_count"] = len(transitions.states)
@@ -135,7 +138,9 @@ def _create_synthetic_transitions(
                 device=device,
                 run=run,
             )
-            return to_transitions(episode_store=tacil_episodes)
+            return TransitionBatch(
+                states=tacil_episodes.states, actions=tacil_episodes.actions
+            )
 
 
 if __name__ == "__main__":

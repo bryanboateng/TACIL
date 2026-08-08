@@ -11,8 +11,7 @@ from scripts.data.augmentation.ccil.config import CcilConfig
 from scripts.data.augmentation.ccil.create_augmented_data import (
     create_ccil_augmented_data,
 )
-from scripts.data.augmentation.ccil.f import TransitionBatch
-from scripts.data.base.episode_store import EpisodeStore
+from scripts.shared.f import EpisodeStore, TransitionBatch
 
 
 def augment(

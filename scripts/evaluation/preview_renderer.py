@@ -9,7 +9,7 @@ import tyro
 import wandb
 from numpy import typing as npt
 
-from scripts.data.base.episode_store import read_episode_store
+from scripts.shared.f import read_episode_store
 from scripts.evaluation.core.condition import (
     Condition,
     DisturbanceLevel,

@@ -18,13 +18,13 @@ from rich.pretty import pretty_repr
 
 from scripts.data.augmentation.tacil import augmentation as tacil
 from scripts.data.augmentation.tacil.augmentation import TacilConfig
-from scripts.data.base.episode_store import download_episode_store
 from scripts.evaluation.core.condition import Condition
 from scripts.evaluation.evaluate_policy import (
     DEFAULT_EPISODE_COUNT,
     STAGE_PREFIX,
     evaluate_policy,
 )
+from scripts.shared.f import download_episode_store
 from scripts.policies.dp import config as policy_config
 from scripts.policies.dp.train import build_policy_factory, train_diffusion_policy
 from scripts.policies.shared.run_config import RunConfig

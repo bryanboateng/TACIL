@@ -6,7 +6,6 @@ from torch.utils.data import DataLoader
 from tqdm.auto import tqdm
 from wandb import Run
 
-from scripts.data.augmentation.ccil.f import TransitionBatch
 from scripts.evaluation.core.condition import Condition
 from scripts.evaluation.core.scoring import (
     RewardStatistics,
@@ -15,6 +14,7 @@ from scripts.evaluation.core.scoring import (
 )
 from scripts.policies.bc.config import Config
 from scripts.policies.bc.dataset import Dataset
+from scripts.shared.f import TransitionBatch
 from scripts.policies.bc.policy import (
     BehaviorCloningPolicy,
     create_behavior_cloning_policy_factory,

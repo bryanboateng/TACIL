@@ -6,7 +6,7 @@ from diffusers.training_utils import EMAModel
 from tqdm.auto import tqdm
 from wandb import Run
 
-from scripts.data.base.episode_store import EpisodeStore
+from scripts.shared.f import EpisodeStore
 from scripts.evaluation.core.condition import Condition
 from scripts.evaluation.core.scoring import (
     RewardStatistics,

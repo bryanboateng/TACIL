@@ -4,7 +4,7 @@ import torch
 from scripts.data.augmentation.tacil.models.dynamics_model_ensemble import (
     DynamicsModelEnsemble,
 )
-from scripts.data.base.episode_store import EpisodeStore
+from scripts.shared.f import EpisodeStore
 from scripts.shared.pusht_state import state_differences
 
 

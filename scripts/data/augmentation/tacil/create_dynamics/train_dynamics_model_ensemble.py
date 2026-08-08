@@ -26,7 +26,7 @@ from scripts.data.augmentation.tacil.models.dynamics_model_ensemble import (
     DynamicsModelEnsemble,
 )
 from scripts.data.augmentation.tacil.models.normalizers import Normalizers
-from scripts.data.base.episode_store import EpisodeStore
+from scripts.shared.f import EpisodeStore
 from scripts.shared.log import create_logger
 from scripts.shared.pusht_state import network_features, state_differences
 from scripts.shared.seeding import set_seed
