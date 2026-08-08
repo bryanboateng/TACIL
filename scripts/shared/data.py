@@ -26,6 +26,31 @@ class EpisodeStore:
     intended_prediction_horizon: int | None = None
 
 
+def download_episode_store(*, artifact_name: str, run: Run) -> EpisodeStore:
+    return read_episode_store(
+        episode_file_path=Path(
+            run.use_artifact(artifact_or_name=artifact_name).download()
+        )
+    )
+
+
+def upload_episode_store(*, episode_store: EpisodeStore, name: str, run: Run):
+    with tempfile.TemporaryDirectory() as temporary_directory:
+        output_zarr_path = Path(temporary_directory) / "dataset.zarr"
+
+        _write_episode_store(
+            episode_store=episode_store, save_file_path=output_zarr_path
+        )
+
+        run_name = run.name
+        new_artifact = wandb.Artifact(
+            name=f"{name}-{run_name if run_name is not None else datetime.now().isoformat()}",
+            type="dataset",
+        )
+        new_artifact.add_dir(local_path=str(output_zarr_path))
+        run.log_artifact(artifact_or_path=new_artifact)
+
+
 def read_episode_store(*, episode_file_path: Path) -> EpisodeStore:
     store = zarr.open(store=episode_file_path, mode="r")
 
@@ -138,31 +163,6 @@ def combine_episode_stores(
         ),  # (episode_count,)
         intended_prediction_horizon=augmented_episode_store.intended_prediction_horizon,
     )
-
-
-def download_episode_store(*, artifact_name: str, run: Run) -> EpisodeStore:
-    return read_episode_store(
-        episode_file_path=Path(
-            run.use_artifact(artifact_or_name=artifact_name).download()
-        )
-    )
-
-
-def upload_episode_store(*, episode_store: EpisodeStore, name: str, run: Run):
-    with tempfile.TemporaryDirectory() as temporary_directory:
-        output_zarr_path = Path(temporary_directory) / "dataset.zarr"
-
-        _write_episode_store(
-            episode_store=episode_store, save_file_path=output_zarr_path
-        )
-
-        run_name = run.name
-        new_artifact = wandb.Artifact(
-            name=f"{name}-{run_name if run_name is not None else datetime.now().isoformat()}",
-            type="dataset",
-        )
-        new_artifact.add_dir(local_path=str(output_zarr_path))
-        run.log_artifact(artifact_or_path=new_artifact)
 
 
 # ---- Private --------------------------------------------
