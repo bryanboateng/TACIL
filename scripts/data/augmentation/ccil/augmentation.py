@@ -13,7 +13,7 @@ from scripts.data.augmentation.ccil import config as ccil_config
 from scripts.data.augmentation.ccil.create_augmented_data import (
     create_ccil_augmented_data,
 )
-from scripts.shared.data import TransitionBatch
+from scripts.data.augmentation.ccil.f import TransitionBatch
 from scripts.data.base.episode_store import EpisodeStore
 
 

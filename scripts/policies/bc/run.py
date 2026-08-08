@@ -17,6 +17,11 @@ from rich.pretty import pretty_repr
 from wandb import Run
 
 from scripts.data.augmentation.ccil import augmentation as ccil
+from scripts.data.augmentation.ccil.f import (
+    TransitionBatch,
+    concatenate_transitions,
+    to_transitions,
+)
 from scripts.data.augmentation.tacil import augmentation as tacil
 from scripts.data.base.episode_store import EpisodeStore, download_episode_store
 from scripts.evaluation.core.condition import (
@@ -32,7 +37,6 @@ from scripts.evaluation.evaluate_policy import (
 from scripts.policies.bc import config as bc_config
 from scripts.policies.bc.policy import load_behavior_cloning_policy
 from scripts.policies.bc.train import train_behavior_cloning_policy
-from scripts.shared.data import TransitionBatch, concatenate_transitions, to_transitions
 from scripts.shared.log import create_logger, log_device_info
 from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
 from scripts.shared.seed import set_seed
