@@ -30,7 +30,6 @@ from scripts.policies.dp.train import build_policy_factory, train_diffusion_poli
 from scripts.policies.shared.run_config import RunConfig
 from scripts.shared.log import create_logger, log_device_info
 from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
-from scripts.shared.seeding import set_seed
 
 logger = create_logger()
 
@@ -90,9 +89,6 @@ def _run(*, config: Config) -> None:
         )
         logger.info("Stage 2/3: done.")
 
-        # Score the selected checkpoint the way it was selected.
-        sampler = config.policy.evaluation.sampler
-        set_seed(seed=config.seed)
         logger.info("Stage 3/3: evaluating the policy.")
         evaluate_policy(
             policy_factory=build_policy_factory(
@@ -100,7 +96,7 @@ def _run(*, config: Config) -> None:
                 noise_prediction_network=noise_prediction_network,
                 device=device,
             ),
-            policy_label=f"dp ({sampler})   diffusion-policy-{run.name!s}",
+            policy_label=f"dp ({config.policy.evaluation.sampler})   diffusion-policy-{run.name!s}",
             condition=condition,
             episode_count=DEFAULT_EPISODE_COUNT,
             run=run,

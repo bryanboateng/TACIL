@@ -36,7 +36,6 @@ from scripts.policies.bc.train import train_behavior_cloning_policy
 from scripts.policies.shared.run_config import RunConfig
 from scripts.shared.log import create_logger, log_device_info
 from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
-from scripts.shared.seeding import set_seed
 
 logger = create_logger()
 
@@ -90,7 +89,6 @@ def _run(*, config: Config) -> None:
         )
         logger.info("Stage 2/3: done.")
 
-        set_seed(seed=config.seed)
         logger.info("Stage 3/3: evaluating the policy.")
         evaluate_policy(
             policy_factory=build_behavior_cloning_policy_factory(
