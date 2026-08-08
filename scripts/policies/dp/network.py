@@ -16,6 +16,8 @@ class ConditionalUnet1d(torch.nn.Module):
         observation_dimensionality: int,
         condition_dimensionality: int,
         hidden_channel_counts: tuple[int, ...],
+        observation_normalizer: MinMaxNormalizer,
+        action_normalizer: MinMaxNormalizer,
     ) -> None:
         super().__init__()
 
@@ -111,23 +113,6 @@ class ConditionalUnet1d(torch.nn.Module):
             ),
         )
 
-        # Placeholders, overwritten later
-        self.observation_normalizer = MinMaxNormalizer(
-            minimum=torch.zeros(observation_dimensionality),
-            maximum=torch.ones(observation_dimensionality),
-        )
-        self.action_normalizer = MinMaxNormalizer(
-            minimum=torch.zeros(input_channel_count),
-            maximum=torch.ones(input_channel_count),
-        )
-
-    @torch.no_grad()
-    def initialize_normalizers(
-        self,
-        *,
-        observation_normalizer: MinMaxNormalizer,
-        action_normalizer: MinMaxNormalizer,
-    ) -> None:
         self.observation_normalizer = observation_normalizer
         self.action_normalizer = action_normalizer
 

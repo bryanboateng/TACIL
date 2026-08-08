@@ -60,11 +60,22 @@ def train_diffusion_policy(
 
     noise_scheduler = get_ddpm_scheduler()
 
+    # The dataset measures the normalization ranges, so it comes first.
+    dataset = Dataset(
+        expert_episodes=expert_episodes,
+        augmented_episodes=augmented_episodes,
+        prediction_horizon_length=config.horizon_length.prediction,
+        observation_horizon_length=config.horizon_length.observation,
+        action_horizon_length=config.horizon_length.action,
+    )
+
     noise_prediction_network = ConditionalUnet1d(
         input_channel_count=config.dimensionality.action,
         observation_dimensionality=config.dimensionality.observation,
         condition_dimensionality=condition_dimensionality,
         hidden_channel_counts=config.hidden_channel_counts,
+        observation_normalizer=dataset.observation_normalizer,
+        action_normalizer=dataset.action_normalizer,
     ).to(device=device)
 
     noise_prediction_network_ema = EMAModel(
@@ -76,19 +87,6 @@ def train_diffusion_policy(
         params=noise_prediction_network.parameters(),
         lr=config.optimization.learning_rate,
         weight_decay=config.optimization.weight_decay,
-    )
-
-    dataset = Dataset(
-        expert_episodes=expert_episodes,
-        augmented_episodes=augmented_episodes,
-        prediction_horizon_length=config.horizon_length.prediction,
-        observation_horizon_length=config.horizon_length.observation,
-        action_horizon_length=config.horizon_length.action,
-    )
-
-    noise_prediction_network.initialize_normalizers(
-        observation_normalizer=dataset.observation_normalizer,
-        action_normalizer=dataset.action_normalizer,
     )
 
     dataloader = torch.utils.data.DataLoader(

@@ -22,6 +22,7 @@ from scripts.policies.bc.policy import (
     save_behavior_cloning_policy,
 )
 from scripts.policies.shared.checkpoint import Checkpoint
+from scripts.shared.normalization import MinMaxNormalizer, ZScoreNormalizer
 from scripts.shared.log import create_logger
 from scripts.shared.seeding import set_seed
 
@@ -57,12 +58,13 @@ def train_behavior_cloning_policy(
         observation_dimensionality=config.dimensionality.observation,
         action_dimensionality=config.dimensionality.action,
         hidden_dimensionality=config.dimensionality.hidden,
+        observation_normalizer=ZScoreNormalizer.from_values(
+            value_batch=dataset.states.to(device=device)
+        ),
+        action_normalizer=MinMaxNormalizer.from_values(
+            value_batch=dataset.actions.to(device=device)
+        ),
     ).to(device=device)
-
-    policy.initialize_normalizers(
-        observation_batch=dataset.states.to(device=device),
-        action_batch=dataset.actions.to(device=device),
-    )
 
     optimizer = Adam(params=policy.parameters(), lr=config.optimization.learning_rate)
 

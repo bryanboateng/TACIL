@@ -40,6 +40,8 @@ class BehaviorCloningPolicy(torch.nn.Module):
         observation_dimensionality: int,
         action_dimensionality: int,
         hidden_dimensionality: int,
+        observation_normalizer: ZScoreNormalizer,
+        action_normalizer: MinMaxNormalizer,
     ) -> None:
         super().__init__()
 
@@ -53,27 +55,8 @@ class BehaviorCloningPolicy(torch.nn.Module):
             hidden_dimensionality=hidden_dimensionality,
         )
 
-        # Placeholders, overwritten later
-        self.observation_normalizer = ZScoreNormalizer(
-            mean=torch.zeros(observation_dimensionality),
-            std=torch.ones(observation_dimensionality),
-        )
-        self.action_normalizer = MinMaxNormalizer(
-            minimum=torch.zeros(action_dimensionality),
-            maximum=torch.ones(action_dimensionality),
-        )
-
-    @torch.no_grad()
-    def initialize_normalizers(
-        self,
-        *,
-        observation_batch: torch.Tensor,  # (N, observation_dimensionality)
-        action_batch: torch.Tensor,  # (N, action_dimensionality)
-    ) -> None:
-        self.observation_normalizer = ZScoreNormalizer.from_values(
-            value_batch=observation_batch
-        )
-        self.action_normalizer = MinMaxNormalizer.from_values(value_batch=action_batch)
+        self.observation_normalizer = observation_normalizer
+        self.action_normalizer = action_normalizer
 
     def normalize_observation(
         self,
@@ -122,13 +105,22 @@ def load_behavior_cloning_policy(
     checkpoint = torch.load(
         f=PROJECT_ROOT_DIRECTORY_PATH / checkpoint_path, map_location=device
     )
+    policy_state_dict = checkpoint["policy_state_dict"]
 
     policy_model = BehaviorCloningPolicy(
         observation_dimensionality=checkpoint["observation_dimensionality"],
         action_dimensionality=checkpoint["action_dimensionality"],
         hidden_dimensionality=checkpoint["hidden_dimensionality"],
+        observation_normalizer=ZScoreNormalizer(
+            mean=policy_state_dict["observation_normalizer.mean"],
+            std=policy_state_dict["observation_normalizer.std"],
+        ),
+        action_normalizer=MinMaxNormalizer(
+            minimum=policy_state_dict["action_normalizer.minimum"],
+            maximum=policy_state_dict["action_normalizer.maximum"],
+        ),
     ).to(device=device)
-    policy_model.load_state_dict(state_dict=checkpoint["policy_state_dict"])
+    policy_model.load_state_dict(state_dict=policy_state_dict)
     policy_model.eval()
 
     def make_policy(*, seeds: list[int]) -> Policy:  # seeds unused: BC is deterministic

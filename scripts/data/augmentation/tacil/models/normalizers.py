@@ -46,26 +46,6 @@ class Normalizers(torch.nn.Module):
             ),
         )
 
-    @classmethod
-    def placeholder(
-        cls, *, state_dimensionality: int, action_dimensionality: int
-    ) -> Self:
-        """Identity normalizers whose buffers are overwritten by a state dict."""
-        return cls(
-            state_normalizer=ZScoreNormalizer(
-                mean=torch.zeros(state_dimensionality),
-                std=torch.ones(state_dimensionality),
-            ),
-            action_normalizer=ZScoreNormalizer(
-                mean=torch.zeros(action_dimensionality),
-                std=torch.ones(action_dimensionality),
-            ),
-            state_displacement_normalizer=ZScoreNormalizer(
-                mean=torch.zeros(state_dimensionality),
-                std=torch.ones(state_dimensionality),
-            ),
-        )
-
     def normalize_state(
         self,
         *,

@@ -8,6 +8,7 @@ import torch
 
 from scripts.policies.dp.network import ConditionalUnet1d
 from scripts.policies.dp.noise_scheduler import get_ddim_scheduler, get_ddpm_scheduler
+from scripts.shared.normalization import MinMaxNormalizer
 from scripts.shared.paths import PROJECT_ROOT_DIRECTORY_PATH
 from scripts.shared.policy_types import Policy, PolicyFactory
 
@@ -63,15 +64,22 @@ def load_diffusion_policy(
         case "ddpm":
             noise_scheduler = get_ddpm_scheduler()
 
+    network_state_dict = checkpoint["noise_prediction_network_state_dict"]
     noise_prediction_network = ConditionalUnet1d(
         input_channel_count=action_dimensionality,
         observation_dimensionality=checkpoint["observation_dimensionality"],
         condition_dimensionality=checkpoint["condition_dimensionality"],
         hidden_channel_counts=checkpoint["hidden_channel_counts"],
+        observation_normalizer=MinMaxNormalizer(
+            minimum=network_state_dict["observation_normalizer.minimum"],
+            maximum=network_state_dict["observation_normalizer.maximum"],
+        ),
+        action_normalizer=MinMaxNormalizer(
+            minimum=network_state_dict["action_normalizer.minimum"],
+            maximum=network_state_dict["action_normalizer.maximum"],
+        ),
     ).to(device)
-    noise_prediction_network.load_state_dict(
-        state_dict=checkpoint["noise_prediction_network_state_dict"]
-    )
+    noise_prediction_network.load_state_dict(state_dict=network_state_dict)
     noise_prediction_network.eval()
 
     def make_policy(*, seeds: list[int]) -> Policy:
