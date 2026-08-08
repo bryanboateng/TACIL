@@ -4,6 +4,7 @@ import torch
 
 from scripts.shared.normalization import ZScoreNormalizer
 
+
 class Normalizers(torch.nn.Module):
     state_normalizer: ZScoreNormalizer
     action_normalizer: ZScoreNormalizer

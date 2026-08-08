@@ -21,9 +21,7 @@ def stack_previous_state(*, episode_store: EpisodeStore) -> EpisodeStore:
 
     previous_states = np.roll(episode_store.states, shift=1, axis=0)
     # Episode starts must not look into the previous episode.
-    previous_states[episode_start_indices] = episode_store.states[
-        episode_start_indices
-    ]
+    previous_states[episode_start_indices] = episode_store.states[episode_start_indices]
 
     return EpisodeStore(
         states=np.concatenate([episode_store.states, previous_states], axis=1),

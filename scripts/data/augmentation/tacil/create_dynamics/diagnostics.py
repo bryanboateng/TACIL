@@ -116,9 +116,9 @@ def diagnose_dynamics_model_ensemble(
     }
     for split_name, group_errors in one_step_errors_per_split.items():
         for group_name, group_error in group_errors.items():
-            run.summary[
-                f"{_LOG_PREFIX}/one_step_error_{group_name}/{split_name}"
-            ] = group_error
+            run.summary[f"{_LOG_PREFIX}/one_step_error_{group_name}/{split_name}"] = (
+                group_error
+            )
     run.summary[f"{_LOG_PREFIX}/backward_full_depth_fraction"] = float(
         np.isfinite(backward_chain_measurements.true_errors[:, -1].cpu().numpy()).mean()
     )
@@ -225,9 +225,7 @@ class _BackwardChainMeasurements:
 
 @torch.no_grad()
 def _one_step_group_errors(
-    *,
-    dynamics_model_ensemble: DynamicsModelEnsemble,
-    episodes: list[TransitionSet],
+    *, dynamics_model_ensemble: DynamicsModelEnsemble, episodes: list[TransitionSet]
 ) -> dict[str, float]:
     """Median error per state part after a single forward step — the model's
     quality without any compounding mixed in."""
@@ -454,9 +452,10 @@ def _normalized_differences(
         angle_batch=difference_batch[:, ANGLE_INDEX]
     )
 
-    return difference_batch / dynamics_model_ensemble.normalizers.state_normalizer.std[
-        :FRAME_SIZE
-    ]
+    return (
+        difference_batch
+        / dynamics_model_ensemble.normalizers.state_normalizer.std[:FRAME_SIZE]
+    )
 
 
 def _spearman_correlation(*, claims: torch.Tensor, truths: torch.Tensor) -> float:
@@ -503,12 +502,8 @@ def _error_over_depth_panel(
     # One shared error grid (log-spaced) for both directions' densities.
     finite_errors = np.concatenate(
         [
-            forward_true_errors_per_depth[
-                np.isfinite(forward_true_errors_per_depth)
-            ],
-            backward_true_errors_per_depth[
-                np.isfinite(backward_true_errors_per_depth)
-            ],
+            forward_true_errors_per_depth[np.isfinite(forward_true_errors_per_depth)],
+            backward_true_errors_per_depth[np.isfinite(backward_true_errors_per_depth)],
         ]
     )
     log_error_grid = np.linspace(
@@ -589,8 +584,7 @@ def _error_over_depth_panel(
 
 
 def _split_comparison_panel(
-    *,
-    one_step_errors_per_split: dict[str, dict[str, float]],
+    *, one_step_errors_per_split: dict[str, dict[str, float]]
 ) -> wandb.Image:
     """Training against validation, per state part. Equal bars mean the model
     generalizes; a much lower training bar means it overfits."""
@@ -765,9 +759,7 @@ def _replay_panel(
         (agent_axes, slice(0, 2), "agent position"),
         (block_axes, slice(2, 4), "block position"),
     ):
-        for member_index, member_trajectory in enumerate(
-            iterable=member_trajectories
-        ):
+        for member_index, member_trajectory in enumerate(iterable=member_trajectories):
             path = member_trajectory[:, dimension_slice]
             axes.plot(
                 path[:, 0],
