@@ -15,7 +15,7 @@ from scripts.evaluation.core.scoring import (
 from scripts.policies.bc.config import Config
 from scripts.policies.bc.dataset import Dataset
 from scripts.policies.bc.policy import (
-    BehaviorCloningPolicy,
+    BehaviorCloningPolicyModel,
     create_behavior_cloning_policy_factory,
 )
 from scripts.policies.shared.checkpoint import Checkpoint
@@ -38,7 +38,7 @@ def train_behavior_cloning_policy(
     seed: int,
     device: torch.device,
     run: Run,
-) -> BehaviorCloningPolicy:
+) -> BehaviorCloningPolicyModel:
     set_seed(seed=seed)
 
     loss_function = torch.nn.MSELoss()
@@ -52,7 +52,7 @@ def train_behavior_cloning_policy(
         pin_memory=device.type == "cuda",
     )
 
-    policy = BehaviorCloningPolicy(
+    policy_model = BehaviorCloningPolicyModel(
         observation_dimensionality=STATE_DIMENSIONALITY,
         action_dimensionality=ACTION_DIMENSIONALITY,
         hidden_layer_dimensionality=config.hidden_layer_dimensionality,
@@ -64,14 +64,16 @@ def train_behavior_cloning_policy(
         ),
     ).to(device=device)
 
-    optimizer = Adam(params=policy.parameters(), lr=config.optimization.learning_rate)
+    optimizer = Adam(
+        params=policy_model.parameters(), lr=config.optimization.learning_rate
+    )
 
     best_checkpoint: Checkpoint | None = None
 
     for epoch_index in tqdm(
         iterable=range(config.optimization.epoch_count), desc="Epoch", unit="epoch"
     ):
-        policy.train()
+        policy_model.train()
         for observation_batch, action_batch in data_loader:
             observation_batch = observation_batch.to(
                 device=device
@@ -82,13 +84,15 @@ def train_behavior_cloning_policy(
 
             optimizer.zero_grad()
 
-            predicted_action_batch = policy.predict_action(
+            predicted_action_batch = policy_model.predict_action(
                 observation_batch=observation_batch
             )  # (batch_size, action_dimensionality)
 
             loss = loss_function(
-                input=policy.normalize_action(action_batch=predicted_action_batch),
-                target=policy.normalize_action(action_batch=action_batch),
+                input=policy_model.normalize_action(
+                    action_batch=predicted_action_batch
+                ),
+                target=policy_model.normalize_action(action_batch=action_batch),
             )
 
             loss.backward()
@@ -97,14 +101,14 @@ def train_behavior_cloning_policy(
 
             run.log(data={f"{STAGE_PREFIX}training/loss": loss.item()})
 
-        periodic_eval_is_due = (
+        periodic_evaluation_is_due = (
             (epoch_index + 1) % config.evaluation.periodic_interval_epoch_count == 0
         ) or ((epoch_index + 1) == config.optimization.epoch_count)
-        if not periodic_eval_is_due:
+        if not periodic_evaluation_is_due:
             continue
 
         validation_reward = _evaluate(
-            policy_model=policy,
+            policy_model=policy_model,
             episode_count=config.evaluation.episode_count,
             condition=condition,
             device=device,
@@ -125,7 +129,7 @@ def train_behavior_cloning_policy(
                 validation_reward_mean=validation_reward.mean,
                 validation_reward_std=validation_reward.std,
                 epoch=epoch_index,
-                state_dict=copy.deepcopy(policy.state_dict()),
+                state_dict=copy.deepcopy(policy_model.state_dict()),
             )
 
     if best_checkpoint is None:
@@ -139,13 +143,13 @@ def train_behavior_cloning_policy(
         best_checkpoint.validation_reward_std
     )
 
-    policy.load_state_dict(state_dict=best_checkpoint.state_dict)
-    return policy
+    policy_model.load_state_dict(state_dict=best_checkpoint.state_dict)
+    return policy_model
 
 
 def _evaluate(
     *,
-    policy_model: BehaviorCloningPolicy,
+    policy_model: BehaviorCloningPolicyModel,
     episode_count: int,
     condition: Condition,
     device: torch.device,

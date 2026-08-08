@@ -5,7 +5,7 @@ from scripts.shared.normalization import MinMaxNormalizer, ZScoreNormalizer
 from scripts.shared.policy_types import Policy, PolicyFactory
 
 
-class BehaviorCloningPolicy(torch.nn.Module):
+class BehaviorCloningPolicyModel(torch.nn.Module):
     observation_normalizer: ZScoreNormalizer
     action_normalizer: MinMaxNormalizer
 
@@ -62,7 +62,7 @@ class BehaviorCloningPolicy(torch.nn.Module):
 
 
 def create_behavior_cloning_policy_factory(
-    *, policy_model: BehaviorCloningPolicy, device: torch.device
+    *, policy_model: BehaviorCloningPolicyModel, device: torch.device
 ) -> PolicyFactory:
     policy_model.eval()
 
