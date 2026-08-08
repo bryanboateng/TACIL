@@ -14,8 +14,8 @@ class MinMaxNormalizer(torch.nn.Module):
         maximum: torch.Tensor,  # (dimensionality,)
     ) -> None:
         super().__init__()
-        self.register_buffer("minimum", minimum)
-        self.register_buffer("maximum", maximum)
+        self.register_buffer(name="minimum", tensor=minimum)
+        self.register_buffer(name="maximum", tensor=maximum)
 
     @classmethod
     def from_values(
@@ -57,8 +57,8 @@ class ZScoreNormalizer(torch.nn.Module):
         std: torch.Tensor,  # (dimensionality,)
     ) -> None:
         super().__init__()
-        self.register_buffer("mean", mean)
-        self.register_buffer("std", std)
+        self.register_buffer(name="mean", tensor=mean)
+        self.register_buffer(name="std", tensor=std)
 
     @classmethod
     def from_values(
