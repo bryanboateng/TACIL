@@ -1,19 +1,10 @@
-import tempfile
-from dataclasses import asdict
-from pathlib import Path
-
 import numpy as np
 import torch
-import tyro
 import wandb
-from rich.pretty import pretty_repr
 from sklearn.model_selection import train_test_split
 from tqdm import tqdm
 from wandb import Run
 
-from scripts.data.augmentation.tacil.create_dynamics.checkpoint import (
-    save_dynamics_model_ensemble,
-)
 from scripts.data.augmentation.tacil.create_dynamics.config import Config
 from scripts.data.augmentation.tacil.create_dynamics.data import (
     build_windows,
@@ -37,9 +28,8 @@ from scripts.data.augmentation.tacil.models.dynamics_model_ensemble import (
     DynamicsModelEnsemble,
 )
 from scripts.data.augmentation.tacil.models.normalizers import Normalizers
-from scripts.shared.data import EpisodeStore, download_episode_store
-from scripts.shared.log import create_logger, log_device_info
-from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
+from scripts.shared.data import EpisodeStore
+from scripts.shared.log import create_logger
 from scripts.shared.seed import set_seed
 
 logger = create_logger()
@@ -53,36 +43,6 @@ STAGE_PREFIX = "1_dynamics-"
 # The x-axis of this stage's curves. The run may be shared with the rest of the
 # pipeline, whose implicit step counter is not the training epoch.
 EPOCH_METRIC_NAME = f"{STAGE_PREFIX}epoch"
-
-
-def main():
-    config = tyro.cli(f=Config, config=[tyro.conf.UsePythonSyntaxForLiteralCollections])
-    logger.info(pretty_repr(config))
-    _run(config=config)
-
-
-def _run(*, config: Config) -> None:
-    device = torch.device(device="cuda" if torch.cuda.is_available() else "cpu")
-    log_device_info(device=device, logger=logger)
-
-    with wandb.init(
-        project=config.wandb.project,
-        notes=config.wandb.notes,
-        job_type="train-tacil-dynamics",
-        config=asdict(obj=config),
-        dir=OUTPUT_DIRECTORY_PATH,
-    ) as run:
-        dynamics_model_ensemble = train_dynamics_model_ensemble(
-            config=config,
-            episode_store=download_episode_store(
-                artifact_name=config.data.artifact, run=run
-            ),
-            device=device,
-            run=run,
-        )
-        _upload_dynamics_model_ensemble(
-            dynamics_model_ensemble=dynamics_model_ensemble, run=run
-        )
 
 
 def train_dynamics_model_ensemble(
@@ -267,23 +227,3 @@ def _member_spread(*, values: np.ndarray) -> float:
     # ddof=1, because the members are a sample of the possible initializations.
     # A single member has no spread.
     return float(values.std(ddof=1)) if values.shape[0] > 1 else 0.0
-
-
-def _upload_dynamics_model_ensemble(
-    *, dynamics_model_ensemble: DynamicsModelEnsemble, run: Run
-) -> None:
-    with tempfile.TemporaryDirectory() as temporary_directory:
-        ensemble_directory_path = Path(temporary_directory)
-        save_dynamics_model_ensemble(
-            dynamics_model_ensemble=dynamics_model_ensemble,
-            directory_path=ensemble_directory_path,
-        )
-        model_artifact = wandb.Artifact(
-            name=f"tacil-dynamics-model-{run.name}", type="model"
-        )
-        model_artifact.add_dir(local_path=str(ensemble_directory_path))
-        run.log_artifact(artifact_or_path=model_artifact)
-
-
-if __name__ == "__main__":
-    main()

@@ -1,17 +1,17 @@
 import torch
 
-from scripts.shared.data import EpisodeStore
+from scripts.shared.data import TransitionBatch
 
 
 class Dataset(torch.utils.data.Dataset):
-    def __init__(self, *, episode_store: EpisodeStore) -> None:
+    def __init__(self, *, transitions: TransitionBatch) -> None:
         self.states = torch.from_numpy(
-            episode_store.states
-        ).float()  # (total_timestep_count, state_dimensionality)
+            transitions.states
+        ).float()  # (transition_count, state_dimensionality)
 
         self.actions = torch.from_numpy(
-            episode_store.actions
-        ).float()  # (total_timestep_count, action_dimensionality)
+            transitions.actions
+        ).float()  # (transition_count, action_dimensionality)
 
     def __len__(self) -> int:
         return len(self.states)

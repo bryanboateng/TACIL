@@ -42,7 +42,6 @@ class EvaluationConfig:
 class Config:
     wandb: WandbConfig
 
-    dataset_artifact: str
     dimensionality: DimensionalityConfig
     horizon_length: HorizonLengthConfig
     optimization: OptimizationConfig

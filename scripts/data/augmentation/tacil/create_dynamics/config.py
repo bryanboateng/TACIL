@@ -1,7 +1,5 @@
 from dataclasses import dataclass
 
-from scripts.shared.wandb_config import WandbConfig
-
 
 @dataclass(frozen=True)
 class DataSplitConfig:
@@ -28,7 +26,6 @@ class DataLoaderConfig:
 
 @dataclass(frozen=True)
 class DataConfig:
-    artifact: str  # The wandb artifact with the expert episodes.
     split: DataSplitConfig
     loader: DataLoaderConfig
 
@@ -73,8 +70,6 @@ class TrainingConfig:
 
 @dataclass(frozen=True)
 class Config:
-    wandb: WandbConfig
-
     data: DataConfig
     architecture: ArchitectureConfig
     training: TrainingConfig

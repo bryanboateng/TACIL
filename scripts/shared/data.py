@@ -13,17 +13,35 @@ from zarr import Array, Group
 
 @dataclass
 class EpisodeStore:
+    """Recorded episodes. Each one ends because the task is complete.
+
+    Augmented episodes are kept in their own store and never mixed in here:
+    they end at an arbitrary cut, so their windows follow different rules.
+    """
+
     states: npt.NDArray[np.float32]  # (total_timestep_count, state_dimensionality)
     actions: npt.NDArray[np.float32]  # (total_timestep_count, action_dimensionality)
     episode_end_indices: npt.NDArray[np.int64]  # (episode_count,)
-    # True for episodes whose end is an artificial mid-task cut (e.g. augmented
-    # mini-episodes) rather than a task completion. None means all False.
-    artificial_end_mask: npt.NDArray[np.bool_] | None = None  # (episode_count,)
-    # The policy prediction horizon the augmented episodes were laid out for
-    # (their expert parts are sized against it); policy training must use
-    # exactly this horizon or its windows are mislaid. None: no such layout
-    # assumption (unaugmented data).
-    intended_prediction_horizon: int | None = None
+
+
+@dataclass
+class TransitionBatch:
+    """(state, action) pairs with no episode structure. What a policy that
+    trains on single pairs sees."""
+
+    states: npt.NDArray[np.float32]  # (transition_count, state_dimensionality)
+    actions: npt.NDArray[np.float32]  # (transition_count, action_dimensionality)
+
+
+@dataclass(frozen=True)
+class WindowedLayout:
+    """The consumer trains on windows of this length, not on single pairs.
+
+    An augmentation that gets this must give every synthetic state enough
+    expert continuation behind it to fill one window.
+    """
+
+    prediction_horizon: int
 
 
 def download_episode_store(*, artifact_name: str, run: Run) -> EpisodeStore:
@@ -84,84 +102,28 @@ def read_episode_store(*, episode_file_path: Path) -> EpisodeStore:
 
         return data
 
-    try:
-        artificial_end_mask = _get(key="meta/artificial_end_mask", dtype=np.bool_)
-    except KeyError:
-        artificial_end_mask = None  # datasets created before this field existed
-
-    meta_group = store["meta"]
-    intended_prediction_horizon = (
-        int(meta_group.attrs["intended_prediction_horizon"])
-        if isinstance(meta_group, Group)
-        and "intended_prediction_horizon" in meta_group.attrs
-        else None
-    )
-
     return EpisodeStore(
         states=_get(key="data/state", dtype=np.float32),
         actions=_get(key="data/action", dtype=np.float32),
         episode_end_indices=_get(key="meta/episode_ends", dtype=np.int64),
-        artificial_end_mask=artificial_end_mask,
-        intended_prediction_horizon=intended_prediction_horizon,
     )
 
 
-def combine_episode_stores(
-    *, expert_episode_store: EpisodeStore, augmented_episode_store: EpisodeStore
-) -> EpisodeStore:
-    """Append augmented episodes to the expert data they were derived from.
+def to_transitions(*, episode_store: EpisodeStore) -> TransitionBatch:
+    """Drop the episode boundaries. Every timestep becomes one sample."""
+    return TransitionBatch(states=episode_store.states, actions=episode_store.actions)
 
-    The expert store is plain recorded data — no artificial ends, no intended
-    prediction horizon. The augmented store carries an artificial end mask,
-    and its intended prediction horizon becomes the combined store's. That
-    horizon is None when the augmented episodes were laid out for a policy
-    that trains on single (state, action) pairs and therefore promise no
-    window layout at all.
-    """
-    if (
-        expert_episode_store.artificial_end_mask is not None
-        and expert_episode_store.artificial_end_mask.any()
-    ):
-        raise ValueError(
-            "The expert episode store must not contain artificially ended episodes."
-        )
 
-    if expert_episode_store.intended_prediction_horizon is not None:
-        raise ValueError(
-            "The expert episode store must not carry an intended prediction "
-            "horizon; it looks like already-augmented data."
-        )
-
-    if augmented_episode_store.artificial_end_mask is None:
-        raise ValueError(
-            "The augmented episode store must carry an artificial end mask."
-        )
-
-    expert_timestep_count = expert_episode_store.states.shape[0]
-    expert_episode_count = len(expert_episode_store.episode_end_indices)
-
-    return EpisodeStore(
+def concatenate_transitions(
+    *, transition_batches: list[TransitionBatch]
+) -> TransitionBatch:
+    return TransitionBatch(
         states=np.concatenate(
-            [expert_episode_store.states, augmented_episode_store.states], axis=0
-        ),  # (total_timestep_count, state_dimensionality)
+            [batch.states for batch in transition_batches], axis=0
+        ),  # (transition_count, state_dimensionality)
         actions=np.concatenate(
-            [expert_episode_store.actions, augmented_episode_store.actions], axis=0
-        ),  # (total_timestep_count, action_dimensionality)
-        episode_end_indices=np.concatenate(
-            [
-                expert_episode_store.episode_end_indices,
-                expert_timestep_count + augmented_episode_store.episode_end_indices,
-            ],
-            axis=0,
-        ),  # (episode_count,)
-        artificial_end_mask=np.concatenate(
-            [
-                np.zeros(shape=expert_episode_count, dtype=np.bool_),
-                augmented_episode_store.artificial_end_mask,
-            ],
-            axis=0,
-        ),  # (episode_count,)
-        intended_prediction_horizon=augmented_episode_store.intended_prediction_horizon,
+            [batch.actions for batch in transition_batches], axis=0
+        ),  # (transition_count, action_dimensionality)
     )
 
 
@@ -177,15 +139,3 @@ def _write_episode_store(*, episode_store: EpisodeStore, save_file_path: Path):
 
     meta_group = root.create_group("meta")
     meta_group.create_array("episode_ends", data=episode_store.episode_end_indices)
-    meta_group.create_array(
-        "artificial_end_mask",
-        data=(
-            episode_store.artificial_end_mask
-            if episode_store.artificial_end_mask is not None
-            else np.zeros(len(episode_store.episode_end_indices), dtype=np.bool_)
-        ),
-    )
-    if episode_store.intended_prediction_horizon is not None:
-        meta_group.attrs["intended_prediction_horizon"] = int(
-            episode_store.intended_prediction_horizon
-        )

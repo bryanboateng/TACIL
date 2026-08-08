@@ -1,0 +1,211 @@
+"""Behavior cloning, optionally on augmented data: one sweep trial end to end.
+
+The augmentation runs inside this process and its output never becomes an
+artifact. Every trial searches parameters that change that output, so there
+would be nothing to reuse it for.
+"""
+
+import tempfile
+from dataclasses import asdict, dataclass
+from pathlib import Path
+from typing import Annotated
+
+import torch
+import tyro
+import wandb
+from rich.pretty import pretty_repr
+from wandb import Run
+
+from scripts.data.augmentation.ccil import augmentation as ccil
+from scripts.data.augmentation.tacil import augmentation as tacil
+from scripts.evaluation.core.condition import (
+    Condition,
+    DisturbanceLevel,
+    FloorCondition,
+)
+from scripts.evaluation.evaluate_policy import (
+    DEFAULT_EPISODE_COUNT,
+    STAGE_PREFIX,
+    evaluate_policy,
+)
+from scripts.policies.bc import config as bc_config
+from scripts.policies.bc.policy import load_behavior_cloning_policy
+from scripts.policies.bc.train import train_behavior_cloning_policy
+from scripts.shared.data import (
+    EpisodeStore,
+    TransitionBatch,
+    concatenate_transitions,
+    download_episode_store,
+    to_transitions,
+)
+from scripts.shared.log import create_logger, log_device_info
+from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
+from scripts.shared.seed import set_seed
+from scripts.shared.wandb_config import WandbConfig
+
+logger = create_logger()
+
+# Behavior cloning trains on single (state, action) pairs, so no augmentation
+# here gets a windowed layout: expert continuations would only repeat the
+# expert data and drown the labels.
+Augmentation = (
+    Annotated[tacil.Config, tyro.conf.subcommand(name="tacil")]
+    | Annotated[ccil.Config, tyro.conf.subcommand(name="ccil")]
+    | None
+)
+
+
+@dataclass(frozen=True)
+class Config:
+    wandb: WandbConfig
+
+    floor_condition: FloorCondition
+    disturbance_level: DisturbanceLevel | None
+
+    expert_dataset_artifact: str
+
+    augmentation: Augmentation = None
+
+    seed: int = 42
+
+
+def main() -> None:
+    config = tyro.cli(f=Config, config=[tyro.conf.UsePythonSyntaxForLiteralCollections])
+    logger.info(pretty_repr(config))
+    _run(config=config)
+
+
+def _run(*, config: Config) -> None:
+    condition = Condition(
+        floor_condition=config.floor_condition,
+        disturbance_level=config.disturbance_level,
+    )
+    device = torch.device(device="cuda" if torch.cuda.is_available() else "cpu")
+    log_device_info(device=device, logger=logger)
+
+    with (
+        wandb.init(
+            project=config.wandb.project,
+            notes=_build_note(config=config, condition=condition),
+            job_type="bc-pipeline",
+            config=asdict(obj=config),
+            dir=OUTPUT_DIRECTORY_PATH,
+        ) as run,
+        tempfile.TemporaryDirectory() as checkpoint_directory,
+    ):
+        expert_episodes = download_episode_store(
+            artifact_name=config.expert_dataset_artifact, run=run
+        )
+
+        logger.info("Stage 1/3: building the training transitions.")
+        transitions = _build_transitions(
+            config=config, expert_episodes=expert_episodes, device=device, run=run
+        )
+        run.summary["transition_count"] = len(transitions.states)
+        logger.info("Stage 1/3: done.")
+
+        logger.info("Stage 2/3: training the behavior-cloning policy.")
+        checkpoint_path = train_behavior_cloning_policy(
+            config=bc_config.Config(
+                wandb=WandbConfig(project=config.wandb.project),
+                dimensionality=bc_config.DimensionalityConfig(),
+                optimization=bc_config.OptimizationConfig(),
+                evaluation=bc_config.EvaluationConfig(
+                    floor_condition=config.floor_condition,
+                    disturbance_level=config.disturbance_level,
+                ),
+                seed=config.seed,
+            ),
+            transitions=transitions,
+            checkpoint_directory_path=Path(checkpoint_directory),
+            device=device,
+            run=run,
+        )
+        logger.info("Stage 2/3: done.")
+
+        set_seed(seed=config.seed)
+        logger.info("Stage 3/3: evaluating the policy.")
+        evaluate_policy(
+            policy_factory=load_behavior_cloning_policy(
+                checkpoint_path=checkpoint_path, device=device
+            ),
+            policy_label=f"bc   behavior-cloning-policy-{run.name}",
+            condition=condition,
+            episode_count=DEFAULT_EPISODE_COUNT,
+            run=run,
+        )
+        logger.info("Stage 3/3: done.")
+
+        reward_key = f"{STAGE_PREFIX}{condition.label}/reward_mean"
+        logger.info("Trial finished: %s = %s", reward_key, run.summary[reward_key])
+
+
+def _build_transitions(
+    *, config: Config, expert_episodes: EpisodeStore, device: torch.device, run: Run
+) -> TransitionBatch:
+    expert_transitions = to_transitions(episode_store=expert_episodes)
+
+    match config.augmentation:
+        case None:
+            return expert_transitions
+        case ccil.Config() as ccil_configuration:
+            label_transitions = ccil.augment(
+                config=ccil_configuration,
+                expert_episode_store=expert_episodes,
+                seed=config.seed,
+                device=device,
+                run=run,
+            )
+        case tacil.Config() as tacil_configuration:
+            augmented_episodes = tacil.augment(
+                config=tacil_configuration,
+                expert_episode_store=expert_episodes,
+                layout=None,
+                seed=config.seed,
+                device=device,
+                run=run,
+            )
+            if augmented_episodes is None:
+                return expert_transitions
+            label_transitions = to_transitions(episode_store=augmented_episodes)
+
+    return concatenate_transitions(
+        transition_batches=[expert_transitions, label_transitions]
+    )
+
+
+def _build_note(*, config: Config, condition: Condition) -> str:
+    match config.augmentation:
+        case None:
+            augmentation_note = "aug=none"
+        case ccil.Config() as ccil_configuration:
+            augmentation_note = (
+                f"aug=ccil"
+                f"|ltype={ccil_configuration.lipschitz_type}"
+                f"|lip={ccil_configuration.lipschitz_constraint:.3f}"
+                f"|type={ccil_configuration.type}"
+                f"|anoise={ccil_configuration.action_noise_std:.5f}"
+                f"|q={ccil_configuration.rejection_quantile:.3f}"
+            )
+        case tacil.Config() as tacil_configuration:
+            augmentation_note = (
+                f"aug=tacil"
+                f"|lip={tacil_configuration.lipschitz_constant_upper_bound}"
+                f"|win={tacil_configuration.window_length}"
+                f"|noise={tacil_configuration.action_noise_fraction:.4f}"
+                f"|err={tacil_configuration.error_limit_fraction:.4f}"
+                f"|dw={tacil_configuration.disagreement_weight:.2f}"
+                f"|prev={tacil_configuration.include_previous_state}"
+                f"|rel={tacil_configuration.measure_positions_from_agent}"
+            )
+
+    return (
+        f"data={config.expert_dataset_artifact}"
+        f"|{augmentation_note}"
+        f"|seed={config.seed}"
+        f"|cond={condition.label}"
+    )
+
+
+if __name__ == "__main__":
+    main()

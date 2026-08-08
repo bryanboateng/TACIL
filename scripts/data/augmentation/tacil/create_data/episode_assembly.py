@@ -139,12 +139,4 @@ def _assemble_episodes(
         episode_end_indices=np.cumsum(
             np.asarray(episode_lengths, dtype=np.int64)
         ),  # (episode_count,)
-        # These episodes end mid-task at an arbitrary cut, not at task completion.
-        artificial_end_mask=np.ones(shape=len(episode_lengths), dtype=np.bool_),
-        # The expert parts are sized for exactly this prediction horizon.
-        # A diffusion policy training with any other horizon would mislay its
-        # windows. Without expert parts there is no such layout to promise.
-        intended_prediction_horizon=(
-            expert_part_length + 1 if expert_part_length > 0 else None
-        ),
     )

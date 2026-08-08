@@ -1,22 +1,11 @@
-from dataclasses import asdict
-
 import numpy as np
 import torch
-import tyro
-import wandb
-from rich.pretty import pretty_repr
 from wandb import Run
 
 from scripts.data.augmentation.ccil.config import Config
 from scripts.data.augmentation.ccil.world_model import WorldModel, fit_world_model
-from scripts.shared.data import (
-    EpisodeStore,
-    combine_episode_stores,
-    download_episode_store,
-    upload_episode_store,
-)
-from scripts.shared.log import create_logger, log_device_info
-from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
+from scripts.shared.data import EpisodeStore, TransitionBatch
+from scripts.shared.log import create_logger
 from scripts.shared.seed import set_seed
 
 logger = create_logger()
@@ -26,40 +15,11 @@ STAGE_PREFIX = "2_data-"
 _BATCH_SIZE = 4_096
 
 
-def main():
-    config = tyro.cli(f=Config, config=[tyro.conf.UsePythonSyntaxForLiteralCollections])
-    logger.info(pretty_repr(config))
-    _run(config=config)
-
-
-def _run(*, config: Config) -> None:
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    log_device_info(device=device, logger=logger)
-
-    with wandb.init(
-        project=config.wandb.project,
-        notes=config.wandb.notes,
-        job_type="create-ccil-dataset",
-        config=asdict(config),
-        dir=OUTPUT_DIRECTORY_PATH,
-    ) as run:
-        upload_episode_store(
-            episode_store=create_ccil_augmented_data(
-                config=config,
-                episode_store=download_episode_store(
-                    artifact_name=config.dataset_artifact, run=run
-                ),
-                device=device,
-                run=run,
-            ),
-            name="ccil-dataset",
-            run=run,
-        )
-
-
 def create_ccil_augmented_data(
     *, config: Config, episode_store: EpisodeStore, device: torch.device, run: Run
-) -> EpisodeStore:
+) -> TransitionBatch:
+    """The accepted labels alone. A label is a single (state, action) pair, so
+    the caller appends them to the expert transitions."""
     set_seed(seed=config.seed)
 
     states, actions, next_states = _transitions(episode_store=episode_store)
@@ -118,10 +78,8 @@ def create_ccil_augmented_data(
         np.median(label_distances)
     )
 
-    return _append_label_episodes(
-        episode_store=episode_store,
-        label_states=label_states[accepted_mask],
-        label_actions=label_actions[accepted_mask],
+    return TransitionBatch(
+        states=label_states[accepted_mask], actions=label_actions[accepted_mask]
     )
 
 
@@ -208,31 +166,3 @@ def _generate_labels(
         np.concatenate(label_action_chunks).astype(np.float32),
         np.concatenate(distance_chunks),
     )
-
-
-def _append_label_episodes(
-    *,
-    episode_store: EpisodeStore,
-    label_states: np.ndarray,  # (label_count, state_dimensionality)
-    label_actions: np.ndarray,  # (label_count, action_dimensionality)
-) -> EpisodeStore:
-    label_count = label_states.shape[0]
-
-    return combine_episode_stores(
-        expert_episode_store=episode_store,
-        augmented_episode_store=EpisodeStore(
-            states=label_states,
-            actions=label_actions,
-            # Every label is its own episode of one timestep.
-            episode_end_indices=np.arange(1, label_count + 1, dtype=np.int64),
-            # Label episodes are artificial one-step cuts, not task completions.
-            artificial_end_mask=np.ones(label_count, dtype=np.bool_),
-            # No prediction-horizon layout: this dataset is meant for behavior
-            # cloning, which trains on flat (state, action) pairs.
-            intended_prediction_horizon=None,
-        ),
-    )
-
-
-if __name__ == "__main__":
-    main()

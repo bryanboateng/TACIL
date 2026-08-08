@@ -34,5 +34,4 @@ class Config:
     dimensionality: DimensionalityConfig
     optimization: OptimizationConfig
     evaluation: EvaluationConfig
-    dataset_artifact: str
     seed: int = 42

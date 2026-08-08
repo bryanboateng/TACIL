@@ -1,15 +1,10 @@
 import copy
-import tempfile
-from dataclasses import asdict
 from pathlib import Path
 from typing import Literal
 
 import torch
-import tyro
-import wandb
 from diffusers.optimization import get_scheduler
 from diffusers.training_utils import EMAModel
-from rich.pretty import pretty_repr
 from tqdm.auto import tqdm
 from wandb import Run
 
@@ -26,9 +21,8 @@ from scripts.policies.dp.network import ConditionalUnet1d
 from scripts.policies.dp.noise_scheduler import get_ddpm_scheduler
 from scripts.policies.dp.policy import load_diffusion_policy, save_diffusion_policy
 from scripts.policies.shared.checkpoint import Checkpoint
-from scripts.shared.data import EpisodeStore, download_episode_store
-from scripts.shared.log import create_logger, log_device_info
-from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
+from scripts.shared.data import EpisodeStore
+from scripts.shared.log import create_logger
 from scripts.shared.seed import set_seed
 
 logger = create_logger()
@@ -44,48 +38,17 @@ STAGE_PREFIX = "3_policy-"
 STEP_METRIC_NAME = f"{STAGE_PREFIX}step"
 
 
-def main():
-    config = tyro.cli(f=Config, config=[tyro.conf.UsePythonSyntaxForLiteralCollections])
-    logger.info(pretty_repr(config))
-    _run(config=config)
-
-
-def _run(*, config: Config) -> None:
-    device = torch.device(device="cuda" if torch.cuda.is_available() else "cpu")
-    log_device_info(device=device, logger=logger)
-
-    with (
-        wandb.init(
-            project=config.wandb.project,
-            notes=config.wandb.notes,
-            job_type="train-diffusion-policy",
-            config=asdict(config),
-            dir=OUTPUT_DIRECTORY_PATH,
-        ) as run,
-        tempfile.TemporaryDirectory() as checkpoint_directory,
-    ):
-        checkpoint_path = train_diffusion_policy(
-            config=config,
-            episode_store=download_episode_store(
-                artifact_name=config.dataset_artifact, run=run
-            ),
-            checkpoint_directory_path=Path(checkpoint_directory),
-            device=device,
-            run=run,
-        )
-        _upload_checkpoint(checkpoint_path=checkpoint_path, run=run)
-
-
 def train_diffusion_policy(
     *,
     config: Config,
-    episode_store: EpisodeStore,
+    expert_episodes: EpisodeStore,
+    augmented_episodes: EpisodeStore | None,
     checkpoint_directory_path: Path,
     device: torch.device,
     run: Run,
 ) -> Path:
-    """Train on *episode_store*, keeping the periodically evaluated EMA
-    checkpoint that scored best. It is logged to *run* as an artifact and
+    """Train on the recorded episodes plus whatever augmentation produced,
+    keeping the periodically evaluated EMA checkpoint that scored best. It is
     written into *checkpoint_directory_path*, whose lifetime the caller owns.
     """
     set_seed(seed=config.seed)
@@ -116,7 +79,8 @@ def train_diffusion_policy(
     )
 
     dataset = Dataset(
-        episode_store=episode_store,
+        expert_episodes=expert_episodes,
+        augmented_episodes=augmented_episodes,
         prediction_horizon_length=config.horizon_length.prediction,
         observation_horizon_length=config.horizon_length.observation,
         action_horizon_length=config.horizon_length.action,
@@ -284,15 +248,6 @@ def train_diffusion_policy(
     return final_path
 
 
-def _upload_checkpoint(*, checkpoint_path: Path, run: Run) -> None:
-    """Only the standalone script does this. A sweep trial scores its policy
-    in the same run and never opens the checkpoint again, so keeping one per
-    trial would be hundreds of megabytes of dead weight each."""
-    artifact = wandb.Artifact(name=f"diffusion-policy-{run.name}", type="model")
-    artifact.add_file(str(checkpoint_path))
-    run.log_artifact(artifact)
-
-
 def _define_step_metrics(*, run: Run) -> None:
     run.define_metric(name=STEP_METRIC_NAME)
     for metric_pattern in ("epoch", "training/*", "validation/*"):
@@ -355,7 +310,3 @@ def _save_ema_checkpoint(
         return state_dict
     finally:
         ema.restore(parameters=network.parameters())
-
-
-if __name__ == "__main__":
-    main()

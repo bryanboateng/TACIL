@@ -1,12 +1,6 @@
-from dataclasses import asdict
-from pathlib import Path
-
 import numpy as np
 import torch
-import tyro
-import wandb
 from numpy import typing as npt
-from rich.pretty import pretty_repr
 from wandb import Run
 
 from scripts.data.augmentation.tacil.create_data.anchor_selection import (
@@ -27,66 +21,17 @@ from scripts.data.augmentation.tacil.create_data.statistics_logging import (
     log_dataset_statistics,
     log_rollout_statistics,
 )
-from scripts.data.augmentation.tacil.create_dynamics.checkpoint import (
-    load_dynamics_model_ensemble,
-)
 from scripts.data.augmentation.tacil.create_data.step_distance import (
     calculate_median_step_distance,
 )
 from scripts.data.augmentation.tacil.models.dynamics_model_ensemble import (
     DynamicsModelEnsemble,
 )
-from scripts.shared.data import (
-    EpisodeStore,
-    combine_episode_stores,
-    download_episode_store,
-    upload_episode_store,
-)
-from scripts.shared.log import create_logger, log_device_info
-from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
+from scripts.shared.data import EpisodeStore, WindowedLayout
+from scripts.shared.log import create_logger
 from scripts.shared.seed import set_seed
 
 logger = create_logger()
-
-
-def main():
-    config = tyro.cli(f=Config, config=[tyro.conf.UsePythonSyntaxForLiteralCollections])
-    logger.info(pretty_repr(config))
-    _run(config=config)
-
-
-def _run(*, config: Config) -> None:
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    log_device_info(device=device, logger=logger)
-
-    with wandb.init(
-        project=config.wandb.project,
-        notes=config.wandb.notes,
-        job_type="create-tacil-dataset",
-        config=asdict(config),
-        dir=OUTPUT_DIRECTORY_PATH,
-    ) as run:
-        model_directory_path = Path(
-            run.use_artifact(artifact_or_name=config.model_artifact).download()
-        )
-        dynamics_model_ensemble = load_dynamics_model_ensemble(
-            directory_path=model_directory_path, device=device
-        )
-        dynamics_model_ensemble.eval()
-
-        upload_episode_store(
-            episode_store=create_augmented_data(
-                config=config,
-                episode_store=download_episode_store(
-                    artifact_name=config.dataset_artifact, run=run
-                ),
-                dynamics_model_ensemble=dynamics_model_ensemble,
-                device=device,
-                run=run,
-            ),
-            name="tacil-dataset",
-            run=run,
-        )
 
 
 def create_augmented_data(
@@ -94,18 +39,25 @@ def create_augmented_data(
     config: Config,
     episode_store: EpisodeStore,
     dynamics_model_ensemble: DynamicsModelEnsemble,
+    layout: WindowedLayout | None,
     device: torch.device,
     run: Run,
-) -> EpisodeStore:
+) -> EpisodeStore | None:
     """Roll backward out of anchors picked from *episode_store* and return the
-    expert data with the synthetic episodes appended, logging statistics to
-    *run*.
+    synthetic episodes alone, logging statistics to *run*. None means the
+    rollout produced nothing.
+
+    A windowed consumer needs enough expert continuation behind every synthetic
+    state to fill one window; a consumer that trains on single (state, action)
+    pairs needs none, and copying expert data would only drown its labels.
     """
     set_seed(seed=config.seed)
 
+    expert_part_length = layout.prediction_horizon - 1 if layout is not None else 0
+
     anchor_indices = get_anchor_indices(
         episode_end_indices=episode_store.episode_end_indices,
-        expert_part_length=config.expert_part_length,
+        expert_part_length=expert_part_length,
     )  # (anchor_count,)
 
     action_noise_std = compute_noise_std(
@@ -169,7 +121,7 @@ def create_augmented_data(
         )
         run.summary[f"{STAGE_PREFIX}2_rollout/accepted_anchor_count"] = 0
         run.summary[f"{STAGE_PREFIX}2_rollout/accepted_anchor_fraction"] = 0.0
-        return episode_store
+        return None
 
     # Turn the labels back into policy states: drop the stacked history and
     # put the angle back into [0, 2π).
@@ -186,7 +138,7 @@ def create_augmented_data(
         ),
         episode_store=episode_store,
         anchor_indices=anchor_indices,
-        expert_part_length=config.expert_part_length,
+        expert_part_length=expert_part_length,
     )
 
     log_dataset_statistics(
@@ -196,14 +148,7 @@ def create_augmented_data(
         run=run,
     )
 
-    return combine_episode_stores(
-        expert_episode_store=episode_store,
-        augmented_episode_store=augmentation_result.episode_store,
-    )
-
-
-if __name__ == "__main__":
-    main()
+    return augmentation_result.episode_store
 
 
 def compute_noise_std(

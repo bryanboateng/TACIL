@@ -63,8 +63,6 @@ def unwrap_angles(*, episode_store: EpisodeStore) -> EpisodeStore:
         states=states,
         actions=episode_store.actions,
         episode_end_indices=episode_store.episode_end_indices,
-        artificial_end_mask=episode_store.artificial_end_mask,
-        intended_prediction_horizon=episode_store.intended_prediction_horizon,
     )
 
 

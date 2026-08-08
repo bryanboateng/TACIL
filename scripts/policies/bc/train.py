@@ -1,12 +1,7 @@
 import copy
-import tempfile
-from dataclasses import asdict
 from pathlib import Path
 
 import torch
-import tyro
-import wandb
-from rich.pretty import pretty_repr
 from torch.optim import Adam
 from torch.utils.data import DataLoader
 from tqdm.auto import tqdm
@@ -26,9 +21,8 @@ from scripts.policies.bc.policy import (
     save_behavior_cloning_policy,
 )
 from scripts.policies.shared.checkpoint import Checkpoint
-from scripts.shared.data import EpisodeStore, download_episode_store
-from scripts.shared.log import create_logger, log_device_info
-from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
+from scripts.shared.data import TransitionBatch
+from scripts.shared.log import create_logger
 from scripts.shared.seed import set_seed
 
 logger = create_logger()
@@ -38,42 +32,10 @@ logger = create_logger()
 STAGE_PREFIX = "3_policy-"
 
 
-def main():
-    config = tyro.cli(f=Config, config=[tyro.conf.UsePythonSyntaxForLiteralCollections])
-    logger.info(pretty_repr(config))
-    _run(config=config)
-
-
-def _run(*, config: Config) -> None:
-    device = torch.device(device="cuda" if torch.cuda.is_available() else "cpu")
-    log_device_info(device=device, logger=logger)
-
-    with (
-        wandb.init(
-            project=config.wandb.project,
-            notes=config.wandb.notes,
-            job_type="train-behavior-cloning-policy",
-            config=asdict(config),
-            dir=OUTPUT_DIRECTORY_PATH,
-        ) as run,
-        tempfile.TemporaryDirectory() as checkpoint_directory,
-    ):
-        checkpoint_path = train_behavior_cloning_policy(
-            config=config,
-            episode_store=download_episode_store(
-                artifact_name=config.dataset_artifact, run=run
-            ),
-            checkpoint_directory_path=Path(checkpoint_directory),
-            device=device,
-            run=run,
-        )
-        _upload_checkpoint(checkpoint_path=checkpoint_path, run=run)
-
-
 def train_behavior_cloning_policy(
     *,
     config: Config,
-    episode_store: EpisodeStore,
+    transitions: TransitionBatch,
     checkpoint_directory_path: Path,
     device: torch.device,
     run: Run,
@@ -82,7 +44,7 @@ def train_behavior_cloning_policy(
 
     loss_function = torch.nn.MSELoss()
 
-    dataset = Dataset(episode_store=episode_store)
+    dataset = Dataset(transitions=transitions)
 
     data_loader = DataLoader(
         dataset=dataset,
@@ -188,16 +150,6 @@ def train_behavior_cloning_policy(
     return final_path
 
 
-def _upload_checkpoint(*, checkpoint_path: Path, run: Run) -> None:
-    """Only the standalone script does this; see the note in the diffusion
-    policy's training script."""
-    model_artifact = wandb.Artifact(
-        name=f"behavior-cloning-policy-{run.name}", type="model"
-    )
-    model_artifact.add_file(local_path=str(checkpoint_path), name="checkpoint.pt")
-    run.log_artifact(model_artifact)
-
-
 def _evaluate(
     *,
     checkpoint_path: Path,
@@ -216,7 +168,3 @@ def _evaluate(
             condition=condition,
         )
     )
-
-
-if __name__ == "__main__":
-    main()

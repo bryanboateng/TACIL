@@ -6,41 +6,46 @@ from scripts.shared.normalization import MinMaxNormalizer
 
 
 class Dataset(torch.utils.data.Dataset[tuple[torch.Tensor, torch.Tensor]]):
+    """Windows over recorded episodes, plus windows over augmented ones.
+
+    The two collections stay apart because they pad differently. A recorded
+    episode starts at rest and ends with the task complete, so a window may run
+    past either edge and repeat the edge value. An augmented episode is cut out
+    of the middle of a task at both ends: padding it would invent a history it
+    never had and a label that tells the policy to stop.
+    """
+
     def __init__(
         self,
         *,
-        episode_store: EpisodeStore,
+        expert_episodes: EpisodeStore,
+        augmented_episodes: EpisodeStore | None,
         prediction_horizon_length: int,
         observation_horizon_length: int,
         action_horizon_length: int,
     ) -> None:
-        if (
-            episode_store.intended_prediction_horizon is not None
-            and episode_store.intended_prediction_horizon != prediction_horizon_length
-        ):
-            raise ValueError(
-                f"This dataset's augmented episodes were laid out for a "
-                f"prediction horizon of "
-                f"{episode_store.intended_prediction_horizon}, but the policy "
-                f"is configured with {prediction_horizon_length}. Training on "
-                f"it would silently produce duplicated or missing windows; "
-                f"regenerate the augmentation with the current horizon."
-            )
-
         observation_batch = torch.from_numpy(
-            episode_store.states
+            np.concatenate(
+                [expert_episodes.states]
+                + (
+                    [augmented_episodes.states]
+                    if augmented_episodes is not None
+                    else []
+                ),
+                axis=0,
+            )
         ).float()  # (total_timestep_count, observation_dimensionality)
         action_batch = torch.from_numpy(
-            episode_store.actions
+            np.concatenate(
+                [expert_episodes.actions]
+                + (
+                    [augmented_episodes.actions]
+                    if augmented_episodes is not None
+                    else []
+                ),
+                axis=0,
+            )
         ).float()  # (total_timestep_count, action_dimensionality)
-        episode_ends = torch.from_numpy(
-            episode_store.episode_end_indices
-        )  # (episode_count,)
-        artificial_end_mask = torch.from_numpy(
-            episode_store.artificial_end_mask
-            if episode_store.artificial_end_mask is not None
-            else np.zeros(len(episode_store.episode_end_indices), dtype=np.bool_)
-        )  # (episode_count,)
 
         self.observation_normalizer = MinMaxNormalizer.from_values(
             value_batch=observation_batch
@@ -54,13 +59,41 @@ class Dataset(torch.utils.data.Dataset[tuple[torch.Tensor, torch.Tensor]]):
             value_batch=action_batch
         )  # (total_timestep_count, action_dimensionality)
 
-        self._window_indices = _build_window_indices(
-            episode_ends=episode_ends,
+        expert_window_indices = _build_window_indices(
+            episode_ends=torch.from_numpy(expert_episodes.episode_end_indices),
+            timestep_offset=0,
             prediction_horizon_length=prediction_horizon_length,
             observation_padding_length=observation_horizon_length - 1,
             action_padding_length=action_horizon_length - 1,
-            artificial_end_mask=artificial_end_mask,
         )  # (window_count, 4)
+
+        if augmented_episodes is None:
+            self._window_indices = expert_window_indices
+        else:
+            augmented_window_indices = _build_window_indices(
+                episode_ends=torch.from_numpy(augmented_episodes.episode_end_indices),
+                timestep_offset=expert_episodes.states.shape[0],
+                prediction_horizon_length=prediction_horizon_length,
+                observation_padding_length=0,
+                action_padding_length=0,
+            )  # (window_count, 4)
+
+            if len(augmented_window_indices) == 0:
+                episode_lengths = np.diff(
+                    augmented_episodes.episode_end_indices, prepend=0
+                )
+                raise ValueError(
+                    f"None of the {len(episode_lengths)} augmented episodes is long "
+                    f"enough for one window: the longest is "
+                    f"{int(episode_lengths.max())} timesteps, the prediction horizon "
+                    f"is {prediction_horizon_length}. Training would silently use the "
+                    f"expert data alone. This augmentation was laid out for a policy "
+                    f"that trains on single (state, action) pairs."
+                )
+
+            self._window_indices = torch.cat(
+                [expert_window_indices, augmented_window_indices], dim=0
+            )  # (window_count, 4)
 
         self._prediction_horizon_length = prediction_horizon_length
         self._observation_horizon_length = observation_horizon_length
@@ -107,11 +140,18 @@ class Dataset(torch.utils.data.Dataset[tuple[torch.Tensor, torch.Tensor]]):
 def _build_window_indices(
     *,
     episode_ends: torch.Tensor,  # (episode_count,)
+    timestep_offset: int,
     prediction_horizon_length: int,
     observation_padding_length: int,
     action_padding_length: int,
-    artificial_end_mask: torch.Tensor,  # (episode_count,)
 ) -> torch.Tensor:  # (window_count, 4) columns: source_read_start, source_read_end, output_write_start, output_write_end
+    """Window positions for one collection of episodes.
+
+    *timestep_offset* is where this collection starts in the concatenated
+    arrays. Both padding lengths are 0 for a collection whose episodes are cut
+    out of the middle of a task: it then yields only windows that lie entirely
+    inside one episode.
+    """
     window_indices: list[list[int]] = []
 
     for episode_index, episode_end_position in enumerate(episode_ends):
@@ -119,21 +159,16 @@ def _build_window_indices(
             int(episode_ends[episode_index - 1]) if episode_index > 0 else 0
         )
         episode_length = int(episode_end_position) - episode_start_position
+        episode_base_position = timestep_offset + episode_start_position
 
         first_window_offset = -observation_padding_length
-        # An artificial episode end is a mid-task cut: windows padded past it
-        # would repeat the last action as a label, teaching the policy to stop
-        # mid-task. Such episodes only contribute windows whose actions are
-        # fully real.
         last_window_offset = (
-            episode_length - prediction_horizon_length
-            if bool(artificial_end_mask[episode_index])
-            else episode_length - prediction_horizon_length + action_padding_length
+            episode_length - prediction_horizon_length + action_padding_length
         )
 
         for window_offset in range(first_window_offset, last_window_offset + 1):
-            source_read_start_position = episode_start_position + max(window_offset, 0)
-            source_read_end_position = episode_start_position + min(
+            source_read_start_position = episode_base_position + max(window_offset, 0)
+            source_read_end_position = episode_base_position + min(
                 window_offset + prediction_horizon_length, episode_length
             )
 
@@ -151,7 +186,9 @@ def _build_window_indices(
                 ]
             )
 
-    return torch.tensor(window_indices, dtype=torch.long)  # (window_count, 4)
+    return torch.tensor(window_indices, dtype=torch.long).reshape(
+        -1, 4
+    )  # (window_count, 4)
 
 
 def _extract_window_with_edge_padding(

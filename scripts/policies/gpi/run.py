@@ -8,13 +8,16 @@ import tyro
 import wandb
 from rich.pretty import pretty_repr
 
-from scripts.evaluation.config import DEFAULT_EPISODE_COUNT
 from scripts.evaluation.core.condition import (
     Condition,
     DisturbanceLevel,
     FloorCondition,
 )
-from scripts.evaluation.evaluate_policy import STAGE_PREFIX, evaluate_policy
+from scripts.evaluation.evaluate_policy import (
+    DEFAULT_EPISODE_COUNT,
+    STAGE_PREFIX,
+    evaluate_policy,
+)
 from scripts.policies.gpi import config as gpi_config
 from scripts.policies.gpi.policy import load_geometric_policy
 from scripts.shared.data import download_episode_store

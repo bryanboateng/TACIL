@@ -1,8 +1,6 @@
 from dataclasses import dataclass, field
 from typing import Literal
 
-from scripts.shared.wandb_config import WandbConfig
-
 LipschitzType = Literal["soft_sampling", "spectral_normalization", "none"]
 AugmentationType = Literal["noisy_action", "backward_euler_fast"]
 
@@ -33,9 +31,6 @@ class AugmentationConfig:
 
 @dataclass(frozen=True)
 class Config:
-    wandb: WandbConfig
-
-    dataset_artifact: str
     dynamics: DynamicsConfig = field(default_factory=DynamicsConfig)
     augmentation: AugmentationConfig = field(default_factory=AugmentationConfig)
 

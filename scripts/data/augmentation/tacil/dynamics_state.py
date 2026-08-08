@@ -27,14 +27,4 @@ def stack_previous_state(*, episode_store: EpisodeStore) -> EpisodeStore:
         states=np.concatenate([episode_store.states, previous_states], axis=1),
         actions=episode_store.actions,
         episode_end_indices=episode_store.episode_end_indices,
-        artificial_end_mask=episode_store.artificial_end_mask,
-        intended_prediction_horizon=episode_store.intended_prediction_horizon,
     )
-
-
-def current_state_part(
-    *,
-    stacked_states: np.ndarray,  # (..., state_dimensionality * 2)
-) -> np.ndarray:  # (..., state_dimensionality)
-    """The current-frame half of a stacked state — what the policy sees."""
-    return stacked_states[..., : stacked_states.shape[-1] // 2]
