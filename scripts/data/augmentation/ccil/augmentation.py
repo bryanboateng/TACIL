@@ -17,14 +17,14 @@ from scripts.shared.f import EpisodeStore, TransitionBatch
 def augment(
     *,
     config: CcilConfig,
-    expert_episode_store: EpisodeStore,
+    expert_episodes: EpisodeStore,
     seed: int,
     device: torch.device,
     run: Run,
 ) -> TransitionBatch:
     return create_ccil_augmented_data(
         config=config,
-        episode_store=expert_episode_store,
+        expert_episodes=expert_episodes,
         seed=seed,
         device=device,
         run=run,

@@ -107,9 +107,6 @@ def _run(*, config: Config) -> None:
         )
         logger.info("Stage 3/3: done.")
 
-        reward_key = f"{STAGE_NAME}/{condition.label}/reward_mean"
-        logger.info("Trial finished: %s = %s", reward_key, run.summary[reward_key])
-
 
 def _create_synthetic_transitions(
     *,
@@ -123,7 +120,7 @@ def _create_synthetic_transitions(
         case CcilConfig() as ccil_configuration:
             return ccil.augment(
                 config=ccil_configuration,
-                expert_episode_store=expert_episodes,
+                expert_episodes=expert_episodes,
                 seed=seed,
                 device=device,
                 run=run,
@@ -131,7 +128,7 @@ def _create_synthetic_transitions(
         case TacilConfig() as tacil_configuration:
             tacil_episodes = tacil.augment(
                 config=tacil_configuration,
-                expert_episode_store=expert_episodes,
+                expert_episodes=expert_episodes,
                 prediction_horizon=None,  # Behavior cloning trains on single (state, action) pairs.
                 seed=seed,
                 device=device,

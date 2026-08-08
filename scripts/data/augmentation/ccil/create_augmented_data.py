@@ -18,7 +18,7 @@ _BATCH_SIZE = 4_096
 def create_ccil_augmented_data(
     *,
     config: CcilConfig,
-    episode_store: EpisodeStore,
+    expert_episodes: EpisodeStore,
     seed: int,
     device: torch.device,
     run: Run,
@@ -27,7 +27,7 @@ def create_ccil_augmented_data(
     the caller appends them to the expert transitions."""
     set_seed(seed=seed)
 
-    states, actions, next_states = _transitions(episode_store=episode_store)
+    states, actions, next_states = _transitions(episode_store=expert_episodes)
     state_batch = torch.from_numpy(states).to(device=device)
     action_batch = torch.from_numpy(actions).to(device=device)
     next_state_batch = torch.from_numpy(next_states).to(device=device)

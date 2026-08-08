@@ -66,7 +66,7 @@ def _run(*, config: Config) -> None:
             logger.info("Stage 1/3: creating the augmented episodes.")
             augmented_episodes = tacil.augment(
                 config=config.augmentation,
-                expert_episode_store=expert_episodes,
+                expert_episodes=expert_episodes,
                 # The expert continuation behind every synthetic state is sized
                 # against this horizon.
                 prediction_horizon=config.policy.horizon_length.prediction,

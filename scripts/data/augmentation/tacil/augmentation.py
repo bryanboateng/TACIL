@@ -36,7 +36,7 @@ class TacilConfig:
 def augment(
     *,
     config: TacilConfig,
-    expert_episode_store: EpisodeStore,
+    expert_episodes: EpisodeStore,
     prediction_horizon: int | None,
     seed: int,
     device: torch.device,
@@ -44,7 +44,7 @@ def augment(
 ) -> EpisodeStore:
     dynamics_model_ensemble = train_dynamics_model_ensemble(
         config=config.dynamics,
-        episode_store=expert_episode_store,
+        episode_store=expert_episodes,
         seed=seed,
         device=device,
         run=run,
@@ -52,7 +52,7 @@ def augment(
 
     return create_augmented_data(
         config=config.data,
-        episode_store=expert_episode_store,
+        episode_store=expert_episodes,
         dynamics_model_ensemble=dynamics_model_ensemble,
         prediction_horizon=prediction_horizon,
         seed=seed,
