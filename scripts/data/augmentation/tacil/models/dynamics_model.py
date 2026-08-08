@@ -5,9 +5,9 @@ from scripts.data.augmentation.tacil.models.lipschitz_constrained_linear import 
 )
 from scripts.data.augmentation.tacil.models.normalizers import Normalizers
 from scripts.shared.pusht_state import (
+    NETWORK_INPUT_DIMENSIONALITY,
     advance_states,
     network_input,
-    network_input_dimensionality,
 )
 
 # Maximum factor by which SiLU stretches space, i.e. its (global) Lipschitz constant.
@@ -20,25 +20,23 @@ class DynamicsModel(torch.nn.Module):
         *,
         state_dimensionality: int,
         action_dimensionality: int,
-        hidden_dimensionalities: tuple[int, ...],
+        hidden_layer_count: int,
+        hidden_layer_dimensionality: int,
         lipschitz_constant_upper_bound: float | None,
-        measure_positions_from_agent: bool = False,
     ):
         super().__init__()
 
         self.state_dimensionality = state_dimensionality
         self.action_dimensionality = action_dimensionality
-        self.hidden_dimensionalities = hidden_dimensionalities
+        self.hidden_layer_count = hidden_layer_count
+        self.hidden_layer_dimensionality = hidden_layer_dimensionality
         self.lipschitz_constant_upper_bound = lipschitz_constant_upper_bound
-        self.measure_positions_from_agent = measure_positions_from_agent
 
         self._network = _create_network(
-            input_dimensionality=network_input_dimensionality(
-                action_dimensionality=action_dimensionality,
-                measure_positions_from_agent=measure_positions_from_agent,
-            ),
+            input_dimensionality=NETWORK_INPUT_DIMENSIONALITY,
             output_dimensionality=state_dimensionality,
-            hidden_dimensionalities=hidden_dimensionalities,
+            hidden_layer_count=hidden_layer_count,
+            hidden_layer_dimensionality=hidden_layer_dimensionality,
             lipschitz_constant_upper_bound=lipschitz_constant_upper_bound,
         )
 
@@ -56,10 +54,7 @@ class DynamicsModel(torch.nn.Module):
         action_batch: torch.Tensor,  # (batch_size, action_dimensionality)
     ) -> torch.Tensor:  # (batch_size, input_dimensionality)
         return network_input(
-            normalizers=normalizers,
-            state_batch=state_batch,
-            action_batch=action_batch,
-            measure_positions_from_agent=self.measure_positions_from_agent,
+            normalizers=normalizers, state_batch=state_batch, action_batch=action_batch
         )
 
     def predict_next_state(
@@ -145,13 +140,14 @@ def _create_network(
     *,
     input_dimensionality: int,
     output_dimensionality: int,
-    hidden_dimensionalities: tuple[int, ...],
+    hidden_layer_count: int,
+    hidden_layer_dimensionality: int,
     lipschitz_constant_upper_bound: float | None,
 ) -> torch.nn.Sequential:
 
     layer_dimensionalities = (
         input_dimensionality,
-        *hidden_dimensionalities,
+        *(hidden_layer_dimensionality,) * hidden_layer_count,
         output_dimensionality,
     )
     linear_layer_count = len(layer_dimensionalities) - 1

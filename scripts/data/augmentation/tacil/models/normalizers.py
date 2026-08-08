@@ -7,19 +7,19 @@ from scripts.shared.normalization import ZScoreNormalizer
 
 class Normalizers(torch.nn.Module):
     state_normalizer: ZScoreNormalizer
-    action_normalizer: ZScoreNormalizer
+    network_feature_normalizer: ZScoreNormalizer
     state_displacement_normalizer: ZScoreNormalizer
 
     def __init__(
         self,
         *,
         state_normalizer: ZScoreNormalizer,
-        action_normalizer: ZScoreNormalizer,
+        network_feature_normalizer: ZScoreNormalizer,
         state_displacement_normalizer: ZScoreNormalizer,
     ):
         super().__init__()
         self.state_normalizer = state_normalizer
-        self.action_normalizer = action_normalizer
+        self.network_feature_normalizer = network_feature_normalizer
         self.state_displacement_normalizer = state_displacement_normalizer
 
     @classmethod
@@ -27,14 +27,19 @@ class Normalizers(torch.nn.Module):
         cls,
         *,
         state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
-        action_batch: torch.Tensor,  # (batch_size, action_dimensionality)
-        # Taken by the caller rather than computed here: subtracting two states
-        # is the state layout's business, and this class knows only scales.
+        # Both taken by the caller rather than computed here: assembling the
+        # features and subtracting two states are the state layout's business,
+        # and this class knows only scales.
+        network_feature_batch: torch.Tensor,  # (batch_size, NETWORK_FEATURE_DIMENSIONALITY)
         state_displacement_batch: torch.Tensor,  # (batch_size, STATE_DIMENSIONALITY)
     ) -> Self:
         return cls(
             state_normalizer=ZScoreNormalizer.from_values(value_batch=state_batch),
-            action_normalizer=ZScoreNormalizer.from_values(value_batch=action_batch),
+            # Measured on the features themselves. A block position taken from
+            # the agent has its own spread, not that of an absolute position.
+            network_feature_normalizer=ZScoreNormalizer.from_values(
+                value_batch=network_feature_batch
+            ),
             # Scale only, no shift. The shift would be the average motion in
             # the demonstrations, which is a property of the task (the expert
             # pushes the block toward one goal), not of the dynamics. As a

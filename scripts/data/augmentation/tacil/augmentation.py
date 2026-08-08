@@ -35,8 +35,12 @@ class Config:
     # is a real option rather than a stand-in number.
     lipschitz_constant_upper_bound: float | None = None
 
-    # Positions measured from the agent instead of absolute ones.
-    measure_positions_from_agent: bool = False
+    # The dynamics model's shape and ensemble size. Not swept — the sweep would
+    # spend budget on them — but reachable here, so an ablation needs no code
+    # change.
+    ensemble_size: int = 20
+    hidden_layer_count: int = 2
+    hidden_layer_dimensionality: int = 256
 
 
 def augment(
@@ -51,18 +55,12 @@ def augment(
     """The synthetic episodes, or None when the rollout produced nothing."""
     dynamics_model_ensemble = train_dynamics_model_ensemble(
         config=dynamics_config.Config(
-            data=dynamics_config.DataConfig(
-                split=dynamics_config.DataSplitConfig(),
-                loader=dynamics_config.DataLoaderConfig(
-                    window_length=config.window_length
-                ),
-            ),
-            architecture=dynamics_config.ArchitectureConfig(
-                lipschitz_constant_upper_bound=config.lipschitz_constant_upper_bound,
-                measure_positions_from_agent=config.measure_positions_from_agent,
-            ),
-            training=dynamics_config.TrainingConfig(),
             seed=seed,
+            window_length=config.window_length,
+            lipschitz_constant_upper_bound=config.lipschitz_constant_upper_bound,
+            ensemble_size=config.ensemble_size,
+            hidden_layer_count=config.hidden_layer_count,
+            hidden_layer_dimensionality=config.hidden_layer_dimensionality,
         ),
         episode_store=expert_episode_store,
         device=device,

@@ -84,8 +84,6 @@ _TACIL_PARAMETERS: dict[str, Any] = {
         "min": 0.0,
         "max": 1.0,
     },
-    # Positions measured from the agent instead of absolute ones.
-    "augmentation.measure_positions_from_agent": {"values": [False, True]},
 }
 
 # Their configs pick one Lipschitz variant per environment; here the sweep

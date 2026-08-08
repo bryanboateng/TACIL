@@ -1,73 +1,36 @@
+"""What a run of the dynamics stage may change.
+
+Only settings worth varying in an ablation live here. Everything else — the
+batch sizes, the optimizer, the epoch budget, the data split — is fixed and
+sits next to the code that uses it, because a value nobody turns is not
+configuration.
+"""
+
 from dataclasses import dataclass
-
-
-@dataclass(frozen=True)
-class DataSplitConfig:
-    # The seed used to select the validation episodes.
-    seed: int = 0
-    # This fraction of the episodes goes to validation.
-    validation_fraction: float = 0.2
-
-    def __post_init__(self) -> None:
-        if not 0.0 <= self.validation_fraction <= 1.0:
-            raise ValueError(
-                f"validation_fraction must be in [0, 1], got {self.validation_fraction}"
-            )
-
-
-@dataclass(frozen=True)
-class DataLoaderConfig:
-    # The number of windows in one gradient step.
-    batch_size: int = 2_048
-    # The model predicts this number of steps from its own output. Then the
-    # loss compares the predictions with the data.
-    window_length: int = 3
-
-
-@dataclass(frozen=True)
-class DataConfig:
-    split: DataSplitConfig
-    loader: DataLoaderConfig
-
-
-@dataclass(frozen=True)
-class ArchitectureConfig:
-    hidden_layer_sizes: tuple[int, ...] = (256, 256)
-    # The maximum steepness of the model. If you give None, the model has no
-    # Lipschitz layer.
-    lipschitz_constant_upper_bound: float | None = None
-    # The number of models in the ensemble. The augmentation reads the
-    # disagreement between these models.
-    ensemble_size: int = 20
-
-    # Measure all positions from the agent. If false, the positions start at
-    # the corner of the arena.
-    measure_positions_from_agent: bool = False
-
-    def __post_init__(self) -> None:
-        if self.ensemble_size < 1:
-            raise ValueError(f"ensemble_size must be >= 1, got {self.ensemble_size}")
-
-
-@dataclass(frozen=True)
-class TrainingConfig:
-    learning_rate: float = 1e-3
-    weight_decay: float = 1e-5
-    # The number of epochs for each model. The training keeps the epoch with
-    # the lowest validation loss.
-    epoch_count: int = 500
-    # The moving average of the weights keeps this fraction of its old value
-    # at each update.
-    ema_decay: float = 0.9
-
-    def __post_init__(self) -> None:
-        if not 0.0 <= self.ema_decay <= 1.0:
-            raise ValueError(f"ema_decay must be in [0, 1], got {self.ema_decay}")
 
 
 @dataclass(frozen=True)
 class Config:
     seed: int
-    data: DataConfig
-    architecture: ArchitectureConfig
-    training: TrainingConfig
+    # The model predicts this number of steps from its own output. Then the
+    # loss compares the predictions with the data.
+    window_length: int
+    # The maximum steepness of the model. If you give None, the model has no
+    # Lipschitz layer.
+    lipschitz_constant_upper_bound: float | None = None
+    # The number of models in the ensemble. The augmentation reads the
+    # disagreement between these models, so this sets how fine that signal is.
+    ensemble_size: int = 20
+    # Shape of the network. Two scalars rather than a tuple of widths: a scalar
+    # has an order, so a sweep can tell bigger from smaller and wandb can rank
+    # it against the other parameters.
+    hidden_layer_count: int = 2
+    hidden_layer_dimensionality: int = 256
+
+    def __post_init__(self) -> None:
+        if self.ensemble_size < 1:
+            raise ValueError(f"ensemble_size must be >= 1, got {self.ensemble_size}")
+        if self.hidden_layer_count < 1:
+            raise ValueError(
+                f"hidden_layer_count must be >= 1, got {self.hidden_layer_count}"
+            )

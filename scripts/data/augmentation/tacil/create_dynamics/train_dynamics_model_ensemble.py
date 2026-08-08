@@ -28,7 +28,7 @@ from scripts.data.augmentation.tacil.models.dynamics_model_ensemble import (
 from scripts.data.augmentation.tacil.models.normalizers import Normalizers
 from scripts.data.base.episode_store import EpisodeStore
 from scripts.shared.log import create_logger
-from scripts.shared.pusht_state import state_differences
+from scripts.shared.pusht_state import network_features, state_differences
 from scripts.shared.seeding import set_seed
 
 logger = create_logger()
@@ -52,8 +52,10 @@ def train_dynamics_model_ensemble(
 
     training_episodes, validation_episodes = train_test_split(
         extract_transitions(episode_store=episode_store),
-        test_size=config.data.split.validation_fraction,
-        random_state=config.data.split.seed,
+        test_size=0.2,
+        # Fixed on purpose. A split that moved between runs would make their
+        # validation losses incomparable, and the sweep compares them.
+        random_state=0,
         shuffle=True,
     )
 
@@ -61,10 +63,10 @@ def train_dynamics_model_ensemble(
     validation_transitions = concatenate_episodes(episodes=validation_episodes)
 
     train_state_windows, train_action_windows = build_windows(
-        episodes=training_episodes, window_length=config.data.loader.window_length
+        episodes=training_episodes, window_length=config.window_length
     )
     validation_state_windows, validation_action_windows = build_windows(
-        episodes=validation_episodes, window_length=config.data.loader.window_length
+        episodes=validation_episodes, window_length=config.window_length
     )
     run.summary[f"{STAGE_PREFIX}window_count/training"] = train_action_windows.shape[0]
     run.summary[f"{STAGE_PREFIX}window_count/validation"] = (
@@ -75,9 +77,12 @@ def train_dynamics_model_ensemble(
     next_state_batch = torch.from_numpy(training_transitions.next_states).to(
         device=device
     )
+    action_batch = torch.from_numpy(training_transitions.actions).to(device=device)
     normalizers = Normalizers.from_transitions(
         state_batch=state_batch,
-        action_batch=torch.from_numpy(training_transitions.actions).to(device=device),
+        network_feature_batch=network_features(
+            state_batch=state_batch, action_batch=action_batch
+        ),
         state_displacement_batch=state_differences(
             state_batch=next_state_batch, other_state_batch=state_batch
         ),
@@ -102,13 +107,13 @@ def train_dynamics_model_ensemble(
             device=device,
         )
         for member_seed in np.random.SeedSequence(entropy=config.seed).generate_state(
-            n_words=config.architecture.ensemble_size
+            n_words=config.ensemble_size
         )
     ]
 
-    for epoch_index in tqdm(
-        range(config.training.epoch_count), desc="training ensemble", unit="epoch"
-    ):
+    # A budget, not a hyperparameter: the training keeps the epoch with the
+    # lowest validation loss, so a generous number costs time and nothing else.
+    for epoch_index in tqdm(range(500), desc="training ensemble", unit="epoch"):
         _log_epoch(
             epoch_index=epoch_index,
             per_member_metrics=[

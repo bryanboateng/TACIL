@@ -79,23 +79,20 @@ def create_member_training_state(
     dynamics_model = DynamicsModel(
         state_dimensionality=transitions.states.shape[1],
         action_dimensionality=transitions.actions.shape[1],
-        hidden_dimensionalities=config.architecture.hidden_layer_sizes,
-        lipschitz_constant_upper_bound=config.architecture.lipschitz_constant_upper_bound,
-        measure_positions_from_agent=config.architecture.measure_positions_from_agent,
+        hidden_layer_count=config.hidden_layer_count,
+        hidden_layer_dimensionality=config.hidden_layer_dimensionality,
+        lipschitz_constant_upper_bound=config.lipschitz_constant_upper_bound,
     ).to(device=device)
 
     return MemberTrainingState(
         model=dynamics_model,
         optimizer=torch.optim.Adam(
-            params=dynamics_model.parameters(),
-            lr=config.training.learning_rate,
-            weight_decay=config.training.weight_decay,
+            params=dynamics_model.parameters(), lr=1e-3, weight_decay=1e-5
         ),
         ema_model=AveragedModel(
             dynamics_model,
             avg_fn=lambda ema_parameter, current_parameter, _num_averaged: (
-                config.training.ema_decay * ema_parameter
-                + (1.0 - config.training.ema_decay) * current_parameter
+                0.9 * ema_parameter + 0.1 * current_parameter
             ),
             use_buffers=False,
         ),
@@ -107,9 +104,13 @@ def create_member_training_state(
 def train_member_for_one_epoch(
     *, state: MemberTrainingState, epoch_index: int, context: TrainingContext
 ) -> MemberEpochMetrics:
-    config = context.config
+    # The number of windows in one gradient step. Enough for a stable gradient
+    # and to fill the device; not coupled to the window length, since the loss
+    # already averages over the steps inside a window.
+    batch_size = 2_048
+
     window_count = context.train_state_windows.shape[0]
-    steps_per_epoch = max(window_count // config.data.loader.batch_size, 1)
+    steps_per_epoch = max(window_count // batch_size, 1)
 
     state.model.train()
     shuffled_window_indices = torch.randperm(
@@ -123,8 +124,7 @@ def train_member_for_one_epoch(
 
     for step_index in range(steps_per_epoch):
         batch_window_indices = shuffled_window_indices[
-            step_index * config.data.loader.batch_size : (step_index + 1)
-            * config.data.loader.batch_size
+            step_index * batch_size : (step_index + 1) * batch_size
         ]
 
         state.optimizer.zero_grad()
@@ -151,7 +151,8 @@ def train_member_for_one_epoch(
         normalizers=context.normalizers,
         state_windows=context.validation_state_windows,
         action_windows=context.validation_action_windows,
-        batch_size=config.data.loader.batch_size,
+        # Chunk size, so the evaluation fits in memory. No effect on results.
+        batch_size=2_048,
     )
 
     if (
@@ -172,13 +173,13 @@ def train_member_for_one_epoch(
             state=state,
             normalizers=context.normalizers,
             transitions=context.training_transitions,
-            batch_size=config.data.loader.batch_size,
+            batch_size=2_048,
         ),
         validation_local_lipschitz_constants=_sample_local_lipschitz_constants(
             state=state,
             normalizers=context.normalizers,
             transitions=context.validation_transitions,
-            batch_size=config.data.loader.batch_size,
+            batch_size=2_048,
         ),
     )
 

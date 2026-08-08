@@ -154,7 +154,6 @@ def _build_note(*, config: Config, condition: Condition) -> str:
             f"|noise={augmentation.action_noise_fraction:.4f}"
             f"|err={augmentation.error_limit_fraction:.4f}"
             f"|dw={augmentation.disagreement_weight:.2f}"
-            f"|rel={augmentation.measure_positions_from_agent}"
         )
     )
 
