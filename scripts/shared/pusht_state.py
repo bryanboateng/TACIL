@@ -1,24 +1,34 @@
 """What the numbers in a PushT state mean.
 
-Everywhere else a state is just a vector: the dynamics model, the backward
-rollout and the error account never look inside it. This module is the one
-place that does — which dimension is a position, which one is an orientation,
-and what follows from that:
+A PushT state is four positions and one orientation. The orientation is
+periodic, so the state is not a plain vector: 0.01 and 2π - 0.01 are almost the
+same orientation, but they are far apart as numbers. Only this one fact makes
+the module necessary. Everything below follows from it.
 
-- an orientation is periodic, so a recorded full turn is a jump of -2π that no
-  model can predict (unwrap_angles removes it, wrap_angles puts labels back
-  into the range the policy uses);
+The standard remedy is to leave the state alone and to replace the three
+arithmetic operations that would otherwise be wrong:
+
+    a - b        ->  state_differences(a, b)
+    a + d        ->  advance_states(a, d)
+    x.mean(dim)  ->  average_states(x, dim)
+
+Every stage then keeps working on flat vectors. Hertzberg et al. call the first
+two operators ⊟ and ⊞ and name exactly this pattern; see "Integrating generic
+sensor fusion algorithms with sound state representations through encapsulation
+of manifolds", Information Fusion 14(1), 2013, arXiv:1107.1119. average_states
+is the matching circular mean from directional statistics.
+
+Two more layout facts live here, both unrelated to the periodicity:
+
 - contact depends on where things are relative to the agent, not on where in
   the arena that happens (measure_positions_from_agent in network_input);
-- two states showing the same orientation should look the same to a network
-  (the angle enters as a point on the unit circle).
+- two states showing the same orientation must look the same to a network, so
+  the angle reaches it as a point on the unit circle, never as a number.
 """
 
-import numpy as np
 import torch
 
 from scripts.data.augmentation.tacil.models.normalizers import Normalizers
-from scripts.data.base.episode_store import EpisodeStore
 
 # Frame layout: agent x/y, block x/y, block angle. A dynamics state is one
 # such frame, or two when the previous state is stacked in.
@@ -26,6 +36,8 @@ FRAME_SIZE = 5
 AGENT_POSITION_SLICE = slice(0, 2)
 BLOCK_POSITION_SLICE = slice(2, 4)
 ANGLE_INDEX = 4
+# Every frame carries an angle, so this picks all of them at once.
+ANGLE_SLICE = slice(ANGLE_INDEX, None, FRAME_SIZE)
 
 # The parts a state error is broken down into.
 STATE_GROUPS = (
@@ -37,44 +49,7 @@ STATE_GROUPS = (
 # The quadratic arena (gym_pusht window size, pixels).
 ARENA_SIZE = 512
 
-FULL_TURN = 2.0 * np.pi
-
-
-def unwrap_angles(*, episode_store: EpisodeStore) -> EpisodeStore:
-    """Undo the [0, 2π) wrapping of the block angle inside every episode.
-
-    A wrap is a -2π step that no model can predict: it happens wherever the
-    block passes one fixed orientation, and it dwarfs the real rotation per
-    step — in the PushT data it inflates the typical angular step by 12x.
-    """
-    states = episode_store.states.copy()
-    episode_start_indices = np.concatenate(
-        [[0], episode_store.episode_end_indices[:-1]]
-    )
-
-    for start_index, end_index in zip(
-        episode_start_indices, episode_store.episode_end_indices
-    ):
-        states[start_index:end_index, ANGLE_INDEX] = np.unwrap(
-            p=states[start_index:end_index, ANGLE_INDEX]
-        )
-
-    return EpisodeStore(
-        states=states,
-        actions=episode_store.actions,
-        episode_end_indices=episode_store.episode_end_indices,
-    )
-
-
-def wrap_angles(
-    *,
-    states: np.ndarray,  # (..., state_dimensionality)
-) -> np.ndarray:  # (..., state_dimensionality)
-    """Put the block angle back into [0, 2π), the range the policy and the
-    environment use."""
-    wrapped_states = states.copy()
-    wrapped_states[..., ANGLE_INDEX] %= FULL_TURN
-    return wrapped_states
+FULL_TURN = 2.0 * torch.pi
 
 
 def shortest_angle_differences(
@@ -84,6 +59,64 @@ def shortest_angle_differences(
     """A difference of angles taken the shorter way round: being a full turn
     apart means being in the same place."""
     return (angle_batch + torch.pi) % FULL_TURN - torch.pi
+
+
+def state_differences(
+    *,
+    state_batch: torch.Tensor,  # (..., state_dimensionality)
+    other_state_batch: torch.Tensor,  # (..., state_dimensionality)
+) -> torch.Tensor:  # (..., state_dimensionality)
+    """State minus state. Positions subtract, orientations go the shorter way
+    round, so two states one full turn apart differ by zero rather than by 2π.
+
+    Every distance and every residual in the pipeline is built from this, which
+    is why no stage needs a continuous stand-in for the angle.
+    """
+    difference_batch = state_batch - other_state_batch
+    difference_batch[..., ANGLE_SLICE] = shortest_angle_differences(
+        angle_batch=difference_batch[..., ANGLE_SLICE]
+    )
+    return difference_batch
+
+
+def advance_states(
+    *,
+    state_batch: torch.Tensor,  # (..., state_dimensionality)
+    state_displacement_batch: torch.Tensor,  # (..., state_dimensionality)
+) -> torch.Tensor:  # (..., state_dimensionality)
+    """State plus displacement, with orientations kept inside [0, 2π)."""
+    advanced_state_batch = state_batch + state_displacement_batch
+    # Not ``%=``: vmap has no batching rule for the in-place remainder and
+    # falls back to a loop, which costs 6x here. This runs inside every
+    # Jacobian.
+    advanced_state_batch[..., ANGLE_SLICE] = (
+        advanced_state_batch[..., ANGLE_SLICE] % FULL_TURN
+    )
+    return advanced_state_batch
+
+
+def average_states(
+    *,
+    state_batch: torch.Tensor,  # (..., state_dimensionality)
+    dim: int,
+) -> torch.Tensor:  # (..., state_dimensionality)
+    """The mean state. Positions average arithmetically, orientations as
+    directions on the unit circle.
+
+    The arithmetic mean of 0.01 and 2π - 0.01 is π — the exact opposite of the
+    two orientations it averages. Averaging the unit vectors instead gives the
+    orientation they actually surround.
+    """
+    average_batch = state_batch.mean(dim=dim)
+    angle_batch = state_batch[..., ANGLE_SLICE]
+    average_batch[..., ANGLE_SLICE] = (
+        torch.atan2(
+            input=torch.sin(input=angle_batch).mean(dim=dim),
+            other=torch.cos(input=angle_batch).mean(dim=dim),
+        )
+        % FULL_TURN
+    )
+    return average_batch
 
 
 def network_input_dimensionality(

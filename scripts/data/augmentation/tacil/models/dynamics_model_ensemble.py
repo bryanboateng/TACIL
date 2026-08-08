@@ -2,6 +2,7 @@ import torch
 
 from scripts.data.augmentation.tacil.models.dynamics_model import DynamicsModel
 from scripts.data.augmentation.tacil.models.normalizers import Normalizers
+from scripts.shared.pusht_state import average_states, state_differences
 
 
 class DynamicsModelEnsemble(torch.nn.Module):
@@ -48,9 +49,12 @@ class DynamicsModelEnsemble(torch.nn.Module):
         state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
         action_batch: torch.Tensor,  # (batch_size, action_dimensionality)
     ) -> torch.Tensor:  # (batch_size, state_dimensionality)
-        return self.predict_next_state_per_member(
-            state_batch=state_batch, action_batch=action_batch
-        ).mean(dim=0)
+        return average_states(
+            state_batch=self.predict_next_state_per_member(
+                state_batch=state_batch, action_batch=action_batch
+            ),
+            dim=0,
+        )
 
     def predict_next_state_per_member(
         self,
@@ -85,26 +89,25 @@ class DynamicsModelEnsemble(torch.nn.Module):
             state_batch=state_batch, action_batch=action_batch
         )  # (member_count, batch_size, state_dimensionality)
 
-        member_count, batch_size, state_dimensionality = (
-            per_member_next_state_batch.shape
-        )
+        # The spread is measured around the ensemble's own mean prediction. That
+        # mean has to treat the orientation as a direction, otherwise two
+        # members agreeing across the 0 / 2π seam would average to the opposite
+        # orientation and look like maximal disagreement.
+        average_next_state_batch = average_states(
+            state_batch=per_member_next_state_batch, dim=0
+        )  # (batch_size, state_dimensionality)
 
-        # normalize_state expects a 2D input of shape (state_count, state_dimensionality),
-        # but we have a 3D tensor of per-member, per-batch-item states.
-        # So we temporarily merge the member and batch dimensions into one,
-        # normalize everything at once, then split them back apart.
-        normalized_per_member_next_state_batch = self.normalize_state(
-            state_batch=per_member_next_state_batch.flatten(
-                start_dim=0, end_dim=1
-            )  # (member_count * batch_size, state_dimensionality)
-        ).reshape(
-            member_count, batch_size, state_dimensionality
+        deviation_batch = self.normalizers.scale_to_state_spread_units(
+            state_difference_batch=state_differences(
+                state_batch=per_member_next_state_batch,
+                other_state_batch=average_next_state_batch.unsqueeze(dim=0),
+            )
         )  # (member_count, batch_size, state_dimensionality)
 
         # For each example in the batch and each state dimension, compute how
         # spread out the ensemble's predictions are.
-        per_dimension_disagreement_batch = normalized_per_member_next_state_batch.std(
-            dim=0, unbiased=False
+        per_dimension_disagreement_batch = (
+            deviation_batch.square().mean(dim=0).sqrt()
         )  # (batch_size, state_dimensionality)
 
         # Collapse the per-dimension disagreement into a single number per example
@@ -129,8 +132,11 @@ class DynamicsModelEnsemble(torch.nn.Module):
         )  # (batch_size,)
 
         normalized_step_distance_batch: torch.Tensor = torch.linalg.norm(
-            self.normalize_state(state_batch=state_batch)
-            - self.normalize_state(state_batch=next_state_batch),
+            self.normalizers.scale_to_state_spread_units(
+                state_difference_batch=state_differences(
+                    state_batch=state_batch, other_state_batch=next_state_batch
+                )
+            ),
             dim=-1,
         )  # (batch_size,)
 

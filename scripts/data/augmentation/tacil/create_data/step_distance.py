@@ -5,6 +5,7 @@ from scripts.data.augmentation.tacil.models.dynamics_model_ensemble import (
     DynamicsModelEnsemble,
 )
 from scripts.data.base.episode_store import EpisodeStore
+from scripts.shared.pusht_state import state_differences
 
 
 @torch.no_grad()
@@ -15,8 +16,8 @@ def calculate_median_step_distance(
 
     device = next(dynamics_model_ensemble.parameters()).device
 
-    normalized_state_batch = dynamics_model_ensemble.normalize_state(
-        state_batch=torch.as_tensor(data=episode_store.states).to(device=device)
+    state_batch = torch.as_tensor(data=episode_store.states).to(
+        device=device
     )  # (total_timestep_count, state_dimensionality)
 
     # For every consecutive pair of states (s_t, s_{t+1}), compute how far
@@ -26,7 +27,12 @@ def calculate_median_step_distance(
     # The shape is (total_timestep_count - 1,).
     # I.e. one distance per consecutive pair of states.
     step_distance_batch = torch.linalg.norm(
-        normalized_state_batch[1:] - normalized_state_batch[:-1], dim=1
+        dynamics_model_ensemble.normalizers.scale_to_state_spread_units(
+            state_difference_batch=state_differences(
+                state_batch=state_batch[1:], other_state_batch=state_batch[:-1]
+            )
+        ),
+        dim=1,
     )  # (total_timestep_count - 1,)
 
     # Because all episodes inside the episode store are concatenated into

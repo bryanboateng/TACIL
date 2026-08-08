@@ -39,7 +39,7 @@ from scripts.shared.pusht_state import (  # noqa: E402
     ARENA_SIZE,
     FRAME_SIZE,
     STATE_GROUPS,
-    shortest_angle_differences,
+    state_differences,
 )
 
 logger = create_logger()
@@ -434,6 +434,21 @@ def _roll_out_members_forward(
     return torch.stack(tensors=member_trajectories, dim=0)
 
 
+def _rotation_since_start(
+    *,
+    angle_series: npt.NDArray[np.floating],  # (step_count,)
+) -> npt.NDArray[np.floating]:  # (step_count,)
+    """Total turning relative to the first step, counted through the 0 / 2π
+    seam.
+
+    For plotting only. Everywhere else an orientation stays inside [0, 2π), but
+    a curve that drops back to zero on every full turn hides the trend the plot
+    exists to show.
+    """
+    continuous_angle_series = np.unwrap(p=angle_series)
+    return continuous_angle_series - continuous_angle_series[0]
+
+
 def _normalized_differences(
     *,
     dynamics_model_ensemble: DynamicsModelEnsemble,
@@ -442,20 +457,11 @@ def _normalized_differences(
 ) -> torch.Tensor:  # (batch_size, FRAME_SIZE)
     """How far the two states are apart, per dimension of the current frame,
     in units of that dimension's spread."""
-    difference_batch = (
-        state_batch[:, :FRAME_SIZE] - other_state_batch[:, :FRAME_SIZE]
-    ).clone()
-
-    # An orientation is periodic: being a full turn apart means being in the
-    # same place, so take the shorter way round.
-    difference_batch[:, ANGLE_INDEX] = shortest_angle_differences(
-        angle_batch=difference_batch[:, ANGLE_INDEX]
-    )
-
-    return (
-        difference_batch
-        / dynamics_model_ensemble.normalizers.state_normalizer.std[:FRAME_SIZE]
-    )
+    return dynamics_model_ensemble.normalizers.scale_to_state_spread_units(
+        state_difference_batch=state_differences(
+            state_batch=state_batch, other_state_batch=other_state_batch
+        )
+    )[:, :FRAME_SIZE]
 
 
 def _spearman_correlation(*, claims: torch.Tensor, truths: torch.Tensor) -> float:
@@ -631,15 +637,15 @@ def _group_error_panel(
         ncols=2, figsize=(10, 4.5), sharey=True
     )
 
-    for axes, state_differences, direction_sign, direction_label in (
+    for axes, direction_state_differences, direction_sign, direction_label in (
         (backward_axes, backward_state_differences, -1, "backward"),
         (forward_axes, forward_state_differences, +1, "forward"),
     ):
-        depth_count = state_differences.shape[1]
+        depth_count = direction_state_differences.shape[1]
         step_positions = direction_sign * np.arange(1, depth_count + 1)
         for group_name, group_slice in STATE_GROUPS:
             group_errors = np.linalg.norm(
-                state_differences[:, :, group_slice], axis=-1
+                direction_state_differences[:, :, group_slice], axis=-1
             )  # (chain_count, depth_count)
             axes.plot(
                 step_positions,
@@ -809,13 +815,13 @@ def _replay_panel(
     # model has to get right, and a rotation past a full turn just keeps
     # counting instead of falling off the axis.
     steps = np.arange(true_trajectory.shape[0])
-    recorded_rotation = (
-        true_trajectory[:, ANGLE_INDEX] - true_trajectory[0, ANGLE_INDEX]
+    recorded_rotation = _rotation_since_start(
+        angle_series=true_trajectory[:, ANGLE_INDEX]
     )
     for member_trajectory in member_trajectories:
         angle_axes.plot(
             steps,
-            member_trajectory[:, ANGLE_INDEX] - member_trajectory[0, ANGLE_INDEX],
+            _rotation_since_start(angle_series=member_trajectory[:, ANGLE_INDEX]),
             linewidth=0.6,
             alpha=0.35,
             color=_FORWARD_COLOR,

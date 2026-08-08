@@ -29,7 +29,7 @@ from scripts.data.augmentation.tacil.models.dynamics_model_ensemble import (
 from scripts.data.augmentation.tacil.models.normalizers import Normalizers
 from scripts.data.base.episode_store import EpisodeStore
 from scripts.shared.log import create_logger
-from scripts.shared.pusht_state import unwrap_angles
+from scripts.shared.pusht_state import state_differences
 from scripts.shared.seeding import set_seed
 
 logger = create_logger()
@@ -53,7 +53,6 @@ def train_dynamics_model_ensemble(
 
     # Everything downstream — training, diagnostics, the returned ensemble —
     # works on the dynamics state.
-    episode_store = unwrap_angles(episode_store=episode_store)
     if config.architecture.include_previous_state:
         episode_store = stack_previous_state(episode_store=episode_store)
 
@@ -78,11 +77,15 @@ def train_dynamics_model_ensemble(
         validation_action_windows.shape[0]
     )
 
+    state_batch = torch.from_numpy(training_transitions.states).to(device=device)
+    next_state_batch = torch.from_numpy(training_transitions.next_states).to(
+        device=device
+    )
     normalizers = Normalizers.from_transitions(
-        state_batch=torch.from_numpy(training_transitions.states).to(device=device),
+        state_batch=state_batch,
         action_batch=torch.from_numpy(training_transitions.actions).to(device=device),
-        next_state_batch=torch.from_numpy(training_transitions.next_states).to(
-            device=device
+        state_displacement_batch=state_differences(
+            state_batch=next_state_batch, other_state_batch=state_batch
         ),
     ).to(device=device)
 

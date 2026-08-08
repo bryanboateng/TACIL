@@ -1,3 +1,11 @@
+"""The CCIL world model, kept as close to their published code as we can.
+
+This includes how it treats the block angle. All state arithmetic here is plain
+subtraction, so a recorded full turn enters the residual as a step of -2π. TaCIL
+takes the shorter way round instead (see scripts/shared/pusht_state.py). The two
+methods differ here on purpose: the baseline follows the paper, not TaCIL.
+"""
+
 from dataclasses import dataclass
 
 import torch
@@ -74,6 +82,7 @@ class WorldModel(torch.nn.Module):
     ) -> None:
         """Mean shift, mean-absolute-deviation scale — exactly their
         init_normalization_to_data."""
+        # Plain subtraction on the angle too. See the module docstring.
         residual_batch = next_state_batch - state_batch
 
         self.state_shift = state_batch.mean(dim=0)

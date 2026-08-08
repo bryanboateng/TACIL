@@ -28,7 +28,6 @@ from scripts.data.augmentation.tacil.models.dynamics_model_ensemble import (
 )
 from scripts.data.base.episode_store import EpisodeStore
 from scripts.shared.log import create_logger
-from scripts.shared.pusht_state import unwrap_angles, wrap_angles
 from scripts.shared.seeding import set_seed
 
 logger = create_logger()
@@ -76,7 +75,7 @@ def create_augmented_data(
     #  A handful of unusually large jumps won't skew the result the way they would an average.
     # The dynamics model works on the dynamics state; the policy data below
     # keeps the plain one.
-    dynamics_episode_store = unwrap_angles(episode_store=episode_store)
+    dynamics_episode_store = episode_store
     if config.include_previous_state:
         dynamics_episode_store = stack_previous_state(
             episode_store=dynamics_episode_store
@@ -125,16 +124,13 @@ def create_augmented_data(
         run.summary[f"{STAGE_PREFIX}2_rollout/accepted_anchor_fraction"] = 0.0
         return None
 
-    # Turn the labels back into policy states: drop the stacked history and
-    # put the angle back into [0, 2π).
-    label_states = backward_trajectories.predecessor_states_batch[
-        ..., : episode_store.states.shape[1]
-    ]
+    # Turn the labels back into policy states by dropping the stacked history.
+    # The orientation needs no repair: it never left [0, 2π).
     augmentation_result = create_augmented_episodes(
         backward_trajectories=BackwardTrajectories(
-            predecessor_states_batch=torch.from_numpy(
-                wrap_angles(states=label_states.cpu().numpy())
-            ).to(device=device),
+            predecessor_states_batch=backward_trajectories.predecessor_states_batch[
+                ..., : episode_store.states.shape[1]
+            ],
             predecessor_actions_batch=backward_trajectories.predecessor_actions_batch,
             step_count_batch=backward_trajectories.step_count_batch,
         ),

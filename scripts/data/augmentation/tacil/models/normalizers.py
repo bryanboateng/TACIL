@@ -28,9 +28,10 @@ class Normalizers(torch.nn.Module):
         *,
         state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
         action_batch: torch.Tensor,  # (batch_size, action_dimensionality)
-        next_state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
+        # Taken by the caller rather than computed here: subtracting two states
+        # is the state layout's business, and this class knows only scales.
+        state_displacement_batch: torch.Tensor,  # (batch_size, state_dimensionality)
     ) -> Self:
-        state_displacement_batch = next_state_batch - state_batch
         return cls(
             state_normalizer=ZScoreNormalizer.from_values(value_batch=state_batch),
             action_normalizer=ZScoreNormalizer.from_values(value_batch=action_batch),
@@ -77,3 +78,27 @@ class Normalizers(torch.nn.Module):
         """A state difference measured in typical one-step motion per
         dimension. Only the scale applies — a difference needs no shift."""
         return state_difference_batch / self.state_displacement_normalizer.std
+
+    def scale_to_state_spread_units(
+        self,
+        *,
+        state_difference_batch: torch.Tensor,  # (..., state_dimensionality)
+    ) -> torch.Tensor:  # (..., state_dimensionality)
+        """A state difference measured in the spread of the whole state per
+        dimension — the scale normalize_state works in.
+
+        This is the space distances between two states are compared in: the
+        error budget, the inverse dynamics residual and the ensemble's
+        disagreement. Only the scale applies, since the shift cancels in a
+        difference.
+        """
+        return state_difference_batch / self.state_normalizer.std
+
+    def unscale_from_state_spread_units(
+        self,
+        *,
+        scaled_state_difference_batch: torch.Tensor,  # (..., state_dimensionality)
+    ) -> torch.Tensor:  # (..., state_dimensionality)
+        """The inverse of scale_to_state_spread_units: turns a step measured in
+        the normalized state space back into one the state itself can take."""
+        return scaled_state_difference_batch * self.state_normalizer.std
