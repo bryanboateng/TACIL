@@ -7,7 +7,7 @@ import torch
 from scripts.data.augmentation.tacil.create_data.backward_rollout import (
     BackwardTrajectories,
 )
-from scripts.shared.data import EpisodeStore
+from scripts.data.base.episode_store import EpisodeStore
 
 
 @dataclass(frozen=True)

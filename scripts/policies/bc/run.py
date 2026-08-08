@@ -32,12 +32,12 @@ from scripts.policies.bc import config as bc_config
 from scripts.policies.bc.policy import load_behavior_cloning_policy
 from scripts.policies.bc.train import train_behavior_cloning_policy
 from scripts.shared.data import (
-    EpisodeStore,
     TransitionBatch,
     concatenate_transitions,
     download_episode_store,
     to_transitions,
 )
+from scripts.data.base.episode_store import EpisodeStore
 from scripts.shared.log import create_logger, log_device_info
 from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
 from scripts.shared.seed import set_seed

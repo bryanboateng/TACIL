@@ -4,7 +4,8 @@ from wandb import Run
 
 from scripts.data.augmentation.ccil.config import Config
 from scripts.data.augmentation.ccil.world_model import WorldModel, fit_world_model
-from scripts.shared.data import EpisodeStore, TransitionBatch
+from scripts.data.base.episode_store import EpisodeStore
+from scripts.shared.data import TransitionBatch
 from scripts.shared.log import create_logger
 from scripts.shared.seed import set_seed
 

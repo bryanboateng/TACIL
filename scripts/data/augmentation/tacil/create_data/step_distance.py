@@ -4,7 +4,7 @@ import torch
 from scripts.data.augmentation.tacil.models.dynamics_model_ensemble import (
     DynamicsModelEnsemble,
 )
-from scripts.shared.data import EpisodeStore
+from scripts.data.base.episode_store import EpisodeStore
 
 
 @torch.no_grad()

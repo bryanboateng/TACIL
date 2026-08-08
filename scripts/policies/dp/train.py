@@ -21,7 +21,7 @@ from scripts.policies.dp.network import ConditionalUnet1d
 from scripts.policies.dp.noise_scheduler import get_ddpm_scheduler
 from scripts.policies.dp.policy import load_diffusion_policy, save_diffusion_policy
 from scripts.policies.shared.checkpoint import Checkpoint
-from scripts.shared.data import EpisodeStore
+from scripts.data.base.episode_store import EpisodeStore
 from scripts.shared.log import create_logger
 from scripts.shared.seed import set_seed
 

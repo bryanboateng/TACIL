@@ -32,7 +32,7 @@ from scripts.data.augmentation.tacil.create_dynamics.data import (  # noqa: E402
 from scripts.data.augmentation.tacil.models.dynamics_model_ensemble import (  # noqa: E402
     DynamicsModelEnsemble,
 )
-from scripts.shared.data import EpisodeStore  # noqa: E402
+from scripts.data.base.episode_store import EpisodeStore
 from scripts.shared.log import create_logger  # noqa: E402
 from scripts.shared.pusht_state import (  # noqa: E402
     ANGLE_INDEX,

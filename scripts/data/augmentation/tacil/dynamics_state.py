@@ -6,7 +6,7 @@ this module only stacks and unstacks frames, which works for any state.
 
 import numpy as np
 
-from scripts.shared.data import EpisodeStore
+from scripts.data.base.episode_store import EpisodeStore
 
 
 def stack_previous_state(*, episode_store: EpisodeStore) -> EpisodeStore:

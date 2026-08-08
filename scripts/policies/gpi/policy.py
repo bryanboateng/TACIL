@@ -6,7 +6,7 @@ from scripts.policies.gpi.database import StateDatabase
 from scripts.policies.gpi.dataset import PushTEpisodeDataset
 from scripts.policies.gpi.geometry import relative_action_to_global
 from scripts.policies.gpi.planning import PlanBuffer
-from scripts.shared.data import EpisodeStore
+from scripts.data.base.episode_store import EpisodeStore
 from scripts.shared.policy_types import Policy, PolicyFactory
 
 Key = tuple[int, int]

@@ -1,7 +1,7 @@
 import numpy as np
 import torch
 
-from scripts.shared.data import EpisodeStore
+from scripts.data.base.episode_store import EpisodeStore
 from scripts.shared.normalization import MinMaxNormalizer
 
 

@@ -3,7 +3,7 @@ from dataclasses import dataclass
 import numpy as np
 from numpy import typing as npt
 
-from scripts.shared.data import EpisodeStore
+from scripts.data.base.episode_store import EpisodeStore
 
 
 @dataclass

@@ -18,7 +18,7 @@ import numpy as np
 import torch
 
 from scripts.data.augmentation.tacil.models.normalizers import Normalizers
-from scripts.shared.data import EpisodeStore
+from scripts.data.base.episode_store import EpisodeStore
 
 # Frame layout: agent x/y, block x/y, block angle. A dynamics state is one
 # such frame, or two when the previous state is stacked in.

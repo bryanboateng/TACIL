@@ -18,7 +18,8 @@ from scripts.data.augmentation.tacil.create_dynamics import config as dynamics_c
 from scripts.data.augmentation.tacil.create_dynamics.train_dynamics_model_ensemble import (  # noqa: E501
     train_dynamics_model_ensemble,
 )
-from scripts.shared.data import EpisodeStore, WindowedLayout
+from scripts.data.base.episode_store import EpisodeStore
+from scripts.shared.data import WindowedLayout
 
 
 @dataclass(frozen=True)

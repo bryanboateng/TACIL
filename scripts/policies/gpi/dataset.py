@@ -3,7 +3,7 @@ import torch
 from torch.utils.data import Dataset
 
 from scripts.policies.gpi.geometry import se2_to_relative_action
-from scripts.shared.data import EpisodeStore
+from scripts.data.base.episode_store import EpisodeStore
 from scripts.shared.normalization import MinMaxNormalizer
 
 

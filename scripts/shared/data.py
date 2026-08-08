@@ -7,18 +7,7 @@ from numpy import typing as npt
 from wandb import Run
 from zarr import Array, Group
 
-
-@dataclass
-class EpisodeStore:
-    """Recorded episodes. Each one ends because the task is complete.
-
-    Augmented episodes are kept in their own store and never mixed in here:
-    they end at an arbitrary cut, so their windows follow different rules.
-    """
-
-    states: npt.NDArray[np.float32]  # (total_timestep_count, state_dimensionality)
-    actions: npt.NDArray[np.float32]  # (total_timestep_count, action_dimensionality)
-    episode_end_indices: npt.NDArray[np.int64]  # (episode_count,)
+from scripts.data.base.episode_store import EpisodeStore
 
 
 @dataclass
