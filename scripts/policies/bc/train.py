@@ -7,11 +7,7 @@ from tqdm.auto import tqdm
 from wandb import Run
 
 from scripts.evaluation.core.condition import Condition
-from scripts.evaluation.core.scoring import (
-    RewardStatistics,
-    reward_statistics,
-    run_scored_episodes,
-)
+from scripts.evaluation.core.scoring import reward_statistics, run_scored_episodes
 from scripts.policies.bc.config import Config
 from scripts.policies.bc.dataset import Dataset
 from scripts.policies.bc.policy import (
@@ -107,11 +103,15 @@ def train_behavior_cloning_policy(
         if not periodic_evaluation_is_due:
             continue
 
-        validation_reward = _evaluate(
-            policy_model=policy_model,
-            episode_count=config.evaluation.episode_count,
-            condition=condition,
-            device=device,
+        validation_reward = reward_statistics(
+            episode_records=run_scored_episodes(
+                policy_factory=create_behavior_cloning_policy_factory(
+                    policy_model=policy_model, device=device
+                ),
+                start_episode_seed=100_000,
+                episode_count=config.evaluation.episode_count,
+                condition=condition,
+            )
         )
         run.log(
             data={
@@ -145,23 +145,3 @@ def train_behavior_cloning_policy(
 
     policy_model.load_state_dict(state_dict=best_checkpoint.state_dict)
     return policy_model
-
-
-def _evaluate(
-    *,
-    policy_model: BehaviorCloningPolicyModel,
-    episode_count: int,
-    condition: Condition,
-    device: torch.device,
-) -> RewardStatistics:
-    policy_factory = create_behavior_cloning_policy_factory(
-        policy_model=policy_model, device=device
-    )
-    return reward_statistics(
-        episode_records=run_scored_episodes(
-            policy_factory=policy_factory,
-            start_episode_seed=100_000,
-            episode_count=episode_count,
-            condition=condition,
-        )
-    )
