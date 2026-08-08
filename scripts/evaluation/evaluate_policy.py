@@ -14,9 +14,6 @@ from scripts.shared.policy_types import PolicyFactory
 
 logger = create_logger()
 
-# How many episodes a policy is scored over. Enough that the reward mean is
-# steady from one evaluation to the next.
-DEFAULT_EPISODE_COUNT = 100
 
 # Every key this stage logs starts with it, so a stage run and a pipeline run
 # report the same numbers under the same names. wandb groups panels by the part
@@ -26,17 +23,12 @@ STAGE_NAME = "4_evaluation"
 
 
 def evaluate_policy(
-    *,
-    policy_factory: PolicyFactory,
-    policy_label: str,
-    condition: Condition,
-    episode_count: int,
-    run: Run,
+    *, policy_factory: PolicyFactory, policy_label: str, condition: Condition, run: Run
 ) -> None:
     episode_records = run_scored_episodes(
         policy_factory=policy_factory,
         start_episode_seed=1_000_000,
-        episode_count=episode_count,
+        episode_count=100,
         condition=condition,
     )
 

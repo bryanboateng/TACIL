@@ -10,11 +10,7 @@ import wandb
 from rich.pretty import pretty_repr
 
 from scripts.evaluation.core.condition import Condition
-from scripts.evaluation.evaluate_policy import (
-    DEFAULT_EPISODE_COUNT,
-    STAGE_NAME,
-    evaluate_policy,
-)
+from scripts.evaluation.evaluate_policy import STAGE_NAME, evaluate_policy
 from scripts.policies.gpi import config as gpi_config
 from scripts.policies.gpi.policy import load_geometric_policy
 from scripts.policies.shared.run_config import RunConfig
@@ -65,7 +61,6 @@ def _run(*, config: Config) -> None:
             ),
             policy_label=f"gpi ({run_name})",
             condition=condition,
-            episode_count=DEFAULT_EPISODE_COUNT,
             run=run,
         )
 
