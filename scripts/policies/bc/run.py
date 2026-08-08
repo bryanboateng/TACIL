@@ -159,7 +159,8 @@ def _build_transitions(
             augmented_episodes = tacil.augment(
                 config=tacil_configuration,
                 expert_episode_store=expert_episodes,
-                layout=None,
+                # Behavior cloning trains on single (state, action) pairs.
+                prediction_horizon=None,
                 seed=config.seed,
                 device=device,
                 run=run,

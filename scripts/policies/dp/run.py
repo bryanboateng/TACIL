@@ -33,7 +33,6 @@ from scripts.evaluation.evaluate_policy import (
 from scripts.policies.dp import config as policy_config
 from scripts.policies.dp.policy import load_diffusion_policy
 from scripts.policies.dp.train import train_diffusion_policy
-from scripts.shared.data import WindowedLayout
 from scripts.shared.log import create_logger, log_device_info
 from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
 from scripts.shared.seed import set_seed
@@ -106,9 +105,7 @@ def _run(*, config: Config) -> None:
                 expert_episode_store=expert_episodes,
                 # The expert continuation behind every synthetic state is sized
                 # against this horizon.
-                layout=WindowedLayout(
-                    prediction_horizon=policy_training_config.horizon_length.prediction
-                ),
+                prediction_horizon=policy_training_config.horizon_length.prediction,
                 seed=config.seed,
                 device=device,
                 run=run,

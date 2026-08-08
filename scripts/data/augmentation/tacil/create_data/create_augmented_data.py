@@ -27,7 +27,6 @@ from scripts.data.augmentation.tacil.models.dynamics_model_ensemble import (
     DynamicsModelEnsemble,
 )
 from scripts.data.base.episode_store import EpisodeStore
-from scripts.shared.data import WindowedLayout
 from scripts.shared.log import create_logger
 from scripts.shared.pusht_state import unwrap_angles, wrap_angles
 from scripts.shared.seed import set_seed
@@ -40,7 +39,7 @@ def create_augmented_data(
     config: Config,
     episode_store: EpisodeStore,
     dynamics_model_ensemble: DynamicsModelEnsemble,
-    layout: WindowedLayout | None,
+    prediction_horizon: int | None,
     device: torch.device,
     run: Run,
 ) -> EpisodeStore | None:
@@ -48,13 +47,15 @@ def create_augmented_data(
     synthetic episodes alone, logging statistics to *run*. None means the
     rollout produced nothing.
 
-    A windowed consumer needs enough expert continuation behind every synthetic
-    state to fill one window; a consumer that trains on single (state, action)
-    pairs needs none, and copying expert data would only drown its labels.
+    *prediction_horizon* is the window length the consumer trains on, and None
+    means it trains on single (state, action) pairs. A windowed consumer needs
+    enough expert continuation behind every synthetic state to fill one window;
+    the other kind needs none, and copying expert data would only drown its
+    labels.
     """
     set_seed(seed=config.seed)
 
-    expert_part_length = layout.prediction_horizon - 1 if layout is not None else 0
+    expert_part_length = prediction_horizon - 1 if prediction_horizon is not None else 0
 
     anchor_indices = get_anchor_indices(
         episode_end_indices=episode_store.episode_end_indices,

@@ -19,7 +19,6 @@ from scripts.data.augmentation.tacil.create_dynamics.train_dynamics_model_ensemb
     train_dynamics_model_ensemble,
 )
 from scripts.data.base.episode_store import EpisodeStore
-from scripts.shared.data import WindowedLayout
 
 
 @dataclass(frozen=True)
@@ -46,7 +45,7 @@ def augment(
     *,
     config: Config,
     expert_episode_store: EpisodeStore,
-    layout: WindowedLayout | None,
+    prediction_horizon: int | None,
     seed: int,
     device: torch.device,
     run: Run,
@@ -83,7 +82,7 @@ def augment(
         ),
         episode_store=expert_episode_store,
         dynamics_model_ensemble=dynamics_model_ensemble,
-        layout=layout,
+        prediction_horizon=prediction_horizon,
         device=device,
         run=run,
     )
