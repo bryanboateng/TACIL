@@ -3,7 +3,7 @@ import torch
 from scripts.shared.f import TransitionBatch
 
 
-class Dataset(torch.utils.data.Dataset):
+class Dataset(torch.utils.data.Dataset[tuple[torch.Tensor, torch.Tensor]]):
     def __init__(self, *, transitions: TransitionBatch) -> None:
         self.states = torch.from_numpy(
             transitions.states

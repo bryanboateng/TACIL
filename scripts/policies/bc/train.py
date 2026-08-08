@@ -14,12 +14,12 @@ from scripts.evaluation.core.scoring import (
 )
 from scripts.policies.bc.config import Config
 from scripts.policies.bc.dataset import Dataset
-from scripts.shared.f import TransitionBatch
 from scripts.policies.bc.policy import (
     BehaviorCloningPolicy,
     create_behavior_cloning_policy_factory,
 )
 from scripts.policies.shared.checkpoint import Checkpoint
+from scripts.shared.f import TransitionBatch
 from scripts.shared.log import create_logger
 from scripts.shared.normalization import MinMaxNormalizer, ZScoreNormalizer
 from scripts.shared.pusht_state import ACTION_DIMENSIONALITY, STATE_DIMENSIONALITY
@@ -27,8 +27,6 @@ from scripts.shared.seeding import set_seed
 
 logger = create_logger()
 
-# Every key this stage logs starts with it, so a stage run and a pipeline run
-# report the same numbers under the same names.
 STAGE_PREFIX = "3_policy-"
 
 
@@ -87,9 +85,10 @@ def train_behavior_cloning_policy(
             predicted_action_batch = policy.predict_action(
                 observation_batch=observation_batch
             )  # (batch_size, action_dimensionality)
+
             loss = loss_function(
-                policy.normalize_action(action_batch=predicted_action_batch),
-                policy.normalize_action(action_batch=action_batch),
+                input=policy.normalize_action(action_batch=predicted_action_batch),
+                target=policy.normalize_action(action_batch=action_batch),
             )
 
             loss.backward()

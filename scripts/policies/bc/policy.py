@@ -72,7 +72,9 @@ def create_behavior_cloning_policy_factory(
         def policy(*, observations: dict[int, np.ndarray]) -> dict[int, np.ndarray]:
             observation_batch = torch.from_numpy(
                 np.stack(arrays=list(observations.values()))
-            ).to(device=device)  # (episode_count, observation_dimensionality)
+            ).to(
+                device=device, dtype=torch.float32
+            )  # (episode_count, observation_dimensionality)
 
             with torch.no_grad():
                 action_batch = (
