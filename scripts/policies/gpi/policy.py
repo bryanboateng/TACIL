@@ -29,13 +29,14 @@ class StateGPIPolicy:
         dataset: PushTEpisodeDataset,
         database: StateDatabase,
         config: Config,
-        seed: int | None = None,
+        seed: int,
     ) -> None:
         self.config = config
         self.dataset = dataset
         self.database = database
         self.plan = PlanBuffer(dataset=dataset, horizon=config.action_horizon)
-        self.rng = np.random.default_rng(seed=seed if seed is not None else config.seed)
+        # The episode seed, not the run seed: each episode gets its own noise.
+        self.rng = np.random.default_rng(seed=seed)
 
         self.recent_set: set[Key] = set()
         self.current_noise_std: float = config.noise.initial_std

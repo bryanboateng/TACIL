@@ -43,7 +43,7 @@ class Config:
     lambda1: float
     action_horizon: int
 
-    seed: int = 42
+    seed: int
 
 
 def main() -> None:

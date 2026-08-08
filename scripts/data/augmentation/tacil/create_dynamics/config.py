@@ -70,9 +70,7 @@ class TrainingConfig:
 
 @dataclass(frozen=True)
 class Config:
+    seed: int
     data: DataConfig
     architecture: ArchitectureConfig
     training: TrainingConfig
-    # The seed of the run. Each model in the ensemble gets its own seed from
-    # this seed.
-    seed: int = 42

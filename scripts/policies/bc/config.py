@@ -34,4 +34,4 @@ class Config:
     dimensionality: DimensionalityConfig
     optimization: OptimizationConfig
     evaluation: EvaluationConfig
-    seed: int = 42
+    seed: int

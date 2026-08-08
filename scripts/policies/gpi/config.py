@@ -26,5 +26,5 @@ class Config:
     noise: ObservationNoiseConfig
     retrieval: RetrievalConfig
     guidance: GuidanceConfig
+    seed: int
     action_horizon: int = 8
-    seed: int = 42

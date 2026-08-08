@@ -31,7 +31,7 @@ class AugmentationConfig:
 
 @dataclass(frozen=True)
 class Config:
+    seed: int
+
     dynamics: DynamicsConfig = field(default_factory=DynamicsConfig)
     augmentation: AugmentationConfig = field(default_factory=AugmentationConfig)
-
-    seed: int = 42

@@ -131,7 +131,7 @@ METHOD_PARAMETERS: dict[MethodLabel, dict[str, Any]] = {
 # The datasets a sweep can start from, under the label that names the project.
 EXPERT_DATASET_ARTIFACTS: dict[DatasetLabel, str] = {
     "full": "bryanboateng-team/datasets/expert-dataset:v0",
-    "sub025": "bryanboateng-team/datasets/subsampled-dataset-magic-wind-2:v0",
+    "sub025": "bryanboateng-team/datasets/subsampled-dataset-0.25:v0",
 }
 
 
@@ -143,6 +143,11 @@ class Config:
     method: MethodLabel
     floor_condition: FloorCondition
     disturbance_level: DisturbanceLevel | None
+
+    # Every trial in the sweep runs with this seed, so the trials differ only
+    # in the parameters being searched. Pick the seeds for the final runs
+    # separately, and not this one: the winning parameters were chosen on it.
+    seed: int
 
     # How the next trial is chosen. Bayesian search models the reward from the
     # finished trials and proposes where it looks best, which pays off in a
@@ -210,6 +215,7 @@ def _build_sweep_configuration(
             f"--expert-dataset-artifact={EXPERT_DATASET_ARTIFACTS[config.dataset]}",
             f"--floor-condition={config.floor_condition.name}",
             f"--disturbance-level={_disturbance_level_argument(config=config)}",
+            f"--seed={config.seed}",
             *METHOD_FIXED_ARGUMENTS.get(config.method, []),
             # Booleans arrive as flags (present or absent) rather than
             # --flag=True, which is what the pipeline's command line takes.

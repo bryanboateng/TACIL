@@ -43,6 +43,7 @@ def _build_gpi_policy_factory() -> PolicyFactory:
         noise=gpi.ObservationNoiseConfig(),
         retrieval=gpi.RetrievalConfig(),
         guidance=gpi.GuidanceConfig(),
+        seed=42,
         action_horizon=8,
     )
     return load_geometric_policy(

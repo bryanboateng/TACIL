@@ -52,9 +52,9 @@ class Config:
 
     expert_dataset_artifact: str
 
-    augmentation: Augmentation = None
+    seed: int
 
-    seed: int = 42
+    augmentation: Augmentation = None
 
 
 def main() -> None:

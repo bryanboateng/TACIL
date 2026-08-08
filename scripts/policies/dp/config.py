@@ -46,5 +46,5 @@ class Config:
     horizon_length: HorizonLengthConfig
     optimization: OptimizationConfig
     evaluation: EvaluationConfig
-    seed: int = 42
+    seed: int
     hidden_channel_counts: tuple[int, ...] = (256, 512, 1024)

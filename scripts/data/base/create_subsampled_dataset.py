@@ -1,16 +1,15 @@
+import tempfile
 from dataclasses import asdict, dataclass
+from pathlib import Path
 
 import numpy as np
 import tyro
 import wandb
+import zarr
 from rich.pretty import pretty_repr
 from wandb import Run
 
-from scripts.shared.data import (
-    EpisodeStore,
-    download_episode_store,
-    upload_episode_store,
-)
+from scripts.shared.data import EpisodeStore, download_episode_store
 from scripts.shared.log import create_logger
 from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
 from scripts.shared.wandb_config import WandbConfig
@@ -23,7 +22,7 @@ class Config:
     wandb: WandbConfig
 
     fraction: float
-    seed: int = 42
+    seed: int
 
     def __post_init__(self):
         if not 0.0 <= self.fraction <= 1.0:
@@ -60,8 +59,10 @@ def _run(*, config: Config):
             run=run,
         )
 
-        upload_episode_store(
-            episode_store=subsampled_episode_store, name="subsampled-dataset", run=run
+        _upload_episode_store(
+            subsampled_episode_store=subsampled_episode_store,
+            fraction=config.fraction,
+            run=run,
         )
 
 
@@ -143,6 +144,34 @@ def _log_dataset_statistics(
             "fraction_of_source": (selected_transition_count / expert_transition_count),
         },
     }
+
+
+def _upload_episode_store(
+    *, subsampled_episode_store: EpisodeStore, fraction: float, run: Run
+):
+    with tempfile.TemporaryDirectory() as temporary_directory:
+        output_zarr_path = Path(temporary_directory) / "dataset.zarr"
+
+        _write_episode_store(
+            episode_store=subsampled_episode_store, save_file_path=output_zarr_path
+        )
+
+        new_artifact = wandb.Artifact(
+            name=f"subsampled-dataset-{fraction}", type="dataset"
+        )
+        new_artifact.add_dir(local_path=str(output_zarr_path))
+        run.log_artifact(artifact_or_path=new_artifact)
+
+
+def _write_episode_store(*, episode_store: EpisodeStore, save_file_path: Path):
+    root = zarr.open_group(str(save_file_path), mode="w")
+
+    data_group = root.create_group("data")
+    data_group.create_array("state", data=episode_store.states)
+    data_group.create_array("action", data=episode_store.actions)
+
+    meta_group = root.create_group("meta")
+    meta_group.create_array("episode_ends", data=episode_store.episode_end_indices)
 
 
 if __name__ == "__main__":
