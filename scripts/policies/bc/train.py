@@ -57,7 +57,7 @@ def train_behavior_cloning_policy(
     policy = BehaviorCloningPolicy(
         observation_dimensionality=STATE_DIMENSIONALITY,
         action_dimensionality=ACTION_DIMENSIONALITY,
-        hidden_dimensionality=config.hidden_layer_dimensionality,
+        hidden_layer_dimensionality=config.hidden_layer_dimensionality,
         observation_normalizer=ZScoreNormalizer.from_values(
             value_batch=dataset.states.to(device=device)
         ),
@@ -85,11 +85,11 @@ def train_behavior_cloning_policy(
             optimizer.zero_grad()
 
             predicted_action_batch = policy.predict_action(
-                observation=observation_batch
+                observation_batch=observation_batch
             )  # (batch_size, action_dimensionality)
             loss = loss_function(
-                policy.normalize_action(action=predicted_action_batch),
-                policy.normalize_action(action=action_batch),
+                policy.normalize_action(action_batch=predicted_action_batch),
+                policy.normalize_action(action_batch=action_batch),
             )
 
             loss.backward()

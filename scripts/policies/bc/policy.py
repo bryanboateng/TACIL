@@ -5,28 +5,6 @@ from scripts.shared.normalization import MinMaxNormalizer, ZScoreNormalizer
 from scripts.shared.policy_types import Policy, PolicyFactory
 
 
-def _create_network(
-    *,
-    observation_dimensionality: int,
-    action_dimensionality: int,
-    hidden_dimensionality: int,
-) -> torch.nn.Module:
-    return torch.nn.Sequential(
-        torch.nn.Linear(
-            in_features=observation_dimensionality, out_features=hidden_dimensionality
-        ),
-        torch.nn.ReLU(),
-        torch.nn.Linear(
-            in_features=hidden_dimensionality, out_features=hidden_dimensionality
-        ),
-        torch.nn.ReLU(),
-        torch.nn.Linear(
-            in_features=hidden_dimensionality, out_features=action_dimensionality
-        ),
-        torch.nn.Tanh(),
-    )
-
-
 class BehaviorCloningPolicy(torch.nn.Module):
     observation_normalizer: ZScoreNormalizer
     action_normalizer: MinMaxNormalizer
@@ -36,7 +14,7 @@ class BehaviorCloningPolicy(torch.nn.Module):
         *,
         observation_dimensionality: int,
         action_dimensionality: int,
-        hidden_dimensionality: int,
+        hidden_layer_dimensionality: int,
         observation_normalizer: ZScoreNormalizer,
         action_normalizer: MinMaxNormalizer,
     ) -> None:
@@ -44,12 +22,12 @@ class BehaviorCloningPolicy(torch.nn.Module):
 
         self.observation_dimensionality = observation_dimensionality
         self.action_dimensionality = action_dimensionality
-        self.hidden_dimensionality = hidden_dimensionality
+        self.hidden_layer_dimensionality = hidden_layer_dimensionality
 
         self.network = _create_network(
             observation_dimensionality=observation_dimensionality,
             action_dimensionality=action_dimensionality,
-            hidden_dimensionality=hidden_dimensionality,
+            hidden_layer_dimensionality=hidden_layer_dimensionality,
         )
 
         self.observation_normalizer = observation_normalizer
@@ -58,28 +36,28 @@ class BehaviorCloningPolicy(torch.nn.Module):
     def normalize_observation(
         self,
         *,
-        observation: torch.Tensor,  # (batch_size, observation_dimensionality)
+        observation_batch: torch.Tensor,  # (batch_size, observation_dimensionality)
     ) -> torch.Tensor:  # (batch_size, observation_dimensionality)
-        return self.observation_normalizer.normalize(value_batch=observation)
+        return self.observation_normalizer.normalize(value_batch=observation_batch)
 
     def normalize_action(
         self,
         *,
-        action: torch.Tensor,  # (batch_size, action_dimensionality)
+        action_batch: torch.Tensor,  # (batch_size, action_dimensionality)
     ) -> torch.Tensor:  # (batch_size, action_dimensionality)
-        return self.action_normalizer.normalize(value_batch=action)
+        return self.action_normalizer.normalize(value_batch=action_batch)
 
     def predict_action(
         self,
         *,
-        observation: torch.Tensor,  # (batch_size, observation_dimensionality)
+        observation_batch: torch.Tensor,  # (batch_size, observation_dimensionality)
     ) -> torch.Tensor:  # (batch_size, action_dimensionality)
-        """Raw observation -> raw action."""
-        normalized_action = self.network(
-            self.normalize_observation(observation=observation)
+        normalized_action_batch = self.network(
+            self.normalize_observation(observation_batch=observation_batch)
         )  # (batch_size, action_dimensionality)
+
         return self.action_normalizer.denormalize(
-            value_batch=normalized_action
+            value_batch=normalized_action_batch
         )  # (batch_size, action_dimensionality)
 
 
@@ -99,7 +77,7 @@ def build_behavior_cloning_policy_factory(
             )  # (running_episode_count, observation_dimensionality)
             with torch.no_grad():
                 action_batch = (
-                    policy_model.predict_action(observation=observation_tensor)
+                    policy_model.predict_action(observation_batch=observation_tensor)
                     .cpu()
                     .numpy()
                 )  # (running_episode_count, action_dimensionality)
@@ -108,3 +86,30 @@ def build_behavior_cloning_policy_factory(
         return policy
 
     return make_policy
+
+
+# ---- Private --------------------------------------------
+
+
+def _create_network(
+    *,
+    observation_dimensionality: int,
+    action_dimensionality: int,
+    hidden_layer_dimensionality: int,
+) -> torch.nn.Module:
+    return torch.nn.Sequential(
+        torch.nn.Linear(
+            in_features=observation_dimensionality,
+            out_features=hidden_layer_dimensionality,
+        ),
+        torch.nn.ReLU(),
+        torch.nn.Linear(
+            in_features=hidden_layer_dimensionality,
+            out_features=hidden_layer_dimensionality,
+        ),
+        torch.nn.ReLU(),
+        torch.nn.Linear(
+            in_features=hidden_layer_dimensionality, out_features=action_dimensionality
+        ),
+        torch.nn.Tanh(),
+    )
