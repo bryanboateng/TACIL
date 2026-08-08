@@ -220,7 +220,7 @@ def _build_sweep_configuration(
             "${interpreter}",
             "-m",
             pipeline_module,
-            f"--wandb.project={project}",
+            f"--wandb-project={project}",
             f"--expert-dataset-artifact={EXPERT_DATASET_ARTIFACTS[config.dataset]}",
             f"--floor-condition={config.floor_condition.name}",
             f"--disturbance-level={_disturbance_level_argument(config=config)}",

@@ -61,8 +61,7 @@ def _run(*, config: Config) -> None:
     log_device_info(device=device, logger=logger)
 
     with wandb.init(
-        project=config.wandb.project,
-        notes=_build_note(config=config, condition=condition),
+        project=config.wandb_project,
         job_type="bc-pipeline",
         config=asdict(obj=config),
         dir=OUTPUT_DIRECTORY_PATH,
@@ -137,47 +136,12 @@ def _build_transitions(
                 device=device,
                 run=run,
             )
-            if augmented_episode_store is None:
-                return expert_transitions
             return concatenate_transitions(
                 transition_batches=[
                     expert_transitions,
                     to_transitions(episode_store=augmented_episode_store),
                 ]
             )
-
-
-def _augmentation_note(*, augmentation: Augmentation | None) -> str:
-    match augmentation:
-        case None:
-            return "aug=none"
-        case CcilConfig() as ccil_configuration:
-            return (
-                f"aug=ccil"
-                f"|ltype={ccil_configuration.dynamics.lipschitz_type}"
-                f"|lip={ccil_configuration.dynamics.lipschitz_constraint:.3f}"
-                f"|type={ccil_configuration.labels.type}"
-                f"|anoise={ccil_configuration.labels.action_noise_std:.5f}"
-                f"|q={ccil_configuration.labels.rejection_quantile:.3f}"
-            )
-        case TacilConfig() as tacil_configuration:
-            return (
-                f"aug=tacil"
-                f"|lip={tacil_configuration.dynamics.lipschitz_constant_upper_bound!s}"
-                f"|win={tacil_configuration.dynamics.window_length}"
-                f"|noise={tacil_configuration.data.action_noise_fraction:.4f}"
-                f"|err={tacil_configuration.data.error_limit_fraction:.4f}"
-                f"|dw={tacil_configuration.data.disagreement_weight:.2f}"
-            )
-
-
-def _build_note(*, config: Config, condition: Condition) -> str:
-    return (
-        f"data={config.expert_dataset_artifact}"
-        f"|{_augmentation_note(augmentation=config.augmentation)}"
-        f"|seed={config.seed}"
-        f"|cond={condition.label}"
-    )
 
 
 if __name__ == "__main__":

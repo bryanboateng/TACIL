@@ -9,12 +9,11 @@ else a trial needs is declared here once.
 from dataclasses import dataclass
 
 from scripts.evaluation.core.condition import DisturbanceLevel, FloorCondition
-from scripts.shared.wandb_config import WandbConfig
 
 
 @dataclass(frozen=True)
 class RunConfig[PolicyConfigT, AugmentationT]:
-    wandb: WandbConfig
+    wandb_project: str
 
     floor_condition: FloorCondition
     disturbance_level: DisturbanceLevel | None

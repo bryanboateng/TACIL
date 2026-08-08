@@ -114,7 +114,6 @@ def main(use_gpi_policy: bool = False) -> None:
             episode_record=episode_record,
             condition=condition,
             policy_label="dp (DDIM)   diffusion-policy-eternal-sweep-6:v0",
-            notes="eval-lip-1-action-0.1-error-0.5",
             percentile=75,
         )
 

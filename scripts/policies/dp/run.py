@@ -52,8 +52,7 @@ def _run(*, config: Config) -> None:
     log_device_info(device=device, logger=logger)
 
     with wandb.init(
-        project=config.wandb.project,
-        notes=_build_note(config=config, condition=condition),
+        project=config.wandb_project,
         job_type="dp-pipeline",
         config=asdict(obj=config),
         dir=OUTPUT_DIRECTORY_PATH,
@@ -105,29 +104,6 @@ def _run(*, config: Config) -> None:
 
         reward_key = f"{STAGE_PREFIX}{condition.label}/reward_mean"
         logger.info("Trial finished: %s = %s", reward_key, run.summary[reward_key])
-
-
-def _build_note(*, config: Config, condition: Condition) -> str:
-    augmentation = config.augmentation
-    augmentation_note = (
-        "aug=none"
-        if augmentation is None
-        else (
-            f"aug=tacil"
-            f"|lip={augmentation.dynamics.lipschitz_constant_upper_bound!s}"
-            f"|win={augmentation.dynamics.window_length}"
-            f"|noise={augmentation.data.action_noise_fraction:.4f}"
-            f"|err={augmentation.data.error_limit_fraction:.4f}"
-            f"|dw={augmentation.data.disagreement_weight:.2f}"
-        )
-    )
-
-    return (
-        f"data={config.expert_dataset_artifact}"
-        f"|{augmentation_note}"
-        f"|seed={config.seed}"
-        f"|cond={condition.label}"
-    )
 
 
 if __name__ == "__main__":

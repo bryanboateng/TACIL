@@ -41,8 +41,7 @@ def augment(
     seed: int,
     device: torch.device,
     run: Run,
-) -> EpisodeStore | None:
-    """The synthetic episodes, or None when the rollout produced nothing."""
+) -> EpisodeStore:
     dynamics_model_ensemble = train_dynamics_model_ensemble(
         config=config.dynamics,
         episode_store=expert_episode_store,

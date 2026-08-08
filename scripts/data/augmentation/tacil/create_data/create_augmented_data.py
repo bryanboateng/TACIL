@@ -25,10 +25,7 @@ from scripts.data.augmentation.tacil.models.dynamics_model_ensemble import (
     DynamicsModelEnsemble,
 )
 from scripts.data.base.episode_store import EpisodeStore
-from scripts.shared.log import create_logger
 from scripts.shared.seeding import set_seed
-
-logger = create_logger()
 
 
 def create_augmented_data(
@@ -40,10 +37,12 @@ def create_augmented_data(
     seed: int,
     device: torch.device,
     run: Run,
-) -> EpisodeStore | None:
+) -> EpisodeStore:
     """Roll backward out of anchors picked from *episode_store* and return the
-    synthetic episodes alone, logging statistics to *run*. None means the
-    rollout produced nothing.
+    synthetic episodes alone, logging statistics to *run*. Raises when the error
+    budget accepted nothing: there is then no augmented run to score, and a
+    reward measured without any synthetic data would carry this configuration's
+    name while describing the unaugmented baseline.
 
     *prediction_horizon* is the window length the consumer trains on, and None
     means it trains on single (state, action) pairs. A windowed consumer needs
@@ -100,19 +99,14 @@ def create_augmented_data(
     )
 
     if not bool((backward_trajectories.step_count_batch > 0).any()):
-        # Not a failure: the budget rejected every first backward step, so
-        # this configuration contributes no labels and the policy trains on
-        # the expert data alone. Reporting it as an ordinary trial lets the
-        # sweep see the reward such a setting earns; raising would leave the
-        # whole corner a blind spot it keeps proposing into — and enough
-        # failures in a row make the agent give up altogether.
-        logger.warning(
-            "No anchor survived its first backward step, so no labels were "
-            "generated. Continuing with the expert data alone."
-        )
         run.summary[f"{STAGE_PREFIX}2_rollout/accepted_anchor_count"] = 0
         run.summary[f"{STAGE_PREFIX}2_rollout/accepted_anchor_fraction"] = 0.0
-        return None
+        raise RuntimeError(
+            "The error budget rejected every anchor's first backward step, so "
+            "this configuration produced no labels. Training on the expert data "
+            "alone would score the unaugmented baseline under an augmented "
+            "run's name, so the run stops here instead."
+        )
 
     augmentation_result = create_augmented_episodes(
         backward_trajectories=backward_trajectories,

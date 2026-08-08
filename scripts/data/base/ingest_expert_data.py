@@ -8,14 +8,13 @@ from rich.pretty import pretty_repr
 from scripts.data.base.episode_store import read_episode_store
 from scripts.shared.log import create_logger
 from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
-from scripts.shared.wandb_config import WandbConfig
 
 logger = create_logger()
 
 
 @dataclass
 class Config:
-    wandb: WandbConfig
+    wandb_project: str
     expert_data_file_path: Path
 
 
@@ -27,8 +26,7 @@ def main() -> None:
 
 def _run(*, config: Config) -> None:
     with wandb.init(
-        project=config.wandb.project,
-        notes=config.wandb.notes,
+        project=config.wandb_project,
         job_type="ingest-expert-data",
         dir=OUTPUT_DIRECTORY_PATH,
     ) as run:

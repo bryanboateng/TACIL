@@ -54,7 +54,6 @@ def build_annotated_surfaces(
     episode_record: EpisodeRecord,
     condition: Condition,
     policy_label: str,
-    notes: str,
     percentile: int,
 ) -> list[pygame.Surface]:
     if episode_record.frames is None:
@@ -76,7 +75,7 @@ def build_annotated_surfaces(
         _add_text_to_surface(
             text="\n".join(
                 line
-                for line in (notes, policy_label, _condition_label(condition=condition))
+                for line in (policy_label, _condition_label(condition=condition))
                 if line
             ),
             placement=Placement.TOP_LEFT,
@@ -150,7 +149,6 @@ def record_condition(
             try:
                 _record_group(
                     policy_label=policy_label,
-                    notes=run.notes or "",
                     environment=environment,
                     condition=condition,
                     episode_records=episode_records,
@@ -199,7 +197,6 @@ def _build_reward_text(*, frame_max_reward: float, frame_reward: float) -> str:
 def _record_group(
     *,
     policy_label: str,
-    notes: str,
     environment,
     condition: Condition,
     episode_records: dict[int, EpisodeRecord],
@@ -219,7 +216,6 @@ def _record_group(
             episode_record=replayed_record,
             condition=condition,
             policy_label=policy_label,
-            notes=notes,
             percentile=percentile,
         ):
             frame = _convert_surface_to_frame(surface=surface)

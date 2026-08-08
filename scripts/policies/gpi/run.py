@@ -44,14 +44,7 @@ def _run(*, config: Config) -> None:
     log_device_info(device=device, logger=logger)
 
     with wandb.init(
-        project=config.wandb.project,
-        notes=(
-            f"data={config.expert_dataset_artifact}"
-            f"|l1={config.policy.guidance.lambda1:.3f}"
-            f"|ah={config.policy.action_horizon}"
-            f"|seed={config.seed}"
-            f"|cond={condition.label}"
-        ),
+        project=config.wandb_project,
         job_type="gpi-pipeline",
         config=asdict(obj=config),
         dir=OUTPUT_DIRECTORY_PATH,
