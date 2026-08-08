@@ -23,6 +23,6 @@ class EvaluationConfig:
 
 @dataclass(frozen=True)
 class Config:
-    optimization: OptimizationConfig = field(default_factory=OptimizationConfig)
-    evaluation: EvaluationConfig = field(default_factory=EvaluationConfig)
+    optimization: OptimizationConfig
+    evaluation: EvaluationConfig
     hidden_layer_dimensionality: int = 256
