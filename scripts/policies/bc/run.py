@@ -73,7 +73,7 @@ def _run(*, config: Config) -> None:
 
         logger.info("Stage 1/3: building the training transitions.")
         transitions = _build_transitions(
-            config=config, expert_episodes=expert_episodes, device=device, run=run
+            config=config, expert_episode_store=expert_episodes, device=device, run=run
         )
         run.summary["transition_count"] = len(transitions.states)
         logger.info("Stage 1/3: done.")
@@ -106,18 +106,21 @@ def _run(*, config: Config) -> None:
 
 
 def _build_transitions(
-    *, config: Config, expert_episodes: EpisodeStore, device: torch.device, run: Run
+    *,
+    config: Config,
+    expert_episode_store: EpisodeStore,
+    device: torch.device,
+    run: Run,
 ) -> TransitionBatch:
-    expert_transitions = to_transitions(episode_store=expert_episodes)
-    augmentation = config.augmentation
+    expert_transitions = to_transitions(episode_store=expert_episode_store)
 
-    match augmentation:
+    match config.augmentation:
         case None:
             return expert_transitions
         case CcilConfig() as ccil_configuration:
             label_transitions = ccil.augment(
                 config=ccil_configuration,
-                expert_episode_store=expert_episodes,
+                expert_episode_store=expert_episode_store,
                 seed=config.seed,
                 device=device,
                 run=run,
@@ -126,21 +129,20 @@ def _build_transitions(
                 transition_batches=[expert_transitions, label_transitions]
             )
         case TacilConfig() as tacil_configuration:
-            augmented_episodes = tacil.augment(
+            augmented_episode_store = tacil.augment(
                 config=tacil_configuration,
-                expert_episode_store=expert_episodes,
-                # Behavior cloning trains on single (state, action) pairs.
-                prediction_horizon=None,
+                expert_episode_store=expert_episode_store,
+                prediction_horizon=None,  # Behavior cloning trains on single (state, action) pairs.
                 seed=config.seed,
                 device=device,
                 run=run,
             )
-            if augmented_episodes is None:
+            if augmented_episode_store is None:
                 return expert_transitions
             return concatenate_transitions(
                 transition_batches=[
                     expert_transitions,
-                    to_transitions(episode_store=augmented_episodes),
+                    to_transitions(episode_store=augmented_episode_store),
                 ]
             )
 
