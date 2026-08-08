@@ -20,7 +20,7 @@ from scripts.evaluation.evaluate_policy import (
 )
 from scripts.policies.gpi import config as gpi_config
 from scripts.policies.gpi.policy import load_geometric_policy
-from scripts.shared.data import download_episode_store
+from scripts.data.base.episode_store import download_episode_store
 from scripts.shared.log import create_logger, log_device_info
 from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
 from scripts.shared.seed import set_seed

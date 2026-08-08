@@ -19,6 +19,7 @@ import wandb
 from rich.pretty import pretty_repr
 
 from scripts.data.augmentation.tacil import augmentation as tacil
+from scripts.data.base.episode_store import download_episode_store
 from scripts.evaluation.core.condition import (
     Condition,
     DisturbanceLevel,
@@ -32,7 +33,7 @@ from scripts.evaluation.evaluate_policy import (
 from scripts.policies.dp import config as policy_config
 from scripts.policies.dp.policy import load_diffusion_policy
 from scripts.policies.dp.train import train_diffusion_policy
-from scripts.shared.data import WindowedLayout, download_episode_store
+from scripts.shared.data import WindowedLayout
 from scripts.shared.log import create_logger, log_device_info
 from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
 from scripts.shared.seed import set_seed

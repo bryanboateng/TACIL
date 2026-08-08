@@ -5,7 +5,7 @@ import tyro
 import wandb
 from rich.pretty import pretty_repr
 
-from scripts.shared.data import read_episode_store
+from scripts.data.base.episode_store import read_episode_store
 from scripts.shared.log import create_logger
 from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
 from scripts.shared.wandb_config import WandbConfig

@@ -9,6 +9,7 @@ import tyro
 import wandb
 from numpy import typing as npt
 
+from scripts.data.base.episode_store import read_episode_store
 from scripts.evaluation.core.condition import (
     Condition,
     DisturbanceLevel,
@@ -19,7 +20,6 @@ from scripts.evaluation.core.rollout import create_environment, roll_out_episode
 from scripts.evaluation.core.video import FREEZE_SECONDS, build_annotated_surfaces
 from scripts.policies.gpi import config as gpi
 from scripts.policies.gpi.policy import load_geometric_policy
-from scripts.shared.data import read_episode_store
 from scripts.shared.log import create_logger, log_device_info
 from scripts.shared.policy_types import Policy, PolicyFactory
 
