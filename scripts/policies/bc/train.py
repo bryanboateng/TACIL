@@ -17,7 +17,7 @@ from scripts.policies.bc.config import Config
 from scripts.policies.bc.dataset import Dataset
 from scripts.policies.bc.policy import (
     BehaviorCloningPolicy,
-    build_behavior_cloning_policy_factory,
+    create_behavior_cloning_policy_factory,
 )
 from scripts.policies.shared.checkpoint import Checkpoint
 from scripts.shared.log import create_logger
@@ -151,7 +151,7 @@ def _evaluate(
     condition: Condition,
     device: torch.device,
 ) -> RewardStatistics:
-    policy_factory = build_behavior_cloning_policy_factory(
+    policy_factory = create_behavior_cloning_policy_factory(
         policy_model=policy_model, device=device
     )
     return reward_statistics(

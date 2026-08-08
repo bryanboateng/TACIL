@@ -1,10 +1,3 @@
-"""Behavior cloning, optionally on augmented data: one sweep trial end to end.
-
-The augmentation runs inside this process and its output never becomes an
-artifact. Every trial searches parameters that change that output, so there
-would be nothing to reuse it for.
-"""
-
 from dataclasses import asdict
 from typing import Annotated, TypeAlias
 
@@ -31,7 +24,7 @@ from scripts.evaluation.evaluate_policy import (
     evaluate_policy,
 )
 from scripts.policies.bc import config as bc_config
-from scripts.policies.bc.policy import build_behavior_cloning_policy_factory
+from scripts.policies.bc.policy import create_behavior_cloning_policy_factory
 from scripts.policies.bc.train import train_behavior_cloning_policy
 from scripts.policies.shared.run_config import RunConfig
 from scripts.shared.log import create_logger, log_device_info
@@ -102,7 +95,7 @@ def _run(*, config: Config) -> None:
 
         logger.info("Stage 3/3: evaluating the policy.")
         evaluate_policy(
-            policy_factory=build_behavior_cloning_policy_factory(
+            policy_factory=create_behavior_cloning_policy_factory(
                 policy_model=policy_model, device=device
             ),
             policy_label=f"bc   behavior-cloning-policy-{run.name!s}",

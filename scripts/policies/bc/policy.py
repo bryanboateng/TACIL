@@ -61,31 +61,31 @@ class BehaviorCloningPolicy(torch.nn.Module):
         )  # (batch_size, action_dimensionality)
 
 
-def build_behavior_cloning_policy_factory(
+def create_behavior_cloning_policy_factory(
     *, policy_model: BehaviorCloningPolicy, device: torch.device
 ) -> PolicyFactory:
     policy_model.eval()
 
-    def make_policy(*, seeds: list[int]) -> Policy:  # seeds unused: BC is deterministic
-        del seeds
+    def create_policy(*, seeds: list[int]) -> Policy:
+        del seeds  # seeds unused: Behavior Cloning is deterministic
 
         def policy(*, observations: dict[int, np.ndarray]) -> dict[int, np.ndarray]:
-            observation_tensor = torch.from_numpy(
+            observation_batch = torch.from_numpy(
                 np.stack(arrays=list(observations.values()))
-            ).to(
-                device=device, dtype=torch.float32
-            )  # (running_episode_count, observation_dimensionality)
+            ).to(device=device)  # (episode_count, observation_dimensionality)
+
             with torch.no_grad():
                 action_batch = (
-                    policy_model.predict_action(observation_batch=observation_tensor)
+                    policy_model.predict_action(observation_batch=observation_batch)
                     .cpu()
                     .numpy()
-                )  # (running_episode_count, action_dimensionality)
+                )  # (episode_count, action_dimensionality)
+
             return dict(zip(observations, action_batch, strict=True))
 
         return policy
 
-    return make_policy
+    return create_policy
 
 
 # ---- Private --------------------------------------------
