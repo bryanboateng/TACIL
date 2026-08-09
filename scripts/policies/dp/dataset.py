@@ -24,7 +24,7 @@ class Dataset(torch.utils.data.Dataset[tuple[torch.Tensor, torch.Tensor]]):
         observation_horizon_length: int,
         execution_horizon_length: int,
     ) -> None:
-        observation_batch = torch.from_numpy(
+        observations = torch.from_numpy(
             np.concatenate(
                 [expert_episodes.states]
                 + (
@@ -35,7 +35,7 @@ class Dataset(torch.utils.data.Dataset[tuple[torch.Tensor, torch.Tensor]]):
                 axis=0,
             )
         ).float()  # (total_timestep_count, observation_dimensionality)
-        action_batch = torch.from_numpy(
+        actions = torch.from_numpy(
             np.concatenate(
                 [expert_episodes.actions]
                 + (
@@ -48,15 +48,15 @@ class Dataset(torch.utils.data.Dataset[tuple[torch.Tensor, torch.Tensor]]):
         ).float()  # (total_timestep_count, action_dimensionality)
 
         self.observation_normalizer = MinMaxNormalizer.from_values(
-            value_batch=observation_batch
+            value_batch=observations
         )
-        self.action_normalizer = MinMaxNormalizer.from_values(value_batch=action_batch)
+        self.action_normalizer = MinMaxNormalizer.from_values(value_batch=actions)
 
         self._normalized_observations = self.observation_normalizer.normalize(
-            value_batch=observation_batch
+            value_batch=observations
         )  # (total_timestep_count, observation_dimensionality)
         self._normalized_actions = self.action_normalizer.normalize(
-            value_batch=action_batch
+            value_batch=actions
         )  # (total_timestep_count, action_dimensionality)
 
         expert_window_indices = _build_window_indices(
