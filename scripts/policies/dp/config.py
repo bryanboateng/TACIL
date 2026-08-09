@@ -1,11 +1,4 @@
-"""How the diffusion policy is trained.
-
-The condition it is evaluated in, the seed, the dataset and the wandb project
-belong to the run, not to the training, so they are not here. See
-scripts/policies/dp/run.py.
-"""
-
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Literal
 
 
@@ -35,7 +28,7 @@ class EvaluationConfig:
 
 @dataclass(frozen=True)
 class Config:
-    horizon_length: HorizonLengthConfig = field(default_factory=HorizonLengthConfig)
-    optimization: OptimizationConfig = field(default_factory=OptimizationConfig)
-    evaluation: EvaluationConfig = field(default_factory=EvaluationConfig)
+    horizon_length: HorizonLengthConfig
+    optimization: OptimizationConfig
+    evaluation: EvaluationConfig
     hidden_channel_counts: tuple[int, ...] = (256, 512, 1024)
