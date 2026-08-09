@@ -87,7 +87,8 @@ def _run(*, config: Config) -> None:
         logger.info("Stage 3/3: evaluating the policy.")
         evaluate_policy(
             policy_factory=build_policy_factory(
-                config=config.policy,
+                horizon_length=config.policy.horizon_length,
+                sampler=config.policy.sampler,
                 noise_prediction_network=noise_prediction_network,
                 device=device,
             ),

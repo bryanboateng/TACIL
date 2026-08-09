@@ -6,7 +6,7 @@ import numpy as np
 import torch
 
 from scripts.policies.dp.network import ConditionalUnet1d
-from scripts.policies.dp.noise_scheduler import get_ddim_scheduler, get_ddpm_scheduler
+from scripts.policies.dp.noise_scheduler import create_sampler
 from scripts.shared.policy_types import Policy, PolicyFactory
 
 
@@ -26,11 +26,7 @@ def create_diffusion_policy_factory(
     sampler: Literal["ddim", "ddpm"],
     device: torch.device,
 ) -> PolicyFactory:
-    match sampler:
-        case "ddim":
-            noise_scheduler = get_ddim_scheduler()
-        case "ddpm":
-            noise_scheduler = get_ddpm_scheduler()
+    noise_scheduler = create_sampler(name=sampler)
 
     noise_prediction_network.eval()
 

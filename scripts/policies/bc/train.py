@@ -100,10 +100,10 @@ def train_behavior_cloning_policy(
 
             run.log(data={f"{STAGE_NAME}/1_training/loss": loss.item()})
 
-        periodic_evaluation_is_due = (
-            (epoch_index + 1) % config.evaluation.periodic_interval_epoch_count == 0
+        validation_is_due = (
+            (epoch_index + 1) % config.validation.interval_epoch_count == 0
         ) or ((epoch_index + 1) == config.optimization.epoch_count)
-        if not periodic_evaluation_is_due:
+        if not validation_is_due:
             continue
 
         validation_reward = reward_statistics(
@@ -112,7 +112,7 @@ def train_behavior_cloning_policy(
                     policy_model=policy_model, device=device
                 ),
                 start_episode_seed=100_000,
-                episode_count=config.evaluation.episode_count,
+                episode_count=config.validation.episode_count,
                 condition=condition,
             )
         )

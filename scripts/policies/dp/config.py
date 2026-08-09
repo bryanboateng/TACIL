@@ -20,15 +20,15 @@ class OptimizationConfig:
 
 
 @dataclass(frozen=True)
-class EvaluationConfig:
-    periodic_interval_epoch_count: int = 20
+class ValidationConfig:
+    interval_epoch_count: int = 20
     episode_count: int = 30
-    sampler: Literal["ddim", "ddpm"] = "ddim"
 
 
 @dataclass(frozen=True)
 class Config:
     horizon_length: HorizonLengthConfig
     optimization: OptimizationConfig
-    evaluation: EvaluationConfig
+    validation: ValidationConfig
     hidden_channel_counts: tuple[int, ...] = (256, 512, 1024)
+    sampler: Literal["ddim", "ddpm"] = "ddim"

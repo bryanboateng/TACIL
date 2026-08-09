@@ -1,8 +1,9 @@
 import copy
+from typing import Literal
 
 import torch
-from diffusers import DDPMScheduler
 from diffusers.optimization import get_scheduler
+from diffusers.schedulers.scheduling_ddpm import DDPMScheduler
 from diffusers.training_utils import EMAModel
 from torch import nn as nn
 from tqdm.auto import tqdm
@@ -14,10 +15,10 @@ from scripts.evaluation.core.scoring import (
     reward_statistics,
     run_scored_episodes,
 )
-from scripts.policies.dp.config import Config
+from scripts.policies.dp.config import Config, HorizonLengthConfig
 from scripts.policies.dp.dataset import Dataset
 from scripts.policies.dp.network import ConditionalUnet1d
-from scripts.policies.dp.noise_scheduler import get_ddpm_scheduler
+from scripts.policies.dp.noise_scheduler import create_forward_noise_scheduler
 from scripts.policies.dp.policy import create_diffusion_policy_factory
 from scripts.policies.shared.checkpoint import Checkpoint
 from scripts.shared.f import EpisodeStore
@@ -58,7 +59,7 @@ def train_diffusion_policy(
     observation_dimensionality = expert_episodes.states.shape[1]
     action_dimensionality = expert_episodes.actions.shape[1]
 
-    noise_scheduler = get_ddpm_scheduler()
+    forward_noise_scheduler = create_forward_noise_scheduler()
 
     augmented_transition_count = (
         0 if augmented_episodes is None else len(augmented_episodes.states)
@@ -140,7 +141,7 @@ def train_diffusion_policy(
             loss = _compute_denoising_loss(
                 noise_prediction_network=noise_prediction_network,
                 training_batch=training_batch,
-                noise_scheduler=noise_scheduler,
+                forward_noise_scheduler=forward_noise_scheduler,
                 observation_horizon_length=config.horizon_length.observation,
                 device=device,
             )
@@ -174,12 +175,12 @@ def train_diffusion_policy(
             )
             global_step += 1
 
-        periodic_eval_is_due = (
+        validation_is_due = (
             epoch_number + 1
-        ) % config.evaluation.periodic_interval_epoch_count == 0 or (
+        ) % config.validation.interval_epoch_count == 0 or (
             epoch_number + 1
         ) == config.optimization.epoch_count
-        if not periodic_eval_is_due:
+        if not validation_is_due:
             continue
 
         # What gets scored are the averaged weights, so they move into the
@@ -192,7 +193,7 @@ def train_diffusion_policy(
         )
         try:
             ema_state_dict = copy.deepcopy(noise_prediction_network.state_dict())
-            validation_reward = _evaluate(
+            validation_reward = _validate(
                 config=config,
                 noise_prediction_network=noise_prediction_network,
                 condition=condition,
@@ -243,16 +244,18 @@ def train_diffusion_policy(
 
 
 def build_policy_factory(
-    *, config: Config, noise_prediction_network: ConditionalUnet1d, device: torch.device
+    *,
+    horizon_length: HorizonLengthConfig,
+    sampler: Literal["ddim", "ddpm"],
+    noise_prediction_network: ConditionalUnet1d,
+    device: torch.device,
 ) -> PolicyFactory:
-    """The evaluation's view of a trained network. Kept here because the horizon
-    lengths and the sampler come from this stage's config."""
     return create_diffusion_policy_factory(
         noise_prediction_network=noise_prediction_network,
-        observation_horizon_length=config.horizon_length.observation,
-        prediction_horizon_length=config.horizon_length.prediction,
-        execution_horizon_length=config.horizon_length.execution,
-        sampler=config.evaluation.sampler,
+        observation_horizon_length=horizon_length.observation,
+        prediction_horizon_length=horizon_length.prediction,
+        execution_horizon_length=horizon_length.execution,
+        sampler=sampler,
         device=device,
     )
 
@@ -266,7 +269,7 @@ def _define_step_metrics(*, run: Run) -> None:
 
 
 @torch.no_grad()
-def _evaluate(
+def _validate(
     *,
     config: Config,
     noise_prediction_network: ConditionalUnet1d,
@@ -274,13 +277,16 @@ def _evaluate(
     device: torch.device,
 ) -> RewardStatistics:
     policy_factory = build_policy_factory(
-        config=config, noise_prediction_network=noise_prediction_network, device=device
+        horizon_length=config.horizon_length,
+        sampler=config.sampler,
+        noise_prediction_network=noise_prediction_network,
+        device=device,
     )
     return reward_statistics(
         episode_records=run_scored_episodes(
             policy_factory=policy_factory,
             start_episode_seed=100_000,
-            episode_count=config.evaluation.episode_count,
+            episode_count=config.validation.episode_count,
             condition=condition,
         )
     )
@@ -290,7 +296,7 @@ def _compute_denoising_loss(
     *,
     noise_prediction_network: ConditionalUnet1d,
     training_batch: tuple[torch.Tensor, torch.Tensor],
-    noise_scheduler: DDPMScheduler,
+    forward_noise_scheduler: DDPMScheduler,
     observation_horizon_length: int,
     device: torch.device,
 ) -> torch.Tensor:
@@ -312,11 +318,11 @@ def _compute_denoising_loss(
     )  # (batch_size, prediction_horizon_length, action_dimensionality)
     diffusion_timestep_batch = torch.randint(
         low=0,
-        high=noise_scheduler.config["num_train_timesteps"],
+        high=forward_noise_scheduler.config["num_train_timesteps"],
         size=(batch_size,),
         device=device,
     )  # (batch_size,)
-    noisy_action_batch = noise_scheduler.add_noise(
+    noisy_action_batch = forward_noise_scheduler.add_noise(
         original_samples=actions,
         noise=noise_batch,
         # Ignore because PyTorch returns Tensors but diffusers expects IntTensor in its type hints.

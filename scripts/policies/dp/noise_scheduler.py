@@ -1,3 +1,5 @@
+from typing import Literal
+
 from diffusers.schedulers.scheduling_ddim import DDIMScheduler
 from diffusers.schedulers.scheduling_ddpm import DDPMScheduler
 
@@ -5,7 +7,25 @@ _DIFFUSION_TRAIN_TIMESTEP_COUNT = 100
 _DDIM_INFERENCE_TIMESTEP_COUNT = 8
 
 
-def get_ddpm_scheduler() -> DDPMScheduler:
+def create_forward_noise_scheduler() -> DDPMScheduler:
+    """The schedule that adds noise to the actions during training.
+
+    DDIM and DDPM differ only in how they remove noise again, so there is no
+    sampler to pick here. The DDPM class is simply the one that carries
+    `add_noise`.
+    """
+    return _create_ddpm_scheduler()
+
+
+def create_sampler(*, name: Literal["ddim", "ddpm"]) -> DDIMScheduler | DDPMScheduler:
+    match name:
+        case "ddim":
+            return _create_ddim_scheduler()
+        case "ddpm":
+            return _create_ddpm_scheduler()
+
+
+def _create_ddpm_scheduler() -> DDPMScheduler:
     return DDPMScheduler(
         num_train_timesteps=_DIFFUSION_TRAIN_TIMESTEP_COUNT,
         beta_schedule="squaredcos_cap_v2",
@@ -16,7 +36,7 @@ def get_ddpm_scheduler() -> DDPMScheduler:
     )
 
 
-def get_ddim_scheduler() -> DDIMScheduler:
+def _create_ddim_scheduler() -> DDIMScheduler:
     noise_scheduler = DDIMScheduler(
         num_train_timesteps=_DIFFUSION_TRAIN_TIMESTEP_COUNT,
         beta_schedule="squaredcos_cap_v2",

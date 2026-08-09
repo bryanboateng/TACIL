@@ -9,13 +9,13 @@ class OptimizationConfig:
 
 
 @dataclass(frozen=True)
-class EvaluationConfig:
-    periodic_interval_epoch_count: int = 20
+class ValidationConfig:
+    interval_epoch_count: int = 20
     episode_count: int = 30
 
 
 @dataclass(frozen=True)
 class Config:
     optimization: OptimizationConfig
-    evaluation: EvaluationConfig
+    validation: ValidationConfig
     hidden_layer_dimensionality: int = 256
