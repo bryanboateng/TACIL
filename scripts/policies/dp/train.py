@@ -323,9 +323,10 @@ def _compute_denoising_loss(
         timesteps=diffusion_timestep_batch,  # type: ignore[arg-type] # ty:ignore[invalid-argument-type]
     )  # (batch_size, prediction_horizon_length, action_dimensionality)
 
-    noise_prediction_batch = noise_prediction_network(
+    # The target is the noise as it was drawn, before the timestep scaled it.
+    predicted_noise_batch = noise_prediction_network(
         noisy_sample_batch=noisy_action_batch,
         diffusion_timestep=diffusion_timestep_batch,
         condition_batch=condition_batch,
     )  # (batch_size, prediction_horizon_length, action_dimensionality)
-    return nn.functional.mse_loss(input=noise_prediction_batch, target=noise_batch)
+    return nn.functional.mse_loss(input=predicted_noise_batch, target=noise_batch)

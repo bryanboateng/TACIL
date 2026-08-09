@@ -39,7 +39,7 @@ def run_scored_episodes(
         return roll_out_episodes(
             environments=environments,
             seeds=seeds,
-            policy=policy_factory(seeds=seeds),
+            policy=policy_factory(episode_seeds=seeds),
             render=False,
         )
     finally:
