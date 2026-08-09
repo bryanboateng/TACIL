@@ -23,7 +23,6 @@ from scripts.policies.shared.checkpoint import Checkpoint
 from scripts.shared.f import EpisodeStore
 from scripts.shared.log import create_logger
 from scripts.shared.policy_types import PolicyFactory
-from scripts.shared.pusht_state import ACTION_DIMENSIONALITY, STATE_DIMENSIONALITY
 from scripts.shared.seeding import set_seed
 
 logger = create_logger()
@@ -54,7 +53,10 @@ def train_diffusion_policy(
     set_seed(seed=seed)
     _define_step_metrics(run=run)
 
-    condition_dimensionality = STATE_DIMENSIONALITY * config.horizon_length.observation
+    # The recorded episodes state their own widths, so the environment's layout
+    # never has to be named here.
+    observation_dimensionality = expert_episodes.states.shape[1]
+    action_dimensionality = expert_episodes.actions.shape[1]
 
     noise_scheduler = get_ddpm_scheduler()
 
@@ -75,8 +77,10 @@ def train_diffusion_policy(
     )
 
     noise_prediction_network = ConditionalUnet1d(
-        input_channel_count=ACTION_DIMENSIONALITY,
-        condition_dimensionality=condition_dimensionality,
+        action_dimensionality=action_dimensionality,
+        condition_dimensionality=(
+            observation_dimensionality * config.horizon_length.observation
+        ),
         hidden_channel_counts=config.hidden_channel_counts,
         observation_normalizer=dataset.observation_normalizer,
         action_normalizer=dataset.action_normalizer,
@@ -245,7 +249,6 @@ def build_policy_factory(
     lengths and the sampler come from this stage's config."""
     return build_diffusion_policy_factory(
         noise_prediction_network=noise_prediction_network,
-        action_dimensionality=ACTION_DIMENSIONALITY,
         observation_horizon_length=config.horizon_length.observation,
         prediction_horizon_length=config.horizon_length.prediction,
         action_horizon_length=config.horizon_length.action,

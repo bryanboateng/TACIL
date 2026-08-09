@@ -23,27 +23,19 @@ default damping the block's velocity is destroyed every substep, so the next
 state is a function of this state and the action alone. Measured: a block given
 150 px/s stands still one step later.
 
-Two more layout facts live here, both unrelated to the periodicity:
+This module holds the layout and nothing built on top of it. How a network is
+fed from such a state is TaCIL's business and lives in
+scripts/data/augmentation/tacil/models/network_input.py. Both TaCIL and the GPI
+baseline read the layout from here, so the import graph shows who depends on
+PushT.
 
-- the network reads the agent's position as it is, and the block's position
-  relative to the agent (network_features). Contact depends on where the block
-  is relative to the agent, so that difference is handed over rather than left
-  to be learned. Nothing is lost by it: the absolute block position is the sum
-  of the two, so the two coordinate systems carry the same information. Keeping
-  the agent's own position is what lets the model see the arena walls at all;
-- two states showing the same orientation must look the same to a network, so
-  the angle reaches it as a point on the unit circle, never as a number.
+The widths are deliberately absent. Every stage reads them from the recorded
+data, which states them itself, so no policy has to name the environment.
 """
 
 import torch
 
-from scripts.data.augmentation.tacil.models.normalizers import Normalizers
-
-# Layout: agent x/y, block x/y, block angle. Both widths are dictated by the
-# environment, so they are stated here once rather than configured per policy.
-STATE_DIMENSIONALITY = 5
-# An action is the agent's target position.
-ACTION_DIMENSIONALITY = 2
+# Layout: agent x/y, block x/y, block angle.
 AGENT_POSITION_SLICE = slice(0, 2)
 BLOCK_POSITION_SLICE = slice(2, 4)
 POSITION_SLICE = slice(0, 4)
@@ -73,9 +65,9 @@ def shortest_angle_differences(
 
 def state_differences(
     *,
-    state_batch: torch.Tensor,  # (..., STATE_DIMENSIONALITY)
-    other_state_batch: torch.Tensor,  # (..., STATE_DIMENSIONALITY)
-) -> torch.Tensor:  # (..., STATE_DIMENSIONALITY)
+    state_batch: torch.Tensor,  # (..., state_dimensionality)
+    other_state_batch: torch.Tensor,  # (..., state_dimensionality)
+) -> torch.Tensor:  # (..., state_dimensionality)
     """State minus state. Positions subtract, the orientation goes the shorter
     way round, so two states one full turn apart differ by zero rather than by
     2π.
@@ -92,9 +84,9 @@ def state_differences(
 
 def advance_states(
     *,
-    state_batch: torch.Tensor,  # (..., STATE_DIMENSIONALITY)
-    state_displacement_batch: torch.Tensor,  # (..., STATE_DIMENSIONALITY)
-) -> torch.Tensor:  # (..., STATE_DIMENSIONALITY)
+    state_batch: torch.Tensor,  # (..., state_dimensionality)
+    state_displacement_batch: torch.Tensor,  # (..., state_dimensionality)
+) -> torch.Tensor:  # (..., state_dimensionality)
     """State plus displacement, with the orientation kept inside [0, 2π)."""
     advanced_state_batch = state_batch + state_displacement_batch
     # Not ``%=``: vmap has no batching rule for the in-place remainder and
@@ -108,9 +100,9 @@ def advance_states(
 
 def average_states(
     *,
-    state_batch: torch.Tensor,  # (..., STATE_DIMENSIONALITY)
+    state_batch: torch.Tensor,  # (..., state_dimensionality)
     dim: int,
-) -> torch.Tensor:  # (..., STATE_DIMENSIONALITY)
+) -> torch.Tensor:  # (..., state_dimensionality)
     """The mean state. Positions average arithmetically, the orientation as a
     direction on the unit circle.
 
@@ -128,63 +120,3 @@ def average_states(
         % FULL_TURN
     )
     return average_batch
-
-
-def network_features(
-    *,
-    state_batch: torch.Tensor,  # (batch_size, STATE_DIMENSIONALITY)
-    action_batch: torch.Tensor,  # (batch_size, action_dimensionality)
-) -> torch.Tensor:  # (batch_size, NETWORK_FEATURE_DIMENSIONALITY)
-    """The quantities the network reads, before any scaling.
-
-    The agent's position as it is, then the block and the action measured from
-    the agent. Contact and the commanded motion both depend on those
-    differences, so they are handed over rather than left to be worked out.
-
-    Kept separate from network_input so the scale of each quantity can be
-    measured on the quantity itself. Dividing a difference by the spread of an
-    absolute position would be the wrong scale.
-    """
-    agent_position_batch = state_batch[:, AGENT_POSITION_SLICE]
-    return torch.cat(
-        tensors=[
-            agent_position_batch,
-            state_batch[:, BLOCK_POSITION_SLICE] - agent_position_batch,
-            action_batch - agent_position_batch,
-        ],
-        dim=-1,
-    )
-
-
-# Agent position, block measured from the agent, action measured from the agent.
-NETWORK_FEATURE_DIMENSIONALITY = 6
-# Those, plus the orientation as a cosine and a sine.
-NETWORK_INPUT_DIMENSIONALITY = NETWORK_FEATURE_DIMENSIONALITY + 2
-
-
-def network_input(
-    *,
-    normalizers: Normalizers,
-    state_batch: torch.Tensor,  # (batch_size, STATE_DIMENSIONALITY)
-    action_batch: torch.Tensor,  # (batch_size, action_dimensionality)
-) -> torch.Tensor:  # (batch_size, NETWORK_INPUT_DIMENSIONALITY)
-    """Everything the network sees: the scaled features, then the orientation.
-
-    The orientation enters as a point on the unit circle and is left unscaled.
-    Two states that show the same block orientation then look the same to the
-    network, whether the angle reads 0.3 or 0.3 + 2π, and the circle stays a
-    circle.
-    """
-    angle_batch = state_batch[:, ANGLE_INDEX : ANGLE_INDEX + 1]
-    return torch.cat(
-        tensors=[
-            normalizers.network_feature_normalizer.normalize(
-                value_batch=network_features(
-                    state_batch=state_batch, action_batch=action_batch
-                )
-            ),
-            torch.cos(angle_batch),
-            torch.sin(angle_batch),
-        ],
-        dim=-1,
-    )

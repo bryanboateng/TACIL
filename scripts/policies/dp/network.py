@@ -12,7 +12,7 @@ class ConditionalUnet1d(torch.nn.Module):
     def __init__(
         self,
         *,
-        input_channel_count: int,
+        action_dimensionality: int,
         condition_dimensionality: int,
         hidden_channel_counts: tuple[int, ...],
         observation_normalizer: MinMaxNormalizer,
@@ -20,8 +20,13 @@ class ConditionalUnet1d(torch.nn.Module):
     ) -> None:
         super().__init__()
 
+        # The network denoises action sequences, so its channels are the action
+        # components. Kept as an attribute because the policy needs the width to
+        # draw the starting noise, and the network is the only thing it holds.
+        self.action_dimensionality = action_dimensionality
+
         kernel_size = 5
-        channel_counts = [input_channel_count, *hidden_channel_counts]
+        channel_counts = [action_dimensionality, *hidden_channel_counts]
         first_hidden_channel_count = hidden_channel_counts[0]
 
         diffusion_timestep_embedding_dimensionality = 256
@@ -104,7 +109,7 @@ class ConditionalUnet1d(torch.nn.Module):
             ),
             torch.nn.Conv1d(
                 in_channels=first_hidden_channel_count,
-                out_channels=input_channel_count,
+                out_channels=action_dimensionality,
                 kernel_size=1,
             ),
         )

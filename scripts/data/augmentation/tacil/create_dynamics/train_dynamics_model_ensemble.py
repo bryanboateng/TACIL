@@ -25,10 +25,11 @@ from scripts.data.augmentation.tacil.create_dynamics.dynamics_model_training imp
 from scripts.data.augmentation.tacil.models.dynamics_model_ensemble import (
     DynamicsModelEnsemble,
 )
+from scripts.data.augmentation.tacil.models.network_input import network_features
 from scripts.data.augmentation.tacil.models.normalizers import Normalizers
 from scripts.shared.f import EpisodeStore
 from scripts.shared.log import create_logger
-from scripts.shared.pusht_state import network_features, state_differences
+from scripts.shared.pusht_state import state_differences
 from scripts.shared.seeding import set_seed
 
 logger = create_logger()

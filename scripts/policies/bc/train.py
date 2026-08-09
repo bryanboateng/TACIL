@@ -18,7 +18,6 @@ from scripts.policies.shared.checkpoint import Checkpoint
 from scripts.shared.f import TransitionBatch
 from scripts.shared.log import create_logger
 from scripts.shared.normalization import MinMaxNormalizer, ZScoreNormalizer
-from scripts.shared.pusht_state import ACTION_DIMENSIONALITY, STATE_DIMENSIONALITY
 from scripts.shared.seeding import set_seed
 
 logger = create_logger()
@@ -50,9 +49,11 @@ def train_behavior_cloning_policy(
         pin_memory=device.type == "cuda",
     )
 
+    # The transitions state their own widths, so the environment's layout never
+    # has to be named here.
     policy_model = BehaviorCloningPolicyModel(
-        observation_dimensionality=STATE_DIMENSIONALITY,
-        action_dimensionality=ACTION_DIMENSIONALITY,
+        observation_dimensionality=transitions.states.shape[1],
+        action_dimensionality=transitions.actions.shape[1],
         hidden_layer_dimensionality=config.hidden_layer_dimensionality,
         observation_normalizer=ZScoreNormalizer.from_values(
             value_batch=dataset.states.to(device=device)

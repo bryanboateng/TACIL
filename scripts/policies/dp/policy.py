@@ -20,7 +20,6 @@ class _EpisodeState:
 def build_diffusion_policy_factory(
     *,
     noise_prediction_network: ConditionalUnet1d,
-    action_dimensionality: int,
     observation_horizon_length: int,
     prediction_horizon_length: int,
     action_horizon_length: int,
@@ -76,7 +75,11 @@ def build_diffusion_policy_factory(
             denoising_state = torch.cat(
                 tensors=[
                     torch.randn(
-                        size=(1, prediction_horizon_length, action_dimensionality),
+                        size=(
+                            1,
+                            prediction_horizon_length,
+                            noise_prediction_network.action_dimensionality,
+                        ),
                         device=device,
                         generator=generator,
                     )

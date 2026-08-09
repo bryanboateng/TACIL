@@ -3,12 +3,12 @@ import torch
 from scripts.data.augmentation.tacil.models.lipschitz_constrained_linear import (
     LipschitzConstrainedLinear,
 )
-from scripts.data.augmentation.tacil.models.normalizers import Normalizers
-from scripts.shared.pusht_state import (
+from scripts.data.augmentation.tacil.models.network_input import (
     NETWORK_INPUT_DIMENSIONALITY,
-    advance_states,
     network_input,
 )
+from scripts.data.augmentation.tacil.models.normalizers import Normalizers
+from scripts.shared.pusht_state import advance_states
 
 # Maximum factor by which SiLU stretches space, i.e. its (global) Lipschitz constant.
 _SILU_LIPSCHITZ_CONSTANT = 1.099839320
