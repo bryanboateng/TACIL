@@ -1,9 +1,3 @@
-"""CCIL as one call.
-
-What the policy gets back is the accepted labels alone. A label is a single
-(state, action) pair, so there is no episode structure to return.
-"""
-
 import torch
 from wandb import Run
 

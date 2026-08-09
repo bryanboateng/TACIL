@@ -39,6 +39,8 @@ def train_behavior_cloning_policy(
 
     loss_function = torch.nn.MSELoss()
 
+    run.summary[f"{STAGE_NAME}/transition_count"] = len(transitions.states)
+
     dataset = Dataset(transitions=transitions)
 
     data_loader = DataLoader(

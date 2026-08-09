@@ -6,7 +6,6 @@ from diffusers.training_utils import EMAModel
 from tqdm.auto import tqdm
 from wandb import Run
 
-from scripts.shared.f import EpisodeStore
 from scripts.evaluation.core.condition import Condition
 from scripts.evaluation.core.scoring import (
     RewardStatistics,
@@ -20,9 +19,10 @@ from scripts.policies.dp.network import ConditionalUnet1d
 from scripts.policies.dp.noise_scheduler import get_ddpm_scheduler
 from scripts.policies.dp.policy import build_diffusion_policy_factory
 from scripts.policies.shared.checkpoint import Checkpoint
+from scripts.shared.f import EpisodeStore
 from scripts.shared.log import create_logger
-from scripts.shared.pusht_state import ACTION_DIMENSIONALITY, STATE_DIMENSIONALITY
 from scripts.shared.policy_types import PolicyFactory
+from scripts.shared.pusht_state import ACTION_DIMENSIONALITY, STATE_DIMENSIONALITY
 from scripts.shared.seeding import set_seed
 
 logger = create_logger()
@@ -56,6 +56,13 @@ def train_diffusion_policy(
     condition_dimensionality = STATE_DIMENSIONALITY * config.horizon_length.observation
 
     noise_scheduler = get_ddpm_scheduler()
+
+    augmented_transition_count = (
+        0 if augmented_episodes is None else len(augmented_episodes.states)
+    )
+    run.summary[f"{STAGE_NAME}/transition_count"] = (
+        len(expert_episodes.states) + augmented_transition_count
+    )
 
     # The dataset measures the normalization ranges, so it comes first.
     dataset = Dataset(

@@ -82,7 +82,6 @@ def _run(*, config: Config) -> None:
                 ),  # (transition_count, action_dimensionality)
             )
 
-        run.summary["transition_count"] = len(transitions.states)
         logger.info("Stage 1/3: done.")
 
         logger.info("Stage 2/3: training the behavior-cloning policy.")

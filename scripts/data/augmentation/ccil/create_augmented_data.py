@@ -23,8 +23,6 @@ def create_ccil_augmented_data(
     device: torch.device,
     run: Run,
 ) -> TransitionBatch:
-    """The accepted labels alone. A label is a single (state, action) pair, so
-    the caller appends them to the expert transitions."""
     set_seed(seed=seed)
 
     states, actions, next_states = _transitions(episode_store=expert_episodes)
