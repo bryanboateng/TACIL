@@ -5,6 +5,7 @@ from typing import Literal
 import numpy as np
 import torch
 
+from scripts.policies.dp.config import HorizonLengthConfig
 from scripts.policies.dp.network import ConditionalUnet1d
 from scripts.policies.dp.noise_scheduler import create_sampler
 from scripts.shared.policy_types import Policy, PolicyFactory
@@ -20,9 +21,7 @@ class _EpisodeState:
 def create_diffusion_policy_factory(
     *,
     noise_prediction_network: ConditionalUnet1d,
-    observation_horizon_length: int,
-    prediction_horizon_length: int,
-    execution_horizon_length: int,
+    horizon_length: HorizonLengthConfig,
     sampler: Literal["ddim", "ddpm"],
     device: torch.device,
 ) -> PolicyFactory:
@@ -36,7 +35,7 @@ def create_diffusion_policy_factory(
                 noise_generator=torch.Generator(device=device).manual_seed(
                     episode_seed
                 ),
-                observation_deque=collections.deque(maxlen=observation_horizon_length),
+                observation_deque=collections.deque(maxlen=horizon_length.observation),
                 action_queue=collections.deque(),
             )
             for episode_seed in episode_seeds
@@ -69,7 +68,7 @@ def create_diffusion_policy_factory(
                     torch.randn(
                         size=(
                             1,
-                            prediction_horizon_length,
+                            horizon_length.prediction,
                             noise_prediction_network.action_dimensionality,
                         ),
                         generator=noise_generator,
@@ -119,14 +118,14 @@ def create_diffusion_policy_factory(
             # prediction   a a a a a a a a a a a a a a a a
             # execution      x x x x x x x x
             #                ^ execution_start_index
-            execution_start_index = observation_horizon_length - 1
+            execution_start_index = horizon_length.observation - 1
             for episode_index, predicted_action_sequence in zip(
                 episode_indices, predicted_action_sequence_batch, strict=True
             ):
                 episode_states[episode_index].action_queue.extend(
                     predicted_action_sequence[
                         execution_start_index : execution_start_index
-                        + execution_horizon_length
+                        + horizon_length.execution
                     ]
                 )
 
@@ -135,8 +134,8 @@ def create_diffusion_policy_factory(
                 observation_deque = episode_states[episode_index].observation_deque
                 observation_deque.append(observation)
                 # Pad on first call so we always condition on
-                # `observation_horizon_length` frames.
-                while len(observation_deque) < observation_horizon_length:
+                # `horizon_length.observation` frames.
+                while len(observation_deque) < horizon_length.observation:
                     observation_deque.appendleft(observation)
 
             # Re-plan only for the episodes whose previous action horizon is exhausted.

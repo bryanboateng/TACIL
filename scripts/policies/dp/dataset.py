@@ -4,6 +4,7 @@ import numpy as np
 import numpy.typing as npt
 import torch
 
+from scripts.policies.dp.config import HorizonLengthConfig
 from scripts.shared.f import EpisodeStore
 from scripts.shared.normalization import MinMaxNormalizer
 
@@ -30,9 +31,7 @@ class Dataset(torch.utils.data.Dataset[tuple[torch.Tensor, torch.Tensor]]):
         *,
         expert_episodes: EpisodeStore,
         augmented_episodes: EpisodeStore | None,
-        prediction_horizon_length: int,
-        observation_horizon_length: int,
-        execution_horizon_length: int,
+        horizon_lengths: HorizonLengthConfig,
     ) -> None:
         normalizers = _fit_normalizers(
             episode_stores=[expert_episodes]
@@ -44,14 +43,14 @@ class Dataset(torch.utils.data.Dataset[tuple[torch.Tensor, torch.Tensor]]):
         expert_windows = _create_windows(
             episodes=expert_episodes,
             normalizers=normalizers,
-            window_length=prediction_horizon_length,
-            observation_horizon_length=observation_horizon_length,
+            window_length=horizon_lengths.prediction,
+            observation_horizon_length=horizon_lengths.observation,
             # The policy repeats its first observation until it has a full
             # history, so a window may begin before the episode does.
-            lead_in_length=observation_horizon_length - 1,
+            lead_in_length=horizon_lengths.observation - 1,
             # The policy plans once more near the end and then runs a whole
             # execution horizon, so a window may reach past the episode.
-            run_out_length=execution_horizon_length - 1,
+            run_out_length=horizon_lengths.execution - 1,
         )
 
         if augmented_episodes is None:
@@ -60,8 +59,8 @@ class Dataset(torch.utils.data.Dataset[tuple[torch.Tensor, torch.Tensor]]):
             augmented_windows = _create_windows(
                 episodes=augmented_episodes,
                 normalizers=normalizers,
-                window_length=prediction_horizon_length,
-                observation_horizon_length=observation_horizon_length,
+                window_length=horizon_lengths.prediction,
+                observation_horizon_length=horizon_lengths.observation,
                 lead_in_length=0,
                 run_out_length=0,
             )
@@ -72,7 +71,7 @@ class Dataset(torch.utils.data.Dataset[tuple[torch.Tensor, torch.Tensor]]):
                 raise ValueError(
                     f"None of the {len(episode_lengths)} augmented episodes is long enough "
                     f"for one window: the longest is {int(episode_lengths.max())} timesteps, "
-                    f"the prediction horizon is {prediction_horizon_length}. Training would silently use "
+                    f"the prediction horizon is {horizon_lengths.prediction}. Training would silently use "
                     f"the expert data alone. This augmentation was laid out for a policy that "
                     f"trains on single (state, action) pairs."
                 )

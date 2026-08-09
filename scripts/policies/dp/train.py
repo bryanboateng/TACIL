@@ -1,5 +1,4 @@
 import copy
-from typing import Literal
 
 import torch
 from diffusers.optimization import get_scheduler
@@ -15,7 +14,7 @@ from scripts.evaluation.core.scoring import (
     reward_statistics,
     run_scored_episodes,
 )
-from scripts.policies.dp.config import Config, HorizonLengthConfig
+from scripts.policies.dp.config import Config
 from scripts.policies.dp.dataset import Dataset
 from scripts.policies.dp.network import ConditionalUnet1d
 from scripts.policies.dp.noise_scheduler import create_forward_noise_scheduler
@@ -23,19 +22,12 @@ from scripts.policies.dp.policy import create_diffusion_policy_factory
 from scripts.policies.shared.checkpoint import Checkpoint
 from scripts.shared.f import EpisodeStore
 from scripts.shared.log import create_logger
-from scripts.shared.policy_types import PolicyFactory
 from scripts.shared.seeding import set_seed
 
 logger = create_logger()
 
-# Every key this stage logs starts with it, so a stage run and a pipeline run
-# report the same numbers under the same names. wandb groups panels by the part
-# before the first slash, so the stage joins the group with a hyphen rather than
-# a slash of its own.
 STAGE_NAME = "3_policy"
 
-# The x-axis of this stage's curves. The run may be shared with the rest of the
-# pipeline, whose implicit step counter is not the optimization step.
 STEP_METRIC_NAME = f"{STAGE_NAME}/step"
 
 
@@ -49,38 +41,25 @@ def train_diffusion_policy(
     device: torch.device,
     run: Run,
 ) -> ConditionalUnet1d:
-    """Train on the recorded episodes plus whatever augmentation produced, and
-    return the network holding the averaged weights that scored best."""
     set_seed(seed=seed)
     _define_step_metrics(run=run)
 
-    # The recorded episodes state their own widths, so the environment's layout
-    # never has to be named here.
-    observation_dimensionality = expert_episodes.states.shape[1]
-    action_dimensionality = expert_episodes.actions.shape[1]
-
     forward_noise_scheduler = create_forward_noise_scheduler()
 
-    augmented_transition_count = (
+    run.summary[f"{STAGE_NAME}/transition_count"] = len(expert_episodes.states) + (
         0 if augmented_episodes is None else len(augmented_episodes.states)
     )
-    run.summary[f"{STAGE_NAME}/transition_count"] = (
-        len(expert_episodes.states) + augmented_transition_count
-    )
 
-    # The dataset measures the normalization ranges, so it comes first.
     dataset = Dataset(
         expert_episodes=expert_episodes,
         augmented_episodes=augmented_episodes,
-        prediction_horizon_length=config.horizon_length.prediction,
-        observation_horizon_length=config.horizon_length.observation,
-        execution_horizon_length=config.horizon_length.execution,
+        horizon_lengths=config.horizon_length,
     )
 
     noise_prediction_network = ConditionalUnet1d(
-        action_dimensionality=action_dimensionality,
+        action_dimensionality=expert_episodes.actions.shape[1],
         condition_dimensionality=(
-            observation_dimensionality * config.horizon_length.observation
+            expert_episodes.states.shape[1] * config.horizon_length.observation
         ),
         hidden_channel_counts=config.hidden_channel_counts,
         observation_normalizer=dataset.observation_normalizer,
@@ -184,7 +163,7 @@ def train_diffusion_policy(
             continue
 
         # What gets scored are the averaged weights, so they move into the
-        # network for the duration of the evaluation and are taken out again.
+        # network for the duration of the validation and are taken out again.
         noise_prediction_network_ema.store(
             parameters=noise_prediction_network.parameters()
         )
@@ -193,12 +172,20 @@ def train_diffusion_policy(
         )
         try:
             ema_state_dict = copy.deepcopy(noise_prediction_network.state_dict())
-            validation_reward = _validate(
-                config=config,
-                noise_prediction_network=noise_prediction_network,
-                condition=condition,
-                device=device,
-            )
+            with torch.no_grad():
+                validation_reward = reward_statistics(
+                    episode_records=run_scored_episodes(
+                        policy_factory=create_diffusion_policy_factory(
+                            noise_prediction_network=noise_prediction_network,
+                            horizon_length=config.horizon_length,
+                            sampler=config.sampler,
+                            device=device,
+                        ),
+                        start_episode_seed=100_000,
+                        episode_count=config.validation.episode_count,
+                        condition=condition,
+                    )
+                )
         finally:
             noise_prediction_network_ema.restore(
                 parameters=noise_prediction_network.parameters()
@@ -243,53 +230,12 @@ def train_diffusion_policy(
     return noise_prediction_network
 
 
-def build_policy_factory(
-    *,
-    horizon_length: HorizonLengthConfig,
-    sampler: Literal["ddim", "ddpm"],
-    noise_prediction_network: ConditionalUnet1d,
-    device: torch.device,
-) -> PolicyFactory:
-    return create_diffusion_policy_factory(
-        noise_prediction_network=noise_prediction_network,
-        observation_horizon_length=horizon_length.observation,
-        prediction_horizon_length=horizon_length.prediction,
-        execution_horizon_length=horizon_length.execution,
-        sampler=sampler,
-        device=device,
-    )
-
-
 def _define_step_metrics(*, run: Run) -> None:
     run.define_metric(name=STEP_METRIC_NAME)
     for metric_pattern in ("epoch", "1_training/*", "2_validation/*"):
         run.define_metric(
             name=f"{STAGE_NAME}/{metric_pattern}", step_metric=STEP_METRIC_NAME
         )
-
-
-@torch.no_grad()
-def _validate(
-    *,
-    config: Config,
-    noise_prediction_network: ConditionalUnet1d,
-    condition: Condition,
-    device: torch.device,
-) -> RewardStatistics:
-    policy_factory = build_policy_factory(
-        horizon_length=config.horizon_length,
-        sampler=config.sampler,
-        noise_prediction_network=noise_prediction_network,
-        device=device,
-    )
-    return reward_statistics(
-        episode_records=run_scored_episodes(
-            policy_factory=policy_factory,
-            start_episode_seed=100_000,
-            episode_count=config.validation.episode_count,
-            condition=condition,
-        )
-    )
 
 
 def _compute_denoising_loss(

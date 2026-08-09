@@ -11,7 +11,8 @@ from scripts.data.augmentation.tacil.augmentation import TacilConfig
 from scripts.evaluation.core.condition import Condition
 from scripts.evaluation.evaluate_policy import evaluate_policy
 from scripts.policies.dp import config as policy_config
-from scripts.policies.dp.train import build_policy_factory, train_diffusion_policy
+from scripts.policies.dp.policy import create_diffusion_policy_factory
+from scripts.policies.dp.train import train_diffusion_policy
 from scripts.policies.shared.run_config import RunConfig
 from scripts.shared.f import download_episode_store
 from scripts.shared.log import create_logger, log_device_info
@@ -86,10 +87,10 @@ def _run(*, config: Config) -> None:
 
         logger.info("Stage 3/3: evaluating the policy.")
         evaluate_policy(
-            policy_factory=build_policy_factory(
+            policy_factory=create_diffusion_policy_factory(
+                noise_prediction_network=noise_prediction_network,
                 horizon_length=config.policy.horizon_length,
                 sampler=config.policy.sampler,
-                noise_prediction_network=noise_prediction_network,
                 device=device,
             ),
             policy_label=f"dp ({run_name})",
