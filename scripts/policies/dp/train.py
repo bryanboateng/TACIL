@@ -76,7 +76,6 @@ def train_diffusion_policy(
 
     noise_prediction_network = ConditionalUnet1d(
         input_channel_count=ACTION_DIMENSIONALITY,
-        observation_dimensionality=STATE_DIMENSIONALITY,
         condition_dimensionality=condition_dimensionality,
         hidden_channel_counts=config.hidden_channel_counts,
         observation_normalizer=dataset.observation_normalizer,

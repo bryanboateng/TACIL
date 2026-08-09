@@ -13,16 +13,12 @@ class ConditionalUnet1d(torch.nn.Module):
         self,
         *,
         input_channel_count: int,
-        observation_dimensionality: int,
         condition_dimensionality: int,
         hidden_channel_counts: tuple[int, ...],
         observation_normalizer: MinMaxNormalizer,
         action_normalizer: MinMaxNormalizer,
     ) -> None:
         super().__init__()
-
-        self.observation_dimensionality = observation_dimensionality
-        self.action_dimensionality = input_channel_count
 
         kernel_size = 5
         channel_counts = [input_channel_count, *hidden_channel_counts]

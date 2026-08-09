@@ -20,10 +20,6 @@ class BehaviorCloningPolicyModel(torch.nn.Module):
     ) -> None:
         super().__init__()
 
-        self.observation_dimensionality = observation_dimensionality
-        self.action_dimensionality = action_dimensionality
-        self.hidden_layer_dimensionality = hidden_layer_dimensionality
-
         self.network = _create_network(
             observation_dimensionality=observation_dimensionality,
             action_dimensionality=action_dimensionality,
