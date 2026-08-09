@@ -8,6 +8,38 @@ class HorizonLengthConfig:
     prediction: int = 16
     execution: int = 8
 
+    def __post_init__(self) -> None:
+        for name, length in (
+            ("observation", self.observation),
+            ("prediction", self.prediction),
+            ("execution", self.execution),
+        ):
+            if length < 1:
+                raise ValueError(
+                    f"The {name} horizon is {length}, but must be at least 1."
+                )
+
+        # A prediction is aligned with the observation history, so step 0 belongs to
+        # the oldest observation and is never run. The current step has index
+        # `observation - 1`, and everything executed after it has to fit inside the
+        # prediction horizon.
+
+        #     step         0 1 2 3 4 5 6 7 8 9 A B C D E F
+        #     observation  o o                                  2 recorded frames
+        #     prediction   a a a a a a a a a a a a a a a a     16 predicted actions
+        #     executed       x x x x x x x x                    8 actions to run
+        #                    ^ current step
+
+        executed_end = self.observation - 1 + self.execution
+        if executed_end > self.prediction:
+            raise ValueError(
+                f"An observation horizon of {self.observation} and an execution "
+                f"horizon of {self.execution} need a prediction horizon of at "
+                f"least {executed_end}, but it is {self.prediction}. The policy "
+                f"would run out of predicted actions before its execution "
+                f"horizon is over."
+            )
+
 
 @dataclass(frozen=True)
 class OptimizationConfig:

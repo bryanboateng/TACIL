@@ -114,14 +114,18 @@ def create_diffusion_policy_factory(
                 .numpy()
             )  # (planned_episode_count, prediction_horizon_length, action_dimensionality)
 
-            # The prediction starts at the oldest observation, so skip the past steps.
-            execution_horizon_start_index = observation_horizon_length - 1
+            # step         0 1 2 3 4 5 6 7 8 9 A B C D E F
+            # observation  o o
+            # prediction   a a a a a a a a a a a a a a a a
+            # execution      x x x x x x x x
+            #                ^ execution_start_index
+            execution_start_index = observation_horizon_length - 1
             for episode_index, predicted_action_sequence in zip(
                 episode_indices, predicted_action_sequence_batch, strict=True
             ):
                 episode_states[episode_index].action_queue.extend(
                     predicted_action_sequence[
-                        execution_horizon_start_index : execution_horizon_start_index
+                        execution_start_index : execution_start_index
                         + execution_horizon_length
                     ]
                 )
