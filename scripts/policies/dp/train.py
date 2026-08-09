@@ -53,13 +53,13 @@ def train_diffusion_policy(
     dataset = Dataset(
         expert_episodes=expert_episodes,
         augmented_episodes=augmented_episodes,
-        horizon_lengths=config.horizon_length,
+        horizon_lengths=config.horizon_lengths,
     )
 
     noise_prediction_network = ConditionalUnet1d(
         action_dimensionality=expert_episodes.actions.shape[1],
         condition_dimensionality=(
-            expert_episodes.states.shape[1] * config.horizon_length.observation
+            expert_episodes.states.shape[1] * config.horizon_lengths.observation
         ),
         hidden_channel_counts=config.hidden_channel_counts,
         observation_normalizer=dataset.observation_normalizer,
@@ -121,7 +121,7 @@ def train_diffusion_policy(
                 noise_prediction_network=noise_prediction_network,
                 training_batch=training_batch,
                 forward_noise_scheduler=forward_noise_scheduler,
-                observation_horizon_length=config.horizon_length.observation,
+                observation_horizon_length=config.horizon_lengths.observation,
                 device=device,
             )
 
@@ -177,7 +177,7 @@ def train_diffusion_policy(
                     episode_records=run_scored_episodes(
                         policy_factory=create_diffusion_policy_factory(
                             noise_prediction_network=noise_prediction_network,
-                            horizon_length=config.horizon_length,
+                            horizon_lengths=config.horizon_lengths,
                             sampler=config.sampler,
                             device=device,
                         ),

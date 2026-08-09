@@ -59,7 +59,7 @@ class ValidationConfig:
 
 @dataclass(frozen=True)
 class Config:
-    horizon_length: HorizonLengthConfig
+    horizon_lengths: HorizonLengthConfig
     optimization: OptimizationConfig
     validation: ValidationConfig
     hidden_channel_counts: tuple[int, ...] = (256, 512, 1024)

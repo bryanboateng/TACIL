@@ -66,7 +66,7 @@ def _run(*, config: Config) -> None:
                 # on track. One step fewer than a full window keeps every window
                 # starting on a synthetic state. More would add windows that hold
                 # expert steps only, and those just repeat data the policy already has.
-                expert_part_length=config.policy.horizon_length.prediction - 1,
+                expert_part_length=config.policy.horizon_lengths.prediction - 1,
                 seed=config.seed,
                 device=device,
                 run=run,
@@ -89,7 +89,7 @@ def _run(*, config: Config) -> None:
         evaluate_policy(
             policy_factory=create_diffusion_policy_factory(
                 noise_prediction_network=noise_prediction_network,
-                horizon_length=config.policy.horizon_length,
+                horizon_lengths=config.policy.horizon_lengths,
                 sampler=config.policy.sampler,
                 device=device,
             ),

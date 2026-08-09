@@ -21,7 +21,7 @@ class _EpisodeState:
 def create_diffusion_policy_factory(
     *,
     noise_prediction_network: ConditionalUnet1d,
-    horizon_length: HorizonLengthConfig,
+    horizon_lengths: HorizonLengthConfig,
     sampler: Literal["ddim", "ddpm"],
     device: torch.device,
 ) -> PolicyFactory:
@@ -35,7 +35,7 @@ def create_diffusion_policy_factory(
                 noise_generator=torch.Generator(device=device).manual_seed(
                     episode_seed
                 ),
-                observation_deque=collections.deque(maxlen=horizon_length.observation),
+                observation_deque=collections.deque(maxlen=horizon_lengths.observation),
                 action_queue=collections.deque(),
             )
             for episode_seed in episode_seeds
@@ -68,7 +68,7 @@ def create_diffusion_policy_factory(
                     torch.randn(
                         size=(
                             1,
-                            horizon_length.prediction,
+                            horizon_lengths.prediction,
                             noise_prediction_network.action_dimensionality,
                         ),
                         generator=noise_generator,
@@ -118,14 +118,14 @@ def create_diffusion_policy_factory(
             # prediction   a a a a a a a a a a a a a a a a
             # execution      x x x x x x x x
             #                ^ execution_start_index
-            execution_start_index = horizon_length.observation - 1
+            execution_start_index = horizon_lengths.observation - 1
             for episode_index, predicted_action_sequence in zip(
                 episode_indices, predicted_action_sequence_batch, strict=True
             ):
                 episode_states[episode_index].action_queue.extend(
                     predicted_action_sequence[
                         execution_start_index : execution_start_index
-                        + horizon_length.execution
+                        + horizon_lengths.execution
                     ]
                 )
 
@@ -135,7 +135,7 @@ def create_diffusion_policy_factory(
                 observation_deque.append(observation)
                 # Pad on first call so we always condition on
                 # `horizon_length.observation` frames.
-                while len(observation_deque) < horizon_length.observation:
+                while len(observation_deque) < horizon_lengths.observation:
                     observation_deque.appendleft(observation)
 
             # Re-plan only for the episodes whose previous action horizon is exhausted.
