@@ -33,7 +33,7 @@ def create_augmented_data(
     config: DataConfig,
     episode_store: EpisodeStore,
     dynamics_model_ensemble: DynamicsModelEnsemble,
-    prediction_horizon: int | None,
+    expert_part_length: int,
     seed: int,
     device: torch.device,
     run: Run,
@@ -43,16 +43,8 @@ def create_augmented_data(
     budget accepted nothing: there is then no augmented run to score, and a
     reward measured without any synthetic data would carry this configuration's
     name while describing the unaugmented baseline.
-
-    *prediction_horizon* is the window length the consumer trains on, and None
-    means it trains on single (state, action) pairs. A windowed consumer needs
-    enough expert continuation behind every synthetic state to fill one window;
-    the other kind needs none, and copying expert data would only drown its
-    labels.
     """
     set_seed(seed=seed)
-
-    expert_part_length = prediction_horizon - 1 if prediction_horizon is not None else 0
 
     anchor_indices = get_anchor_indices(
         episode_end_indices=episode_store.episode_end_indices,

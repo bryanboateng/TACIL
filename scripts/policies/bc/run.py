@@ -128,7 +128,9 @@ def _create_synthetic_transitions(
             tacil_episodes = tacil.augment(
                 config=tacil_configuration,
                 expert_episodes=expert_episodes,
-                prediction_horizon=None,  # Behavior cloning trains on single (state, action) pairs.
+                # Behavior cloning trains on single (state, action) pairs, not
+                # windows, so no expert part is needed.
+                expert_part_length=0,
                 seed=seed,
                 device=device,
                 run=run,
