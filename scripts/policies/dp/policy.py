@@ -17,7 +17,7 @@ class _EpisodeState:
     action_queue: collections.deque
 
 
-def build_diffusion_policy_factory(
+def create_diffusion_policy_factory(
     *,
     noise_prediction_network: ConditionalUnet1d,
     observation_horizon_length: int,

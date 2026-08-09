@@ -18,7 +18,7 @@ from scripts.policies.dp.config import Config
 from scripts.policies.dp.dataset import Dataset
 from scripts.policies.dp.network import ConditionalUnet1d
 from scripts.policies.dp.noise_scheduler import get_ddpm_scheduler
-from scripts.policies.dp.policy import build_diffusion_policy_factory
+from scripts.policies.dp.policy import create_diffusion_policy_factory
 from scripts.policies.shared.checkpoint import Checkpoint
 from scripts.shared.f import EpisodeStore
 from scripts.shared.log import create_logger
@@ -247,7 +247,7 @@ def build_policy_factory(
 ) -> PolicyFactory:
     """The evaluation's view of a trained network. Kept here because the horizon
     lengths and the sampler come from this stage's config."""
-    return build_diffusion_policy_factory(
+    return create_diffusion_policy_factory(
         noise_prediction_network=noise_prediction_network,
         observation_horizon_length=config.horizon_length.observation,
         prediction_horizon_length=config.horizon_length.prediction,
