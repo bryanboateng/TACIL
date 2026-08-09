@@ -6,7 +6,7 @@ from typing import Literal
 class HorizonLengthConfig:
     observation: int = 2
     prediction: int = 16
-    action: int = 8
+    execution: int = 8
 
 
 @dataclass(frozen=True)

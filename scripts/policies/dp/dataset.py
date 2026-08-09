@@ -22,7 +22,7 @@ class Dataset(torch.utils.data.Dataset[tuple[torch.Tensor, torch.Tensor]]):
         augmented_episodes: EpisodeStore | None,
         prediction_horizon_length: int,
         observation_horizon_length: int,
-        action_horizon_length: int,
+        execution_horizon_length: int,
     ) -> None:
         observation_batch = torch.from_numpy(
             np.concatenate(
@@ -64,7 +64,7 @@ class Dataset(torch.utils.data.Dataset[tuple[torch.Tensor, torch.Tensor]]):
             timestep_offset=0,
             prediction_horizon_length=prediction_horizon_length,
             observation_padding_length=observation_horizon_length - 1,
-            action_padding_length=action_horizon_length - 1,
+            execution_padding_length=execution_horizon_length - 1,
         )  # (window_count, 4)
 
         if augmented_episodes is None:
@@ -75,7 +75,7 @@ class Dataset(torch.utils.data.Dataset[tuple[torch.Tensor, torch.Tensor]]):
                 timestep_offset=expert_episodes.states.shape[0],
                 prediction_horizon_length=prediction_horizon_length,
                 observation_padding_length=0,
-                action_padding_length=0,
+                execution_padding_length=0,
             )  # (window_count, 4)
 
             if len(augmented_window_indices) == 0:
@@ -143,7 +143,7 @@ def _build_window_indices(
     timestep_offset: int,
     prediction_horizon_length: int,
     observation_padding_length: int,
-    action_padding_length: int,
+    execution_padding_length: int,
 ) -> torch.Tensor:  # (window_count, 4) columns: source_read_start, source_read_end, output_write_start, output_write_end
     """Window positions for one collection of episodes.
 
@@ -163,7 +163,7 @@ def _build_window_indices(
 
         first_window_offset = -observation_padding_length
         last_window_offset = (
-            episode_length - prediction_horizon_length + action_padding_length
+            episode_length - prediction_horizon_length + execution_padding_length
         )
 
         for window_offset in range(first_window_offset, last_window_offset + 1):

@@ -22,7 +22,7 @@ def build_diffusion_policy_factory(
     noise_prediction_network: ConditionalUnet1d,
     observation_horizon_length: int,
     prediction_horizon_length: int,
-    action_horizon_length: int,
+    execution_horizon_length: int,
     sampler: Literal["ddim", "ddpm"],
     device: torch.device,
 ) -> PolicyFactory:
@@ -119,14 +119,14 @@ def build_diffusion_policy_factory(
             )  # (planned_episode_count, prediction_horizon_length, action_dimensionality)
 
             # The prediction starts at the oldest observation, so skip the past steps.
-            action_horizon_start_index = observation_horizon_length - 1
+            execution_horizon_start_index = observation_horizon_length - 1
             for episode_index, predicted_action_sequence in zip(
                 episode_indices, predicted_action_sequence_batch, strict=True
             ):
                 episode_states[episode_index].action_queue.extend(
                     predicted_action_sequence[
-                        action_horizon_start_index : action_horizon_start_index
-                        + action_horizon_length
+                        execution_horizon_start_index : execution_horizon_start_index
+                        + execution_horizon_length
                     ]
                 )
 

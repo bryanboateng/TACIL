@@ -73,7 +73,7 @@ def train_diffusion_policy(
         augmented_episodes=augmented_episodes,
         prediction_horizon_length=config.horizon_length.prediction,
         observation_horizon_length=config.horizon_length.observation,
-        action_horizon_length=config.horizon_length.action,
+        execution_horizon_length=config.horizon_length.execution,
     )
 
     noise_prediction_network = ConditionalUnet1d(
@@ -251,7 +251,7 @@ def build_policy_factory(
         noise_prediction_network=noise_prediction_network,
         observation_horizon_length=config.horizon_length.observation,
         prediction_horizon_length=config.horizon_length.prediction,
-        action_horizon_length=config.horizon_length.action,
+        execution_horizon_length=config.horizon_length.execution,
         sampler=config.evaluation.sampler,
         device=device,
     )
