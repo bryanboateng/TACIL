@@ -1,11 +1,3 @@
-"""One trial of a policy pipeline: download the data, maybe augment it, train,
-evaluate.
-
-The run scripts differ in only two things — which policy they train, and which
-augmentations that policy can take. Those are the type parameters; everything
-else a trial needs is declared here once.
-"""
-
 from dataclasses import dataclass
 
 from scripts.evaluation.core.condition import DisturbanceLevel, FloorCondition
@@ -13,6 +5,8 @@ from scripts.evaluation.core.condition import DisturbanceLevel, FloorCondition
 
 @dataclass(frozen=True)
 class RunConfig[PolicyConfigT, AugmentationT]:
+    seed: int
+
     wandb_project: str
 
     floor_condition: FloorCondition
@@ -20,15 +14,5 @@ class RunConfig[PolicyConfigT, AugmentationT]:
 
     expert_dataset_artifact: str
 
-    # The trial's seed. Every stage takes it as an argument rather than holding
-    # a copy, because it belongs to the run and not to any one method.
-    seed: int
-
-    # How the policy itself is trained, declared in the policy's own config.
     policy: PolicyConfigT
-
-    # None trains on the expert data alone. A policy that takes no augmentation
-    # at all passes None for AugmentationT, which leaves this the only value it
-    # can hold. No type-parameter default here on purpose: not every checker
-    # supports them, and one explicit None reads the same.
-    augmentation: AugmentationT | None = None
+    augmentation: AugmentationT | None
