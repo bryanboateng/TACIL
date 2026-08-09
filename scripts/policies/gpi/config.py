@@ -1,9 +1,3 @@
-"""How the geometric policy is built.
-
-The dataset, the seed and the condition belong to the run, not to the policy.
-See scripts/policies/gpi/run.py.
-"""
-
 from dataclasses import dataclass, field
 
 
@@ -28,7 +22,7 @@ class GuidanceConfig:
 
 @dataclass(frozen=True)
 class Config:
-    noise: ObservationNoiseConfig = field(default_factory=ObservationNoiseConfig)
-    retrieval: RetrievalConfig = field(default_factory=RetrievalConfig)
-    guidance: GuidanceConfig = field(default_factory=GuidanceConfig)
+    observation_noise: ObservationNoiseConfig
+    retrieval: RetrievalConfig
+    guidance: GuidanceConfig
     action_horizon: int = 8

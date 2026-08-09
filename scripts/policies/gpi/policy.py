@@ -39,12 +39,12 @@ class StateGPIPolicy:
         self.rng = np.random.default_rng(seed=seed)
 
         self.recent_set: set[Key] = set()
-        self.current_noise_std: float = config.noise.initial_std
+        self.current_noise_std: float = config.observation_noise.initial_std
         self.reset()
 
     # ----------------------------------------------------------- lifecycle
     def reset(self) -> None:
-        self.current_noise_std = self.config.noise.initial_std
+        self.current_noise_std = self.config.observation_noise.initial_std
         self.plan.clear()
         self.recent_set.clear()
 
@@ -134,8 +134,8 @@ class StateGPIPolicy:
             normalized_observation + noise, -1.0, 1.0
         )  # (observation_dimensionality,)
         self.current_noise_std = max(
-            self.current_noise_std * self.config.noise.decay_rate,
-            self.config.noise.minimum_std,
+            self.current_noise_std * self.config.observation_noise.decay_rate,
+            self.config.observation_noise.minimum_std,
         )
         return noisy
 
