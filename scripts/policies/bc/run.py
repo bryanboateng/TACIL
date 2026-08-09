@@ -13,7 +13,7 @@ from scripts.data.augmentation.ccil.config import CcilConfig
 from scripts.data.augmentation.tacil import augmentation as tacil
 from scripts.data.augmentation.tacil.augmentation import TacilConfig
 from scripts.evaluation.core.condition import Condition
-from scripts.evaluation.evaluate_policy import STAGE_NAME, evaluate_policy
+from scripts.evaluation.evaluate_policy import evaluate_policy
 from scripts.policies.bc import config as bc_config
 from scripts.policies.bc.policy import create_behavior_cloning_policy_factory
 from scripts.policies.bc.train import train_behavior_cloning_policy
