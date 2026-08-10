@@ -52,6 +52,8 @@ def train_diffusion_policy(
         horizon_lengths=config.horizon_lengths,
     )
 
+    run.summary[f"{STAGE_NAME}/training_window_count"] = len(dataset)
+
     noise_prediction_network = ConditionalUnet1d(
         action_dimensionality=expert_episodes.actions.shape[1],
         condition_dimensionality=(
@@ -97,16 +99,13 @@ def train_diffusion_policy(
 
     best_checkpoint: Checkpoint | None = None
 
-    for epoch_number in tqdm(
+    for epoch_index in tqdm(
         iterable=range(config.optimization.epoch_count),
         desc="Epoch",
         unit="epoch",
         dynamic_ncols=True,
         position=0,
     ):
-        run.log(
-            data={f"{STAGE_NAME}/epoch": epoch_number, STEP_METRIC_NAME: global_step}
-        )
         noise_prediction_network.train()
 
         for training_batch in tqdm(
@@ -154,12 +153,7 @@ def train_diffusion_policy(
             )
             global_step += 1
 
-        validation_is_due = (
-            epoch_number + 1
-        ) % config.validation.interval_epoch_count == 0 or (
-            epoch_number + 1
-        ) == config.optimization.epoch_count
-        if not validation_is_due:
+        if (epoch_index + 1) % config.validation.interval_epoch_count != 0:
             continue
 
         # What gets scored are the averaged weights, so they move into the
@@ -194,6 +188,7 @@ def train_diffusion_policy(
             data={
                 f"{STAGE_NAME}/2_validation/reward_mean": validation_reward.mean,
                 f"{STAGE_NAME}/2_validation/reward_std": validation_reward.std,
+                f"{STAGE_NAME}/epoch": epoch_index,
                 STEP_METRIC_NAME: global_step,
             }
         )
@@ -205,7 +200,7 @@ def train_diffusion_policy(
             best_checkpoint = Checkpoint(
                 validation_reward_mean=validation_reward.mean,
                 validation_reward_std=validation_reward.std,
-                epoch=epoch_number,
+                epoch=epoch_index,
                 state_dict=ema_state_dict,
             )
 
@@ -218,6 +213,7 @@ def train_diffusion_policy(
         best_checkpoint.validation_reward_mean,
     )
 
+    run.summary[f"{STAGE_NAME}/completed_step_count"] = global_step
     run.summary[f"{STAGE_NAME}/3_selected/epoch"] = best_checkpoint.epoch
     run.summary[f"{STAGE_NAME}/3_selected/reward_mean"] = (
         best_checkpoint.validation_reward_mean

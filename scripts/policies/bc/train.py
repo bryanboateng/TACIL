@@ -100,10 +100,7 @@ def train_behavior_cloning_policy(
 
             run.log(data={f"{STAGE_NAME}/1_training/loss": loss.item()})
 
-        validation_is_due = (
-            (epoch_index + 1) % config.validation.interval_epoch_count == 0
-        ) or ((epoch_index + 1) == config.optimization.epoch_count)
-        if not validation_is_due:
+        if (epoch_index + 1) % config.validation.interval_epoch_count != 0:
             continue
 
         validation_reward = reward_statistics(

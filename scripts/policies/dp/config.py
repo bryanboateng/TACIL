@@ -44,7 +44,7 @@ class HorizonLengthConfig:
 @dataclass(frozen=True)
 class OptimizationConfig:
     batch_size: int = 256
-    epoch_count: int = 100
+    epoch_count: int = 1_000
     learning_rate: float = 1e-4
     weight_decay: float = 1e-6
     learning_rate_warmup_step_count: int = 500
@@ -53,8 +53,8 @@ class OptimizationConfig:
 
 @dataclass(frozen=True)
 class ValidationConfig:
-    interval_epoch_count: int = 20
-    episode_count: int = 30
+    interval_epoch_count: int = 50
+    episode_count: int = 50
 
 
 @dataclass(frozen=True)
@@ -76,4 +76,15 @@ class Config:
                 f"not divide by {shrink_factor}, the factor by which "
                 f"{len(self.hidden_channel_counts)} hidden levels shrink a "
                 f"sequence."
+            )
+
+        # Validation should cover the final training epoch. Otherwise, if the
+        # validation interval does not divide the epoch count, the final
+        # training epochs are never evaluated.
+        if self.optimization.epoch_count % self.validation.interval_epoch_count != 0:
+            raise ValueError(
+                f"An epoch count of {self.optimization.epoch_count} must be "
+                f"divisible by the validation interval of "
+                f"{self.validation.interval_epoch_count}; otherwise the final "
+                f"training epochs would not be validated."
             )
