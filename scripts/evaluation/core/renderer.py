@@ -15,11 +15,8 @@ from scripts.evaluation.core.disturbance import DisturbanceWrapper
 
 @dataclass(frozen=True)
 class RenderSettings:
-    # Defaults for full-quality video recording. The live preview overrides these with a
-    # smaller render size and no supersampling, since smoothscaling the supersampled canvas
-    # dominates the per-frame cost.
-    size: int = 1_000
-    supersample_factor: int = 2
+    size: int
+    supersample_factor: int
 
 
 class RecoloredRenderWrapper(gymnasium.Wrapper):

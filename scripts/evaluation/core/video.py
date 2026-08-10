@@ -129,7 +129,7 @@ def record_condition(
     stage_name: str,
     run: Run,
 ) -> None:
-    render_settings = RenderSettings()
+    render_settings = RenderSettings(size=1_000, supersample_factor=2)
     environment = create_environment(
         condition=condition, render_settings=render_settings
     )
