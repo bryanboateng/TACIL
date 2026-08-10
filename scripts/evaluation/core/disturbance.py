@@ -60,6 +60,9 @@ class DisturbanceWrapper(gymnasium.Wrapper):
         )
 
 
+# ---- Private --------------------------------------------
+
+
 def _calculate_push_direction(*, environment: PushTEnv) -> Vec2d:
     block_position: Vec2d = environment.block.local_to_world(
         v=environment.block.center_of_gravity

@@ -9,7 +9,6 @@ import tyro
 import wandb
 from numpy import typing as npt
 
-from scripts.shared.f import read_episode_store
 from scripts.evaluation.core.condition import (
     Condition,
     DisturbanceLevel,
@@ -17,17 +16,14 @@ from scripts.evaluation.core.condition import (
 )
 from scripts.evaluation.core.renderer import RenderSettings
 from scripts.evaluation.core.rollout import create_environment, roll_out_episodes
-from scripts.evaluation.core.video import FREEZE_SECONDS, build_annotated_surfaces
+from scripts.evaluation.core.video import FREEZE_SECONDS, render_episode_surfaces
 from scripts.policies.gpi import config as gpi
 from scripts.policies.gpi.policy import load_geometric_policy
+from scripts.shared.f import read_episode_store
 from scripts.shared.log import create_logger, log_device_info
 from scripts.shared.policy_types import Policy, PolicyFactory
 
-FPS = 30
-# The live preview renders small and without supersampling: smoothscaling the
-# supersampled canvas is the dominant per-frame cost, and the on-screen window does not
-# need the recording's resolution. Recorded videos keep the renderer's full-quality
-# defaults.
+FPS = 10
 RENDER_SIZE = 600
 
 
@@ -51,8 +47,8 @@ def _build_gpi_policy_factory() -> PolicyFactory:
 
 
 def _build_avoidance_policy_factory() -> PolicyFactory:
-    def factory(*, seeds: list[int]) -> Policy:
-        del seeds
+    def factory(*, episode_seeds: list[int]) -> Policy:
+        del episode_seeds
 
         def policy(
             *, observations: dict[int, npt.NDArray[np.float32]]
@@ -104,13 +100,13 @@ def main(use_gpi_policy: bool = False) -> None:
             (episode_record,) = roll_out_episodes(
                 environments=[environment],
                 seeds=[seed],
-                policy=policy_factory(seeds=[seed]),
+                policy=policy_factory(episode_seeds=[seed]),
                 render=True,
             )
         finally:
             environment.close()
 
-        surfaces = build_annotated_surfaces(
+        surfaces = render_episode_surfaces(
             episode_record=episode_record,
             condition=condition,
             policy_label="dp (DDIM)   diffusion-policy-eternal-sweep-6:v0",
