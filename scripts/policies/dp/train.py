@@ -64,12 +64,16 @@ def train_diffusion_policy(
 
     noise_prediction_network_ema = EMAModel(
         parameters=noise_prediction_network.parameters(),
+        use_ema_warmup=True,
+        inv_gamma=1.0,
         power=config.optimization.ema_power,
     )
 
     optimizer = torch.optim.AdamW(
         params=noise_prediction_network.parameters(),
         lr=config.optimization.learning_rate,
+        # The reference uses 0.95 for the first moment, not Adam's usual 0.9.
+        betas=(0.95, 0.999),
         weight_decay=config.optimization.weight_decay,
     )
 
