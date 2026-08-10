@@ -32,10 +32,6 @@ from scripts.shared.policy_types import Policy, PolicyFactory
 logger = create_logger()
 
 
-# Every key this stage logs starts with it, so a stage run and a pipeline run
-# report the same numbers under the same names. wandb groups panels by the part
-# before the first slash, so the stage joins the group with a hyphen rather than
-# a slash of its own. The sweep optimizes a key built from it, in create_sweep.
 STAGE_NAME = "4_evaluation"
 
 
@@ -59,7 +55,6 @@ def evaluate_policy(
         policy_label=policy_label,
         condition=condition,
         episode_records=pick_representative_episodes(episode_records=episode_records),
-        stage_name=STAGE_NAME,
         run=run,
     )
 
@@ -82,7 +77,6 @@ def _log_video(
     policy_label: str,
     condition: Condition,
     episode_records: dict[int, EpisodeRecord],
-    stage_name: str,
     run: Run,
 ) -> None:
     fps = 60
@@ -96,9 +90,9 @@ def _log_video(
             video_writer = imageio.get_writer(
                 uri=video_path,
                 fps=fps,
-                codec="libx264",
+                codec="libsvtav1",
                 macro_block_size=1,
-                ffmpeg_params=["-preset", "veryfast", "-crf", "20"],
+                ffmpeg_params=["-preset", "8", "-crf", "35"],
             )
             try:
                 _write_episode_frames(
@@ -114,7 +108,7 @@ def _log_video(
 
             run.log(
                 data={
-                    f"{stage_name}/{condition.label}/video": wandb.Video(
+                    f"{STAGE_NAME}/{condition.label}/video": wandb.Video(
                         data_or_path=str(video_path), format="mp4"
                     )
                 }
@@ -137,7 +131,7 @@ def _write_episode_frames(
         desc="Recording",
         unit="episode",
     ):
-        replayed_record = _replay(
+        replayed_record = _replay_episode_with_rendering(
             episode_record=episode_record, environment=environment
         )
 
@@ -157,7 +151,13 @@ def _write_episode_frames(
                 video_writer.append_data(frame)
 
 
-def _replay(*, episode_record: EpisodeRecord, environment: Env) -> EpisodeRecord:
+def _convert_surface_to_frame(*, surface: Surface) -> np.ndarray:
+    return np.transpose(a=pygame.surfarray.array3d(surface=surface), axes=(1, 0, 2))
+
+
+def _replay_episode_with_rendering(
+    *, episode_record: EpisodeRecord, environment: Env
+) -> EpisodeRecord:
     (replayed_record,) = roll_out_episodes(
         environments=[environment],
         seeds=[episode_record.seed],
@@ -166,27 +166,17 @@ def _replay(*, episode_record: EpisodeRecord, environment: Env) -> EpisodeRecord
     )
 
     if not np.array_equal(
-        replayed_record.final_observation, episode_record.final_observation
+        a1=replayed_record.final_observation, a2=episode_record.final_observation
     ):
         raise RuntimeError(
             f"Replaying episode {episode_record.seed} did not reproduce it: "
-            f"it ended at {replayed_record.final_observation}, "
-            f"not {episode_record.final_observation}."
+            f"it ended at {np.array2string(a=replayed_record.final_observation)}, "
+            f"not {np.array2string(a=episode_record.final_observation)}."
         )
     return replayed_record
 
 
-def _convert_surface_to_frame(*, surface: Surface) -> np.ndarray:
-    return np.transpose(a=pygame.surfarray.array3d(surface=surface), axes=(1, 0, 2))
-
-
 def _create_replay_policy(*, action_sequences: list[list[np.ndarray]]) -> Policy:
-    """A policy that repeats recorded action sequences, ignoring what it sees.
-
-    The simulator is deterministic, so replaying an episode's actions from its
-    seed reproduces it exactly — including the arithmetic of the batch it was
-    originally rolled out in, which the policy itself would not reproduce.
-    """
     step_indices = [0] * len(action_sequences)
 
     def policy(*, observations: dict[int, np.ndarray]) -> dict[int, np.ndarray]:
