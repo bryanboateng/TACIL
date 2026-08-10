@@ -1,4 +1,4 @@
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 
 @dataclass(frozen=True)
@@ -9,20 +9,8 @@ class ObservationNoiseConfig:
 
 
 @dataclass(frozen=True)
-class RetrievalConfig:
-    subset_size: int | None = None
-
-
-@dataclass(frozen=True)
-class GuidanceConfig:
-    # λ₁ is always static in the current algorithm; λ₂ supports a dynamic path.
-    lambda1: float = 1.0
-    fixed_lambda2: float | None = None
-
-
-@dataclass(frozen=True)
 class Config:
     observation_noise: ObservationNoiseConfig
-    retrieval: RetrievalConfig
-    guidance: GuidanceConfig
-    action_horizon: int = 8
+    plan_length: int = 8
+    progression_weight: float = 1.0
+    attraction_weight: float = 1.0

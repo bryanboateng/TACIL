@@ -2,12 +2,11 @@ import itertools
 import random
 from pathlib import Path
 
-import numpy as np
 import pygame
 import torch
 import tyro
 import wandb
-from numpy import typing as npt
+from rich.pretty import pretty_repr
 
 from scripts.evaluation.core.condition import (
     Condition,
@@ -18,10 +17,10 @@ from scripts.evaluation.core.renderer import RenderSettings
 from scripts.evaluation.core.rollout import create_environment, roll_out_episodes
 from scripts.evaluation.core.video import FREEZE_SECONDS, render_episode_surfaces
 from scripts.policies.gpi import config as gpi
-from scripts.policies.gpi.policy import load_geometric_policy
+from scripts.policies.gpi.policy import create_geometric_policy_factory
 from scripts.shared.f import read_episode_store
 from scripts.shared.log import create_logger, log_device_info
-from scripts.shared.policy_types import Policy, PolicyFactory
+from scripts.shared.policy_types import PolicyFactory
 
 FPS = 10
 RENDER_SIZE = 600
@@ -30,57 +29,18 @@ RENDER_SIZE = 600
 logger = create_logger()
 
 
-def _build_gpi_policy_factory() -> PolicyFactory:
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    log_device_info(device=device, logger=logger)
-
-    dataset_artifact = "abc/expert-dataset:latest"
-    return load_geometric_policy(
-        episode_store=read_episode_store(
-            episode_file_path=(
-                Path(wandb.Api().artifact(name=dataset_artifact).download())
-            )
-        ),
-        config=gpi.Config(),
-        device=device,
-    )
+def main() -> None:
+    config = tyro.cli(f=gpi.Config)
+    logger.info(pretty_repr(config))
+    _run(config=config)
 
 
-def _build_avoidance_policy_factory() -> PolicyFactory:
-    def factory(*, episode_seeds: list[int]) -> Policy:
-        del episode_seeds
-
-        def policy(
-            *, observations: dict[int, npt.NDArray[np.float32]]
-        ) -> dict[int, npt.NDArray[np.float32]]:
-            actions = {}
-            for episode_index, observation in observations.items():
-                agent_position = observation[:2]
-                block_position = observation[2:4]
-                away_vector = agent_position - block_position
-                distance = float(np.linalg.norm(away_vector))
-                away_direction = (
-                    away_vector / distance if distance > 1e-6 else np.array([1.0, 0.0])
-                )
-                target = block_position + away_direction * 150.0
-                actions[episode_index] = target.astype(np.float32)
-            return actions
-
-        return policy
-
-    return factory
-
-
-def main(use_gpi_policy: bool = False) -> None:
+def _run(*, config: gpi.Config) -> None:
     pygame.init()
     screen = pygame.display.set_mode(size=(RENDER_SIZE, RENDER_SIZE))
     clock = pygame.time.Clock()
 
-    policy_factory = (
-        _build_gpi_policy_factory()
-        if use_gpi_policy
-        else _build_avoidance_policy_factory()
-    )
+    policy_factory = _create_policy_factory(config=config)
 
     conditions = [
         Condition(floor_condition=floor_condition, disturbance_level=disturbance_level)
@@ -122,6 +82,22 @@ def main(use_gpi_policy: bool = False) -> None:
             screen.blit(surface, (0, 0))
             pygame.display.flip()
             clock.tick(FPS)
+
+
+def _create_policy_factory(config: gpi.Config) -> PolicyFactory:
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    log_device_info(device=device, logger=logger)
+
+    dataset_artifact = "abc/expert-dataset:latest"
+    return create_geometric_policy_factory(
+        episode_store=read_episode_store(
+            episode_file_path=(
+                Path(wandb.Api().artifact(name=dataset_artifact).download())
+            )
+        ),
+        config=config,
+        device=device,
+    )
 
 
 def _quit_requested() -> bool:

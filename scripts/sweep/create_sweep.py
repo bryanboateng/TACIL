@@ -128,12 +128,17 @@ METHOD_PARAMETERS: dict[MethodLabel, dict[str, Any]] = {
     },
     "ccil-bc-euler": _CCIL_SHARED_PARAMETERS,
     "gpi": {
-        "policy.guidance.lambda1": {
+        "policy.progression_weight": {
             "distribution": "log_uniform_values",
             "min": 0.1,
             "max": 10.0,
         },
-        "policy.action_horizon": {"distribution": "int_uniform", "min": 1, "max": 16},
+        "policy.attraction_weight": {
+            "distribution": "log_uniform_values",
+            "min": 0.1,
+            "max": 10.0,
+        },
+        "policy.plan_length": {"distribution": "int_uniform", "min": 1, "max": 16},
     },
 }
 

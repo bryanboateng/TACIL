@@ -35,7 +35,7 @@ from scripts.data.augmentation.tacil.models.dynamics_model_ensemble import (  # 
 from scripts.shared.f import EpisodeStore  # noqa: E402
 from scripts.shared.log import create_logger  # noqa: E402
 from scripts.shared.pusht_state import (  # noqa: E402
-    ANGLE_INDEX,
+    BLOCK_ANGLE_INDEX,
     ARENA_SIZE,
     STATE_GROUPS,
     state_differences,
@@ -817,12 +817,12 @@ def _replay_panel(
     # counting instead of falling off the axis.
     steps = np.arange(true_trajectory.shape[0])
     recorded_rotation = _rotation_since_start(
-        angle_series=true_trajectory[:, ANGLE_INDEX]
+        angle_series=true_trajectory[:, BLOCK_ANGLE_INDEX]
     )
     for member_trajectory in member_trajectories:
         angle_axes.plot(
             steps,
-            _rotation_since_start(angle_series=member_trajectory[:, ANGLE_INDEX]),
+            _rotation_since_start(angle_series=member_trajectory[:, BLOCK_ANGLE_INDEX]),
             linewidth=0.6,
             alpha=0.35,
             color=_FORWARD_COLOR,

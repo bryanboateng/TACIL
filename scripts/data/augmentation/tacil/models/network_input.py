@@ -21,7 +21,7 @@ import torch
 from scripts.data.augmentation.tacil.models.normalizers import Normalizers
 from scripts.shared.pusht_state import (
     AGENT_POSITION_SLICE,
-    ANGLE_INDEX,
+    BLOCK_ANGLE_INDEX,
     BLOCK_POSITION_SLICE,
 )
 
@@ -71,7 +71,7 @@ def network_input(
     network, whether the angle reads 0.3 or 0.3 + 2π, and the circle stays a
     circle.
     """
-    angle_batch = state_batch[:, ANGLE_INDEX : ANGLE_INDEX + 1]
+    angle_batch = state_batch[:, BLOCK_ANGLE_INDEX : BLOCK_ANGLE_INDEX + 1]
     return torch.cat(
         tensors=[
             normalizers.network_feature_normalizer.normalize(

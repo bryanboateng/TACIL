@@ -1,6 +1,3 @@
-"""Pipeline for one sweep trial: GPI (geometric policy) — no training, just
-evaluation of the retrieval policy under the condition."""
-
 from dataclasses import asdict
 from typing import TypeAlias
 
@@ -10,23 +7,21 @@ import wandb
 from rich.pretty import pretty_repr
 
 from scripts.evaluation.core.condition import Condition
-from scripts.evaluation.evaluate_policy import STAGE_NAME, evaluate_policy
+from scripts.evaluation.evaluate_policy import evaluate_policy
 from scripts.policies.gpi import config as gpi_config
-from scripts.policies.gpi.policy import load_geometric_policy
+from scripts.policies.gpi.policy import create_geometric_policy_factory
 from scripts.policies.shared.run_config import RunConfig
 from scripts.shared.f import download_episode_store
 from scripts.shared.log import create_logger, log_device_info
 from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
-from scripts.shared.seeding import set_seed
 
 logger = create_logger()
-
 
 Config: TypeAlias = RunConfig[gpi_config.Config, None]
 
 
 def main() -> None:
-    config = tyro.cli(f=Config, config=[tyro.conf.UsePythonSyntaxForLiteralCollections])
+    config = tyro.cli(f=Config)
     logger.info(pretty_repr(config))
     _run(config=config)
 
@@ -49,23 +44,20 @@ def _run(*, config: Config) -> None:
         if run_name is None:
             raise RuntimeError("wandb run name unexpectedly None")
 
-        episode_store = download_episode_store(
+        expert_episodes = download_episode_store(
             artifact_name=config.expert_dataset_artifact, run=run
         )
 
-        set_seed(seed=config.seed)
-        logger.info("Evaluating the geometric policy.")
+        logger.info("Stage 1/1: evaluating the geometric policy.")
         evaluate_policy(
-            policy_factory=load_geometric_policy(
-                episode_store=episode_store, config=config.policy, device=device
+            policy_factory=create_geometric_policy_factory(
+                episode_store=expert_episodes, config=config.policy, device=device
             ),
             policy_label=f"gpi ({run_name})",
             condition=condition,
             run=run,
         )
-
-        reward_key = f"{STAGE_NAME}/{condition.label}/reward_mean"
-        logger.info("Trial finished: %s = %s", reward_key, run.summary[reward_key])
+        logger.info("Stage 1/1: done.")
 
 
 if __name__ == "__main__":

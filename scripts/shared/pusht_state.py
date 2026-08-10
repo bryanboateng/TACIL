@@ -39,13 +39,13 @@ import torch
 AGENT_POSITION_SLICE = slice(0, 2)
 BLOCK_POSITION_SLICE = slice(2, 4)
 POSITION_SLICE = slice(0, 4)
-ANGLE_INDEX = 4
+BLOCK_ANGLE_INDEX = 4
 
 # The parts a state error is broken down into.
 STATE_GROUPS = (
     ("agent", AGENT_POSITION_SLICE),
     ("block", BLOCK_POSITION_SLICE),
-    ("angle", slice(ANGLE_INDEX, ANGLE_INDEX + 1)),
+    ("angle", slice(BLOCK_ANGLE_INDEX, BLOCK_ANGLE_INDEX + 1)),
 )
 
 # The quadratic arena (gym_pusht window size, pixels).
@@ -76,8 +76,8 @@ def state_differences(
     is why no stage needs a continuous stand-in for the angle.
     """
     difference_batch = state_batch - other_state_batch
-    difference_batch[..., ANGLE_INDEX] = shortest_angle_differences(
-        angle_batch=difference_batch[..., ANGLE_INDEX]
+    difference_batch[..., BLOCK_ANGLE_INDEX] = shortest_angle_differences(
+        angle_batch=difference_batch[..., BLOCK_ANGLE_INDEX]
     )
     return difference_batch
 
@@ -92,8 +92,8 @@ def advance_states(
     # Not ``%=``: vmap has no batching rule for the in-place remainder and
     # falls back to a loop, which costs 6x here. This runs inside every
     # Jacobian.
-    advanced_state_batch[..., ANGLE_INDEX] = (
-        advanced_state_batch[..., ANGLE_INDEX] % FULL_TURN
+    advanced_state_batch[..., BLOCK_ANGLE_INDEX] = (
+        advanced_state_batch[..., BLOCK_ANGLE_INDEX] % FULL_TURN
     )
     return advanced_state_batch
 
@@ -111,8 +111,8 @@ def average_states(
     orientation they actually surround.
     """
     average_batch = state_batch.mean(dim=dim)
-    angle_batch = state_batch[..., ANGLE_INDEX]
-    average_batch[..., ANGLE_INDEX] = (
+    angle_batch = state_batch[..., BLOCK_ANGLE_INDEX]
+    average_batch[..., BLOCK_ANGLE_INDEX] = (
         torch.atan2(
             input=torch.sin(input=angle_batch).mean(dim=dim),
             other=torch.cos(input=angle_batch).mean(dim=dim),

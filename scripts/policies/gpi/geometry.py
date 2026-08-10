@@ -1,84 +1,89 @@
-"""GPI's geometry, which reads the state as a PushT state.
-
-The method needs more than a width: it needs one rigid object with a pose and
-actions that are agent target positions in the object's plane. The layout comes
-from scripts/shared/pusht_state.py so this dependency shows up in the import
-graph rather than hiding in slice literals.
-
-Two coordinate systems meet here, so each function names the one it works in:
-
-- se2_to_relative_action and relative_action_to_global take raw states and raw
-  actions, in the environment's pixels;
-- distance takes min-max normalized states, because the database indexes the
-  normalized demonstrations.
-"""
-
 import torch
 
-from scripts.shared.pusht_state import ANGLE_INDEX, BLOCK_POSITION_SLICE, POSITION_SLICE
+from scripts.shared.pusht_state import (
+    BLOCK_ANGLE_INDEX,
+    BLOCK_POSITION_SLICE,
+    POSITION_SLICE,
+)
 
 
-def se2_to_relative_action(
+def convert_actions_to_block_frame(
     *,
-    states: torch.Tensor,  # (N, state_dimensionality), raw
-    actions: torch.Tensor,  # (N, action_dimensionality), raw agent target
-) -> torch.Tensor:  # (N, action_dimensionality) in the object's local SE(2) frame
-    """Convert global agent targets into the object's local SE(2) frame."""
-    object_position = states[:, BLOCK_POSITION_SLICE]  # (N, 2)
-    object_angle = states[:, ANGLE_INDEX]  # (N,)
-    cosine = torch.cos(input=object_angle)  # (N,)
-    sine = torch.sin(input=object_angle)  # (N,)
-    rotation = torch.stack(
-        tensors=[
-            torch.stack(tensors=[cosine, -sine], dim=-1),
-            torch.stack(tensors=[sine, cosine], dim=-1),
-        ],
-        dim=-1,
-    )  # (N, 2, 2)
-    translated = actions - object_position  # (N, 2)
-    return torch.bmm(input=rotation, mat2=translated.unsqueeze(dim=-1)).squeeze(
-        dim=-1
-    )  # (N, 2)
+    observation_batch: torch.Tensor,  # (batch_size, state_dimensionality)
+    action_batch: torch.Tensor,  # (batch_size, 2)
+) -> torch.Tensor:  # (batch_size, 2)
+    block_position_batch = observation_batch[:, BLOCK_POSITION_SLICE]  # (batch_size, 2)
+    block_angle_batch = observation_batch[:, BLOCK_ANGLE_INDEX]  # (batch_size,)
 
-
-def relative_action_to_global(
-    *,
-    observation: torch.Tensor,  # (batch_size, state_dimensionality), raw
-    action: torch.Tensor,  # (batch_size, action_dimensionality) in the object's frame
-) -> torch.Tensor:  # (batch_size, action_dimensionality), raw world coordinates
-    """Inverse of ``se2_to_relative_action``: object-centric -> world coords."""
-    object_position = observation[:, BLOCK_POSITION_SLICE]  # (batch_size, 2)
-    object_angle = observation[:, ANGLE_INDEX]  # (batch_size,)
-    cosine = torch.cos(input=object_angle)  # (batch_size,)
-    sine = torch.sin(input=object_angle)  # (batch_size,)
-    inverse_rotation = torch.stack(
-        tensors=[
-            torch.stack(tensors=[cosine, sine], dim=-1),
-            torch.stack(tensors=[-sine, cosine], dim=-1),
-        ],
-        dim=-1,
-    )  # (batch_size, 2, 2)
-    rotated = torch.bmm(input=inverse_rotation, mat2=action.unsqueeze(dim=-1)).squeeze(
-        dim=-1
+    return _rotate(
+        vector_batch=action_batch - block_position_batch, angle_batch=-block_angle_batch
     )  # (batch_size, 2)
-    return rotated + object_position  # (batch_size, 2)
 
 
-def distance(
+def convert_actions_to_world_frame(
     *,
-    states: torch.Tensor,  # (N, state_dimensionality), min-max normalized
-    query: torch.Tensor,  # (1, state_dimensionality), min-max normalized
-) -> torch.Tensor:  # (N,)
-    """Euclidean distance over the positions plus the wrapped angle.
+    observation_batch: torch.Tensor,  # (batch_size, observation_dimensionality)
+    action_batch: torch.Tensor,  # (batch_size, 2)
+) -> torch.Tensor:  # (batch_size, 2)
+    block_position_batch = observation_batch[:, BLOCK_POSITION_SLICE]  # (batch_size, 2)
+    block_angle_batch = observation_batch[:, BLOCK_ANGLE_INDEX]  # (batch_size,)
 
-    The angle wraps at 2.0, not at 2π, because the states arrive min-max
-    normalized into [-1, 1]. That treats the recorded angle range as one full
-    turn, which is exact only when the demonstrations cover the whole circle.
-    Left as it is: this is the baseline's own distance, not TaCIL's ⊟.
-    """
-    position_difference = states[:, POSITION_SLICE] - query[:, POSITION_SLICE]  # (N, 4)
-    position_distance_squared = torch.sum(input=position_difference**2, dim=1)  # (N,)
-    angle_difference = states[:, ANGLE_INDEX] - query[:, ANGLE_INDEX]  # (N,)
-    absolute_angle = torch.abs(input=angle_difference)  # (N,)
-    wrapped_angle = torch.min(input=absolute_angle, other=2.0 - absolute_angle)  # (N,)
-    return torch.sqrt(input=position_distance_squared + wrapped_angle**2)  # (N,)
+    rotated_action_batch = _rotate(
+        vector_batch=action_batch, angle_batch=block_angle_batch
+    )  # (batch_size, 2)
+
+    return rotated_action_batch + block_position_batch  # (batch_size, 2)
+
+
+def calculate_observation_distances(
+    *,
+    observation_batch: torch.Tensor,  # (batch_size, state_dimensionality)
+    query_observation: torch.Tensor,  # (state_dimensionality,)
+) -> torch.Tensor:  # (batch_size,)
+    """Euclidean distance over the four positions plus the wrapped angle."""
+    position_difference_batch = (
+        observation_batch[:, POSITION_SLICE] - query_observation[POSITION_SLICE]
+    )  # (step_count, 4)
+
+    angle_difference_batch = (
+        observation_batch[:, BLOCK_ANGLE_INDEX] - query_observation[BLOCK_ANGLE_INDEX]
+    ).abs()  # (step_count,)
+    # The angle wraps at 2.0, not at 2π, because the states arrive min-max
+    # normalized into [-1, 1].
+    wrapped_angle_difference_batch = torch.minimum(
+        input=angle_difference_batch, other=2.0 - angle_difference_batch
+    )  # (step_count,)
+
+    return torch.sqrt(
+        input=(position_difference_batch**2).sum(dim=1)
+        + wrapped_angle_difference_batch**2
+    )  # (step_count,)
+
+
+# ---- Private --------------------------------------------
+
+
+def _rotate(
+    *,
+    vector_batch: torch.Tensor,  # (batch_size, 2)
+    angle_batch: torch.Tensor,  # (batch_size,)
+) -> torch.Tensor:  # (batch_size, 2)
+    return torch.matmul(
+        input=_create_rotations(angle_batch=angle_batch),
+        other=vector_batch.unsqueeze(dim=-1),
+    ).squeeze(dim=-1)
+
+
+def _create_rotations(
+    *,
+    angle_batch: torch.Tensor,  # (batch_size,)
+) -> torch.Tensor:  # (batch_size, 2, 2)
+    cosine_batch = torch.cos(input=angle_batch)  # (batch_size,)
+    sine_batch = torch.sin(input=angle_batch)  # (batch_size,)
+    return torch.stack(
+        tensors=[
+            torch.stack(tensors=[cosine_batch, -sine_batch], dim=-1),
+            torch.stack(tensors=[sine_batch, cosine_batch], dim=-1),
+        ],
+        dim=-2,
+    )  # (batch_size, 2, 2)
