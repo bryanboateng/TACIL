@@ -56,6 +56,16 @@ class Dataset(torch.utils.data.Dataset[tuple[torch.Tensor, torch.Tensor]]):
         if augmented_episodes is None:
             self._windows = expert_windows
         else:
+            episode_lengths = np.diff(
+                a=augmented_episodes.episode_end_indices, prepend=0
+            )  # (episode_count,)
+            longest_episode_length = int(episode_lengths.max())
+            if longest_episode_length < horizon_lengths.prediction:
+                raise ValueError(
+                    f"None of the {len(episode_lengths)} augmented episodes is long enough "
+                    f"for one window: the longest is {longest_episode_length} timesteps, "
+                    f"the prediction horizon is {horizon_lengths.prediction}."
+                )
             augmented_windows = _create_windows(
                 episodes=augmented_episodes,
                 normalizers=normalizers,
@@ -64,17 +74,6 @@ class Dataset(torch.utils.data.Dataset[tuple[torch.Tensor, torch.Tensor]]):
                 lead_in_length=0,
                 run_out_length=0,
             )
-            if len(augmented_windows.actions) == 0:
-                episode_lengths = np.diff(
-                    augmented_episodes.episode_end_indices, prepend=0
-                )  # (episode_count,)
-                raise ValueError(
-                    f"None of the {len(episode_lengths)} augmented episodes is long enough "
-                    f"for one window: the longest is {int(episode_lengths.max())} timesteps, "
-                    f"the prediction horizon is {horizon_lengths.prediction}. Training would silently use "
-                    f"the expert data alone. This augmentation was laid out for a policy that "
-                    f"trains on single (state, action) pairs."
-                )
             self._windows = _Windows(
                 observations=torch.cat(
                     [expert_windows.observations, augmented_windows.observations]
