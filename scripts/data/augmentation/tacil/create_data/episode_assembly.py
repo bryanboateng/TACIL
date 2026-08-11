@@ -48,8 +48,11 @@ def create_augmented_episodes(
     augmented_episode_store = _assemble_episodes(
         expert_states=episode_store.states,
         expert_actions=episode_store.actions,
-        synthetic_state_trajectory_batch=backward_trajectories.predecessor_states_batch.cpu().numpy(),
-        synthetic_action_trajectory_batch=backward_trajectories.predecessor_actions_batch.cpu().numpy(),
+        synthetic_states=backward_trajectories.predecessor_states.cpu().numpy(),
+        synthetic_actions=backward_trajectories.predecessor_actions.cpu().numpy(),
+        synthetic_part_start_index_batch=(
+            backward_trajectories.start_index_batch.cpu().numpy()
+        ),
         synthetic_part_length_batch=synthetic_part_lengths,
         anchor_index_batch=np.asarray(anchor_indices, dtype=np.int64),
         expert_part_length=expert_part_length,
@@ -72,12 +75,13 @@ def _assemble_episodes(
     expert_actions: npt.NDArray[
         np.float32
     ],  # (total_transition_count, action_dimensionality)
-    synthetic_state_trajectory_batch: npt.NDArray[
+    synthetic_states: npt.NDArray[
         np.float32
-    ],  # (anchor_count, step_count, state_dimensionality)
-    synthetic_action_trajectory_batch: npt.NDArray[
+    ],  # (total_step_count, state_dimensionality)
+    synthetic_actions: npt.NDArray[
         np.float32
-    ],  # (anchor_count, step_count, action_dimensionality)
+    ],  # (total_step_count, action_dimensionality)
+    synthetic_part_start_index_batch: npt.NDArray[np.int64],  # (anchor_count,)
     synthetic_part_length_batch: npt.NDArray[np.int64],  # (anchor_count,)
     anchor_index_batch: npt.NDArray[np.int64],  # (anchor_count,)
     expert_part_length: int,
@@ -88,23 +92,22 @@ def _assemble_episodes(
     action_trajectories_per_episode: list[np.ndarray] = []
     episode_lengths: list[int] = []
 
-    for (
-        synthetic_part_length,
-        anchor_index,
-        synthetic_state_trajectory,
-        synthetic_action_trajectory,
-    ) in zip(
+    for synthetic_part_length, synthetic_part_start_index, anchor_index in zip(
         synthetic_part_length_batch[accepted_anchor_mask],
+        synthetic_part_start_index_batch[accepted_anchor_mask],
         anchor_index_batch[accepted_anchor_mask],
-        synthetic_state_trajectory_batch[accepted_anchor_mask],
-        synthetic_action_trajectory_batch[accepted_anchor_mask],
     ):
+        synthetic_part_slice = slice(
+            synthetic_part_start_index,
+            synthetic_part_start_index + synthetic_part_length,
+        )
+
         # Synthetic prefix in temporal order = predecessors reversed.
-        time_ascending_synthetic_state_trajectory = synthetic_state_trajectory[
-            :synthetic_part_length
+        time_ascending_synthetic_state_trajectory = synthetic_states[
+            synthetic_part_slice
         ][::-1]  # (synthetic_part_length, state_dimensionality)
-        time_ascending_synthetic_action_trajectory = synthetic_action_trajectory[
-            :synthetic_part_length
+        time_ascending_synthetic_action_trajectory = synthetic_actions[
+            synthetic_part_slice
         ][::-1]  # (synthetic_part_length, action_dimensionality)
 
         expert_part_slice = slice(anchor_index, anchor_index + expert_part_length)
