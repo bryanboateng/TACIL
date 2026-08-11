@@ -52,8 +52,7 @@ class DynamicsModelEnsemble(torch.nn.Module):
         return average_states(
             state_batch=self.predict_next_state_per_member(
                 state_batch=state_batch, action_batch=action_batch
-            ),
-            dim=0,
+            )
         )
 
     def predict_next_state_per_member(
@@ -94,7 +93,7 @@ class DynamicsModelEnsemble(torch.nn.Module):
         # members agreeing across the 0 / 2π seam would average to the opposite
         # orientation and look like maximal disagreement.
         average_next_state_batch = average_states(
-            state_batch=per_member_next_state_batch, dim=0
+            state_batch=per_member_next_state_batch
         )  # (batch_size, state_dimensionality)
 
         deviation_batch = self.normalizers.scale_to_state_spread_units(
