@@ -2,8 +2,6 @@ from dataclasses import dataclass
 
 import matplotlib
 import numpy as np
-import scipy.interpolate
-import scipy.ndimage
 import scipy.stats
 import torch
 import wandb
@@ -14,6 +12,7 @@ from wandb import Run
 matplotlib.use(backend="Agg")
 from matplotlib import patches  # noqa: E402
 from matplotlib import pyplot as plt  # noqa: E402
+from matplotlib.legend_handler import HandlerTuple  # noqa: E402
 
 plt.style.use(style="seaborn-v0_8-whitegrid")
 plt.rcParams["figure.dpi"] = 150
@@ -504,9 +503,21 @@ def _finite_pairs(
 # ---- Private: panels ------------------------------------
 
 
-# One fixed color per chain direction, reused across all panels.
-_FORWARD_COLOR = "#1f77b4"
-_BACKWARD_COLOR = "#d62728"
+# One fixed color per chain direction, reused across all panels. Categorical
+# slots 1 and 2: a direction is an identity, not a value and not a status, so
+# neither may be red — red is reserved for "something is wrong". Validated as a
+# pair against the surface below (worst CVD dE 24.7, normal-vision dE 33.6).
+_FORWARD_COLOR = "#2a78d6"
+_BACKWARD_COLOR = "#eb6834"
+
+_SURFACE_COLOR = "#fcfcfb"
+# Ink, never a series color: identity comes from the mark beside the text.
+_TEXT_COLOR = "#0b0b0b"
+_MUTED_TEXT_COLOR = "#52514e"
+_GRID_COLOR = "#e3e3e0"
+
+# The band is a wash, not a block. The data is the only loud thing here.
+_BAND_OPACITY = 0.10
 
 
 def _error_over_depth_panel(
@@ -519,86 +530,114 @@ def _error_over_depth_panel(
     ],  # (chain_count, depth_count), NaN allowed
 ) -> wandb.Image:
     """Backward steps run to the left of 0, forward steps to the right.
-    Line = median, band = 10th–90th percentile."""
+    Line = median, band = 10th-90th percentile."""
     figure, axes = plt.subplots(figsize=(9, 4.5))
+    figure.patch.set_facecolor(_SURFACE_COLOR)
+    axes.set_facecolor(_SURFACE_COLOR)
 
-    # One shared error grid (log-spaced) for both directions' densities.
-    finite_errors = np.concatenate(
-        [
-            forward_true_errors_per_depth[np.isfinite(forward_true_errors_per_depth)],
-            backward_true_errors_per_depth[np.isfinite(backward_true_errors_per_depth)],
-        ]
-    )
-    log_error_grid = np.linspace(
-        np.log10(finite_errors.min()), np.log10(finite_errors.max()), 150
-    )
-
-    for true_errors_per_depth, direction_sign, color in (
-        (backward_true_errors_per_depth, -1, _BACKWARD_COLOR),
-        (forward_true_errors_per_depth, +1, _FORWARD_COLOR),
+    for true_errors_per_depth, direction_sign, color, label_alignment in (
+        (backward_true_errors_per_depth, -1, _BACKWARD_COLOR, "left"),
+        (forward_true_errors_per_depth, +1, _FORWARD_COLOR, "right"),
     ):
         depth_count = true_errors_per_depth.shape[1]
         step_positions = direction_sign * np.arange(1, depth_count + 1)
 
-        # Continuous density per depth: a kernel density estimate over the
-        # log errors, rendered as a transparent-to-color image.
-        density_columns = np.zeros((log_error_grid.size, depth_count))
-        for depth_index in range(depth_count):
-            depth_errors = true_errors_per_depth[:, depth_index]
-            depth_errors = depth_errors[np.isfinite(depth_errors)]
-            if depth_errors.size >= 5:
-                density = scipy.stats.gaussian_kde(np.log10(depth_errors))(
-                    log_error_grid
-                )
-                density_columns[:, depth_index] = density / density.max()
-
-        ascending_order = np.argsort(step_positions)
-        sorted_positions = step_positions[ascending_order]
-
-        # Upsample between the integer depths and smooth slightly, so the
-        # density reads as one continuous cloud — no seams at the columns.
-        fine_positions = np.linspace(
-            sorted_positions[0], sorted_positions[-1], num=depth_count * 8
-        )
-        fine_density = scipy.interpolate.interp1d(
-            sorted_positions, density_columns[:, ascending_order], axis=1
-        )(fine_positions)
-        fine_density = scipy.ndimage.gaussian_filter(fine_density, sigma=(2.0, 4.0))
-        fine_density /= max(fine_density.max(), 1e-12)
-
-        # A single-color colormap whose alpha channel carries the density:
-        # seam-free (unlike a stepped transparent colormap, the smoothed and
-        # upsampled field varies gently between cells) and it lets the grid
-        # below stay visible.
-        color_with_alpha = np.tile(matplotlib.colors.to_rgba(color), (256, 1))
-        color_with_alpha[:, 3] = np.linspace(0.0, 1.0, 256)
-        # Flat cells: gouraud's overlapping triangles leave a dot pattern
-        # when the colormap carries alpha. The field is smoothed and
-        # upsampled, so flat cells still read as continuous.
-        axes.pcolormesh(
-            fine_positions,
-            10**log_error_grid,
-            fine_density,
-            cmap=matplotlib.colors.ListedColormap(colors=color_with_alpha),
-            shading="nearest",
-            antialiased=False,
-            rasterized=True,
+        # A chain that stopped before a depth is NaN from there on and has no
+        # error to contribute. A depth where every chain stopped has nothing
+        # to plot at all, so it drops out of the curve.
+        measured_depth_mask = np.isfinite(true_errors_per_depth).any(axis=0)
+        low_percentiles, medians, high_percentiles = np.nanpercentile(
+            true_errors_per_depth[:, measured_depth_mask], q=(10, 50, 90), axis=0
         )
 
-    axes.axvline(x=0, color="black", linewidth=1.0)
+        # Left to right, so the band does not fold back on itself.
+        measured_positions = step_positions[measured_depth_mask]
+        ascending_order = np.argsort(measured_positions)
+        positions = measured_positions[ascending_order]
+        medians = medians[ascending_order]
+
+        axes.fill_between(
+            positions,
+            low_percentiles[ascending_order],
+            high_percentiles[ascending_order],
+            color=color,
+            alpha=_BAND_OPACITY,
+            linewidth=0,
+        )
+        axes.plot(
+            positions,
+            medians,
+            color=color,
+            linewidth=2.0,
+            solid_capstyle="round",
+            solid_joinstyle="round",
+        )
+
+        # Only the deepest step is marked and labelled. That is where the
+        # chain has compounded the most, so it is the number the plot is read
+        # for; a dot and a value on all twenty depths would be noise.
+        deepest_index = 0 if direction_sign < 0 else len(positions) - 1
+        axes.plot(
+            positions[deepest_index],
+            medians[deepest_index],
+            marker="o",
+            markersize=6,
+            color=color,
+            markeredgecolor=_SURFACE_COLOR,
+            markeredgewidth=2,
+        )
+        axes.annotate(
+            text=f"{medians[deepest_index]:.2g}",
+            xy=(positions[deepest_index], medians[deepest_index]),
+            xytext=(0, 10),
+            textcoords="offset points",
+            horizontalalignment=label_alignment,
+            fontsize=9,
+            color=_MUTED_TEXT_COLOR,
+        )
+
+    axes.axvline(x=0, color=_GRID_COLOR, linewidth=1.0)
     axes.xaxis.set_major_locator(plt.MaxNLocator(integer=True))
-    axes.set_xlabel(xlabel="steps")
-    axes.set_ylabel(ylabel="error (normalized)")
+    axes.set_xlabel(xlabel="steps", color=_MUTED_TEXT_COLOR)
+    axes.set_ylabel(ylabel="error", color=_MUTED_TEXT_COLOR)
     axes.set_yscale(value="log")
-    axes.set_title(label="Prediction error vs. number of steps")
-    # Backward on top: it is also the left half of the plot.
-    axes.legend(
-        handles=[
-            patches.Patch(facecolor=_BACKWARD_COLOR, label="backward"),
-            patches.Patch(facecolor=_FORWARD_COLOR, label="forward"),
-        ],
-        fontsize=8,
+    axes.set_title(
+        label="Prediction error vs. number of steps",
+        color=_TEXT_COLOR,
+        fontsize=12,
     )
+    axes.grid(visible=True, color=_GRID_COLOR, linewidth=0.8, linestyle="-")
+    axes.set_axisbelow(b=True)
+    axes.tick_params(colors=_MUTED_TEXT_COLOR, labelsize=9)
+    for spine in axes.spines.values():
+        spine.set_visible(False)
+    # Room for the end labels, which sit above the deepest points.
+    axes.margins(x=0.04)
+
+    # Each entry stacks the band swatch under the median line, so one row
+    # names a direction and shows both marks that belong to it. The legend
+    # title says what those two marks mean, which saves repeating "median"
+    # and "10th-90th percentile" per direction.
+    # Backward first: it is also the left half of the plot.
+    legend = axes.legend(
+        handles=[
+            (
+                patches.Patch(facecolor=color, alpha=_BAND_OPACITY, linewidth=0),
+                plt.Line2D([], [], color=color, linewidth=2.0),
+            )
+            for color in (_BACKWARD_COLOR, _FORWARD_COLOR)
+        ],
+        labels=["backward", "forward"],
+        handler_map={tuple: HandlerTuple(ndivide=None)},
+        title="median, 10th-90th percentile",
+        alignment="left",
+        fontsize=9,
+        title_fontsize=9,
+        loc="upper center",
+        frameon=False,
+        labelcolor=_MUTED_TEXT_COLOR,
+    )
+    legend.get_title().set_color(_MUTED_TEXT_COLOR)
     figure.tight_layout()
 
     image = wandb.Image(figure)
