@@ -161,7 +161,6 @@ def roll_out_backward(
             candidate_error_batch=candidate_trajectory_error_batch,
         )
 
-        # A rejected anchor stops walking, and why it stopped is worth keeping.
         rejected_mask_batch = ~accepted_mask_batch  # (active_count,)
         rejected_indices = active_indices[rejected_mask_batch]  # (rejected_count,)
         termination_reason_batch[rejected_indices] = torch.where(
