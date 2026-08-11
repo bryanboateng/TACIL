@@ -15,14 +15,17 @@ from scripts.evaluation.core.condition import (
 )
 from scripts.evaluation.core.renderer import RenderSettings
 from scripts.evaluation.core.rollout import create_environment, roll_out_episodes
-from scripts.evaluation.core.video import FREEZE_SECONDS, render_episode_surfaces
+from scripts.evaluation.core.video import (
+    FREEZE_SECONDS,
+    get_video_fps,
+    render_episode_surfaces,
+)
 from scripts.policies.gpi import config as gpi
 from scripts.policies.gpi.policy import create_geometric_policy_factory
 from scripts.shared.episode_store import read_episode_store
 from scripts.shared.log import create_logger, log_device_info
 from scripts.shared.policy_types import PolicyFactory
 
-FPS = 120
 RENDER_SIZE = 600
 
 
@@ -40,6 +43,7 @@ def _run(*, config: gpi.Config) -> None:
     screen = pygame.display.set_mode(size=(RENDER_SIZE, RENDER_SIZE))
     clock = pygame.time.Clock()
 
+    fps = get_video_fps()
     policy_factory = _create_policy_factory(config=config)
 
     conditions = [
@@ -74,14 +78,14 @@ def _run(*, config: gpi.Config) -> None:
         )
 
         # Play the episode, then hold on the final frame, matching the recorded freeze.
-        freeze = [surfaces[-1]] * (FPS * FREEZE_SECONDS)
+        freeze = [surfaces[-1]] * (fps * FREEZE_SECONDS)
         for surface in [*surfaces, *freeze]:
             if _quit_requested():
                 pygame.quit()
                 return
             screen.blit(surface, (0, 0))
             pygame.display.flip()
-            clock.tick(FPS)
+            clock.tick(fps)
 
 
 def _create_policy_factory(config: gpi.Config) -> PolicyFactory:

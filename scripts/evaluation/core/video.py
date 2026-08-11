@@ -2,6 +2,7 @@ from enum import Enum, auto
 
 import numpy as np
 import pygame
+from gym_pusht.envs import PushTEnv
 from pygame import Surface
 from pygame.font import Font
 
@@ -14,6 +15,16 @@ from scripts.evaluation.core.rollout import EpisodeRecord
 from scripts.shared.paths import PROJECT_ROOT_DIRECTORY_PATH
 
 FREEZE_SECONDS = 2
+PLAYBACK_SPEED = 3.5
+
+
+def get_video_fps() -> int:
+    actions_per_second = PushTEnv.metadata["render_fps"]
+    if not isinstance(actions_per_second, int):
+        raise TypeError(
+            f"Expected an integer action rate, got {type(actions_per_second).__name__}"
+        )
+    return round(actions_per_second * PLAYBACK_SPEED)
 
 
 def render_episode_surfaces(
@@ -54,7 +65,7 @@ def render_episode_surfaces(
             font=font,
         )
         _add_text_to_surface(
-            text=f"step: {step}",
+            text=f"speed: {PLAYBACK_SPEED}×\nstep: {step}",
             placement=_Placement.BOTTOM_LEFT,
             surface=annotated_surface,
             font=font,

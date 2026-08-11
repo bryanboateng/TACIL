@@ -25,7 +25,11 @@ from scripts.evaluation.core.scoring import (
     run_scored_episodes,
     success_rate,
 )
-from scripts.evaluation.core.video import FREEZE_SECONDS, render_episode_surfaces
+from scripts.evaluation.core.video import (
+    FREEZE_SECONDS,
+    get_video_fps,
+    render_episode_surfaces,
+)
 from scripts.shared.log import create_logger
 from scripts.shared.policy_types import Policy, PolicyFactory
 
@@ -79,7 +83,7 @@ def _log_video(
     episode_records: dict[int, EpisodeRecord],
     run: Run,
 ) -> None:
-    fps = 60
+    fps = get_video_fps()
     render_settings = RenderSettings(size=1_000, supersample_factor=2)
     environment = create_environment(
         condition=condition, render_settings=render_settings
