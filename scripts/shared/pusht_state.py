@@ -42,7 +42,7 @@ def add_states(
     return sum_batch
 
 
-def calculate_state_average(
+def average_states(
     *,
     state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
 ) -> torch.Tensor:  # (state_dimensionality,)

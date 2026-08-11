@@ -2,7 +2,7 @@ import torch
 
 from scripts.data.augmentation.tacil.models.dynamics_model import DynamicsModel
 from scripts.data.augmentation.tacil.models.normalizers import Normalizers
-from scripts.shared.pusht_state import calculate_state_average, subtract_states
+from scripts.shared.pusht_state import average_states, subtract_states
 
 
 class DynamicsModelEnsemble(torch.nn.Module):
@@ -49,7 +49,7 @@ class DynamicsModelEnsemble(torch.nn.Module):
         state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
         action_batch: torch.Tensor,  # (batch_size, action_dimensionality)
     ) -> torch.Tensor:  # (batch_size, state_dimensionality)
-        return calculate_state_average(
+        return average_states(
             state_batch=self.predict_next_state_per_member(
                 state_batch=state_batch, action_batch=action_batch
             ),
@@ -93,7 +93,7 @@ class DynamicsModelEnsemble(torch.nn.Module):
         # mean has to treat the orientation as a direction, otherwise two
         # members agreeing across the 0 / 2π seam would average to the opposite
         # orientation and look like maximal disagreement.
-        average_next_state_batch = calculate_state_average(
+        average_next_state_batch = average_states(
             state_batch=per_member_next_state_batch, dim=0
         )  # (batch_size, state_dimensionality)
 
