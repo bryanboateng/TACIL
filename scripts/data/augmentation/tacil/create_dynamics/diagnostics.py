@@ -293,7 +293,7 @@ def _measure_forward_chains(
     for depth_index in range(depth_count):
         action_batch = action_windows[:, depth_index, :]
         disagreement_columns.append(
-            dynamics_model_ensemble.disagreements_about_next_state(
+            dynamics_model_ensemble.uncertainty_about_next_state(
                 state_batch=current_state_batch, action_batch=action_batch
             )
         )
@@ -385,7 +385,7 @@ def _measure_backward_chains(
             difference_batch, dim=-1
         )
         disagreements[converged_indices, depth_index] = (
-            dynamics_model_ensemble.disagreements_about_next_state(
+            dynamics_model_ensemble.uncertainty_about_next_state(
                 state_batch=predecessor_state_batch, action_batch=converged_action_batch
             )
         )

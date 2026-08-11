@@ -38,12 +38,6 @@ def create_augmented_data(
     device: torch.device,
     run: Run,
 ) -> EpisodeStore:
-    """Roll backward out of anchors picked from *episode_store* and return the
-    synthetic episodes alone, logging statistics to *run*. Raises when the error
-    budget accepted nothing: there is then no augmented run to score, and a
-    reward measured without any synthetic data would carry this configuration's
-    name while describing the unaugmented baseline.
-    """
     set_seed(seed=seed)
 
     anchor_indices = get_anchor_indices(
@@ -51,18 +45,11 @@ def create_augmented_data(
         expert_part_length=expert_part_length,
     )  # (anchor_count,)
 
-    action_noise_std = compute_noise_std(
+    action_noise_std = _compute_noise_std(
         samples=episode_store.actions, noise_fraction=config.action_noise_fraction
     )  # (action_dimensionality,)
 
-    #  The median expert step distance is useful as a reference scale.
-    #  It answers the question "How far does the expert normally move in one timestep?"
-    #  It can be used to judge whether some other quantity (like a predicted or generated step)
-    #  is unusually large or small.
-    #
-    #  We use the median (rather than the mean) because it's robust to
-    #  outliers.
-    #  A handful of unusually large jumps won't skew the result the way they would an average.
+    #  We use the median (rather than the mean) because it's robust to outliers.
     median_expert_step_distance = calculate_median_step_distance(
         episode_store=episode_store, dynamics_model_ensemble=dynamics_model_ensemble
     )
@@ -117,7 +104,7 @@ def create_augmented_data(
     return augmentation_result.episode_store
 
 
-def compute_noise_std(
+def _compute_noise_std(
     *,
     samples: npt.NDArray[np.float32],  # (N, dimensionality)
     noise_fraction: float,

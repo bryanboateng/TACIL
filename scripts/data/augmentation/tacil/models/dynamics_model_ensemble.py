@@ -58,7 +58,7 @@ class DynamicsModelEnsemble(torch.nn.Module):
         )
 
     @torch.no_grad()
-    def disagreements_about_next_state(
+    def uncertainty_about_next_state(
         self,
         *,
         state_batch: torch.Tensor,  # (batch_size, state_dimensionality)

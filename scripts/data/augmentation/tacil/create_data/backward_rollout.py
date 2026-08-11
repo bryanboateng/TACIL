@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import IntEnum
 
 import torch
@@ -76,7 +76,6 @@ def roll_out_backward(
         device=device,
     )
     step_count_batch = torch.zeros(anchor_count, dtype=torch.long, device=device)
-    # Anchors still active when the loop ends keep this default reason.
     termination_reason_batch = torch.full(
         size=(anchor_count,),
         fill_value=int(TerminationReason.STEP_CAP_REACHED),
@@ -84,25 +83,13 @@ def roll_out_backward(
         device=device,
     )
 
-    # The walk's rolling state, one entry per anchor.
     current_state_batch = anchor_state_batch.clone()
-    accumulated_error_batch = torch.zeros(anchor_count, device=device)
-    # Product of the accepted steps' transition Lipschitz constants: how
-    # strongly an error introduced at the current depth grows on its way to
-    # the anchor.
+    trajectory_error_batch = torch.zeros(anchor_count, device=device)
     error_amplification_batch = torch.ones(anchor_count, device=device)
     active_mask_batch = torch.ones(anchor_count, dtype=torch.bool, device=device)
 
-    # Diagnostics of the accepted steps, collected flat for logging.
-    accumulated_error_estimate_chunks: list[torch.Tensor] = []
-    step_error_estimate_chunks: list[torch.Tensor] = []
-    disagreement_about_next_state_chunks: list[torch.Tensor] = []
-    sensitivity_scaled_step_distance_chunks: list[torch.Tensor] = []
-    local_transition_lipschitz_constant_chunks: list[torch.Tensor] = []
+    diagnostics_collector = _DiagnosticsCollector()
 
-    # No total: counting against the 50-step cap would be misleading, since
-    # almost every rollout ends far earlier. The postfix shows how many
-    # anchors are still walking.
     progress_bar = tqdm(desc="backward step", unit="step")
     for step_index in range(MAX_BACKWARD_STEP_COUNT):
         active_indices = active_mask_batch.nonzero().squeeze(dim=1)  # (active_count,)
@@ -122,55 +109,63 @@ def roll_out_backward(
         # An error introduced at this depth passes through every already
         # accepted transition on its way to the anchor, so it needs to be
         # amplified accordingly.
-        candidate_error_batch = (
-            accumulated_error_batch[active_indices]
-            + error_amplification_batch[active_indices]
-            * backward_step.step_error_estimate_batch
+        candidate_trajectory_error_batch = (
+            trajectory_error_batch[active_indices]
+            + error_amplification_batch[active_indices] * backward_step.error_batch
         )  # (active_count,)
 
-        accepted_mask_batch = backward_step.converged_batch & (
-            candidate_error_batch <= error_limit
+        accepted_mask_batch = backward_step.has_converged_batch & (
+            candidate_trajectory_error_batch <= error_limit
         )  # (active_count,)
 
-        accepted_indices = active_indices[accepted_mask_batch]  # (accepted_count,)
-
-        predecessor_states_batch[accepted_indices, step_index] = (
-            backward_step.predecessor_state_batch[accepted_mask_batch]
-        )
-        predecessor_actions_batch[accepted_indices, step_index] = (
-            backward_step.action_batch[accepted_mask_batch]
-        )
-        step_count_batch[accepted_indices] = step_index + 1
-
-        current_state_batch[accepted_indices] = backward_step.predecessor_state_batch[
-            accepted_mask_batch
-        ]
-        accumulated_error_batch[accepted_indices] = candidate_error_batch[
-            accepted_mask_batch
-        ]
-        error_amplification_batch[accepted_indices] *= (
-            backward_step.local_transition_lipschitz_constant_batch[accepted_mask_batch]
+        accepted_steps = _AcceptedSteps(
+            anchor_indices=active_indices[accepted_mask_batch],
+            predecessor_state_batch=backward_step.predecessor_state_batch[
+                accepted_mask_batch
+            ],
+            predecessor_action_batch=backward_step.predecessor_action_batch[
+                accepted_mask_batch
+            ],
+            trajectory_error_batch=candidate_trajectory_error_batch[
+                accepted_mask_batch
+            ],
+            local_transition_lipschitz_constant_batch=(
+                backward_step.local_transition_lipschitz_constant_batch[
+                    accepted_mask_batch
+                ]
+            ),
         )
 
-        accumulated_error_estimate_chunks.append(
-            candidate_error_batch[accepted_mask_batch]
+        # Write the step into the trajectory.
+        predecessor_states_batch[accepted_steps.anchor_indices, step_index] = (
+            accepted_steps.predecessor_state_batch
         )
-        step_error_estimate_chunks.append(
-            backward_step.step_error_estimate_batch[accepted_mask_batch]
+        predecessor_actions_batch[accepted_steps.anchor_indices, step_index] = (
+            accepted_steps.predecessor_action_batch
         )
-        disagreement_about_next_state_chunks.append(
-            backward_step.disagreement_about_next_state_batch[accepted_mask_batch]
+        step_count_batch[accepted_steps.anchor_indices] = step_index + 1
+
+        current_state_batch[accepted_steps.anchor_indices] = (
+            accepted_steps.predecessor_state_batch
         )
-        sensitivity_scaled_step_distance_chunks.append(
-            backward_step.sensitivity_scaled_step_distance_batch[accepted_mask_batch]
+        trajectory_error_batch[accepted_steps.anchor_indices] = (
+            accepted_steps.trajectory_error_batch
         )
-        local_transition_lipschitz_constant_chunks.append(
-            backward_step.local_transition_lipschitz_constant_batch[accepted_mask_batch]
+        error_amplification_batch[accepted_steps.anchor_indices] *= (
+            accepted_steps.local_transition_lipschitz_constant_batch
         )
 
-        rejected_indices = active_indices[~accepted_mask_batch]  # (rejected_count,)
+        diagnostics_collector.add(
+            backward_step=backward_step,
+            accepted_mask_batch=accepted_mask_batch,
+            candidate_error_batch=candidate_trajectory_error_batch,
+        )
+
+        # A rejected anchor stops walking, and why it stopped is worth keeping.
+        rejected_mask_batch = ~accepted_mask_batch  # (active_count,)
+        rejected_indices = active_indices[rejected_mask_batch]  # (rejected_count,)
         termination_reason_batch[rejected_indices] = torch.where(
-            backward_step.converged_batch[~accepted_mask_batch],
+            backward_step.has_converged_batch[rejected_mask_batch],
             int(TerminationReason.ERROR_LIMIT_EXCEEDED),
             int(TerminationReason.NOT_CONVERGED),
         )
@@ -193,39 +188,84 @@ def roll_out_backward(
         predecessor_actions_batch=predecessor_actions_batch[:, :reached_step_count],
         step_count_batch=step_count_batch,
     )
-    rollout_diagnostics = RolloutDiagnostics(
-        termination_reasons_batch=termination_reason_batch,
-        accumulated_error_estimates=torch.cat(
-            tensors=accumulated_error_estimate_chunks
-        ),
-        step_error_estimates=torch.cat(tensors=step_error_estimate_chunks),
-        disagreements_about_next_state=torch.cat(
-            tensors=disagreement_about_next_state_chunks
-        ),
-        sensitivity_scaled_step_distances=torch.cat(
-            tensors=sensitivity_scaled_step_distance_chunks
-        ),
-        local_transition_lipschitz_constants=torch.cat(
-            tensors=local_transition_lipschitz_constant_chunks
-        ),
+    return backward_trajectories, diagnostics_collector.diagnostics(
+        termination_reasons_batch=termination_reason_batch
     )
-    return backward_trajectories, rollout_diagnostics
 
 
 # ---- Private --------------------------------------------
 
 
 @dataclass(frozen=True)
-class _BackwardStep:
-    """One backward step per active anchor: the predecessor state reached
-    under a noised anchor action, plus the quantities the budget check
-    needs to judge the step."""
+class _AcceptedSteps:
+    anchor_indices: torch.Tensor  # (accepted_count,)
+    predecessor_state_batch: torch.Tensor  # (accepted_count, state_dimensionality)
+    predecessor_action_batch: torch.Tensor  # (accepted_count, action_dimensionality)
+    trajectory_error_batch: torch.Tensor  # (accepted_count,)
+    local_transition_lipschitz_constant_batch: torch.Tensor  # (accepted_count,)
 
+
+@dataclass
+class _DiagnosticsCollector:
+    """Collector for the histogram material, kept out of the walk itself.
+
+    Every accepted step adds one value per quantity. Anchors are not kept
+    apart, because the histograms pool them anyway.
+    """
+
+    accumulated_errors: list[torch.Tensor] = field(default_factory=list)
+    step_errors: list[torch.Tensor] = field(default_factory=list)
+    disagreements: list[torch.Tensor] = field(default_factory=list)
+    sensitivity_scaled_step_distances: list[torch.Tensor] = field(default_factory=list)
+    local_transition_lipschitz_constants: list[torch.Tensor] = field(
+        default_factory=list
+    )
+
+    def add(
+        self,
+        *,
+        backward_step: "_BackwardStep",
+        accepted_mask_batch: torch.Tensor,  # (active_count,)
+        candidate_error_batch: torch.Tensor,  # (active_count,)
+    ) -> None:
+        self.accumulated_errors.append(candidate_error_batch[accepted_mask_batch])
+        self.step_errors.append(backward_step.error_batch[accepted_mask_batch])
+        self.disagreements.append(
+            backward_step.uncertainty_about_next_state_batch[accepted_mask_batch]
+        )
+        self.sensitivity_scaled_step_distances.append(
+            backward_step.sensitivity_scaled_step_distance_batch[accepted_mask_batch]
+        )
+        self.local_transition_lipschitz_constants.append(
+            backward_step.local_transition_lipschitz_constant_batch[accepted_mask_batch]
+        )
+
+    def diagnostics(
+        self,
+        *,
+        termination_reasons_batch: torch.Tensor,  # (anchor_count,)
+    ) -> RolloutDiagnostics:
+        return RolloutDiagnostics(
+            termination_reasons_batch=termination_reasons_batch,
+            accumulated_error_estimates=torch.cat(tensors=self.accumulated_errors),
+            step_error_estimates=torch.cat(tensors=self.step_errors),
+            disagreements_about_next_state=torch.cat(tensors=self.disagreements),
+            sensitivity_scaled_step_distances=torch.cat(
+                tensors=self.sensitivity_scaled_step_distances
+            ),
+            local_transition_lipschitz_constants=torch.cat(
+                tensors=self.local_transition_lipschitz_constants
+            ),
+        )
+
+
+@dataclass(frozen=True)
+class _BackwardStep:
     predecessor_state_batch: torch.Tensor  # (active_count, state_dimensionality)
-    action_batch: torch.Tensor  # (active_count, action_dimensionality)
-    converged_batch: torch.Tensor  # (active_count,)
-    step_error_estimate_batch: torch.Tensor  # (active_count,)
-    disagreement_about_next_state_batch: torch.Tensor  # (active_count,)
+    predecessor_action_batch: torch.Tensor  # (active_count, action_dimensionality)
+    has_converged_batch: torch.Tensor  # (active_count,)
+    error_batch: torch.Tensor  # (active_count,)
+    uncertainty_about_next_state_batch: torch.Tensor  # (active_count,)
     sensitivity_scaled_step_distance_batch: torch.Tensor  # (active_count,)
     local_transition_lipschitz_constant_batch: torch.Tensor  # (active_count,)
 
@@ -239,9 +279,6 @@ def _compute_backward_step(
     disagreement_weight: float,
     convergence_tolerance: float,
 ) -> _BackwardStep:
-    """Noise the base action, solve for the predecessor, estimate the step's
-    error and its transition Lipschitz constant."""
-
     noisy_action_batch = action_batch + torch.normal(
         mean=0.0, std=action_noise_std.expand_as(other=action_batch)
     )  # (active_count, action_dimensionality)
@@ -257,8 +294,8 @@ def _compute_backward_step(
         inverse_dynamics_solution.state_batch
     )  # (active_count, state_dimensionality)
 
-    disagreement_about_next_state_batch = (
-        dynamics_model_ensemble.disagreements_about_next_state(
+    uncertainty_about_next_state_batch = (
+        dynamics_model_ensemble.uncertainty_about_next_state(
             state_batch=predecessor_state_batch, action_batch=noisy_action_batch
         )
     )  # (active_count,)
@@ -271,17 +308,17 @@ def _compute_backward_step(
         )
     )  # (active_count,)
 
-    step_error_estimate_batch = (
-        disagreement_weight * disagreement_about_next_state_batch
+    error_batch = (
+        disagreement_weight * uncertainty_about_next_state_batch
         + (1.0 - disagreement_weight) * sensitivity_scaled_step_distance_batch
     )  # (active_count,)
 
     return _BackwardStep(
         predecessor_state_batch=predecessor_state_batch,
-        action_batch=noisy_action_batch,
-        converged_batch=inverse_dynamics_solution.converged_batch,
-        step_error_estimate_batch=step_error_estimate_batch,
-        disagreement_about_next_state_batch=disagreement_about_next_state_batch,
+        predecessor_action_batch=noisy_action_batch,
+        has_converged_batch=inverse_dynamics_solution.converged_batch,
+        error_batch=error_batch,
+        uncertainty_about_next_state_batch=uncertainty_about_next_state_batch,
         sensitivity_scaled_step_distance_batch=sensitivity_scaled_step_distance_batch,
         local_transition_lipschitz_constant_batch=dynamics_model_ensemble.local_transition_lipschitz_constants(
             state_batch=predecessor_state_batch, action_batch=noisy_action_batch
