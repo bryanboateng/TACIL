@@ -33,25 +33,6 @@ class LipschitzConstrainedLinear(torch.nn.Module):
 
 
 class _SpectralNormBound(torch.nn.Module):
-    """Caps a weight matrix's spectral norm at `lipschitz_constant_upper_bound`.
-
-    Follows Eq. 3 of CCIL (arXiv:2405.19307), the paper this work builds on:
-
-        W <- W / max(sigma(W) / c, 1)
-
-    The `max` is what makes this a ceiling rather than a fixed value. A weight
-    whose spectral norm is already below `c` passes through untouched, so a
-    layer is free to be gentler than the bound — the paper relies on the local
-    Lipschitz constants varying below it rather than sitting on it.
-
-    `sigma` is estimated by power iteration rather than an exact SVD, following
-    Miyato et al. (arXiv:1802.05957). One iteration per training forward pass
-    suffices because the vectors persist across steps while the weights move
-    only slightly between them, and it costs two matrix-vector products instead
-    of a decomposition. It also differentiates cleanly: with the vectors held
-    fixed, the derivative of their bilinear form is just their outer product.
-    """
-
     # Estimates of the leading left and right singular vectors.
     left_vector: torch.Tensor  # (output_dimensionality,)
     right_vector: torch.Tensor  # (input_dimensionality,)

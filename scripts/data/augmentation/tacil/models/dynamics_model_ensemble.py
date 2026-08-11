@@ -27,22 +27,6 @@ class DynamicsModelEnsemble(torch.nn.Module):
         assert isinstance(first_dynamics_model, DynamicsModel)
         return first_dynamics_model
 
-    def normalize_state(
-        self,
-        *,
-        state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
-    ) -> torch.Tensor:  # (batch_size, state_dimensionality)
-        return self.normalizers.normalize_state(state_batch=state_batch)
-
-    def denormalize_state(
-        self,
-        *,
-        normalized_state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
-    ) -> torch.Tensor:  # (batch_size, state_dimensionality)
-        return self.normalizers.denormalize_state(
-            normalized_state_batch=normalized_state_batch
-        )
-
     def predict_next_state(
         self,
         *,
@@ -193,7 +177,6 @@ class DynamicsModelEnsemble(torch.nn.Module):
 
     @property
     def dynamics_models(self) -> list[DynamicsModel]:
-        # ModuleList is typed as nn.Module but only ever holds DynamicsNetworks.
         dynamics_models: list[DynamicsModel] = []
         for dynamics_model in self._dynamics_models:
             assert isinstance(dynamics_model, DynamicsModel)

@@ -65,7 +65,7 @@ def _run_newton_iterations(
     while True:
         next_state_gap_batch = _compute_next_state_gap(
             dynamics_model_ensemble=dynamics_model_ensemble,
-            normalized_state_batch=dynamics_model_ensemble.normalize_state(
+            normalized_state_batch=dynamics_model_ensemble.normalizers.normalize_state(
                 state_batch=state_estimate_batch
             ),
             action_batch=action_batch,
@@ -81,7 +81,7 @@ def _run_newton_iterations(
 
         jacobian_batch = _compute_jacobian_of_next_state_gap_wrt_normalized_state(
             dynamics_model_ensemble=dynamics_model_ensemble,
-            normalized_state_batch=dynamics_model_ensemble.normalize_state(
+            normalized_state_batch=dynamics_model_ensemble.normalizers.normalize_state(
                 state_batch=state_estimate_batch
             ),
             action_batch=action_batch,
@@ -145,7 +145,7 @@ def _compute_next_state_gap(
     target_next_state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
 ) -> torch.Tensor:  # (batch_size, state_dimensionality)
     predicted_next_state_batch = dynamics_model_ensemble.predict_next_state(
-        state_batch=dynamics_model_ensemble.denormalize_state(
+        state_batch=dynamics_model_ensemble.normalizers.denormalize_state(
             normalized_state_batch=normalized_state_batch
         ),
         action_batch=action_batch,
