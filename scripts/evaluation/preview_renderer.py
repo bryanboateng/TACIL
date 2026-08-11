@@ -22,7 +22,7 @@ from scripts.shared.episode_store import read_episode_store
 from scripts.shared.log import create_logger, log_device_info
 from scripts.shared.policy_types import PolicyFactory
 
-FPS = 10
+FPS = 120
 RENDER_SIZE = 600
 
 
@@ -69,7 +69,7 @@ def _run(*, config: gpi.Config) -> None:
         surfaces = render_episode_surfaces(
             episode_record=episode_record,
             condition=condition,
-            policy_label="dp (DDIM)   diffusion-policy-eternal-sweep-6:v0",
+            policy_label="dp (eternal-sweep-6)",
             percentile=75,
         )
 
