@@ -18,7 +18,7 @@ from scripts.data.augmentation.tacil.create_dynamics.config import DynamicsConfi
 from scripts.data.augmentation.tacil.create_dynamics.train_dynamics_model_ensemble import (  # noqa: E501
     train_dynamics_model_ensemble,
 )
-from scripts.shared.f import EpisodeStore
+from scripts.shared.episode_store import EpisodeStore
 
 
 @dataclass(frozen=True)

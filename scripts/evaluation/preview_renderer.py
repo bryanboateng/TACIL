@@ -18,7 +18,7 @@ from scripts.evaluation.core.rollout import create_environment, roll_out_episode
 from scripts.evaluation.core.video import FREEZE_SECONDS, render_episode_surfaces
 from scripts.policies.gpi import config as gpi
 from scripts.policies.gpi.policy import create_geometric_policy_factory
-from scripts.shared.f import read_episode_store
+from scripts.shared.episode_store import read_episode_store
 from scripts.shared.log import create_logger, log_device_info
 from scripts.shared.policy_types import PolicyFactory
 

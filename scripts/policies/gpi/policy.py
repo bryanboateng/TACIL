@@ -7,7 +7,7 @@ from numpy import typing as npt
 from scripts.policies.gpi.config import Config
 from scripts.policies.gpi.demonstrations import Demonstrations
 from scripts.policies.gpi.geometry import convert_actions_to_world_frame
-from scripts.shared.f import EpisodeStore
+from scripts.shared.episode_store import EpisodeStore
 from scripts.shared.policy_types import Policy, PolicyFactory
 from scripts.shared.pusht_state import AGENT_POSITION_SLICE
 

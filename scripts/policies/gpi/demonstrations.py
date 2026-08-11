@@ -5,7 +5,7 @@ from scripts.policies.gpi.geometry import (
     calculate_observation_distances,
     convert_actions_to_block_frame,
 )
-from scripts.shared.f import EpisodeStore
+from scripts.shared.episode_store import EpisodeStore
 from scripts.shared.normalization import MinMaxNormalizer
 
 

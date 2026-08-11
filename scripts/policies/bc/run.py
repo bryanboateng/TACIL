@@ -18,9 +18,10 @@ from scripts.policies.bc import config as bc_config
 from scripts.policies.bc.policy import create_behavior_cloning_policy_factory
 from scripts.policies.bc.train import train_behavior_cloning_policy
 from scripts.policies.shared.run_config import RunConfig
-from scripts.shared.f import EpisodeStore, TransitionBatch, download_episode_store
+from scripts.shared.episode_store import EpisodeStore, download_episode_store
 from scripts.shared.log import create_logger, log_device_info
 from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
+from scripts.shared.transition_batch import TransitionBatch
 
 logger = create_logger()
 

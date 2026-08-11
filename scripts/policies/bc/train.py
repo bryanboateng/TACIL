@@ -15,10 +15,10 @@ from scripts.policies.bc.policy import (
     create_behavior_cloning_policy_factory,
 )
 from scripts.policies.shared.checkpoint import Checkpoint
-from scripts.shared.f import TransitionBatch
 from scripts.shared.log import create_logger
 from scripts.shared.normalization import MinMaxNormalizer, ZScoreNormalizer
 from scripts.shared.seeding import set_seed
+from scripts.shared.transition_batch import TransitionBatch
 
 logger = create_logger()
 

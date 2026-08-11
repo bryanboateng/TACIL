@@ -9,12 +9,6 @@ from zarr import Array, Group
 
 
 @dataclass
-class TransitionBatch:
-    states: npt.NDArray[np.float32]  # (transition_count, state_dimensionality)
-    actions: npt.NDArray[np.float32]  # (transition_count, action_dimensionality)
-
-
-@dataclass
 class EpisodeStore:
     states: npt.NDArray[np.float32]  # (total_timestep_count, state_dimensionality)
     actions: npt.NDArray[np.float32]  # (total_timestep_count, action_dimensionality)

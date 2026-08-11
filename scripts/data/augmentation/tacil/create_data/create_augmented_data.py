@@ -24,7 +24,7 @@ from scripts.data.augmentation.tacil.create_data.step_distance import (
 from scripts.data.augmentation.tacil.models.dynamics_model_ensemble import (
     DynamicsModelEnsemble,
 )
-from scripts.shared.f import EpisodeStore
+from scripts.shared.episode_store import EpisodeStore
 from scripts.shared.seeding import set_seed
 
 

@@ -5,7 +5,7 @@ import numpy.typing as npt
 import torch
 
 from scripts.policies.dp.config import HorizonLengthConfig
-from scripts.shared.f import EpisodeStore
+from scripts.shared.episode_store import EpisodeStore
 from scripts.shared.normalization import MinMaxNormalizer
 
 

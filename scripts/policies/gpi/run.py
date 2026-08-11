@@ -11,7 +11,7 @@ from scripts.evaluation.evaluate_policy import evaluate_policy
 from scripts.policies.gpi import config as gpi_config
 from scripts.policies.gpi.policy import create_geometric_policy_factory
 from scripts.policies.shared.run_config import RunConfig
-from scripts.shared.f import download_episode_store
+from scripts.shared.episode_store import download_episode_store
 from scripts.shared.log import create_logger, log_device_info
 from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
 

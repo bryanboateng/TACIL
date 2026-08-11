@@ -1,6 +1,6 @@
 import torch
 
-from scripts.shared.f import TransitionBatch
+from scripts.shared.transition_batch import TransitionBatch
 
 
 class Dataset(torch.utils.data.Dataset[tuple[torch.Tensor, torch.Tensor]]):
