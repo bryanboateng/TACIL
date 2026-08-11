@@ -14,13 +14,8 @@ from scripts.shared.pusht_state import AGENT_POSITION_SLICE
 
 @dataclass
 class _EpisodeState:
-    """What one running episode remembers between steps."""
-
     noise_generator: torch.Generator
     noise_std: float
-    # A plan is a run of consecutive recorded steps. These two say where it
-    # goes on and where it stops. Equal means it is played out and the next
-    # action has to look up a new one.
     next_step_index: int = 0
     plan_end_index: int = 0
     used_step_indices: set[int] = field(default_factory=set)
