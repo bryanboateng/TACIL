@@ -1,11 +1,4 @@
-"""TaCIL as one call: train the dynamics ensemble, then roll backward.
-
-The two stages share every parameter that matters, so they are configured
-together and never leave this process. What the policy gets back is the
-synthetic episodes alone.
-"""
-
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import torch
 from wandb import Run
@@ -23,14 +16,8 @@ from scripts.shared.episode_store import EpisodeStore
 
 @dataclass(frozen=True)
 class TacilConfig:
-    """The two stages' own configs, and nothing of its own.
-
-    Every setting is declared once, where the stage that reads it lives. The
-    seed is not here: it belongs to the run, not to the method.
-    """
-
-    dynamics: DynamicsConfig = field(default_factory=DynamicsConfig)
-    data: DataConfig = field(default_factory=DataConfig)
+    dynamics: DynamicsConfig
+    data: DataConfig
 
 
 def augment(

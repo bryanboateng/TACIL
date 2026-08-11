@@ -28,10 +28,10 @@ class Checkpoint:
 @dataclass
 class MemberEpochMetrics:
     training_loss: float
-    gradient_norm: float
     validation_loss: float
     training_local_lipschitz_constants: npt.NDArray[np.float32]
     validation_local_lipschitz_constants: npt.NDArray[np.float32]
+    gradient_norm: float
 
 
 @dataclass
@@ -104,9 +104,6 @@ def create_member_training_state(
 def train_member_for_one_epoch(
     *, state: MemberTrainingState, epoch_index: int, context: TrainingContext
 ) -> MemberEpochMetrics:
-    # The number of windows in one gradient step. Enough for a stable gradient
-    # and to fill the device; not coupled to the window length, since the loss
-    # already averages over the steps inside a window.
     batch_size = 2_048
 
     window_count = context.train_state_windows.shape[0]
@@ -151,8 +148,7 @@ def train_member_for_one_epoch(
         normalizers=context.normalizers,
         state_windows=context.validation_state_windows,
         action_windows=context.validation_action_windows,
-        # Chunk size, so the evaluation fits in memory. No effect on results.
-        batch_size=2_048,
+        batch_size=batch_size,
     )
 
     if (
@@ -166,21 +162,21 @@ def train_member_for_one_epoch(
         )
 
     return MemberEpochMetrics(
-        training_loss=float(np.mean(losses)),
-        gradient_norm=float(np.max(gradient_norms)),
+        training_loss=float(np.mean(a=losses)),
         validation_loss=validation_loss,
         training_local_lipschitz_constants=_sample_local_lipschitz_constants(
             state=state,
             normalizers=context.normalizers,
             transitions=context.training_transitions,
-            batch_size=2_048,
+            batch_size=batch_size,
         ),
         validation_local_lipschitz_constants=_sample_local_lipschitz_constants(
             state=state,
             normalizers=context.normalizers,
             transitions=context.validation_transitions,
-            batch_size=2_048,
+            batch_size=batch_size,
         ),
+        gradient_norm=float(np.max(a=gradient_norms)),
     )
 
 
@@ -205,13 +201,6 @@ def _sample_local_lipschitz_constants(
     transitions: TransitionSet,
     batch_size: int,
 ) -> npt.NDArray[np.float32]:  # (sample_count,)
-    """Local Lipschitz constants at a random handful of transitions.
-
-    Nothing but the histogram in the run log reads these, and a histogram needs
-    far fewer points than the dataset has. Evaluating every transition would
-    cost a Jacobian and a spectral norm per transition, per member, per epoch.
-    Drawing the sample yields the same distribution.
-    """
     transition_count = transitions.states.shape[0]
     sample_indices = state.histogram_sample_generator.choice(
         a=transition_count, size=min(512, transition_count), replace=False

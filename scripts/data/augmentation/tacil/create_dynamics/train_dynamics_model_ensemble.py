@@ -7,6 +7,7 @@ from wandb import Run
 
 from scripts.data.augmentation.tacil.create_dynamics.config import DynamicsConfig
 from scripts.data.augmentation.tacil.create_dynamics.data import (
+    TransitionSet,
     build_windows,
     concatenate_episodes,
     extract_transitions,
@@ -34,14 +35,8 @@ from scripts.shared.seeding import set_seed
 
 logger = create_logger()
 
-# Every key this stage logs starts with it, so a stage run and a pipeline run
-# report the same numbers under the same names. wandb groups panels by the part
-# before the first slash, so the stage joins the group with a hyphen rather than
-# a slash of its own.
 STAGE_NAME = "1_dynamics"
 
-# The x-axis of this stage's curves. The run may be shared with the rest of the
-# pipeline, whose implicit step counter is not the training epoch.
 EPOCH_METRIC_NAME = f"{STAGE_NAME}/epoch"
 
 
@@ -59,8 +54,6 @@ def train_dynamics_model_ensemble(
     training_episodes, validation_episodes = train_test_split(
         extract_transitions(episode_store=episode_store),
         test_size=0.2,
-        # Fixed on purpose. A split that moved between runs would make their
-        # validation losses incomparable, and the sweep compares them.
         random_state=0,
         shuffle=True,
     )
@@ -74,25 +67,12 @@ def train_dynamics_model_ensemble(
     validation_state_windows, validation_action_windows = build_windows(
         episodes=validation_episodes, window_length=config.window_length
     )
-    run.summary[f"{STAGE_NAME}/4_windows/training"] = train_action_windows.shape[0]
-    run.summary[f"{STAGE_NAME}/4_windows/validation"] = validation_action_windows.shape[
-        0
-    ]
-
-    state_batch = torch.from_numpy(training_transitions.states).to(device=device)
-    next_state_batch = torch.from_numpy(training_transitions.next_states).to(
-        device=device
+    run.summary[f"{STAGE_NAME}/4_window_count/training"] = train_action_windows.shape[0]
+    run.summary[f"{STAGE_NAME}/4_window_count/validation"] = (
+        validation_action_windows.shape[0]
     )
-    action_batch = torch.from_numpy(training_transitions.actions).to(device=device)
-    normalizers = Normalizers.from_transitions(
-        state_batch=state_batch,
-        network_feature_batch=network_features(
-            state_batch=state_batch, action_batch=action_batch
-        ),
-        state_displacement_batch=subtract_states(
-            minuend_batch=next_state_batch, subtrahend_batch=state_batch
-        ),
-    ).to(device=device)
+
+    normalizers = _create_normalizers(transitions=training_transitions, device=device)
 
     training_context = TrainingContext(
         config=config,
@@ -117,8 +97,6 @@ def train_dynamics_model_ensemble(
         )
     ]
 
-    # A budget, not a hyperparameter: the training keeps the epoch with the
-    # lowest validation loss, so a generous number costs time and nothing else.
     for epoch_index in tqdm(range(500), desc="training ensemble", unit="epoch"):
         _log_epoch(
             epoch_index=epoch_index,
@@ -161,6 +139,24 @@ def _define_epoch_metrics(*, run: Run) -> None:
         run.define_metric(
             name=f"{STAGE_NAME}/{metric_pattern}", step_metric=EPOCH_METRIC_NAME
         )
+
+
+def _create_normalizers(
+    transitions: TransitionSet, device: torch.device
+) -> Normalizers:
+    state_batch = torch.from_numpy(transitions.states).to(device=device)
+    next_state_batch = torch.from_numpy(transitions.next_states).to(device=device)
+    action_batch = torch.from_numpy(transitions.actions).to(device=device)
+    normalizers = Normalizers.from_transitions(
+        state_batch=state_batch,
+        network_feature_batch=network_features(
+            state_batch=state_batch, action_batch=action_batch
+        ),
+        state_displacement_batch=subtract_states(
+            minuend_batch=next_state_batch, subtrahend_batch=state_batch
+        ),
+    ).to(device=device)
+    return normalizers
 
 
 def _log_epoch(
