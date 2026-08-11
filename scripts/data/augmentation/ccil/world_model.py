@@ -1,17 +1,9 @@
-"""The CCIL world model, kept as close to their published code as we can.
-
-This includes how it treats the block angle. All state arithmetic here is plain
-subtraction, so a recorded full turn enters the residual as a step of -2π. TaCIL
-takes the shorter way round instead (see scripts/shared/pusht_state.py). The two
-methods differ here on purpose: the baseline follows the paper, not TaCIL.
-"""
-
 from dataclasses import dataclass
 
 import torch
 from tqdm import tqdm
 
-from scripts.data.augmentation.ccil.config import DynamicsConfig
+from scripts.data.augmentation.ccil.config import DynamicsConfig, LipschitzType
 
 
 @dataclass(frozen=True)
@@ -38,8 +30,8 @@ class WorldModel(torch.nn.Module):
         state_dimensionality: int,
         action_dimensionality: int,
         hidden_layer_sizes: tuple[int, ...],
-        lipschitz_type: str = "soft_sampling",
-        lipschitz_constraint: float = 2.0,
+        lipschitz_type: LipschitzType,
+        lipschitz_constraint: float,
     ) -> None:
         super().__init__()
         layer_sizes = (

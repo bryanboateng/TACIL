@@ -1,17 +1,3 @@
-"""Create a pipeline sweep.
-
-The sweep searches the whole chain with Bayesian optimization, judged by the
-reward in one condition. Every sweep is the same apart from the dataset it
-starts from and the condition it optimizes, which is what this script takes.
-
-    uv run python -m scripts.sweep.create_sweep \
-        --project-prefix=2026-08-01 --dataset=full \
-        --floor-condition=GRIPPY --disturbance-level=None
-
-It prints the command that puts an agent on the sweep. Run that as often as
-there are GPUs to spare; agents can join and leave while the sweep runs.
-"""
-
 from dataclasses import dataclass
 from typing import Any, Literal
 
@@ -38,23 +24,45 @@ SearchLabel = Literal["bayes", "random"]
 # The unaugmented baselines are not here: with the policy hyperparameters
 # fixed they have nothing to search, so they are single runs of
 # run_dp_pipeline and run_bc_pipeline rather than sweeps.
-MethodLabel = Literal["tacil-dp", "tacil-bc", "ccil-bc-noisy", "ccil-bc-euler", "gpi"]
+MethodLabel = Literal[
+    "tacil-dp-uncertainty",
+    "tacil-dp-sensitivity",
+    "tacil-bc-uncertainty",
+    "tacil-bc-sensitivity",
+    "ccil-bc-noisy",
+    "ccil-bc-euler",
+    "gpi",
+]
 
 # The policy module each method's trials run. The augmentation is part of the
 # policy's own command line, so a method is a module plus a subcommand.
 METHOD_MODULES: dict[MethodLabel, str] = {
-    "tacil-dp": "scripts.policies.dp.run",
-    "tacil-bc": "scripts.policies.bc.run",
+    "tacil-dp-uncertainty": "scripts.policies.dp.run",
+    "tacil-dp-sensitivity": "scripts.policies.dp.run",
+    "tacil-bc-uncertainty": "scripts.policies.bc.run",
+    "tacil-bc-sensitivity": "scripts.policies.bc.run",
     "ccil-bc-noisy": "scripts.policies.bc.run",
     "ccil-bc-euler": "scripts.policies.bc.run",
     "gpi": "scripts.policies.gpi.run",
 }
 
-# Fixed per-method arguments, appended to the command before the swept ones.
-# The subcommand token must come before the swept options it configures.
 METHOD_FIXED_ARGUMENTS: dict[MethodLabel, list[str]] = {
-    "tacil-dp": ["augmentation:tacil"],
-    "tacil-bc": ["augmentation:tacil"],
+    "tacil-dp-uncertainty": [
+        "augmentation:tacil",
+        "--augmentation.data.error_signal=uncertainty",
+    ],
+    "tacil-dp-sensitivity": [
+        "augmentation:tacil",
+        "--augmentation.data.error_signal=sensitivity_scaled_step_distance",
+    ],
+    "tacil-bc-uncertainty": [
+        "augmentation:tacil",
+        "--augmentation.data.error_signal=uncertainty",
+    ],
+    "tacil-bc-sensitivity": [
+        "augmentation:tacil",
+        "--augmentation.data.error_signal=sensitivity_scaled_step_distance",
+    ],
     "ccil-bc-noisy": ["augmentation:ccil", "--augmentation.labels.type=noisy_action"],
     "ccil-bc-euler": [
         "augmentation:ccil",
@@ -82,23 +90,26 @@ _TACIL_PARAMETERS: dict[str, Any] = {
         "min": 0.0,
         "max": 1.0,
     },
-    # Wide, because the two error signals differ in scale by one to two orders
-    # of magnitude: each needs its own part of this range to reach useful
-    # prefix lengths.
-    "augmentation.data.error_limit_fraction": {
-        "distribution": "log_uniform_values",
-        "min": 0.002,
-        "max": 32.0,
-    },
-    # Alternatives rather than a weighted sum, so that the search compares them
-    # with a limit fitted to each.
-    "augmentation.data.error_signal": {
-        "values": ["uncertainty", "sensitivity_scaled_step_distance"]
-    },
 }
 
-# Their configs pick one Lipschitz variant per environment; here the sweep
-# chooses. The two "slack" variants are not ported (second network).
+# The error signal is fixed per method rather than searched, because the two
+# stand in the same units but differ in size by more than an order of
+# magnitude: one shared limit range would have to be wide enough for both, and
+# a search would spend most of its trials outside the useful part for whichever
+# signal it drew. The offset below comes from the diagnostics of the dynamics
+# stage, 7_backward/signal_over_truth/<signal>/median, and should be checked
+# again when the dynamics model changes.
+_UNCERTAINTY_OVER_SENSITIVITY_SCALE = 1 / 20
+
+
+def _error_limit_fraction(*, scale: float) -> dict[str, Any]:
+    return {
+        "distribution": "log_uniform_values",
+        "min": 0.125 * scale,
+        "max": 32.0 * scale,
+    }
+
+
 _CCIL_SHARED_PARAMETERS: dict[str, Any] = {
     "augmentation.dynamics.lipschitz_type": {
         "values": ["soft_sampling", "spectral_normalization", "none"]
@@ -115,10 +126,24 @@ _CCIL_SHARED_PARAMETERS: dict[str, Any] = {
     },
 }
 
+_TACIL_UNCERTAINTY_PARAMETERS: dict[str, Any] = {
+    **_TACIL_PARAMETERS,
+    "augmentation.data.error_limit_fraction": _error_limit_fraction(
+        scale=_UNCERTAINTY_OVER_SENSITIVITY_SCALE
+    ),
+}
+
+_TACIL_SENSITIVITY_PARAMETERS: dict[str, Any] = {
+    **_TACIL_PARAMETERS,
+    "augmentation.data.error_limit_fraction": _error_limit_fraction(scale=1.0),
+}
+
 # What each method's sweep searches.
 METHOD_PARAMETERS: dict[MethodLabel, dict[str, Any]] = {
-    "tacil-dp": _TACIL_PARAMETERS,
-    "tacil-bc": _TACIL_PARAMETERS,
+    "tacil-dp-uncertainty": _TACIL_UNCERTAINTY_PARAMETERS,
+    "tacil-dp-sensitivity": _TACIL_SENSITIVITY_PARAMETERS,
+    "tacil-bc-uncertainty": _TACIL_UNCERTAINTY_PARAMETERS,
+    "tacil-bc-sensitivity": _TACIL_SENSITIVITY_PARAMETERS,
     "ccil-bc-noisy": {
         **_CCIL_SHARED_PARAMETERS,
         # Their delta, absolute in raw action units (their configs use 1e-5;
@@ -145,7 +170,6 @@ METHOD_PARAMETERS: dict[MethodLabel, dict[str, Any]] = {
     },
 }
 
-# The datasets a sweep can start from, under the label that names the project.
 EXPERT_DATASET_ARTIFACTS: dict[DatasetLabel, str] = {
     "full": "bryanboateng-team/datasets/expert-dataset:v0",
     "sub025": "bryanboateng-team/datasets/subsampled-dataset-0.25:v0",
@@ -154,24 +178,14 @@ EXPERT_DATASET_ARTIFACTS: dict[DatasetLabel, str] = {
 
 @dataclass(frozen=True)
 class Config:
-    # Names the project, together with the dataset, method, and condition.
     project_prefix: str
     dataset: DatasetLabel
     method: MethodLabel
     floor_condition: FloorCondition
     disturbance_level: DisturbanceLevel | None
 
-    # Every trial in the sweep runs with this seed, so the trials differ only
-    # in the parameters being searched. Pick the seeds for the final runs
-    # separately, and not this one: the winning parameters were chosen on it.
     seed: int
 
-    # How the next trial is chosen. Bayesian search models the reward from the
-    # finished trials and proposes where it looks best, which pays off in a
-    # small space. Random search ignores the finished trials: in a space with
-    # many parameters it takes a long time before the model is worth
-    # anything, and random draws stay independent no matter how many agents
-    # run at once.
     search: SearchLabel = "bayes"
 
     entity: str = "bryanboateng-team"

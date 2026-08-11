@@ -93,8 +93,6 @@ def create_ccil_augmented_data(
 def _transitions(
     *, episode_store: EpisodeStore
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """All (s, a, s') triples; the last timestep of every episode has no
-    successor and is dropped."""
     last_timestep_indices = episode_store.episode_end_indices - 1
     keep_mask = np.ones(episode_store.states.shape[0], dtype=bool)
     keep_mask[last_timestep_indices] = False
@@ -116,12 +114,6 @@ def _generate_labels(
     next_state_batch: torch.Tensor,  # (transition_count, state_dimensionality)
     config: CcilConfig,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Their generators, batched: labels, their actions, and the distances
-    ‖s^G − s‖ used by the rejection filter.
-
-    noisy_action (gen_noisy_action_be): s^G = s' − f(s', ã) with noised ã.
-    backward_euler_fast: s^G = s − f(s, a) with the true action (Eq. 4).
-    """
     if config.labels.type == "noisy_action":
         label_count_per_transition = config.labels.label_count_per_transition
     else:
