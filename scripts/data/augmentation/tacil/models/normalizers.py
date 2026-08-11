@@ -27,16 +27,11 @@ class Normalizers(torch.nn.Module):
         cls,
         *,
         state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
-        # Both taken by the caller rather than computed here: assembling the
-        # features and subtracting two states are the state layout's business,
-        # and this class knows only scales.
-        network_feature_batch: torch.Tensor,  # (batch_size, NETWORK_FEATURE_DIMENSIONALITY)
+        network_feature_batch: torch.Tensor,  # (batch_size, network_feature_dimensionality)
         state_displacement_batch: torch.Tensor,  # (batch_size, state_dimensionality)
     ) -> Self:
         return cls(
             state_normalizer=ZScoreNormalizer.from_values(value_batch=state_batch),
-            # Measured on the features themselves. A block position taken from
-            # the agent has its own spread, not that of an absolute position.
             network_feature_normalizer=ZScoreNormalizer.from_values(
                 value_batch=network_feature_batch
             ),
