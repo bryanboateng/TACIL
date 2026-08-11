@@ -16,7 +16,6 @@ def network_features(
     agent_position_batch = state_batch[:, AGENT_POSITION_SLICE]
     return torch.cat(
         tensors=[
-            agent_position_batch,
             state_batch[:, BLOCK_POSITION_SLICE] - agent_position_batch,
             action_batch - agent_position_batch,
         ],
@@ -24,8 +23,8 @@ def network_features(
     )
 
 
-# Agent position, block measured from the agent, action measured from the agent.
-NETWORK_FEATURE_DIMENSIONALITY = 6
+# Block measured from the agent, action measured from the agent.
+NETWORK_FEATURE_DIMENSIONALITY = 4
 # Those, plus the orientation as a cosine and a sine.
 NETWORK_INPUT_DIMENSIONALITY = NETWORK_FEATURE_DIMENSIONALITY + 2
 
