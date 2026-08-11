@@ -89,17 +89,32 @@ def diagnose_dynamics_model_ensemble(
         convergence_tolerance=1e-3 * median_expert_step_distance,
     )
 
-    forward_spearman = _spearman_correlation(
-        claims=forward_chain_measurements.disagreements,
-        truths=forward_chain_measurements.true_errors,
-    )
-    backward_spearman = _spearman_correlation(
-        claims=backward_chain_measurements.disagreements,
-        truths=backward_chain_measurements.true_errors,
+    # The two candidates for the step error, under the names the data stage
+    # selects them by. Both are measured on the backward chains, which is the
+    # direction the augmentation walks.
+    backward_signals = (
+        ("uncertainty", backward_chain_measurements.disagreements),
+        (
+            "sensitivity_scaled_step_distance",
+            backward_chain_measurements.sensitivity_scaled_step_distances,
+        ),
     )
 
-    run.summary[f"{_STAGE_NAME}/6_spearman/forward"] = forward_spearman
-    run.summary[f"{_STAGE_NAME}/6_spearman/backward"] = backward_spearman
+    # Whether a signal ORDERS the true errors correctly. That is what a
+    # threshold needs; being off by a constant factor does not matter, since
+    # the limit is fitted anyway.
+    run.summary[f"{_STAGE_NAME}/6_spearman/forward/uncertainty"] = (
+        _spearman_correlation(
+            claims=forward_chain_measurements.disagreements,
+            truths=forward_chain_measurements.true_errors,
+        )
+    )
+    for signal_name, signals in backward_signals:
+        run.summary[f"{_STAGE_NAME}/6_spearman/backward/{signal_name}"] = (
+            _spearman_correlation(
+                claims=signals, truths=backward_chain_measurements.true_errors
+            )
+        )
 
     # The single-step error per state part on both splits: equal values mean
     # the model is as good as it can be on this data, a training value far
@@ -122,15 +137,9 @@ def diagnose_dynamics_model_ensemble(
         np.isfinite(backward_chain_measurements.true_errors[:, -1].cpu().numpy()).mean()
     )
     # How many times larger each raw filter signal is than the true error at
-    # the same backward step. Translates the swept threshold into true-error
-    # units without fixing a signal mix here.
-    for signal_name, signals in (
-        ("disagreement", backward_chain_measurements.disagreements),
-        (
-            "lipschitz_distance",
-            backward_chain_measurements.sensitivity_scaled_step_distances,
-        ),
-    ):
+    # the same backward step. Says what part of the swept limit range a signal
+    # needs, and how far the two are apart in scale.
+    for signal_name, signals in backward_signals:
         signal_values, truth_values = _finite_pairs(
             claims=signals, truths=backward_chain_measurements.true_errors
         )

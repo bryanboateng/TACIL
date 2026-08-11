@@ -65,7 +65,7 @@ def create_augmented_data(
             device=device
         ),
         action_noise_std=torch.as_tensor(action_noise_std).to(device=device),
-        disagreement_weight=config.disagreement_weight,
+        error_signal=config.error_signal,
         error_limit=error_limit,
         convergence_tolerance=1e-3 * median_expert_step_distance,
     )

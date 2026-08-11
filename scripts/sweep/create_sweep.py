@@ -82,15 +82,18 @@ _TACIL_PARAMETERS: dict[str, Any] = {
         "min": 0.0,
         "max": 1.0,
     },
+    # Wide, because the two error signals differ in scale by one to two orders
+    # of magnitude: each needs its own part of this range to reach useful
+    # prefix lengths.
     "augmentation.data.error_limit_fraction": {
         "distribution": "log_uniform_values",
-        "min": 0.125,
+        "min": 0.002,
         "max": 32.0,
     },
-    "augmentation.data.disagreement_weight": {
-        "distribution": "uniform",
-        "min": 0.0,
-        "max": 1.0,
+    # Alternatives rather than a weighted sum, so that the search compares them
+    # with a limit fitted to each.
+    "augmentation.data.error_signal": {
+        "values": ["uncertainty", "sensitivity_scaled_step_distance"]
     },
 }
 

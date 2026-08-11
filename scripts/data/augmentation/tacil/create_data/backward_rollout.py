@@ -5,6 +5,7 @@ from enum import IntEnum
 import torch
 from tqdm import tqdm
 
+from scripts.data.augmentation.tacil.create_data.config import ErrorSignal
 from scripts.data.augmentation.tacil.create_data.inverse_dynamics import (
     solve_inverse_dynamics,
 )
@@ -47,7 +48,7 @@ def roll_out_backward(
     anchor_state_batch: torch.Tensor,  # (anchor_count, state_dimensionality)
     anchor_action_batch: torch.Tensor,  # (anchor_count, action_dimensionality)
     action_noise_std: torch.Tensor,  # (action_dimensionality,)
-    disagreement_weight: float,
+    error_signal: ErrorSignal,
     error_limit: float,
     convergence_tolerance: float,
 ) -> tuple[BackwardTrajectories, RolloutDiagnostics]:
@@ -79,7 +80,7 @@ def roll_out_backward(
             state_batch=current_state_batch[active_indices],
             action_batch=anchor_action_batch[active_indices],
             action_noise_std=action_noise_std,
-            disagreement_weight=disagreement_weight,
+            error_signal=error_signal,
             convergence_tolerance=convergence_tolerance,
         )
 
@@ -189,7 +190,7 @@ class _DiagnosticsCollector:
 
     accumulated_errors: list[torch.Tensor] = field(default_factory=list)
     step_errors: list[torch.Tensor] = field(default_factory=list)
-    disagreements: list[torch.Tensor] = field(default_factory=list)
+    uncertainties_about_next_state: list[torch.Tensor] = field(default_factory=list)
     sensitivity_scaled_step_distances: list[torch.Tensor] = field(default_factory=list)
     local_transition_lipschitz_constants: list[torch.Tensor] = field(
         default_factory=list
@@ -204,7 +205,7 @@ class _DiagnosticsCollector:
     ) -> None:
         self.accumulated_errors.append(candidate_error_batch[accepted_mask_batch])
         self.step_errors.append(backward_step.error_batch[accepted_mask_batch])
-        self.disagreements.append(
+        self.uncertainties_about_next_state.append(
             backward_step.uncertainty_about_next_state_batch[accepted_mask_batch]
         )
         self.sensitivity_scaled_step_distances.append(
@@ -223,7 +224,9 @@ class _DiagnosticsCollector:
             termination_reasons_batch=termination_reasons_batch,
             accumulated_error_estimates=torch.cat(tensors=self.accumulated_errors),
             step_error_estimates=torch.cat(tensors=self.step_errors),
-            uncertainties_about_next_state=torch.cat(tensors=self.disagreements),
+            uncertainties_about_next_state=torch.cat(
+                tensors=self.uncertainties_about_next_state
+            ),
             sensitivity_scaled_step_distances=torch.cat(
                 tensors=self.sensitivity_scaled_step_distances
             ),
@@ -239,7 +242,7 @@ def _compute_backward_step(
     state_batch: torch.Tensor,  # (active_count, state_dimensionality)
     action_batch: torch.Tensor,  # (active_count, action_dimensionality)
     action_noise_std: torch.Tensor,  # (action_dimensionality,)
-    disagreement_weight: float,
+    error_signal: ErrorSignal,
     convergence_tolerance: float,
 ) -> _BackwardStep:
     noisy_action_batch = action_batch + torch.normal(
@@ -271,10 +274,11 @@ def _compute_backward_step(
         )
     )  # (active_count,)
 
-    error_batch = (
-        disagreement_weight * uncertainty_about_next_state_batch
-        + (1.0 - disagreement_weight) * sensitivity_scaled_step_distance_batch
-    )  # (active_count,)
+    match error_signal:
+        case "uncertainty":
+            error_batch = uncertainty_about_next_state_batch  # (active_count,)
+        case "sensitivity_scaled_step_distance":
+            error_batch = sensitivity_scaled_step_distance_batch  # (active_count,)
 
     return _BackwardStep(
         predecessor_state_batch=predecessor_state_batch,
@@ -307,7 +311,7 @@ def _assemble_trajectories(
 
     anchor_start_index_batch = (
         torch.cumsum(input=step_count_batch, dim=0) - step_count_batch
-    )  #  (anchor_count,)
+    )  # (anchor_count,)
 
     for depth, accepted_steps in enumerate(iterable=accepted_steps_per_depth):
         write_index_batch = (

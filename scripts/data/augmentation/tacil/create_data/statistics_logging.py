@@ -60,7 +60,7 @@ def log_rollout_statistics(
         ),
         ("step_error_estimates", rollout_diagnostics.step_error_estimates),
         (
-            "disagreements_about_next_state",
+            "uncertainties_about_next_state",
             rollout_diagnostics.uncertainties_about_next_state,
         ),
         (

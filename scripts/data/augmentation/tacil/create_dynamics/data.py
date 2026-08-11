@@ -8,7 +8,7 @@ from scripts.shared.episode_store import EpisodeStore
 
 @dataclass
 class TransitionSet:
-    states: npt.NDArray[np.float32]  #  (episode_length, state_dimensionality)
+    states: npt.NDArray[np.float32]  # (episode_length, state_dimensionality)
     actions: npt.NDArray[np.float32]  # (episode_length, action_dimensionality)
     next_states: npt.NDArray[np.float32]  # (episode_length, state_dimensionality)
 
