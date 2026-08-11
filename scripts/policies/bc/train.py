@@ -135,11 +135,11 @@ def train_behavior_cloning_policy(
     if best_checkpoint is None:
         raise ValueError("No checkpoint was recorded")
 
-    run.summary[f"{STAGE_NAME}/3_selected/epoch"] = best_checkpoint.epoch
-    run.summary[f"{STAGE_NAME}/3_selected/reward_mean"] = (
+    run.summary[f"{STAGE_NAME}/3_best_checkpoint/epoch"] = best_checkpoint.epoch
+    run.summary[f"{STAGE_NAME}/3_best_checkpoint/validation_reward_mean"] = (
         best_checkpoint.validation_reward_mean
     )
-    run.summary[f"{STAGE_NAME}/3_selected/reward_std"] = (
+    run.summary[f"{STAGE_NAME}/3_best_checkpoint/validation_reward_std"] = (
         best_checkpoint.validation_reward_std
     )
 

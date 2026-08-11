@@ -30,6 +30,7 @@ from scripts.data.augmentation.tacil.models.network_input import network_feature
 from scripts.data.augmentation.tacil.models.normalizers import Normalizers
 from scripts.shared.episode_store import EpisodeStore
 from scripts.shared.log import create_logger
+from scripts.shared.distribution_summary import summarize_distribution
 from scripts.shared.pusht_state import subtract_states
 from scripts.shared.seeding import set_seed
 
@@ -165,13 +166,19 @@ def _log_epoch(
     logged_metrics: dict[str, float | wandb.Histogram] = {
         EPOCH_METRIC_NAME: epoch_index
     }
-    for member_index, metrics in enumerate(iterable=per_member_metrics):
-        member = f"member_{member_index:02d}"
-        logged_metrics[f"{STAGE_NAME}/1_loss/training/{member}"] = metrics.training_loss
-        logged_metrics[f"{STAGE_NAME}/1_loss/validation/{member}"] = (
-            metrics.validation_loss
+    # Summarized over the members rather than one curve each: twenty curves per
+    # quantity are unreadable, and what the curves are watched for — does it
+    # come down, do the members stay together — the summary says too.
+    for name, member_values in (
+        ("1_loss/training", [m.training_loss for m in per_member_metrics]),
+        ("1_loss/validation", [m.validation_loss for m in per_member_metrics]),
+        ("2_gradient_norm", [m.gradient_norm for m in per_member_metrics]),
+    ):
+        summary = summarize_distribution(
+            values=np.asarray(member_values, dtype=np.float64)
         )
-        logged_metrics[f"{STAGE_NAME}/2_gradient_norm/{member}"] = metrics.gradient_norm
+        for label, value in summary.items():
+            logged_metrics[f"{STAGE_NAME}/{name}/{label}"] = value
 
     for split, member_split_lipschitz in (
         (
@@ -210,17 +217,9 @@ def _log_checkpoint_summary(
     )
     epochs = np.array([checkpoint.epoch for checkpoint in checkpoints])
 
-    run.summary[f"{STAGE_NAME}/3_selected/loss_mean"] = float(validation_losses.mean())
-    run.summary[f"{STAGE_NAME}/3_selected/epoch_mean"] = float(epochs.mean())
-    # The spread over the members. It shows how much the result depends on the
-    # initialization of one member.
-    run.summary[f"{STAGE_NAME}/3_selected/loss_std"] = _member_spread(
-        values=validation_losses
-    )
-    run.summary[f"{STAGE_NAME}/3_selected/epoch_std"] = _member_spread(values=epochs)
-
-
-def _member_spread(*, values: np.ndarray) -> float:
-    # ddof=1, because the members are a sample of the possible initializations.
-    # A single member has no spread.
-    return float(values.std(ddof=1)) if values.shape[0] > 1 else 0.0
+    # Each member keeps the epoch with its lowest validation loss, and this is
+    # what those kept epochs look like across the members. The spread shows how
+    # much the result depends on the initialization of a single one.
+    for name, values in (("validation_loss", validation_losses), ("epoch", epochs)):
+        for label, value in summarize_distribution(values=values).items():
+            run.summary[f"{STAGE_NAME}/3_best_checkpoint/{name}_{label}"] = value

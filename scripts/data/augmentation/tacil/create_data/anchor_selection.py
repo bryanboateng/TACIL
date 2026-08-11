@@ -7,12 +7,6 @@ def get_anchor_indices(
     episode_end_indices: npt.NDArray[np.int64],  # (episode_count,)
     expert_part_length: int,
 ) -> npt.NDArray[np.int64]:  # (anchor_count,)
-    """Every timestep whose expert slice still fits inside its episode.
-
-    With no expert slice at all the only requirement left is that the anchor
-    is a timestep of the episode, so the window never reaches past its end.
-    """
-
     episode_start_indices = np.concatenate(
         (np.zeros(shape=1, dtype=episode_end_indices.dtype), episode_end_indices[:-1])
     )  # (episode_count,)

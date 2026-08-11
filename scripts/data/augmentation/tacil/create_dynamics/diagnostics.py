@@ -32,6 +32,7 @@ from scripts.data.augmentation.tacil.create_dynamics.data import (  # noqa: E402
 from scripts.data.augmentation.tacil.models.dynamics_model_ensemble import (  # noqa: E402
     DynamicsModelEnsemble,
 )
+from scripts.shared.distribution_summary import summarize_distribution  # noqa: E402
 from scripts.shared.episode_store import EpisodeStore  # noqa: E402
 from scripts.shared.log import create_logger  # noqa: E402
 from scripts.shared.pusht_state import (  # noqa: E402
@@ -93,7 +94,7 @@ def diagnose_dynamics_model_ensemble(
     # selects them by. Both are measured on the backward chains, which is the
     # direction the augmentation walks.
     backward_signals = (
-        ("uncertainty", backward_chain_measurements.disagreements),
+        ("uncertainty", backward_chain_measurements.uncertainties),
         (
             "sensitivity_scaled_step_distance",
             backward_chain_measurements.sensitivity_scaled_step_distances,
@@ -105,7 +106,7 @@ def diagnose_dynamics_model_ensemble(
     # the limit is fitted anyway.
     run.summary[f"{_STAGE_NAME}/6_spearman/forward/uncertainty"] = (
         _spearman_correlation(
-            claims=forward_chain_measurements.disagreements,
+            claims=forward_chain_measurements.uncertainties,
             truths=forward_chain_measurements.true_errors,
         )
     )
@@ -136,6 +137,25 @@ def diagnose_dynamics_model_ensemble(
     run.summary[f"{_STAGE_NAME}/7_backward/full_depth_fraction"] = float(
         np.isfinite(backward_chain_measurements.true_errors[:, -1].cpu().numpy()).mean()
     )
+
+    for direction_name, measurements in (
+        ("forward", forward_chain_measurements),
+        ("backward", backward_chain_measurements),
+    ):
+        for depth in (1, 5, 10):
+            if depth > measurements.true_errors.shape[1]:
+                continue
+            errors_at_depth = measurements.true_errors[:, depth - 1].cpu().numpy()
+            # A chain that stopped before this depth is NaN from there on, and
+            # it has no error to contribute.
+            errors_at_depth = errors_at_depth[np.isfinite(errors_at_depth)]
+            if errors_at_depth.size == 0:
+                continue
+            for label, value in summarize_distribution(values=errors_at_depth).items():
+                run.summary[
+                    f"{_STAGE_NAME}/8_error_over_depth/"
+                    f"{direction_name}/depth_{depth}/{label}"
+                ] = value
     # How many times larger each raw filter signal is than the true error at
     # the same backward step. Says what part of the swept limit range a signal
     # needs, and how far the two are apart in scale.
@@ -143,17 +163,18 @@ def diagnose_dynamics_model_ensemble(
         signal_values, truth_values = _finite_pairs(
             claims=signals, truths=backward_chain_measurements.true_errors
         )
-        if signal_values.size > 0:
-            run.summary[f"{_STAGE_NAME}/7_backward/signal_over_truth/{signal_name}"] = (
-                float(np.median(signal_values / np.maximum(truth_values, 1e-12)))
-            )
+        ratios = signal_values / np.maximum(truth_values, 1e-12)
+        for label, value in summarize_distribution(values=ratios).items():
+            run.summary[
+                f"{_STAGE_NAME}/7_backward/signal_over_truth/{signal_name}/{label}"
+            ] = value
 
-    forward_disagreements, forward_true_errors = _finite_pairs(
-        claims=forward_chain_measurements.disagreements,
+    forward_uncertainties, forward_true_errors = _finite_pairs(
+        claims=forward_chain_measurements.uncertainties,
         truths=forward_chain_measurements.true_errors,
     )
-    backward_disagreements, backward_true_errors = _finite_pairs(
-        claims=backward_chain_measurements.disagreements,
+    backward_uncertainties, backward_true_errors = _finite_pairs(
+        claims=backward_chain_measurements.uncertainties,
         truths=backward_chain_measurements.true_errors,
     )
     run.log(
@@ -169,19 +190,11 @@ def diagnose_dynamics_model_ensemble(
             f"{_STAGE_NAME}/9_panels/one_step_error_by_split": _split_comparison_panel(
                 one_step_errors_per_split=one_step_errors_per_split
             ),
-            f"{_STAGE_NAME}/9_panels/error_over_depth_by_group": _group_error_panel(
-                forward_state_differences=(
-                    forward_chain_measurements.state_differences.cpu().numpy()
-                ),
-                backward_state_differences=(
-                    backward_chain_measurements.state_differences.cpu().numpy()
-                ),
-            ),
             f"{_STAGE_NAME}/9_panels/uncertainty_vs_error": (
-                _disagreement_scatter_panel(
-                    forward_disagreements=forward_disagreements,
+                _uncertainty_scatter_panel(
+                    forward_uncertainties=forward_uncertainties,
                     forward_true_errors=forward_true_errors,
-                    backward_disagreements=backward_disagreements,
+                    backward_uncertainties=backward_uncertainties,
                     backward_true_errors=backward_true_errors,
                 )
             ),
@@ -209,8 +222,8 @@ class _ForwardChainMeasurements:
     true_errors: torch.Tensor  # (chain_count, depth_count)
     # The same deviation kept per dimension of the current frame.
     state_differences: torch.Tensor  # (chain_count, depth_count, state_dimensionality)
-    # Ensemble disagreement at the state the prediction was made from.
-    disagreements: torch.Tensor  # (chain_count, depth_count)
+    # Ensemble uncertainty at the state the prediction was made from.
+    uncertainties: torch.Tensor  # (chain_count, depth_count)
 
 
 @dataclass(frozen=True)
@@ -227,7 +240,7 @@ class _BackwardChainMeasurements:
     # The same deviation kept per dimension of the current frame.
     state_differences: torch.Tensor  # (chain_count, depth_count, state_dimensionality)
     # The two filter signals, evaluated at the solved predecessor.
-    disagreements: torch.Tensor  # (chain_count, depth_count)
+    uncertainties: torch.Tensor  # (chain_count, depth_count)
     sensitivity_scaled_step_distances: torch.Tensor  # (chain_count, depth_count)
 
 
@@ -297,11 +310,11 @@ def _measure_forward_chains(
 
     current_state_batch = state_windows[:, 0, :]
     difference_columns: list[torch.Tensor] = []
-    disagreement_columns: list[torch.Tensor] = []
+    uncertainty_columns: list[torch.Tensor] = []
 
     for depth_index in range(depth_count):
         action_batch = action_windows[:, depth_index, :]
-        disagreement_columns.append(
+        uncertainty_columns.append(
             dynamics_model_ensemble.uncertainty_about_next_state(
                 state_batch=current_state_batch, action_batch=action_batch
             )
@@ -321,7 +334,7 @@ def _measure_forward_chains(
     return _ForwardChainMeasurements(
         true_errors=torch.linalg.norm(state_differences, dim=-1),
         state_differences=state_differences,
-        disagreements=torch.stack(tensors=disagreement_columns, dim=1),
+        uncertainties=torch.stack(tensors=uncertainty_columns, dim=1),
     )
 
 
@@ -347,7 +360,7 @@ def _measure_backward_chains(
         fill_value=float("nan"),
         device=device,
     )
-    disagreements = torch.full_like(true_errors, fill_value=float("nan"))
+    uncertainties = torch.full_like(true_errors, fill_value=float("nan"))
     sensitivity_scaled_step_distances = torch.full_like(
         true_errors, fill_value=float("nan")
     )
@@ -393,7 +406,7 @@ def _measure_backward_chains(
         true_errors[converged_indices, depth_index] = torch.linalg.norm(
             difference_batch, dim=-1
         )
-        disagreements[converged_indices, depth_index] = (
+        uncertainties[converged_indices, depth_index] = (
             dynamics_model_ensemble.uncertainty_about_next_state(
                 state_batch=predecessor_state_batch, action_batch=converged_action_batch
             )
@@ -411,7 +424,7 @@ def _measure_backward_chains(
     return _BackwardChainMeasurements(
         true_errors=true_errors,
         state_differences=state_differences,
-        disagreements=disagreements,
+        uncertainties=uncertainties,
         sensitivity_scaled_step_distances=sensitivity_scaled_step_distances,
     )
 
@@ -494,10 +507,6 @@ def _finite_pairs(
 # One fixed color per chain direction, reused across all panels.
 _FORWARD_COLOR = "#1f77b4"
 _BACKWARD_COLOR = "#d62728"
-
-# The state's parts (PushT layout), each measured separately in the group
-# error breakdown.
-_GROUP_COLORS = {"agent": "#2ca02c", "block": "#9467bd", "angle": "#ff7f0e"}
 
 
 def _error_over_depth_panel(
@@ -629,60 +638,11 @@ def _split_comparison_panel(
     return image
 
 
-def _group_error_panel(
+def _uncertainty_scatter_panel(
     *,
-    forward_state_differences: npt.NDArray[
-        np.floating
-    ],  # (chain_count, depth_count, state_dim)
-    backward_state_differences: npt.NDArray[
-        np.floating
-    ],  # (chain_count, depth_count, state_dim), NaN allowed
-) -> wandb.Image:
-    """The total error split into the state's parts: which part of the state
-    does the model get wrong? Median per depth, backward left, forward
-    right."""
-    figure, (backward_axes, forward_axes) = plt.subplots(
-        ncols=2, figsize=(10, 4.5), sharey=True
-    )
-
-    for axes, direction_state_differences, direction_sign, direction_label in (
-        (backward_axes, backward_state_differences, -1, "backward"),
-        (forward_axes, forward_state_differences, +1, "forward"),
-    ):
-        depth_count = direction_state_differences.shape[1]
-        step_positions = direction_sign * np.arange(1, depth_count + 1)
-        for group_name, group_slice in STATE_GROUPS:
-            group_errors = np.linalg.norm(
-                direction_state_differences[:, :, group_slice], axis=-1
-            )  # (chain_count, depth_count)
-            axes.plot(
-                step_positions,
-                np.nanmedian(group_errors, axis=0),
-                marker="o",
-                markersize=3,
-                color=_GROUP_COLORS[group_name],
-                label=group_name,
-            )
-        axes.set_title(label=direction_label)
-        axes.xaxis.set_major_locator(plt.MaxNLocator(integer=True))
-        axes.set_xlabel(xlabel="steps")
-        axes.set_yscale(value="log")
-
-    backward_axes.set_ylabel(ylabel="median error (normalized)")
-    forward_axes.legend(fontsize=8)
-    figure.suptitle(t="Prediction error per state part")
-    figure.tight_layout()
-
-    image = wandb.Image(figure)
-    plt.close(fig=figure)
-    return image
-
-
-def _disagreement_scatter_panel(
-    *,
-    forward_disagreements: npt.NDArray[np.floating],  # (point_count,)
+    forward_uncertainties: npt.NDArray[np.floating],  # (point_count,)
     forward_true_errors: npt.NDArray[np.floating],  # (point_count,)
-    backward_disagreements: npt.NDArray[np.floating],  # (point_count,)
+    backward_uncertainties: npt.NDArray[np.floating],  # (point_count,)
     backward_true_errors: npt.NDArray[np.floating],  # (point_count,)
 ) -> wandb.Image:
     """One dot per chain step. A cloud rising to the right means the
@@ -693,23 +653,23 @@ def _disagreement_scatter_panel(
         ncols=2, figsize=(10, 5), sharex=True, sharey=True
     )
 
-    for axes, disagreements, true_errors, direction_label, color in (
+    for axes, uncertainties, true_errors, direction_label, color in (
         (
             backward_axes,
-            backward_disagreements,
+            backward_uncertainties,
             backward_true_errors,
             "backward",
             _BACKWARD_COLOR,
         ),
         (
             forward_axes,
-            forward_disagreements,
+            forward_uncertainties,
             forward_true_errors,
             "forward",
             _FORWARD_COLOR,
         ),
     ):
-        axes.scatter(disagreements, true_errors, s=4, alpha=0.3, color=color)
+        axes.scatter(uncertainties, true_errors, s=4, alpha=0.3, color=color)
         axes.set_title(label=direction_label)
         axes.set_xlabel(xlabel="predicted uncertainty")
         axes.set_xscale(value="log")

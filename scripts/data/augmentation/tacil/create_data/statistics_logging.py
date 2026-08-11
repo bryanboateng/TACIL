@@ -17,16 +17,9 @@ from scripts.data.augmentation.tacil.create_data.backward_rollout import (  # no
 from scripts.data.augmentation.tacil.create_data.episode_assembly import (  # noqa: E402
     AugmentationResult,
 )
+from scripts.shared.distribution_summary import summarize_distribution  # noqa: E402
 
-# Every key this stage logs starts with it, so a stage run and a pipeline run
-# report the same numbers under the same names. wandb groups panels by the part
-# before the first slash, so the stage joins the group with a hyphen rather than
-# a slash of its own.
 STAGE_NAME = "2_data"
-
-# The groups under it carry numeric prefixes of their own, so wandb's
-# alphabetical summary table shows them in pipeline order: error model ->
-# rollout -> termination -> augmented episodes -> combined dataset.
 
 
 def log_rollout_statistics(
@@ -77,6 +70,8 @@ def log_rollout_statistics(
             histogram_panels[f"{STAGE_NAME}/5_panels/{name}"] = _distribution_panel(
                 values=values, column_name=name
             )
+            for label, value in summarize_distribution(values=values).items():
+                run.summary[f"{STAGE_NAME}/6_distributions/{name}/{label}"] = value
 
     run.log(data=histogram_panels)
 
@@ -91,8 +86,6 @@ def log_dataset_statistics(
     synthetic_part_lengths = augmentation_result.synthetic_part_lengths
     counts = augmentation_result.counts
 
-    # counts.accepted equals the number of augmented episodes, and
-    # counts.empty equals anchor_count - accepted: each value appears once.
     run.summary[f"{STAGE_NAME}/1_rollout/accepted_count"] = counts.accepted
     run.summary[f"{STAGE_NAME}/1_rollout/accepted_fraction"] = counts.accepted / (
         counts.accepted + counts.empty
@@ -100,12 +93,8 @@ def log_dataset_statistics(
 
     augmented_transition_count = int(augmentation_result.episode_store.states.shape[0])
     synthetic_transition_count = int(synthetic_part_lengths.sum())
-    run.summary[f"{STAGE_NAME}/3_synthetic/length_mean"] = float(
-        synthetic_part_lengths.mean()
-    )
-    run.summary[f"{STAGE_NAME}/3_synthetic/length_std"] = float(
-        synthetic_part_lengths.std()
-    )
+    for label, value in summarize_distribution(values=synthetic_part_lengths).items():
+        run.summary[f"{STAGE_NAME}/3_synthetic/length_{label}"] = value
     run.summary[f"{STAGE_NAME}/3_synthetic/length_max"] = int(
         synthetic_part_lengths.max()
     )
@@ -134,47 +123,23 @@ def log_dataset_statistics(
     )
 
 
-def _bins(*, values: np.ndarray) -> np.ndarray | int:
-    """Bin edges that are guaranteed to be usable.
-
-    Values that are all the same, or so close together that twenty edges
-    between them do not come out distinct in floating point, get a single
-    bin — matplotlib would otherwise refuse to draw at all.
-    """
+def _bins(*, values: np.ndarray) -> list[float] | int:
     if np.issubdtype(values.dtype, np.integer):
         # One bar per integer value, centered on it.
-        return np.arange(values.min() - 0.5, values.max() + 1.5)
+        return np.arange(values.min() - 0.5, values.max() + 1.5).tolist()
 
     edges = np.linspace(float(values.min()), float(values.max()), num=21)
-    return edges if np.all(np.diff(edges) > 0.0) else 1
+    return edges.tolist() if np.all(np.diff(edges) > 0.0) else 1
 
 
 def _distribution_panel(*, values: np.ndarray, column_name: str) -> wandb.Image:
-    """Histogram rendered with matplotlib and logged as an image.
-
-    None of wandb's interactive chart types draws a one-off distribution
-    readably (its histogram bins in the browser, its bar chart is horizontal
-    with transposed axes), so we render the figure ourselves."""
-    # A run whose budget rejects everything, or whose model blows up, can
-    # leave these values infinite or all the same. Neither is a reason to
-    # lose the trial, so the panel says so instead of raising.
-    finite_values = values[np.isfinite(values)]  # (finite_count,)
-    dropped_count = int(values.size - finite_values.size)
+    clipped_values = values[
+        values <= float(np.percentile(a=values, q=99.5))
+    ]  # (clipped_count,)
 
     figure, axes = plt.subplots(figsize=(6, 4))
-    if finite_values.size == 0:
-        axes.set_title(label=f"no finite values ({values.size} discarded)")
-    else:
-        clipped_values = finite_values[
-            finite_values <= float(np.percentile(a=finite_values, q=99.5))
-        ]  # (clipped_count,)
-        axes.hist(clipped_values, bins=_bins(values=clipped_values), edgecolor="white")
-
-    axes.set_xlabel(
-        xlabel=column_name
-        if dropped_count == 0
-        else f"{column_name} ({dropped_count} non-finite discarded)"
-    )
+    axes.hist(clipped_values, bins=_bins(values=clipped_values), edgecolor="white")
+    axes.set_xlabel(xlabel=column_name)
     axes.set_ylabel(ylabel="count")
     figure.tight_layout()
 
