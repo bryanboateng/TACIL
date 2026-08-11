@@ -38,7 +38,7 @@ from scripts.shared.pusht_state import (  # noqa: E402
     BLOCK_ANGLE_INDEX,
     ARENA_SIZE,
     STATE_GROUPS,
-    state_differences,
+    subtract_states,
 )
 
 logger = create_logger()
@@ -457,8 +457,8 @@ def _normalized_differences(
     """How far the two states are apart, per dimension, in units of that
     dimension's spread."""
     return dynamics_model_ensemble.normalizers.scale_to_state_spread_units(
-        state_difference_batch=state_differences(
-            state_batch=state_batch, other_state_batch=other_state_batch
+        state_difference_batch=subtract_states(
+            minuend_batch=state_batch, subtrahend_batch=other_state_batch
         )
     )
 

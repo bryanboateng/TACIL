@@ -29,7 +29,7 @@ from scripts.data.augmentation.tacil.models.network_input import network_feature
 from scripts.data.augmentation.tacil.models.normalizers import Normalizers
 from scripts.shared.f import EpisodeStore
 from scripts.shared.log import create_logger
-from scripts.shared.pusht_state import state_differences
+from scripts.shared.pusht_state import subtract_states
 from scripts.shared.seeding import set_seed
 
 logger = create_logger()
@@ -89,8 +89,8 @@ def train_dynamics_model_ensemble(
         network_feature_batch=network_features(
             state_batch=state_batch, action_batch=action_batch
         ),
-        state_displacement_batch=state_differences(
-            state_batch=next_state_batch, other_state_batch=state_batch
+        state_displacement_batch=subtract_states(
+            minuend_batch=next_state_batch, subtrahend_batch=state_batch
         ),
     ).to(device=device)
 

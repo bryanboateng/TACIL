@@ -2,7 +2,7 @@ import torch
 
 from scripts.data.augmentation.tacil.models.dynamics_model import DynamicsModel
 from scripts.data.augmentation.tacil.models.normalizers import Normalizers
-from scripts.shared.pusht_state import state_differences
+from scripts.shared.pusht_state import subtract_states
 
 
 def compute_loss(
@@ -48,9 +48,9 @@ def compute_loss(
     # also the space the network itself predicts in.
     return (
         normalizers.scale_to_step_units(
-            state_difference_batch=state_differences(
-                state_batch=predicted_state_trajectory_batch,
-                other_state_batch=target_state_trajectory_batch,
+            state_difference_batch=subtract_states(
+                minuend_batch=predicted_state_trajectory_batch,
+                subtrahend_batch=target_state_trajectory_batch,
             )
         )
         .square()

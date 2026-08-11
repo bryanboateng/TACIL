@@ -8,7 +8,7 @@ from scripts.data.augmentation.tacil.models.network_input import (
     network_input,
 )
 from scripts.data.augmentation.tacil.models.normalizers import Normalizers
-from scripts.shared.pusht_state import advance_states
+from scripts.shared.pusht_state import add_states
 
 # Maximum factor by which SiLU stretches space, i.e. its (global) Lipschitz constant.
 _SILU_LIPSCHITZ_CONSTANT = 1.099839320
@@ -75,8 +75,8 @@ class DynamicsModel(torch.nn.Module):
         state_displacement_batch = normalizers.denormalize_state_displacement(
             normalized_state_displacement_batch=normalized_state_displacement_batch
         )  # (batch_size, state_dimensionality)
-        return advance_states(
-            state_batch=state_batch, state_displacement_batch=state_displacement_batch
+        return add_states(
+            first_addend_batch=state_batch, second_addend_batch=state_displacement_batch
         )  # (batch_size, state_dimensionality)
 
     def local_lipschitz_constants(

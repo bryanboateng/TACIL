@@ -5,7 +5,7 @@ from scripts.data.augmentation.tacil.models.dynamics_model_ensemble import (
     DynamicsModelEnsemble,
 )
 from scripts.shared.f import EpisodeStore
-from scripts.shared.pusht_state import state_differences
+from scripts.shared.pusht_state import subtract_states
 
 
 @torch.no_grad()
@@ -28,8 +28,8 @@ def calculate_median_step_distance(
     # I.e. one distance per consecutive pair of states.
     step_distance_batch = torch.linalg.norm(
         dynamics_model_ensemble.normalizers.scale_to_state_spread_units(
-            state_difference_batch=state_differences(
-                state_batch=state_batch[1:], other_state_batch=state_batch[:-1]
+            state_difference_batch=subtract_states(
+                minuend_batch=state_batch[1:], subtrahend_batch=state_batch[:-1]
             )
         ),
         dim=1,

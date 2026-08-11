@@ -1,122 +1,70 @@
-"""What the numbers in a PushT state mean.
-
-A state is four positions and one orientation. The orientation is periodic, so
-the state is not a plain vector: 0.01 and 2π - 0.01 are almost the same
-orientation but far apart as numbers. Only this one fact makes the module
-necessary. Everything below follows from it.
-
-The remedy is to leave the state alone and to replace the three arithmetic
-operations that would otherwise be wrong at that seam:
-
-    a - b        ->  state_differences(a, b)
-    a + d        ->  advance_states(a, d)
-    x.mean(dim)  ->  average_states(x, dim)
-
-Every stage then keeps working on flat vectors. Hertzberg et al. call the first
-two operators ⊟ and ⊞ and name exactly this pattern; see "Integrating generic
-sensor fusion algorithms with sound state representations through encapsulation
-of manifolds", Information Fusion 14(1), 2013, arXiv:1107.1119. average_states
-is the matching circular mean from directional statistics.
-
-The state carries no velocity, and it does not need one. With gym_pusht's
-default damping the block's velocity is destroyed every substep, so the next
-state is a function of this state and the action alone. Measured: a block given
-150 px/s stands still one step later.
-
-This module holds the layout and nothing built on top of it. How a network is
-fed from such a state is TaCIL's business and lives in
-scripts/data/augmentation/tacil/models/network_input.py. Both TaCIL and the GPI
-baseline read the layout from here, so the import graph shows who depends on
-PushT.
-
-The widths are deliberately absent. Every stage reads them from the recorded
-data, which states them itself, so no policy has to name the environment.
-"""
-
 import torch
 
-# Layout: agent x/y, block x/y, block angle.
 AGENT_POSITION_SLICE = slice(0, 2)
 BLOCK_POSITION_SLICE = slice(2, 4)
 POSITION_SLICE = slice(0, 4)
 BLOCK_ANGLE_INDEX = 4
 
-# The parts a state error is broken down into.
 STATE_GROUPS = (
     ("agent", AGENT_POSITION_SLICE),
     ("block", BLOCK_POSITION_SLICE),
     ("angle", slice(BLOCK_ANGLE_INDEX, BLOCK_ANGLE_INDEX + 1)),
 )
 
-# The quadratic arena (gym_pusht window size, pixels).
 ARENA_SIZE = 512
 
 FULL_TURN = 2.0 * torch.pi
 
 
-def shortest_angle_differences(
+def subtract_states(
     *,
-    angle_batch: torch.Tensor,  # (...)
-) -> torch.Tensor:  # (...)
-    """A difference of angles taken the shorter way round: being a full turn
-    apart means being in the same place."""
-    return (angle_batch + torch.pi) % FULL_TURN - torch.pi
-
-
-def state_differences(
-    *,
-    state_batch: torch.Tensor,  # (..., state_dimensionality)
-    other_state_batch: torch.Tensor,  # (..., state_dimensionality)
-) -> torch.Tensor:  # (..., state_dimensionality)
-    """State minus state. Positions subtract, the orientation goes the shorter
-    way round, so two states one full turn apart differ by zero rather than by
-    2π.
-
-    Every distance and every residual in the pipeline is built from this, which
-    is why no stage needs a continuous stand-in for the angle.
-    """
-    difference_batch = state_batch - other_state_batch
-    difference_batch[..., BLOCK_ANGLE_INDEX] = shortest_angle_differences(
+    minuend_batch: torch.Tensor,  # (batch_size, state_dimensionality)
+    subtrahend_batch: torch.Tensor,  # (batch_size, state_dimensionality)
+) -> torch.Tensor:  # (batch_size, state_dimensionality)
+    difference_batch = minuend_batch - subtrahend_batch
+    difference_batch[..., BLOCK_ANGLE_INDEX] = _wrap_angle_to_pi_range(
         angle_batch=difference_batch[..., BLOCK_ANGLE_INDEX]
     )
     return difference_batch
 
 
-def advance_states(
+def add_states(
     *,
-    state_batch: torch.Tensor,  # (..., state_dimensionality)
-    state_displacement_batch: torch.Tensor,  # (..., state_dimensionality)
-) -> torch.Tensor:  # (..., state_dimensionality)
-    """State plus displacement, with the orientation kept inside [0, 2π)."""
-    advanced_state_batch = state_batch + state_displacement_batch
-    # Not ``%=``: vmap has no batching rule for the in-place remainder and
-    # falls back to a loop, which costs 6x here. This runs inside every
-    # Jacobian.
-    advanced_state_batch[..., BLOCK_ANGLE_INDEX] = (
-        advanced_state_batch[..., BLOCK_ANGLE_INDEX] % FULL_TURN
-    )
-    return advanced_state_batch
+    first_addend_batch: torch.Tensor,  # (batch_size, state_dimensionality)
+    second_addend_batch: torch.Tensor,  # (batch_size, state_dimensionality)
+) -> torch.Tensor:  # (batch_size, state_dimensionality)
+    sum_batch = first_addend_batch + second_addend_batch
+
+    # Not `%=`: vmap has no batching rule for the in-place remainder and
+    # falls back to a loop, which costs more.
+    sum_batch[..., BLOCK_ANGLE_INDEX] = sum_batch[..., BLOCK_ANGLE_INDEX] % FULL_TURN
+
+    return sum_batch
 
 
-def average_states(
+def calculate_state_average(
     *,
-    state_batch: torch.Tensor,  # (..., state_dimensionality)
-    dim: int,
-) -> torch.Tensor:  # (..., state_dimensionality)
-    """The mean state. Positions average arithmetically, the orientation as a
-    direction on the unit circle.
+    state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
+) -> torch.Tensor:  # (state_dimensionality,)
+    average_batch = state_batch.mean(dim=0)
 
-    The arithmetic mean of 0.01 and 2π - 0.01 is π — the exact opposite of the
-    two orientations it averages. Averaging the unit vectors instead gives the
-    orientation they actually surround.
-    """
-    average_batch = state_batch.mean(dim=dim)
     angle_batch = state_batch[..., BLOCK_ANGLE_INDEX]
     average_batch[..., BLOCK_ANGLE_INDEX] = (
         torch.atan2(
-            input=torch.sin(input=angle_batch).mean(dim=dim),
-            other=torch.cos(input=angle_batch).mean(dim=dim),
+            input=torch.sin(input=angle_batch).mean(dim=0),
+            other=torch.cos(input=angle_batch).mean(dim=0),
         )
         % FULL_TURN
     )
     return average_batch
+
+
+# ---- Private --------------------------------------------
+
+
+def _wrap_angle_to_pi_range(
+    *,
+    angle_batch: torch.Tensor,  # (batch_size,)
+) -> torch.Tensor:  # (batch_size,)
+    """Wrap angles to [-π, π)."""
+    return (angle_batch + torch.pi) % FULL_TURN - torch.pi

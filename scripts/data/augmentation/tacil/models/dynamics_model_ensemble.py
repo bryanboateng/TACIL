@@ -2,7 +2,7 @@ import torch
 
 from scripts.data.augmentation.tacil.models.dynamics_model import DynamicsModel
 from scripts.data.augmentation.tacil.models.normalizers import Normalizers
-from scripts.shared.pusht_state import average_states, state_differences
+from scripts.shared.pusht_state import calculate_state_average, subtract_states
 
 
 class DynamicsModelEnsemble(torch.nn.Module):
@@ -49,7 +49,7 @@ class DynamicsModelEnsemble(torch.nn.Module):
         state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
         action_batch: torch.Tensor,  # (batch_size, action_dimensionality)
     ) -> torch.Tensor:  # (batch_size, state_dimensionality)
-        return average_states(
+        return calculate_state_average(
             state_batch=self.predict_next_state_per_member(
                 state_batch=state_batch, action_batch=action_batch
             ),
@@ -93,14 +93,14 @@ class DynamicsModelEnsemble(torch.nn.Module):
         # mean has to treat the orientation as a direction, otherwise two
         # members agreeing across the 0 / 2π seam would average to the opposite
         # orientation and look like maximal disagreement.
-        average_next_state_batch = average_states(
+        average_next_state_batch = calculate_state_average(
             state_batch=per_member_next_state_batch, dim=0
         )  # (batch_size, state_dimensionality)
 
         deviation_batch = self.normalizers.scale_to_state_spread_units(
-            state_difference_batch=state_differences(
-                state_batch=per_member_next_state_batch,
-                other_state_batch=average_next_state_batch.unsqueeze(dim=0),
+            state_difference_batch=subtract_states(
+                minuend_batch=per_member_next_state_batch,
+                subtrahend_batch=average_next_state_batch.unsqueeze(dim=0),
             )
         )  # (member_count, batch_size, state_dimensionality)
 
@@ -133,8 +133,8 @@ class DynamicsModelEnsemble(torch.nn.Module):
 
         normalized_step_distance_batch: torch.Tensor = torch.linalg.norm(
             self.normalizers.scale_to_state_spread_units(
-                state_difference_batch=state_differences(
-                    state_batch=state_batch, other_state_batch=next_state_batch
+                state_difference_batch=subtract_states(
+                    minuend_batch=state_batch, subtrahend_batch=next_state_batch
                 )
             ),
             dim=-1,
