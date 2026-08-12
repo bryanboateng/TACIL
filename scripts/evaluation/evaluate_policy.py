@@ -94,9 +94,9 @@ def _log_video(
             video_writer = imageio.get_writer(
                 uri=video_path,
                 fps=fps,
-                codec="libsvtav1",
+                codec="libx264",
                 macro_block_size=1,
-                ffmpeg_params=["-preset", "8", "-crf", "35"],
+                ffmpeg_params=["-preset", "veryfast", "-crf", "20"],
             )
             try:
                 _write_episode_frames(
