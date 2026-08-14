@@ -8,6 +8,7 @@ from scripts.data.augmentation.tacil.models.network_input import (
     network_input,
 )
 from scripts.data.augmentation.tacil.models.normalizers import Normalizers
+from scripts.shared.normalization import ZScoreNormalizer
 from scripts.shared.pusht_state import add_states
 
 # Maximum factor by which SiLU stretches space, i.e. its Lipschitz constant.
@@ -76,12 +77,12 @@ class DynamicsModel(torch.nn.Module):
         *,
         state_batch: torch.Tensor,
         action_batch: torch.Tensor,
-        normalizers: Normalizers,
+        network_input_normalizer: ZScoreNormalizer,
     ) -> torch.Tensor:  # (batch_size,)
         network_input_batch = network_input(
             state_batch=state_batch,
             action_batch=action_batch,
-            normalizer=normalizers.network_input_normalizer,
+            normalizer=network_input_normalizer,
         )  # (batch_size, input_dimensionality)
 
         jacobian_batch: torch.Tensor = torch.vmap(

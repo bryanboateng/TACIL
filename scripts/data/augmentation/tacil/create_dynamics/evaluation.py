@@ -76,7 +76,7 @@ def calculate_local_lipschitz_constants(
             dynamics_model.local_lipschitz_constants(
                 state_batch=states_tensor[batch_slice],
                 action_batch=actions_tensor[batch_slice],
-                normalizers=normalizers,
+                network_input_normalizer=normalizers.network_input_normalizer,
             )
             .cpu()
             .numpy()
