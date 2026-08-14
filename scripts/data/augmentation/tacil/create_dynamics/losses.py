@@ -39,11 +39,6 @@ def compute_loss(
         :, 1 : window_length + 1, :
     ]  # (window_count, window_length, state_dimensionality)
 
-    # Measured in typical one-step motion, not in the spread of the whole
-    # state: a dimension that barely moves per step (the block, which only
-    # moves on contact) would otherwise cost almost nothing to get wrong, and
-    # predicting "stays where it is" would be a good enough answer. This is
-    # also the space the network itself predicts in.
     return (
         dynamics_model.state_displacement_normalizer.normalize_difference(
             difference_batch=subtract_states(
