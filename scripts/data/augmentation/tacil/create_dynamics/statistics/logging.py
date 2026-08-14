@@ -8,6 +8,11 @@ from wandb import Run
 from scripts.data.augmentation.tacil.create_data.step_distance import (
     calculate_median_step_distance,
 )
+from scripts.data.augmentation.tacil.create_dynamics.data import TransitionSet
+from scripts.data.augmentation.tacil.create_dynamics.dynamics_model_training import (
+    MemberEpochMetrics,
+    MemberTrainingState,
+)
 from scripts.data.augmentation.tacil.create_dynamics.statistics import panels
 from scripts.data.augmentation.tacil.create_dynamics.statistics.chain_measurement import (  # noqa: E501
     draw_chain_windows,
@@ -15,11 +20,6 @@ from scripts.data.augmentation.tacil.create_dynamics.statistics.chain_measuremen
     measure_forward_chains,
     one_step_group_errors,
     roll_out_members_forward,
-)
-from scripts.data.augmentation.tacil.create_dynamics.data import TransitionSet
-from scripts.data.augmentation.tacil.create_dynamics.dynamics_model_training import (
-    MemberEpochMetrics,
-    MemberTrainingState,
 )
 from scripts.data.augmentation.tacil.dynamics.dynamics_model_ensemble import (
     DynamicsModelEnsemble,
@@ -227,10 +227,10 @@ def log_ensemble_statistics(
     run.log(
         data={
             f"{STAGE_NAME}/9_panels/error_over_depth": panels.error_over_depth_panel(
-                forward_true_errors_per_depth=(
+                forward_errors_per_depth=(
                     forward_chain_measurements.true_errors.cpu().numpy()
                 ),
-                backward_true_errors_per_depth=(
+                backward_errors_per_depth=(
                     backward_chain_measurements.true_errors.cpu().numpy()
                 ),
             ),
@@ -240,7 +240,7 @@ def log_ensemble_statistics(
                 )
             ),
             f"{STAGE_NAME}/9_panels/uncertainty_vs_error": (
-                panels.uncertainty_scatter_panel(
+                panels.prediction_error_vs_prediction_uncertainty(
                     forward_uncertainties=forward_uncertainties,
                     forward_true_errors=forward_true_errors,
                     backward_uncertainties=backward_uncertainties,
