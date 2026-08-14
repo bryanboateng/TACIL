@@ -44,7 +44,7 @@ class HorizonLengthConfig:
 @dataclass(frozen=True)
 class OptimizationConfig:
     batch_size: int = 256
-    epoch_count: int = 1_000
+    epoch_count: int = 600
     learning_rate: float = 1e-4
     weight_decay: float = 1e-6
     learning_rate_warmup_step_count: int = 500
