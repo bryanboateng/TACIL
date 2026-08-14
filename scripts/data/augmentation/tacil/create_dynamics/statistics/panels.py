@@ -156,38 +156,35 @@ def replay_panel(
     true_trajectory: npt.NDArray[np.floating],  # (step_count + 1, state_dimensionality)
     episode_index: int,
 ) -> wandb.Image:
-    """Every ensemble model replays the recorded actions on its own
-    predictions. Where the thin lines spread, the ensemble is uncertain;
-    where they leave the recorded path, it is wrong. State layout is PushT:
-    agent x/y, block x/y, angle."""
-    figure, (agent_axes, block_axes, angle_axes) = plt.subplots(
-        ncols=3, figsize=(14, 5)
-    )
+    (
+        figure,
+        (agent_position_subplot, block_position_subplot, block_orientation_subplot),
+    ) = plt.subplots(ncols=3, figsize=(14, 5))
 
-    for axes, dimension_slice, title in (
-        (agent_axes, slice(0, 2), "Agent Position"),
-        (block_axes, slice(2, 4), "Block Position"),
+    for subplot, dimension_slice, title in (
+        (agent_position_subplot, slice(0, 2), "Agent Position"),
+        (block_position_subplot, slice(2, 4), "Block Position"),
     ):
         for member_index, member_trajectory in enumerate(iterable=member_trajectories):
             path = member_trajectory[:, dimension_slice]
-            axes.plot(
+            subplot.plot(
                 path[:, 0],
                 path[:, 1],
-                linewidth=0.6,
-                alpha=0.35,
+                linewidth=0.8,
+                alpha=0.5,
                 color=_FORWARD_COLOR,
                 # One legend entry for all members.
                 label="model predictions" if member_index == 0 else None,
             )
         true_path = true_trajectory[:, dimension_slice]
-        axes.plot(
+        subplot.plot(
             true_path[:, 0],
             true_path[:, 1],
-            linewidth=2.0,
+            linewidth=1.6,
             color="black",
             label="recorded episode",
         )
-        axes.plot(
+        subplot.plot(
             true_path[0, 0],
             true_path[0, 1],
             marker="o",
@@ -197,7 +194,7 @@ def replay_panel(
             linestyle="none",
             label="start",
         )
-        axes.plot(
+        subplot.plot(
             true_path[-1, 0],
             true_path[-1, 1],
             marker="X",
@@ -206,12 +203,12 @@ def replay_panel(
             linestyle="none",
             label="end",
         )
-        axes.set_title(label=title)
-        axes.set_xlabel(xlabel="x position")
-        axes.set_ylabel(ylabel="y position")
-        axes.set_xlim(left=0, right=ARENA_SIZE)
-        axes.set_ylim(bottom=0, top=ARENA_SIZE)
-        axes.set_aspect(aspect="equal", adjustable="box")
+        subplot.set_title(label=title)
+        subplot.set_xlabel(xlabel="x position")
+        subplot.set_ylabel(ylabel="y position")
+        subplot.set_xlim(left=0, right=ARENA_SIZE)
+        subplot.set_ylim(bottom=0, top=ARENA_SIZE)
+        subplot.set_aspect(aspect="equal", adjustable="box")
 
     # How far the block has turned since the episode started, rather than the
     # angle itself: the zero of an angle is arbitrary, turning is what the
@@ -222,15 +219,17 @@ def replay_panel(
         angle_series=true_trajectory[:, BLOCK_ANGLE_INDEX]
     )
     for member_trajectory in member_trajectories:
-        angle_axes.plot(
+        block_orientation_subplot.plot(
             steps,
             _rotation_since_start(angle_series=member_trajectory[:, BLOCK_ANGLE_INDEX]),
             linewidth=0.6,
             alpha=0.35,
             color=_FORWARD_COLOR,
         )
-    angle_axes.plot(steps, recorded_rotation, linewidth=2.0, color="black")
-    angle_axes.plot(
+    block_orientation_subplot.plot(
+        steps, recorded_rotation, linewidth=2.0, color="black"
+    )
+    block_orientation_subplot.plot(
         steps[0],
         recorded_rotation[0],
         marker="o",
@@ -239,7 +238,7 @@ def replay_panel(
         markerfacecolor="white",
         linestyle="none",
     )
-    angle_axes.plot(
+    block_orientation_subplot.plot(
         steps[-1],
         recorded_rotation[-1],
         marker="X",
@@ -247,13 +246,15 @@ def replay_panel(
         color="black",
         linestyle="none",
     )
-    angle_axes.axhline(y=0.0, color="gray", linewidth=0.8, linestyle="--")
-    angle_axes.set_title(label="Block Orientation")
-    angle_axes.set_xlabel(xlabel="step")
-    angle_axes.set_ylabel(ylabel="turned since start (rad)")
+    block_orientation_subplot.axhline(
+        y=0.0, color="gray", linewidth=0.8, linestyle="--"
+    )
+    block_orientation_subplot.set_title(label="Block Orientation")
+    block_orientation_subplot.set_xlabel(xlabel="step")
+    block_orientation_subplot.set_ylabel(ylabel="turned since start (rad)")
 
     # One legend for the whole figure; the subplots share the same entries.
-    handles, labels = agent_axes.get_legend_handles_labels()
+    handles, labels = agent_position_subplot.get_legend_handles_labels()
     figure.legend(handles=handles, labels=labels, loc="lower center", ncol=4)
     figure.suptitle(
         t=f"Replay: True Dynamics vs. Model (Held-Out Episode {episode_index})"
