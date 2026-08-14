@@ -13,7 +13,9 @@ from scripts.data.augmentation.tacil.create_dynamics.evaluation import (
     calculate_validation_loss,
 )
 from scripts.data.augmentation.tacil.create_dynamics.losses import compute_loss
-from scripts.data.augmentation.tacil.models.dynamics_model import DynamicsModel
+from scripts.data.augmentation.tacil.models.dynamics_model.dynamics_model import (
+    DynamicsModel,
+)
 from scripts.data.augmentation.tacil.models.normalizers import Normalizers
 from scripts.shared.seeding import set_seed
 

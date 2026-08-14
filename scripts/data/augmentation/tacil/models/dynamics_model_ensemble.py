@@ -1,6 +1,8 @@
 import torch
 
-from scripts.data.augmentation.tacil.models.dynamics_model import DynamicsModel
+from scripts.data.augmentation.tacil.models.dynamics_model.dynamics_model import (
+    DynamicsModel,
+)
 from scripts.data.augmentation.tacil.models.normalizers import Normalizers
 from scripts.shared.pusht_state import average_states, subtract_states
 
