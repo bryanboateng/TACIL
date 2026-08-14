@@ -1,10 +1,4 @@
-"""Standalone dynamics stage: train the ensemble, run the diagnostics, stop.
-
-For checking the dynamics model and its error signals without paying for the
-policy stages.
-"""
-
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 
 import torch
 import tyro
@@ -27,7 +21,7 @@ class Config:
     seed: int
     wandb_project: str
     expert_dataset_artifact: str
-    dynamics: DynamicsConfig = field(default_factory=DynamicsConfig)
+    dynamics: DynamicsConfig
 
 
 def main() -> None:
