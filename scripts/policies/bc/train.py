@@ -55,10 +55,10 @@ def train_behavior_cloning_policy(
         observation_dimensionality=transitions.states.shape[1],
         action_dimensionality=transitions.actions.shape[1],
         hidden_layer_dimensionality=config.hidden_layer_dimensionality,
-        observation_normalizer=ZScoreNormalizer.from_values(
+        observation_normalizer=ZScoreNormalizer(
             value_batch=dataset.states.to(device=device)
         ),
-        action_normalizer=MinMaxNormalizer.from_values(
+        action_normalizer=MinMaxNormalizer(
             value_batch=dataset.actions.to(device=device)
         ),
     ).to(device=device)

@@ -31,11 +31,11 @@ class Normalizers(torch.nn.Module):
         state_displacement_batch: torch.Tensor,  # (batch_size, state_dimensionality)
     ) -> Self:
         return cls(
-            state_normalizer=ZScoreNormalizer.from_values(value_batch=state_batch),
-            network_input_normalizer=ZScoreNormalizer.from_values(
+            state_normalizer=ZScoreNormalizer(value_batch=state_batch),
+            network_input_normalizer=ZScoreNormalizer(
                 value_batch=raw_network_input_batch
             ),
-            state_displacement_normalizer=ZScoreNormalizer.from_values(
+            state_displacement_normalizer=ZScoreNormalizer(
                 value_batch=state_displacement_batch
             ),
         )

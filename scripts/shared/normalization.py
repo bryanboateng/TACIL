@@ -1,5 +1,3 @@
-from typing import Self
-
 import torch
 
 
@@ -10,23 +8,11 @@ class MinMaxNormalizer(torch.nn.Module):
     def __init__(
         self,
         *,
-        minimum: torch.Tensor,  # (dimensionality,)
-        maximum: torch.Tensor,  # (dimensionality,)
+        value_batch: torch.Tensor,  # (batch_size, dimensionality)
     ) -> None:
         super().__init__()
-        self.register_buffer(name="minimum", tensor=minimum)
-        self.register_buffer(name="maximum", tensor=maximum)
-
-    @classmethod
-    def from_values(
-        cls,
-        *,
-        value_batch: torch.Tensor,  # (batch_size, dimensionality)
-    ) -> Self:
-        return cls(
-            minimum=value_batch.min(dim=0).values,  # (dimensionality,)
-            maximum=value_batch.max(dim=0).values,  # (dimensionality,)
-        )
+        self.register_buffer(name="minimum", tensor=value_batch.min(dim=0).values)
+        self.register_buffer(name="maximum", tensor=value_batch.max(dim=0).values)
 
     def normalize(
         self,
@@ -53,22 +39,12 @@ class ZScoreNormalizer(torch.nn.Module):
     def __init__(
         self,
         *,
-        mean: torch.Tensor,  # (dimensionality,)
-        std: torch.Tensor,  # (dimensionality,)
+        value_batch: torch.Tensor,  # (batch_size, dimensionality)
     ) -> None:
         super().__init__()
-        self.register_buffer(name="mean", tensor=mean)
-        self.register_buffer(name="std", tensor=std)
-
-    @classmethod
-    def from_values(
-        cls,
-        *,
-        value_batch: torch.Tensor,  # (batch_size, dimensionality)
-    ) -> Self:
-        return cls(
-            mean=value_batch.mean(dim=0),  # (dimensionality,)
-            std=value_batch.std(dim=0).clamp(min=1e-8),  # (dimensionality,)
+        self.register_buffer(name="mean", tensor=value_batch.mean(dim=0))
+        self.register_buffer(
+            name="std", tensor=value_batch.std(dim=0).clamp(min=1e-8)
         )
 
     def normalize(

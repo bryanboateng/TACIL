@@ -94,14 +94,14 @@ class Dataset(torch.utils.data.Dataset[tuple[torch.Tensor, torch.Tensor]]):
 
 def _fit_normalizers(*, episode_stores: list[EpisodeStore]) -> _Normalizers:
     return _Normalizers(
-        observation=MinMaxNormalizer.from_values(
+        observation=MinMaxNormalizer(
             value_batch=torch.from_numpy(
                 np.concatenate(
                     [episode_store.states for episode_store in episode_stores], axis=0
                 )
             ).float()
         ),
-        action=MinMaxNormalizer.from_values(
+        action=MinMaxNormalizer(
             value_batch=torch.from_numpy(
                 np.concatenate(
                     [episode_store.actions for episode_store in episode_stores], axis=0
