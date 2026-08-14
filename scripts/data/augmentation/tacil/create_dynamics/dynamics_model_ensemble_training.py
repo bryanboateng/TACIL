@@ -25,11 +25,12 @@ from scripts.data.augmentation.tacil.create_dynamics.dynamics_model_training imp
     load_best_member_model,
     train_member_for_one_epoch,
 )
-from scripts.data.augmentation.tacil.models import network_input
 from scripts.data.augmentation.tacil.models.dynamics_model_ensemble import (
     DynamicsModelEnsemble,
 )
-from scripts.data.augmentation.tacil.models.network_input import raw_network_input
+from scripts.data.augmentation.tacil.models.network_input import (
+    create_raw_network_input,
+)
 from scripts.shared.distribution_summary import summarize_distribution
 from scripts.shared.episode_store import EpisodeStore
 from scripts.shared.log import create_logger
@@ -179,7 +180,7 @@ def _create_normalizers(
     return _Normalizers(
         state=ZScoreNormalizer(value_batch=state_batch).to(device=device),
         network_input=ZScoreNormalizer(
-            value_batch=raw_network_input(
+            value_batch=create_raw_network_input(
                 state_batch=state_batch, action_batch=action_batch
             )
         ).to(device=device),

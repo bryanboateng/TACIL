@@ -5,7 +5,7 @@ from scripts.data.augmentation.tacil.models.dynamics_model.lipschitz_constrained
 )
 from scripts.data.augmentation.tacil.models.network_input import (
     NETWORK_INPUT_DIMENSIONALITY,
-    network_input,
+    create_raw_network_input,
 )
 from scripts.shared.normalization import ZScoreNormalizer
 from scripts.shared.pusht_state import add_states
@@ -55,7 +55,7 @@ class DynamicsModel(torch.nn.Module):
         self, *, state_batch: torch.Tensor, action_batch: torch.Tensor
     ) -> torch.Tensor:  # (batch_size, state_dimensionality)
         normalized_state_displacement_batch = self._network(
-            network_input(
+            _create_normalized_network_input(
                 state_batch=state_batch,
                 action_batch=action_batch,
                 normalizer=self.input_normalizer,
@@ -73,7 +73,7 @@ class DynamicsModel(torch.nn.Module):
     def local_lipschitz_constants(
         self, *, state_batch: torch.Tensor, action_batch: torch.Tensor
     ) -> torch.Tensor:  # (batch_size,)
-        network_input_batch = network_input(
+        network_input_batch = _create_normalized_network_input(
             state_batch=state_batch,
             action_batch=action_batch,
             normalizer=self.input_normalizer,
@@ -158,4 +158,17 @@ def _create_linear_layer(
         input_dimensionality=input_dimensionality,
         output_dimensionality=output_dimensionality,
         lipschitz_constant_upper_bound=lipschitz_constant_upper_bound_per_layer,
+    )
+
+
+def _create_normalized_network_input(
+    *,
+    state_batch: torch.Tensor,
+    action_batch: torch.Tensor,
+    normalizer: ZScoreNormalizer,
+) -> torch.Tensor:  # (batch_size, NETWORK_INPUT_DIMENSIONALITY)
+    return normalizer.normalize(
+        value_batch=create_raw_network_input(
+            state_batch=state_batch, action_batch=action_batch
+        )
     )
