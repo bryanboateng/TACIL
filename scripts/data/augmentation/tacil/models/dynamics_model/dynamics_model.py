@@ -10,7 +10,7 @@ from scripts.data.augmentation.tacil.models.network_input import (
 from scripts.data.augmentation.tacil.models.normalizers import Normalizers
 from scripts.shared.pusht_state import add_states
 
-# Maximum factor by which SiLU stretches space, i.e. its (global) Lipschitz constant.
+# Maximum factor by which SiLU stretches space, i.e. its Lipschitz constant.
 _SILU_LIPSCHITZ_CONSTANT = 1.099839320
 
 
@@ -46,35 +46,25 @@ class DynamicsModel(torch.nn.Module):
     ) -> torch.Tensor:  # (batch_size, state_dimensionality)
         return self._network(network_input_batch)
 
-    def network_input(
-        self,
-        *,
-        normalizers: Normalizers,
-        state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
-        action_batch: torch.Tensor,  # (batch_size, action_dimensionality)
-    ) -> torch.Tensor:  # (batch_size, input_dimensionality)
-        return network_input(
-            normalizers=normalizers, state_batch=state_batch, action_batch=action_batch
-        )
-
     def predict_next_state(
         self,
         *,
+        state_batch: torch.Tensor,
+        action_batch: torch.Tensor,
         normalizers: Normalizers,
-        state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
-        action_batch: torch.Tensor,  # (batch_size, action_dimensionality)
     ) -> torch.Tensor:  # (batch_size, state_dimensionality)
         normalized_state_displacement_batch = self._network(
-            self.network_input(
-                normalizers=normalizers,
+            network_input(
                 state_batch=state_batch,
                 action_batch=action_batch,
+                normalizers=normalizers,
             )
         )  # (batch_size, state_dimensionality)
 
         state_displacement_batch = normalizers.denormalize_state_displacement(
             normalized_state_displacement_batch=normalized_state_displacement_batch
         )  # (batch_size, state_dimensionality)
+
         return add_states(
             first_addend_batch=state_batch, second_addend_batch=state_displacement_batch
         )  # (batch_size, state_dimensionality)
@@ -82,13 +72,14 @@ class DynamicsModel(torch.nn.Module):
     def local_lipschitz_constants(
         self,
         *,
+        state_batch: torch.Tensor,
+        action_batch: torch.Tensor,
         normalizers: Normalizers,
-        state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
-        action_batch: torch.Tensor,  # (batch_size, action_dimensionality)
     ) -> torch.Tensor:  # (batch_size,)
-        network_input_batch = self.network_input(
-            normalizers=normalizers, state_batch=state_batch, action_batch=action_batch
+        network_input_batch = network_input(
+            state_batch=state_batch, action_batch=action_batch, normalizers=normalizers
         )  # (batch_size, input_dimensionality)
+
         jacobian_batch: torch.Tensor = torch.vmap(
             func=torch.func.jacrev(func=self._network)
         )(

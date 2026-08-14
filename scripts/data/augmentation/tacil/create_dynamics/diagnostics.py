@@ -406,9 +406,9 @@ def _roll_out_members_forward(
         trajectory_states = [current_state_batch]
         for step_index in range(actions.shape[0]):
             current_state_batch = dynamics_model.predict_next_state(
-                normalizers=dynamics_model_ensemble.normalizers,
                 state_batch=current_state_batch,
                 action_batch=actions[step_index].unsqueeze(dim=0),
+                normalizers=dynamics_model_ensemble.normalizers,
             )
             trajectory_states.append(current_state_batch)
         member_trajectories.append(torch.cat(tensors=trajectory_states, dim=0))

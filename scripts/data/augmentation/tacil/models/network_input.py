@@ -30,10 +30,7 @@ NETWORK_INPUT_DIMENSIONALITY = NETWORK_FEATURE_DIMENSIONALITY + 2
 
 
 def network_input(
-    *,
-    normalizers: Normalizers,
-    state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
-    action_batch: torch.Tensor,  # (batch_size, action_dimensionality)
+    *, state_batch: torch.Tensor, action_batch: torch.Tensor, normalizers: Normalizers
 ) -> torch.Tensor:  # (batch_size, NETWORK_INPUT_DIMENSIONALITY)
     """Everything the network sees: the scaled features, then the orientation.
 

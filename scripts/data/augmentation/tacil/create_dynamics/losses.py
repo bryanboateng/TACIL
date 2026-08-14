@@ -29,9 +29,9 @@ def compute_loss(
         ]  # (window_count, action_dimensionality)
 
         current_state_batch = dynamics_model.predict_next_state(
-            normalizers=normalizers,
             state_batch=current_state_batch,
             action_batch=current_action_batch,
+            normalizers=normalizers,
         )  # (window_count, state_dimensionality)
         predicted_state_batches.append(current_state_batch)
 

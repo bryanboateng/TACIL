@@ -74,9 +74,9 @@ def calculate_local_lipschitz_constants(
         batch_slice = slice(batch_start, batch_start + batch_size)
         local_lipschitz_constant_batches.append(
             dynamics_model.local_lipschitz_constants(
-                normalizers=normalizers,
                 state_batch=states_tensor[batch_slice],
                 action_batch=actions_tensor[batch_slice],
+                normalizers=normalizers,
             )
             .cpu()
             .numpy()
