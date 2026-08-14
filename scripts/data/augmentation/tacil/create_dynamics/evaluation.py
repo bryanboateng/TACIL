@@ -6,14 +6,12 @@ from scripts.data.augmentation.tacil.create_dynamics.losses import compute_loss
 from scripts.data.augmentation.tacil.models.dynamics_model.dynamics_model import (
     DynamicsModel,
 )
-from scripts.data.augmentation.tacil.models.normalizers import Normalizers
 
 
 @torch.no_grad()
 def calculate_validation_loss(
     *,
     dynamics_model: DynamicsModel,
-    normalizers: Normalizers,
     state_windows: npt.NDArray[
         np.float32
     ],  # (window_count, window_length + 1, state_dimensionality)
@@ -43,7 +41,6 @@ def calculate_validation_loss(
         ]  # (batch_size, window_length + 1, state_dimensionality)
         batch_loss = compute_loss(
             dynamics_model=dynamics_model,
-            normalizers=normalizers,
             state_window_batch=state_window_batch,
             action_window_batch=action_windows_tensor[batch_slice],
         )
@@ -56,7 +53,6 @@ def calculate_validation_loss(
 def calculate_local_lipschitz_constants(
     *,
     dynamics_model: DynamicsModel,
-    normalizers: Normalizers,
     states: npt.NDArray[np.float32],  # (sample_count, state_dimensionality)
     actions: npt.NDArray[np.float32],  # (sample_count, action_dimensionality)
     batch_size: int,
@@ -76,7 +72,6 @@ def calculate_local_lipschitz_constants(
             dynamics_model.local_lipschitz_constants(
                 state_batch=states_tensor[batch_slice],
                 action_batch=actions_tensor[batch_slice],
-                network_input_normalizer=normalizers.network_input_normalizer,
             )
             .cpu()
             .numpy()

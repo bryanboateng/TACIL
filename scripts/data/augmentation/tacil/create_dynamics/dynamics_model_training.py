@@ -65,7 +65,6 @@ class MemberTrainingState:
 @dataclass
 class TrainingContext:
     config: DynamicsConfig
-    normalizers: Normalizers
     training_transitions: TransitionSet
     validation_transitions: TransitionSet
     validation_state_windows: npt.NDArray[np.float32]
@@ -77,6 +76,7 @@ def create_member_training_state(
     member_seed: int,
     config: DynamicsConfig,
     transitions: TransitionSet,
+    normalizers: Normalizers,
     train_state_windows: torch.Tensor,
     train_action_windows: torch.Tensor,
     device: torch.device,
@@ -89,6 +89,8 @@ def create_member_training_state(
         hidden_layer_count=config.hidden_layer_count,
         hidden_layer_dimensionality=config.hidden_layer_dimensionality,
         lipschitz_constant_upper_bound=config.lipschitz_constant_upper_bound,
+        input_normalizer=normalizers.network_input_normalizer,
+        state_displacement_normalizer=normalizers.state_displacement_normalizer,
     ).to(device=device)
 
     return MemberTrainingState(
@@ -137,7 +139,6 @@ def train_member_for_one_epoch(
 
         loss = compute_loss(
             dynamics_model=state.model,
-            normalizers=context.normalizers,
             state_window_batch=state.train_state_windows[batch_window_indices],
             action_window_batch=state.train_action_windows[batch_window_indices],
         )
@@ -154,7 +155,6 @@ def train_member_for_one_epoch(
 
     validation_loss = calculate_validation_loss(
         dynamics_model=state.ema_dynamics_model,
-        normalizers=context.normalizers,
         state_windows=context.validation_state_windows,
         action_windows=context.validation_action_windows,
         batch_size=batch_size,
@@ -174,14 +174,10 @@ def train_member_for_one_epoch(
         training_loss=float(np.mean(a=losses)),
         validation_loss=validation_loss,
         training_local_lipschitz_constants=_sample_local_lipschitz_constants(
-            state=state,
-            normalizers=context.normalizers,
-            transitions=context.training_transitions,
-            batch_size=batch_size,
+            state=state, transitions=context.training_transitions, batch_size=batch_size
         ),
         validation_local_lipschitz_constants=_sample_local_lipschitz_constants(
             state=state,
-            normalizers=context.normalizers,
             transitions=context.validation_transitions,
             batch_size=batch_size,
         ),
@@ -204,11 +200,7 @@ def load_best_member_model(
 
 
 def _sample_local_lipschitz_constants(
-    *,
-    state: MemberTrainingState,
-    normalizers: Normalizers,
-    transitions: TransitionSet,
-    batch_size: int,
+    *, state: MemberTrainingState, transitions: TransitionSet, batch_size: int
 ) -> npt.NDArray[np.float32]:  # (sample_count,)
     transition_count = transitions.states.shape[0]
     sample_indices = state.histogram_sample_generator.choice(
@@ -216,7 +208,6 @@ def _sample_local_lipschitz_constants(
     )  # (sample_count,)
     return calculate_local_lipschitz_constants(
         dynamics_model=state.ema_dynamics_model,
-        normalizers=normalizers,
         states=transitions.states[sample_indices],
         actions=transitions.actions[sample_indices],
         batch_size=batch_size,

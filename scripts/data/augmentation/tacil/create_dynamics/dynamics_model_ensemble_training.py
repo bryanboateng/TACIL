@@ -73,7 +73,6 @@ def train_dynamics_model_ensemble(
 
     training_context = TrainingContext(
         config=config,
-        normalizers=normalizers,
         training_transitions=training_transitions,
         validation_transitions=validation_transitions,
         validation_state_windows=validation_state_windows,
@@ -102,6 +101,7 @@ def train_dynamics_model_ensemble(
                 member_seed=int(member_seed),
                 config=config,
                 transitions=training_transitions,
+                normalizers=normalizers,
                 train_state_windows=torch.from_numpy(member_state_windows).to(
                     device=device
                 ),

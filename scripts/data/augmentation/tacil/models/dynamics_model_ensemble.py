@@ -76,9 +76,7 @@ class DynamicsModelEnsemble(torch.nn.Module):
         return torch.stack(
             tensors=[
                 dynamics_model.predict_next_state(
-                    state_batch=state_batch,
-                    action_batch=action_batch,
-                    normalizers=self.normalizers,
+                    state_batch=state_batch, action_batch=action_batch
                 )
                 for dynamics_model in self.dynamics_models
             ],
