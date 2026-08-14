@@ -33,22 +33,21 @@ class LipschitzConstrainedLinear(torch.nn.Module):
 
 
 class _SpectralNormBound(torch.nn.Module):
-    # Estimates of the leading left and right singular vectors.
-    left_vector: torch.Tensor  # (output_dimensionality,)
-    right_vector: torch.Tensor  # (input_dimensionality,)
+    left_singular_vector: torch.Tensor  # (output_dimensionality,)
+    right_singular_vector: torch.Tensor  # (input_dimensionality,)
 
     def __init__(self, *, weight: torch.Tensor, lipschitz_constant_upper_bound: float):
         super().__init__()
         output_dimensionality, input_dimensionality = weight.shape
         self._lipschitz_constant_upper_bound = lipschitz_constant_upper_bound
         self.register_buffer(
-            name="left_vector",
+            name="left_singular_vector",
             tensor=torch.nn.functional.normalize(
                 input=torch.randn(output_dimensionality), dim=0
             ),
         )
         self.register_buffer(
-            name="right_vector",
+            name="right_singular_vector",
             tensor=torch.nn.functional.normalize(
                 input=torch.randn(input_dimensionality), dim=0
             ),
@@ -58,28 +57,29 @@ class _SpectralNormBound(torch.nn.Module):
         self,
         weight: torch.Tensor,  # (output_dimensionality, input_dimensionality)
     ) -> torch.Tensor:  # (output_dimensionality, input_dimensionality)
-        left_vector, right_vector = self.left_vector, self.right_vector
+        left_singular_vector, right_singular_vector = (
+            self.left_singular_vector,
+            self.right_singular_vector,
+        )
 
         if self.training:
-            # Refine the estimate in place, so the next step picks up where this
-            # one left off. Kept out of the graph: the vectors estimate a
-            # property of the weight, they are not a function of it to
-            # differentiate through.
             with torch.no_grad():
                 torch.nn.functional.normalize(
-                    input=weight.t() @ left_vector, dim=0, out=self.right_vector
+                    input=weight.t() @ left_singular_vector,
+                    dim=0,
+                    out=self.right_singular_vector,
                 )
                 torch.nn.functional.normalize(
-                    input=weight @ self.right_vector, dim=0, out=self.left_vector
+                    input=weight @ self.right_singular_vector,
+                    dim=0,
+                    out=self.left_singular_vector,
                 )
-            # Work on copies from here. A loss that runs this layer more than
-            # once before its backward pass — as the multi-step rollout in the
-            # training objective does — would otherwise refine the very vectors
-            # an earlier graph was built on, and autograd rejects that.
-            left_vector = self.left_vector.clone()
-            right_vector = self.right_vector.clone()
+            left_singular_vector = self.left_singular_vector.clone()
+            right_singular_vector = self.right_singular_vector.clone()
 
-        spectral_norm = torch.dot(input=left_vector, tensor=weight @ right_vector)
+        spectral_norm = torch.dot(
+            input=left_singular_vector, tensor=weight @ right_singular_vector
+        )
         return weight / torch.clamp(
             input=spectral_norm / self._lipschitz_constant_upper_bound, min=1.0
         )
