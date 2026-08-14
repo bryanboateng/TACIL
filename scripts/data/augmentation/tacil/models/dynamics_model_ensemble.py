@@ -128,6 +128,45 @@ class DynamicsModelEnsemble(torch.nn.Module):
             .values
         )
 
+    @torch.no_grad()
+    def replay_landing_errors(
+        self,
+        *,
+        start_state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
+        action_window_batch: torch.Tensor,  # (batch_size, step_count, action_dimensionality)
+        target_state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
+    ) -> torch.Tensor:  # (batch_size,)
+        """How far the members land from the target when they drive the given
+        actions forward from the start state.
+
+        Each member keeps its own state along the way, so a disagreement
+        compounds through the real non-linear map instead of through a product
+        of upper bounds."""
+        step_count = action_window_batch.shape[1]
+
+        landing_error_columns: list[torch.Tensor] = []
+        for dynamics_model in self.dynamics_models:
+            state_batch = start_state_batch
+            for step_index in range(step_count):
+                state_batch = dynamics_model.predict_next_state(
+                    normalizers=self.normalizers,
+                    state_batch=state_batch,
+                    action_batch=action_window_batch[:, step_index, :],
+                )
+            landing_error_columns.append(
+                torch.linalg.norm(
+                    self.normalizers.scale_to_state_spread_units(
+                        state_difference_batch=subtract_states(
+                            minuend_batch=state_batch,
+                            subtrahend_batch=target_state_batch,
+                        )
+                    ),
+                    dim=-1,
+                )
+            )
+
+        return torch.stack(tensors=landing_error_columns, dim=0).mean(dim=0)
+
     @property
     def dynamics_models(self) -> list[DynamicsModel]:
         dynamics_models: list[DynamicsModel] = []

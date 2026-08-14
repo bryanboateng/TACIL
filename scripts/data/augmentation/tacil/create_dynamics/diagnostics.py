@@ -96,9 +96,13 @@ def diagnose_dynamics_model_ensemble(
     )
 
     # Measured on the backward chains, which is the direction the augmentation
-    # walks: the signal the data stage gates on, and the model-free distance to
-    # the training data as the comparison point.
+    # walks. accumulated_account is the quantity the data stage actually gates
+    # on (E += P * step uncertainty, amplified by the Lipschitz products);
+    # replay_landing_error is the cumulative challenger, and the two others
+    # are its ingredients / the model-free reference.
     backward_signals = (
+        ("accumulated_account", backward_chain_measurements.accumulated_account_errors),
+        ("replay_landing_error", backward_chain_measurements.replay_landing_errors),
         ("uncertainty", backward_chain_measurements.uncertainties),
         ("training_data_distance", backward_chain_measurements.training_data_distances),
     )
@@ -263,8 +267,10 @@ class _BackwardChainMeasurements:
     true_errors: torch.Tensor  # (chain_count, depth_count)
     # The same deviation kept per dimension of the current frame.
     state_differences: torch.Tensor  # (chain_count, depth_count, state_dimensionality)
-    # The gate signal and the reference column, evaluated at the solved
-    # predecessor.
+    # The deployed gate quantity, the cumulative challenger, and the
+    # reference columns, evaluated at the solved predecessor.
+    accumulated_account_errors: torch.Tensor  # (chain_count, depth_count)
+    replay_landing_errors: torch.Tensor  # (chain_count, depth_count)
     uncertainties: torch.Tensor  # (chain_count, depth_count)
     training_data_distances: torch.Tensor  # (chain_count, depth_count)
 
@@ -386,8 +392,16 @@ def _measure_backward_chains(
         fill_value=float("nan"),
         device=device,
     )
+    accumulated_account_errors = torch.full_like(true_errors, fill_value=float("nan"))
+    replay_landing_errors = torch.full_like(true_errors, fill_value=float("nan"))
     uncertainties = torch.full_like(true_errors, fill_value=float("nan"))
     training_data_distances = torch.full_like(true_errors, fill_value=float("nan"))
+    anchor_state_batch = state_windows[:, -1, :]
+
+    # The account exactly as the data stage keeps it: the running budget and
+    # the product of the accepted transitions' amplification factors.
+    trajectory_error_batch = torch.zeros(chain_count, device=device)
+    error_amplification_batch = torch.ones(chain_count, device=device)
 
     for depth_index in tqdm(
         iterable=range(depth_count), desc="backward diagnostic chains", unit="depth"
@@ -430,9 +444,32 @@ def _measure_backward_chains(
         true_errors[converged_indices, depth_index] = torch.linalg.norm(
             difference_batch, dim=-1
         )
-        uncertainties[converged_indices, depth_index] = (
-            dynamics_model_ensemble.uncertainty_about_next_state(
+        step_uncertainty_batch = dynamics_model_ensemble.uncertainty_about_next_state(
+            state_batch=predecessor_state_batch, action_batch=converged_action_batch
+        )
+        uncertainties[converged_indices, depth_index] = step_uncertainty_batch
+
+        # E += P * delta, then P *= L — the same order as the rollout, which
+        # amplifies a step's error by the transitions accepted BEFORE it.
+        trajectory_error_batch[converged_indices] += (
+            error_amplification_batch[converged_indices] * step_uncertainty_batch
+        )
+        accumulated_account_errors[converged_indices, depth_index] = (
+            trajectory_error_batch[converged_indices]
+        )
+        error_amplification_batch[converged_indices] *= (
+            dynamics_model_ensemble.local_transition_lipschitz_constants(
                 state_batch=predecessor_state_batch, action_batch=converged_action_batch
+            )
+        )
+
+        replay_landing_errors[converged_indices, depth_index] = (
+            dynamics_model_ensemble.replay_landing_errors(
+                start_state_batch=predecessor_state_batch,
+                # Every action from the predecessor onwards, which is exactly
+                # the prefix a policy would execute from here to the anchor.
+                action_window_batch=action_windows[converged_indices, window_index:],
+                target_state_batch=anchor_state_batch[converged_indices],
             )
         )
         training_data_distances[converged_indices, depth_index] = (
@@ -448,6 +485,8 @@ def _measure_backward_chains(
     return _BackwardChainMeasurements(
         true_errors=true_errors,
         state_differences=state_differences,
+        accumulated_account_errors=accumulated_account_errors,
+        replay_landing_errors=replay_landing_errors,
         uncertainties=uncertainties,
         training_data_distances=training_data_distances,
     )
