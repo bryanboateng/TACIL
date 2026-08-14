@@ -53,14 +53,14 @@ _TACIL_PARAMETERS: dict[str, Any] = {
         "min": 0.0,
         "max": 1.0,
     },
-    # The limit is a fraction of the median expert step. The replay error is a
-    # real distance on the same scale, so the range spans "a hair off course"
-    # to "several steps off course" — the old signal-dependent extremes are
-    # not needed anymore.
+    # The limit is a fraction of the median expert step. In the 2026-08-12
+    # sweep every run below 0.018 died with an empty dataset and the lowest
+    # value that produced data was 0.058, so the range starts above that dead
+    # zone.
     "augmentation.data.error_limit_fraction": {
         "distribution": "log_uniform_values",
-        "min": 0.01,
-        "max": 10.0,
+        "min": 0.02,
+        "max": 32.0,
     },
 }
 
