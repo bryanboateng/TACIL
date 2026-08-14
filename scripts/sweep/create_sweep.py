@@ -58,7 +58,7 @@ _TACIL_PARAMETERS: dict[str, Any] = {
     # median step across the 2026-08-12 configurations (typical median 0.40),
     # and at the first step the old account equalled the raw signal, so its
     # measured dead zone below 0.018 applies here too.
-    "augmentation.data.error_limit_fraction": {
+    "augmentation.data.uncertainty_limit_fraction": {
         "distribution": "log_uniform_values",
         "min": 0.02,
         "max": 10.0,

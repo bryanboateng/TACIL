@@ -26,7 +26,7 @@ def log_rollout_statistics(
     *,
     rollout_diagnostics: RolloutDiagnostics,
     median_expert_step_distance: float,
-    error_limit: float,
+    uncertainty_limit: float,
     run: Run,
 ) -> None:
     termination_reasons = (
@@ -36,7 +36,7 @@ def log_rollout_statistics(
     run.summary[f"{STAGE_NAME}/1_rollout/median_step_distance"] = (
         median_expert_step_distance
     )
-    run.summary[f"{STAGE_NAME}/1_rollout/error_limit"] = error_limit
+    run.summary[f"{STAGE_NAME}/1_rollout/uncertainty_limit"] = uncertainty_limit
     run.summary[f"{STAGE_NAME}/1_rollout/anchor_count"] = int(
         termination_reasons.shape[0]
     )

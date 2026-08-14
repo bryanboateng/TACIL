@@ -42,7 +42,7 @@ def create_augmented_episodes(
         raise RuntimeError(
             "create_augmented_episodes needs at least one accepted anchor. "
             "Raise "
-            "error_limit_fraction or retrain the dynamics model."
+            "uncertainty_limit_fraction or retrain the dynamics model."
         )
 
     augmented_episode_store = _assemble_episodes(

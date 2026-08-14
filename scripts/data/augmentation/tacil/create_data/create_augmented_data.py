@@ -54,7 +54,7 @@ def create_augmented_data(
         episode_store=episode_store, dynamics_model_ensemble=dynamics_model_ensemble
     )
 
-    error_limit = config.error_limit_fraction * median_expert_step_distance
+    uncertainty_limit = config.uncertainty_limit_fraction * median_expert_step_distance
 
     backward_trajectories, rollout_diagnostics = roll_out_backward(
         dynamics_model_ensemble=dynamics_model_ensemble,
@@ -65,7 +65,7 @@ def create_augmented_data(
             device=device
         ),
         action_noise_std=torch.as_tensor(action_noise_std).to(device=device),
-        error_limit=error_limit,
+        uncertainty_limit=uncertainty_limit,
         convergence_tolerance=1e-3 * median_expert_step_distance,
         # A synthetic run-up longer than the longest demonstration is not a
         # run-up anymore.
@@ -77,7 +77,7 @@ def create_augmented_data(
     log_rollout_statistics(
         rollout_diagnostics=rollout_diagnostics,
         median_expert_step_distance=median_expert_step_distance,
-        error_limit=error_limit,
+        uncertainty_limit=uncertainty_limit,
         run=run,
     )
 
@@ -85,7 +85,7 @@ def create_augmented_data(
         run.summary[f"{STAGE_NAME}/1_rollout/accepted_count"] = 0
         run.summary[f"{STAGE_NAME}/1_rollout/accepted_fraction"] = 0.0
         raise RuntimeError(
-            "The error limit rejected every anchor's first backward step, so "
+            "The uncertainty limit rejected every anchor's first backward step, so "
             "this configuration produced no labels. Training on the expert data "
             "alone would score the unaugmented baseline under an augmented "
             "run's name, so the run stops here instead."

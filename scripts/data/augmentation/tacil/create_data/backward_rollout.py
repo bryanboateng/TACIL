@@ -13,7 +13,7 @@ from scripts.data.augmentation.tacil.models.dynamics_model_ensemble import (
 
 
 class TerminationReason(IntEnum):
-    ERROR_LIMIT_EXCEEDED = 0
+    UNCERTAINTY_LIMIT_EXCEEDED = 0
     NOT_CONVERGED = 1
     STEP_CAP_REACHED = 2
 
@@ -43,17 +43,14 @@ def roll_out_backward(
     anchor_state_batch: torch.Tensor,  # (anchor_count, state_dimensionality)
     anchor_action_batch: torch.Tensor,  # (anchor_count, action_dimensionality)
     action_noise_std: torch.Tensor,  # (action_dimensionality,)
-    error_limit: float,
+    uncertainty_limit: float,
     convergence_tolerance: float,
     max_step_count: int,
 ) -> tuple[BackwardTrajectories, RolloutDiagnostics]:
     """Walk backward from the anchors while the ensemble still agrees.
 
-    The gate is the raw per-step ensemble uncertainty at the solved
-    predecessor. Measured per depth against true errors on held-out chains
-    (2026-08-14-account-vs-replay, five seeds), it ordered the accumulated
-    deviation better (Spearman 0.94) than the accumulated Lipschitz account it
-    replaced (0.57) and better than a forward-replay error (0.82). The
+    A chain ends at its first predecessor whose ensemble uncertainty exceeds
+    the limit, at its first non-converged solve, or at the step cap. The
     uncertainty does not have to grow with depth, so the cap is what
     guarantees the walk ends.
     """
@@ -87,7 +84,7 @@ def roll_out_backward(
         )
 
         accepted_mask_batch = backward_step.has_converged_batch & (
-            backward_step.uncertainty_batch <= error_limit
+            backward_step.uncertainty_batch <= uncertainty_limit
         )  # (active_count,)
 
         accepted_steps = _AcceptedSteps(
@@ -115,7 +112,7 @@ def roll_out_backward(
         rejected_indices = active_indices[rejected_mask_batch]  # (rejected_count,)
         termination_reason_batch[rejected_indices] = torch.where(
             backward_step.has_converged_batch[rejected_mask_batch],
-            int(TerminationReason.ERROR_LIMIT_EXCEEDED),
+            int(TerminationReason.UNCERTAINTY_LIMIT_EXCEEDED),
             int(TerminationReason.NOT_CONVERGED),
         )
         active_mask_batch[rejected_indices] = False
