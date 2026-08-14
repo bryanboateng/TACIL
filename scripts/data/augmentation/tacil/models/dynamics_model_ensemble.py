@@ -42,10 +42,12 @@ class DynamicsModelEnsemble(torch.nn.Module):
             state_batch=per_member_next_state_batch
         )  # (batch_size, state_dimensionality)
 
-        per_member_deviation_batch = self.normalizers.state_normalizer.normalize_difference(
-            difference_batch=subtract_states(
-                minuend_batch=per_member_next_state_batch,
-                subtrahend_batch=average_next_state_batch.unsqueeze(dim=0),
+        per_member_deviation_batch = (
+            self.normalizers.state_normalizer.normalize_difference(
+                difference_batch=subtract_states(
+                    minuend_batch=per_member_next_state_batch,
+                    subtrahend_batch=average_next_state_batch.unsqueeze(dim=0),
+                )
             )
         )  # (member_count, batch_size, state_dimensionality)
 

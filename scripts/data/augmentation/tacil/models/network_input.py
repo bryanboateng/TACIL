@@ -73,5 +73,7 @@ def network_input(
     """The scaled version of raw_network_input: one normalizer, fit per
     dimension on the whole vector, applied once."""
     return normalizers.network_input_normalizer.normalize(
-        value_batch=raw_network_input(state_batch=state_batch, action_batch=action_batch)
+        value_batch=raw_network_input(
+            state_batch=state_batch, action_batch=action_batch
+        )
     )

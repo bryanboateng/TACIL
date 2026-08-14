@@ -43,9 +43,7 @@ class ZScoreNormalizer(torch.nn.Module):
     ) -> None:
         super().__init__()
         self.register_buffer(name="mean", tensor=value_batch.mean(dim=0))
-        self.register_buffer(
-            name="std", tensor=value_batch.std(dim=0).clamp(min=1e-8)
-        )
+        self.register_buffer(name="std", tensor=value_batch.std(dim=0).clamp(min=1e-8))
 
     def normalize(
         self,

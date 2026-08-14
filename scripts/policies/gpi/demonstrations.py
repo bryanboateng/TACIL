@@ -20,9 +20,9 @@ class Demonstrations:
             action_batch=torch.from_numpy(episode_store.actions).float(),
         )  # (step_count, action_dimensionality)
 
-        self._observation_normalizer = MinMaxNormalizer(
-            value_batch=observations
-        ).to(device=device)
+        self._observation_normalizer = MinMaxNormalizer(value_batch=observations).to(
+            device=device
+        )
         self._action_normalizer = MinMaxNormalizer(value_batch=actions).to(
             device=device
         )
