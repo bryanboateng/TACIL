@@ -68,6 +68,8 @@ class DynamicsModelEnsemble(torch.nn.Module):
             dynamics_models.append(dynamics_model)
         return dynamics_models
 
+    # ---- Private --------------------------------------------
+
     def _predict_next_state_per_member(
         self,
         *,
