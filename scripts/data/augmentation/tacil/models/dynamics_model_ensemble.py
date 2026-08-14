@@ -13,20 +13,6 @@ class DynamicsModelEnsemble(torch.nn.Module):
         self.normalizers = normalizers
         self._dynamics_models = torch.nn.ModuleList(modules=dynamics_models)
 
-    @property
-    def state_dimensionality(self) -> int:
-        return self._first_dynamics_model.state_dimensionality
-
-    @property
-    def action_dimensionality(self) -> int:
-        return self._first_dynamics_model.action_dimensionality
-
-    @property
-    def _first_dynamics_model(self) -> DynamicsModel:
-        first_dynamics_model = self._dynamics_models[0]
-        assert isinstance(first_dynamics_model, DynamicsModel)
-        return first_dynamics_model
-
     def predict_next_state(
         self,
         *,

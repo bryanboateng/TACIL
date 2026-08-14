@@ -28,9 +28,9 @@ from scripts.data.augmentation.tacil.models.dynamics_model_ensemble import (
 )
 from scripts.data.augmentation.tacil.models.network_input import network_features
 from scripts.data.augmentation.tacil.models.normalizers import Normalizers
+from scripts.shared.distribution_summary import summarize_distribution
 from scripts.shared.episode_store import EpisodeStore
 from scripts.shared.log import create_logger
-from scripts.shared.distribution_summary import summarize_distribution
 from scripts.shared.pusht_state import subtract_states
 from scripts.shared.seeding import set_seed
 
@@ -55,7 +55,7 @@ def train_dynamics_model_ensemble(
     training_episodes, validation_episodes = train_test_split(
         extract_transitions(episode_store=episode_store),
         test_size=0.2,
-        random_state=0,
+        random_state=seed,
         shuffle=True,
     )
 

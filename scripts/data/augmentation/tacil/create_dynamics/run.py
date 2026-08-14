@@ -37,12 +37,11 @@ def main() -> None:
         config=asdict(obj=config),
         dir=OUTPUT_DIRECTORY_PATH,
     ) as run:
-        expert_episodes = download_episode_store(
-            artifact_name=config.expert_dataset_artifact, run=run
-        )
         train_dynamics_model_ensemble(
             config=config.dynamics,
-            episode_store=expert_episodes,
+            episode_store=download_episode_store(
+                artifact_name=config.expert_dataset_artifact, run=run
+            ),
             seed=config.seed,
             device=device,
             run=run,

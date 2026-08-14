@@ -15,7 +15,7 @@ from scripts.shared.log import create_logger
 
 logger = create_logger()
 
-DatasetLabel = Literal["full", "sub025"]
+DatasetLabel = Literal["full", "sub075", "sub050", "sub025", "sub010"]
 
 SearchLabel = Literal["bayes", "random"]
 
@@ -54,14 +54,22 @@ _TACIL_PARAMETERS: dict[str, Any] = {
         "max": 1.0,
     },
     # The limit is a fraction of the median expert step and thresholds the raw
-    # per-step uncertainty. Accepted-step uncertainties sat at 0.05-12.6 of a
-    # median step across the 2026-08-12 configurations (typical median 0.40),
-    # and at the first step the old account equalled the raw signal, so its
-    # measured dead zone below 0.018 applies here too.
+    # per-step uncertainty. The backward chains of 2026-08-14-signals-by-
+    # fraction put the fraction a chain needs to reach a given depth at:
+    #
+    #                depth 1   depth 5   depth 10
+    #   10% data       0.03      0.22       1.3
+    #   100% data      0.005     0.06       0.54
+    #
+    # The floor keeps the sparsest dataset out of the region where no first
+    # step is ever accepted and the run dies with no labels; the ceiling sits
+    # just past the depth-10 value of that same dataset, since a limit no
+    # chain can exceed makes the gate a no-op and leaves the step cap to end
+    # every chain.
     "augmentation.data.uncertainty_limit_fraction": {
         "distribution": "log_uniform_values",
-        "min": 0.02,
-        "max": 10.0,
+        "min": 0.05,
+        "max": 5.0,
     },
 }
 
@@ -108,7 +116,10 @@ METHOD_PARAMETERS: dict[MethodLabel, dict[str, Any]] = {
 
 EXPERT_DATASET_ARTIFACTS: dict[DatasetLabel, str] = {
     "full": "bryanboateng-team/datasets/expert-dataset:v0",
+    "sub075": "bryanboateng-team/datasets/subsampled-dataset-0.75:v0",
+    "sub050": "bryanboateng-team/datasets/subsampled-dataset-0.5:v0",
     "sub025": "bryanboateng-team/datasets/subsampled-dataset-0.25:v0",
+    "sub010": "bryanboateng-team/datasets/subsampled-dataset-0.1:v0",
 }
 
 
