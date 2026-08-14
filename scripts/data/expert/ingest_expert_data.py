@@ -30,7 +30,7 @@ def _run(*, config: Config) -> None:
         job_type="ingest-expert-data",
         dir=OUTPUT_DIRECTORY_PATH,
     ) as run:
-        artifact = wandb.Artifact(name="expert-dataset", type="dataset")
+        artifact = wandb.Artifact(name="dataset-100", type="dataset")
         artifact.add_dir(local_path=str(config.expert_data_file_path))
         run.log_artifact(artifact_or_path=artifact)
 

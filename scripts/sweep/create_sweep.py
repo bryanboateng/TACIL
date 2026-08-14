@@ -15,8 +15,6 @@ from scripts.shared.log import create_logger
 
 logger = create_logger()
 
-DatasetLabel = Literal["full", "sub075", "sub050", "sub025", "sub010"]
-
 SearchLabel = Literal["bayes", "random"]
 
 MethodLabel = Literal["tacil-dp", "tacil-bc", "ccil-bc-noisy", "ccil-bc-euler", "gpi"]
@@ -114,19 +112,11 @@ METHOD_PARAMETERS: dict[MethodLabel, dict[str, Any]] = {
     },
 }
 
-EXPERT_DATASET_ARTIFACTS: dict[DatasetLabel, str] = {
-    "full": "bryanboateng-team/datasets/expert-dataset:v0",
-    "sub075": "bryanboateng-team/datasets/subsampled-dataset-0.75:v0",
-    "sub050": "bryanboateng-team/datasets/subsampled-dataset-0.5:v0",
-    "sub025": "bryanboateng-team/datasets/subsampled-dataset-0.25:v0",
-    "sub010": "bryanboateng-team/datasets/subsampled-dataset-0.1:v0",
-}
-
 
 @dataclass(frozen=True)
 class Config:
     project_prefix: str
-    dataset: DatasetLabel
+    dataset_percentage: int
     method: MethodLabel
     floor_condition: FloorCondition
     disturbance_level: DisturbanceLevel | None
@@ -146,9 +136,7 @@ def main() -> None:
         floor_condition=config.floor_condition,
         disturbance_level=config.disturbance_level,
     )
-    project = (
-        f"{config.project_prefix}-{config.dataset}-{config.method}-{condition.label}"
-    )
+    project = f"{config.project_prefix}-{config.dataset_percentage}-{config.method}-{condition.label}"
 
     sweep_configuration = _build_sweep_configuration(
         config=config, condition=condition, project=project
@@ -179,7 +167,7 @@ def _build_sweep_configuration(
             "-m",
             pipeline_module,
             f"--wandb-project={project}",
-            f"--expert-dataset-artifact={EXPERT_DATASET_ARTIFACTS[config.dataset]}",
+            f"--expert-dataset-artifact=datasets/dataset-{config.dataset_percentage}:latest",
             f"--floor-condition={config.floor_condition.name}",
             f"--disturbance-level={'None' if config.disturbance_level is None else config.disturbance_level.name}",
             f"--seed={config.seed}",

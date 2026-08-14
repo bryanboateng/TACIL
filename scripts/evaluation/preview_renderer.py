@@ -92,7 +92,7 @@ def _create_policy_factory(config: gpi.Config) -> PolicyFactory:
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     log_device_info(device=device, logger=logger)
 
-    dataset_artifact = "abc/expert-dataset:latest"
+    dataset_artifact = "datasets/dataset-100:latest"
     return create_geometric_policy_factory(
         episode_store=read_episode_store(
             episode_file_path=(
