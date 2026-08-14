@@ -12,7 +12,7 @@ import wandb
 from rich.pretty import pretty_repr
 
 from scripts.data.augmentation.tacil.create_dynamics.config import DynamicsConfig
-from scripts.data.augmentation.tacil.create_dynamics.train_dynamics_model_ensemble import (  # noqa: E501
+from scripts.data.augmentation.tacil.create_dynamics.dynamics_model_ensemble_training import (  # noqa: E501
     train_dynamics_model_ensemble,
 )
 from scripts.shared.episode_store import download_episode_store
