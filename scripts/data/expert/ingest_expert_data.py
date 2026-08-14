@@ -27,7 +27,7 @@ def main() -> None:
 def _run(*, config: Config) -> None:
     with wandb.init(
         project=config.wandb_project,
-        job_type="ingest-expert-data",
+        job_type="expert-data-ingestion",
         dir=OUTPUT_DIRECTORY_PATH,
     ) as run:
         artifact = wandb.Artifact(name="dataset-100", type="dataset")

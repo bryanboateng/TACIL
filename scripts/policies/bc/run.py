@@ -48,7 +48,7 @@ def _run(*, config: Config) -> None:
 
     with wandb.init(
         project=config.wandb_project,
-        job_type="bc-pipeline",
+        job_type="bc",
         config=asdict(obj=config),
         dir=OUTPUT_DIRECTORY_PATH,
     ) as run:

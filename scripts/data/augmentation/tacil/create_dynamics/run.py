@@ -33,7 +33,7 @@ def main() -> None:
 
     with wandb.init(
         project=config.wandb_project,
-        job_type="dynamics",
+        job_type="tacil-dynamics-ensemble-creation",
         config=asdict(obj=config),
         dir=OUTPUT_DIRECTORY_PATH,
     ) as run:

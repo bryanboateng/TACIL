@@ -39,7 +39,7 @@ def _run(*, config: Config):
 
     with wandb.init(
         project=config.wandb_project,
-        job_type="create-subsampled-dataset",
+        job_type="dataset-subsampling",
         config=asdict(config),
         dir=OUTPUT_DIRECTORY_PATH,
     ) as run:
