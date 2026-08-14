@@ -84,3 +84,17 @@ class ZScoreNormalizer(torch.nn.Module):
         value_batch: torch.Tensor,  # (batch_size, dimensionality)
     ) -> torch.Tensor:  # (batch_size, dimensionality)
         return value_batch * self.std + self.mean
+
+    def normalize_difference(
+        self,
+        *,
+        difference_batch: torch.Tensor,  # (batch_size, dimensionality)
+    ) -> torch.Tensor:  # (batch_size, dimensionality)
+        return difference_batch / self.std
+
+    def denormalize_difference(
+        self,
+        *,
+        normalized_difference_batch: torch.Tensor,  # (batch_size, dimensionality)
+    ) -> torch.Tensor:  # (batch_size, dimensionality)
+        return normalized_difference_batch * self.std

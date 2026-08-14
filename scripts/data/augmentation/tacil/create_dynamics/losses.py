@@ -49,8 +49,8 @@ def compute_loss(
     # predicting "stays where it is" would be a good enough answer. This is
     # also the space the network itself predicts in.
     return (
-        normalizers.scale_to_step_units(
-            state_difference_batch=subtract_states(
+        normalizers.state_displacement_normalizer.normalize_difference(
+            difference_batch=subtract_states(
                 minuend_batch=predicted_state_trajectory_batch,
                 subtrahend_batch=target_state_trajectory_batch,
             )

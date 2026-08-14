@@ -26,7 +26,7 @@ from scripts.data.augmentation.tacil.create_dynamics.dynamics_model_training imp
 from scripts.data.augmentation.tacil.models.dynamics_model_ensemble import (
     DynamicsModelEnsemble,
 )
-from scripts.data.augmentation.tacil.models.network_input import network_features
+from scripts.data.augmentation.tacil.models.network_input import raw_network_input
 from scripts.data.augmentation.tacil.models.normalizers import Normalizers
 from scripts.shared.distribution_summary import summarize_distribution
 from scripts.shared.episode_store import EpisodeStore
@@ -167,7 +167,7 @@ def _create_normalizers(
     action_batch = torch.from_numpy(transitions.actions).to(device=device)
     normalizers = Normalizers.from_transitions(
         state_batch=state_batch,
-        network_feature_batch=network_features(
+        raw_network_input_batch=raw_network_input(
             state_batch=state_batch, action_batch=action_batch
         ),
         state_displacement_batch=subtract_states(

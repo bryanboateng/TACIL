@@ -61,8 +61,10 @@ class DynamicsModel(torch.nn.Module):
             )
         )  # (batch_size, state_dimensionality)
 
-        state_displacement_batch = normalizers.denormalize_state_displacement(
-            normalized_state_displacement_batch=normalized_state_displacement_batch
+        state_displacement_batch = (
+            normalizers.state_displacement_normalizer.denormalize(
+                value_batch=normalized_state_displacement_batch
+            )
         )  # (batch_size, state_dimensionality)
 
         return add_states(
