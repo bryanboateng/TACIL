@@ -1,6 +1,6 @@
 import torch
 
-from scripts.data.augmentation.tacil.models.dynamics_model.dynamics_model import (
+from scripts.data.augmentation.tacil.dynamics.dynamics_model.dynamics_model import (
     DynamicsModel,
 )
 from scripts.shared.normalization import ZScoreNormalizer

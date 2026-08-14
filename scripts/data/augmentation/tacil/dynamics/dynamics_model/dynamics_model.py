@@ -1,9 +1,9 @@
 import torch
 
-from scripts.data.augmentation.tacil.models.dynamics_model.lipschitz_constrained_linear import (
+from scripts.data.augmentation.tacil.dynamics.dynamics_model.lipschitz_constrained_linear import (
     LipschitzConstrainedLinear,
 )
-from scripts.data.augmentation.tacil.models.network_input import (
+from scripts.data.augmentation.tacil.dynamics.network_input import (
     NETWORK_INPUT_DIMENSIONALITY,
     create_raw_network_input,
 )

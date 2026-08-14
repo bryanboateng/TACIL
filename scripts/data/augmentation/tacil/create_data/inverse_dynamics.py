@@ -2,7 +2,7 @@ from dataclasses import dataclass
 
 import torch
 
-from scripts.data.augmentation.tacil.models.dynamics_model_ensemble import (
+from scripts.data.augmentation.tacil.dynamics.dynamics_model_ensemble import (
     DynamicsModelEnsemble,
 )
 from scripts.shared.pusht_state import add_states, subtract_states

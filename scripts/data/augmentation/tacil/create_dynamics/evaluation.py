@@ -3,7 +3,7 @@ import torch
 from numpy import typing as npt
 
 from scripts.data.augmentation.tacil.create_dynamics.losses import compute_loss
-from scripts.data.augmentation.tacil.models.dynamics_model.dynamics_model import (
+from scripts.data.augmentation.tacil.dynamics.dynamics_model.dynamics_model import (
     DynamicsModel,
 )
 

@@ -7,7 +7,7 @@ from tqdm import tqdm
 from scripts.data.augmentation.tacil.create_data.inverse_dynamics import (
     solve_inverse_dynamics,
 )
-from scripts.data.augmentation.tacil.models.dynamics_model_ensemble import (
+from scripts.data.augmentation.tacil.dynamics.dynamics_model_ensemble import (
     DynamicsModelEnsemble,
 )
 

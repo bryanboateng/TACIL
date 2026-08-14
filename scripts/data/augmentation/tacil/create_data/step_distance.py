@@ -1,7 +1,7 @@
 import numpy as np
 import torch
 
-from scripts.data.augmentation.tacil.models.dynamics_model_ensemble import (
+from scripts.data.augmentation.tacil.dynamics.dynamics_model_ensemble import (
     DynamicsModelEnsemble,
 )
 from scripts.shared.episode_store import EpisodeStore

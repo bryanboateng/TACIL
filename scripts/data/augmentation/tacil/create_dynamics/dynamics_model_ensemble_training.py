@@ -25,10 +25,10 @@ from scripts.data.augmentation.tacil.create_dynamics.dynamics_model_training imp
     load_best_member_model,
     train_member_for_one_epoch,
 )
-from scripts.data.augmentation.tacil.models.dynamics_model_ensemble import (
+from scripts.data.augmentation.tacil.dynamics.dynamics_model_ensemble import (
     DynamicsModelEnsemble,
 )
-from scripts.data.augmentation.tacil.models.network_input import (
+from scripts.data.augmentation.tacil.dynamics.network_input import (
     create_raw_network_input,
 )
 from scripts.shared.distribution_summary import summarize_distribution

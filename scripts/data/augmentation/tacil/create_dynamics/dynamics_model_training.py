@@ -13,7 +13,7 @@ from scripts.data.augmentation.tacil.create_dynamics.evaluation import (
     calculate_validation_loss,
 )
 from scripts.data.augmentation.tacil.create_dynamics.losses import compute_loss
-from scripts.data.augmentation.tacil.models.dynamics_model.dynamics_model import (
+from scripts.data.augmentation.tacil.dynamics.dynamics_model.dynamics_model import (
     DynamicsModel,
 )
 from scripts.shared.normalization import ZScoreNormalizer

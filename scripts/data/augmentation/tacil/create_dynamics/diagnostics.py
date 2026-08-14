@@ -28,7 +28,7 @@ from scripts.data.augmentation.tacil.create_dynamics.data import (  # noqa: E402
     TransitionSet,
     build_windows,
 )
-from scripts.data.augmentation.tacil.models.dynamics_model_ensemble import (  # noqa: E402
+from scripts.data.augmentation.tacil.dynamics.dynamics_model_ensemble import (  # noqa: E402
     DynamicsModelEnsemble,
 )
 from scripts.shared.distribution_summary import summarize_distribution  # noqa: E402
