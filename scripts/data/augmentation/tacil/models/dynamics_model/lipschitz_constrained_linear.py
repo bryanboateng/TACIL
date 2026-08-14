@@ -57,10 +57,8 @@ class _SpectralNormBound(torch.nn.Module):
         self,
         weight: torch.Tensor,  # (output_dimensionality, input_dimensionality)
     ) -> torch.Tensor:  # (output_dimensionality, input_dimensionality)
-        left_singular_vector, right_singular_vector = (
-            self.left_singular_vector,
-            self.right_singular_vector,
-        )
+        left_singular_vector = self.left_singular_vector
+        right_singular_vector = self.right_singular_vector
 
         if self.training:
             with torch.no_grad():
