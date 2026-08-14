@@ -16,7 +16,7 @@ from scripts.data.augmentation.tacil.create_dynamics.losses import compute_loss
 from scripts.data.augmentation.tacil.models.dynamics_model.dynamics_model import (
     DynamicsModel,
 )
-from scripts.data.augmentation.tacil.models.normalizers import Normalizers
+from scripts.shared.normalization import ZScoreNormalizer
 from scripts.shared.seeding import set_seed
 
 
@@ -76,7 +76,8 @@ def create_member_training_state(
     member_seed: int,
     config: DynamicsConfig,
     transitions: TransitionSet,
-    normalizers: Normalizers,
+    network_input_normalizer: ZScoreNormalizer,
+    state_displacement_normalizer: ZScoreNormalizer,
     train_state_windows: torch.Tensor,
     train_action_windows: torch.Tensor,
     device: torch.device,
@@ -89,8 +90,8 @@ def create_member_training_state(
         hidden_layer_count=config.hidden_layer_count,
         hidden_layer_dimensionality=config.hidden_layer_dimensionality,
         lipschitz_constant_upper_bound=config.lipschitz_constant_upper_bound,
-        input_normalizer=normalizers.network_input_normalizer,
-        state_displacement_normalizer=normalizers.state_displacement_normalizer,
+        input_normalizer=network_input_normalizer,
+        state_displacement_normalizer=state_displacement_normalizer,
     ).to(device=device)
 
     return MemberTrainingState(

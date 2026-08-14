@@ -1,3 +1,5 @@
+from dataclasses import dataclass
+
 import numpy as np
 import torch
 import wandb
@@ -23,14 +25,15 @@ from scripts.data.augmentation.tacil.create_dynamics.dynamics_model_training imp
     load_best_member_model,
     train_member_for_one_epoch,
 )
+from scripts.data.augmentation.tacil.models import network_input
 from scripts.data.augmentation.tacil.models.dynamics_model_ensemble import (
     DynamicsModelEnsemble,
 )
 from scripts.data.augmentation.tacil.models.network_input import raw_network_input
-from scripts.data.augmentation.tacil.models.normalizers import Normalizers
 from scripts.shared.distribution_summary import summarize_distribution
 from scripts.shared.episode_store import EpisodeStore
 from scripts.shared.log import create_logger
+from scripts.shared.normalization import ZScoreNormalizer
 from scripts.shared.pusht_state import subtract_states
 from scripts.shared.seeding import set_seed
 
@@ -101,7 +104,8 @@ def train_dynamics_model_ensemble(
                 member_seed=int(member_seed),
                 config=config,
                 transitions=training_transitions,
-                normalizers=normalizers,
+                network_input_normalizer=normalizers.network_input,
+                state_displacement_normalizer=normalizers.state_displacement,
                 train_state_windows=torch.from_numpy(member_state_windows).to(
                     device=device
                 ),
@@ -132,7 +136,7 @@ def train_dynamics_model_ensemble(
     _log_checkpoint_summary(member_states=member_training_states, run=run)
 
     dynamics_model_ensemble = DynamicsModelEnsemble(
-        normalizers=normalizers,
+        state_normalizer=normalizers.state,
         dynamics_models=[
             load_best_member_model(member_training_state=member_training_state)
             for member_training_state in member_training_states
@@ -159,22 +163,32 @@ def _define_epoch_metrics(*, run: Run) -> None:
         )
 
 
+@dataclass
+class _Normalizers:
+    state: ZScoreNormalizer
+    network_input: ZScoreNormalizer
+    state_displacement: ZScoreNormalizer
+
+
 def _create_normalizers(
-    transitions: TransitionSet, device: torch.device
-) -> Normalizers:
+    *, transitions: TransitionSet, device: torch.device
+) -> _Normalizers:
     state_batch = torch.from_numpy(transitions.states).to(device=device)
     next_state_batch = torch.from_numpy(transitions.next_states).to(device=device)
     action_batch = torch.from_numpy(transitions.actions).to(device=device)
-    normalizers = Normalizers.from_transitions(
-        state_batch=state_batch,
-        raw_network_input_batch=raw_network_input(
-            state_batch=state_batch, action_batch=action_batch
-        ),
-        state_displacement_batch=subtract_states(
-            minuend_batch=next_state_batch, subtrahend_batch=state_batch
-        ),
-    ).to(device=device)
-    return normalizers
+    return _Normalizers(
+        state=ZScoreNormalizer(value_batch=state_batch).to(device=device),
+        network_input=ZScoreNormalizer(
+            value_batch=raw_network_input(
+                state_batch=state_batch, action_batch=action_batch
+            )
+        ).to(device=device),
+        state_displacement=ZScoreNormalizer(
+            value_batch=subtract_states(
+                minuend_batch=next_state_batch, subtrahend_batch=state_batch
+            )
+        ).to(device=device),
+    )
 
 
 def _log_epoch(

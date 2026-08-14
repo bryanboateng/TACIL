@@ -438,7 +438,7 @@ def _normalized_differences(
 ) -> torch.Tensor:  # (batch_size, state_dimensionality)
     """How far the two states are apart, per dimension, in units of that
     dimension's spread."""
-    return dynamics_model_ensemble.normalizers.state_normalizer.normalize_difference(
+    return dynamics_model_ensemble.state_normalizer.normalize_difference(
         difference_batch=subtract_states(
             minuend_batch=state_batch, subtrahend_batch=other_state_batch
         )

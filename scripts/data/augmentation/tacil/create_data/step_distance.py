@@ -27,7 +27,7 @@ def calculate_median_step_distance(
     # The shape is (total_timestep_count - 1,).
     # I.e. one distance per consecutive pair of states.
     step_distance_batch = torch.linalg.norm(
-        dynamics_model_ensemble.normalizers.state_normalizer.normalize_difference(
+        dynamics_model_ensemble.state_normalizer.normalize_difference(
             difference_batch=subtract_states(
                 minuend_batch=state_batch[1:], subtrahend_batch=state_batch[:-1]
             )
