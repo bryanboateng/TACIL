@@ -47,15 +47,7 @@ def log_rollout_statistics(
 
     histogram_panels: dict[str, wandb.Image] = {}
     for name, values_batch in (
-        (
-            "accumulated_error_estimates",
-            rollout_diagnostics.accumulated_error_estimates,
-        ),
         ("step_uncertainties", rollout_diagnostics.step_uncertainties),
-        (
-            "local_transition_lipschitz_constants",
-            rollout_diagnostics.local_transition_lipschitz_constants,
-        ),
     ):
         values = values_batch.cpu().numpy()
         if values.size > 0:

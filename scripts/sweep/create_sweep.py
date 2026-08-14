@@ -53,14 +53,15 @@ _TACIL_PARAMETERS: dict[str, Any] = {
         "min": 0.0,
         "max": 1.0,
     },
-    # The limit is a fraction of the median expert step. In the 2026-08-12
-    # sweep every run below 0.018 died with an empty dataset and the lowest
-    # value that produced data was 0.058, so the range starts above that dead
-    # zone.
+    # The limit is a fraction of the median expert step and thresholds the raw
+    # per-step uncertainty. Accepted-step uncertainties sat at 0.05-12.6 of a
+    # median step across the 2026-08-12 configurations (typical median 0.40),
+    # and at the first step the old account equalled the raw signal, so its
+    # measured dead zone below 0.018 applies here too.
     "augmentation.data.error_limit_fraction": {
         "distribution": "log_uniform_values",
         "min": 0.02,
-        "max": 32.0,
+        "max": 10.0,
     },
 }
 
