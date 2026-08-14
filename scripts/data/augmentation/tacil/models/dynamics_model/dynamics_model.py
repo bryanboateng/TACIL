@@ -10,9 +10,6 @@ from scripts.data.augmentation.tacil.models.network_input import (
 from scripts.shared.normalization import ZScoreNormalizer
 from scripts.shared.pusht_state import add_states
 
-# Maximum factor by which SiLU stretches space, i.e. its Lipschitz constant.
-_SILU_LIPSCHITZ_CONSTANT = 1.099839320
-
 
 class DynamicsModel(torch.nn.Module):
     def __init__(
@@ -88,6 +85,13 @@ class DynamicsModel(torch.nn.Module):
         return torch.linalg.matrix_norm(jacobian_batch, ord=2)  # (batch_size,)
 
 
+# ---- Private --------------------------------------------
+
+
+# Maximum factor by which SiLU stretches space, i.e. its Lipschitz constant.
+_SILU_LIPSCHITZ_CONSTANT = 1.099839320
+
+
 def _create_network(
     *,
     input_dimensionality: int,
@@ -154,11 +158,12 @@ def _create_linear_layer(
         return torch.nn.Linear(
             in_features=input_dimensionality, out_features=output_dimensionality
         )
-    return LipschitzConstrainedLinear(
-        input_dimensionality=input_dimensionality,
-        output_dimensionality=output_dimensionality,
-        lipschitz_constant_upper_bound=lipschitz_constant_upper_bound_per_layer,
-    )
+    else:
+        return LipschitzConstrainedLinear(
+            input_dimensionality=input_dimensionality,
+            output_dimensionality=output_dimensionality,
+            lipschitz_constant_upper_bound=lipschitz_constant_upper_bound_per_layer,
+        )
 
 
 def _create_normalized_network_input(
