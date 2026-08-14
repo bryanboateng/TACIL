@@ -8,10 +8,6 @@ from torch.optim.swa_utils import AveragedModel
 
 from scripts.data.augmentation.tacil.create_dynamics.config import DynamicsConfig
 from scripts.data.augmentation.tacil.create_dynamics.data import TransitionSet
-from scripts.data.augmentation.tacil.create_dynamics.evaluation import (
-    calculate_local_lipschitz_constants,
-    calculate_validation_loss,
-)
 from scripts.data.augmentation.tacil.create_dynamics.losses import compute_loss
 from scripts.data.augmentation.tacil.dynamics.dynamics_model.dynamics_model import (
     DynamicsModel,
@@ -154,7 +150,7 @@ def train_member_for_one_epoch(
 
     state.ema_model.update_parameters(model=state.model)
 
-    validation_loss = calculate_validation_loss(
+    validation_loss = _calculate_validation_loss(
         dynamics_model=state.ema_dynamics_model,
         state_windows=context.validation_state_windows,
         action_windows=context.validation_action_windows,
@@ -175,10 +171,12 @@ def train_member_for_one_epoch(
         training_loss=float(np.mean(a=losses)),
         validation_loss=validation_loss,
         training_local_lipschitz_constants=_sample_local_lipschitz_constants(
-            state=state, transitions=context.training_transitions, batch_size=batch_size
+            training_state=state,
+            transitions=context.training_transitions,
+            batch_size=batch_size,
         ),
         validation_local_lipschitz_constants=_sample_local_lipschitz_constants(
-            state=state,
+            training_state=state,
             transitions=context.validation_transitions,
             batch_size=batch_size,
         ),
@@ -200,16 +198,77 @@ def load_best_member_model(
 # ---- Private --------------------------------------------
 
 
+@torch.no_grad()
+def _calculate_validation_loss(
+    *,
+    dynamics_model: DynamicsModel,
+    state_windows: npt.NDArray[
+        np.float32
+    ],  # (window_count, window_length + 1, state_dimensionality)
+    action_windows: npt.NDArray[
+        np.float32
+    ],  # (window_count, window_length, action_dimensionality)
+    batch_size: int,
+) -> float:
+
+    device = next(dynamics_model.parameters()).device
+
+    state_windows_tensor = torch.from_numpy(state_windows).to(
+        device=device
+    )  # (window_count, window_length + 1, state_dimensionality)
+    action_windows_tensor = torch.from_numpy(action_windows).to(
+        device=device
+    )  # (window_count, window_length, action_dimensionality)
+
+    window_count = state_windows_tensor.shape[0]
+    total_loss = 0.0
+
+    dynamics_model.eval()
+    for batch_start in range(0, window_count, batch_size):
+        batch_slice = slice(batch_start, batch_start + batch_size)
+
+        state_window_batch = state_windows_tensor[
+            batch_slice
+        ]  # (batch_size, window_length + 1, state_dimensionality)
+        action_window_batch = action_windows_tensor[
+            batch_slice
+        ]  # (batch_size, window_length, state_dimensionality)
+
+        batch_loss = compute_loss(
+            dynamics_model=dynamics_model,
+            state_window_batch=state_window_batch,
+            action_window_batch=action_window_batch,
+        )
+        total_loss += batch_loss.item() * state_window_batch.shape[0]
+
+    return total_loss / window_count
+
+
+@torch.no_grad()
 def _sample_local_lipschitz_constants(
-    *, state: MemberTrainingState, transitions: TransitionSet, batch_size: int
+    *, training_state: MemberTrainingState, transitions: TransitionSet, batch_size: int
 ) -> npt.NDArray[np.float32]:  # (sample_count,)
+
     transition_count = transitions.states.shape[0]
-    sample_indices = state.histogram_sample_generator.choice(
+    sample_indices = training_state.histogram_sample_generator.choice(
         a=transition_count, size=min(512, transition_count), replace=False
     )  # (sample_count,)
-    return calculate_local_lipschitz_constants(
-        dynamics_model=state.ema_dynamics_model,
-        states=transitions.states[sample_indices],
-        actions=transitions.actions[sample_indices],
-        batch_size=batch_size,
-    )
+
+    training_state.ema_dynamics_model.eval()
+
+    device = next(training_state.ema_dynamics_model.parameters()).device
+    states = torch.from_numpy(transitions.states[sample_indices]).to(device=device)
+    actions = torch.from_numpy(transitions.actions[sample_indices]).to(device=device)
+
+    local_lipschitz_constant_batches: list[npt.NDArray[np.float32]] = []
+
+    for batch_start in range(0, states.shape[0], batch_size):
+        batch_slice = slice(batch_start, batch_start + batch_size)
+        local_lipschitz_constant_batches.append(
+            training_state.ema_dynamics_model.local_lipschitz_constants(
+                state_batch=states[batch_slice], action_batch=actions[batch_slice]
+            )
+            .cpu()
+            .numpy()
+        )
+    return np.concatenate(local_lipschitz_constant_batches)
