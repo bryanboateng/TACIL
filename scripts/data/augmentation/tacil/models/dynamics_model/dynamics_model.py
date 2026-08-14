@@ -57,7 +57,7 @@ class DynamicsModel(torch.nn.Module):
             network_input(
                 state_batch=state_batch,
                 action_batch=action_batch,
-                normalizers=normalizers,
+                normalizer=normalizers.network_input_normalizer,
             )
         )  # (batch_size, state_dimensionality)
 
@@ -79,7 +79,9 @@ class DynamicsModel(torch.nn.Module):
         normalizers: Normalizers,
     ) -> torch.Tensor:  # (batch_size,)
         network_input_batch = network_input(
-            state_batch=state_batch, action_batch=action_batch, normalizers=normalizers
+            state_batch=state_batch,
+            action_batch=action_batch,
+            normalizer=normalizers.network_input_normalizer,
         )  # (batch_size, input_dimensionality)
 
         jacobian_batch: torch.Tensor = torch.vmap(

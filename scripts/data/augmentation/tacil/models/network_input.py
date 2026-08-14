@@ -1,6 +1,6 @@
 import torch
 
-from scripts.data.augmentation.tacil.models.normalizers import Normalizers
+from scripts.shared.normalization import ZScoreNormalizer
 from scripts.shared.pusht_state import (
     AGENT_POSITION_SLICE,
     BLOCK_ANGLE_INDEX,
@@ -68,11 +68,14 @@ def raw_network_input(
 
 
 def network_input(
-    *, state_batch: torch.Tensor, action_batch: torch.Tensor, normalizers: Normalizers
+    *,
+    state_batch: torch.Tensor,
+    action_batch: torch.Tensor,
+    normalizer: ZScoreNormalizer,
 ) -> torch.Tensor:  # (batch_size, NETWORK_INPUT_DIMENSIONALITY)
     """The scaled version of raw_network_input: one normalizer, fit per
     dimension on the whole vector, applied once."""
-    return normalizers.network_input_normalizer.normalize(
+    return normalizer.normalize(
         value_batch=raw_network_input(
             state_batch=state_batch, action_batch=action_batch
         )
