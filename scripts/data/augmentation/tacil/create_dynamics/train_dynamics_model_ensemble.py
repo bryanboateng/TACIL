@@ -62,13 +62,9 @@ def train_dynamics_model_ensemble(
     training_transitions = concatenate_episodes(episodes=training_episodes)
     validation_transitions = concatenate_episodes(episodes=validation_episodes)
 
-    train_state_windows, train_action_windows = build_windows(
-        episodes=training_episodes, window_length=config.window_length
-    )
     validation_state_windows, validation_action_windows = build_windows(
         episodes=validation_episodes, window_length=config.window_length
     )
-    run.summary[f"{STAGE_NAME}/4_window_count/training"] = train_action_windows.shape[0]
     run.summary[f"{STAGE_NAME}/4_window_count/validation"] = (
         validation_action_windows.shape[0]
     )
@@ -80,23 +76,44 @@ def train_dynamics_model_ensemble(
         normalizers=normalizers,
         training_transitions=training_transitions,
         validation_transitions=validation_transitions,
-        train_state_windows=torch.from_numpy(train_state_windows).to(device=device),
-        train_action_windows=torch.from_numpy(train_action_windows).to(device=device),
         validation_state_windows=validation_state_windows,
         validation_action_windows=validation_action_windows,
     )
 
-    member_training_states = [
-        create_member_training_state(
-            member_seed=int(member_seed),
-            config=config,
-            transitions=training_transitions,
-            device=device,
+    member_training_states = []
+    member_window_counts: list[int] = []
+    for member_seed in np.random.SeedSequence(entropy=seed).generate_state(
+        n_words=config.ensemble_size
+    ):
+        # Bootstrap: each member trains on its own resample of the training
+        # episodes, drawn with replacement and equally large. Every member
+        # sees a full-size dataset, but each one has different gaps.
+        episode_indices = np.random.default_rng(seed=int(member_seed)).integers(
+            low=0, high=len(training_episodes), size=len(training_episodes)
         )
-        for member_seed in np.random.SeedSequence(entropy=seed).generate_state(
-            n_words=config.ensemble_size
+        member_state_windows, member_action_windows = build_windows(
+            episodes=[training_episodes[index] for index in episode_indices],
+            window_length=config.window_length,
         )
-    ]
+        member_window_counts.append(member_action_windows.shape[0])
+
+        member_training_states.append(
+            create_member_training_state(
+                member_seed=int(member_seed),
+                config=config,
+                transitions=training_transitions,
+                train_state_windows=torch.from_numpy(member_state_windows).to(
+                    device=device
+                ),
+                train_action_windows=torch.from_numpy(member_action_windows).to(
+                    device=device
+                ),
+                device=device,
+            )
+        )
+    run.summary[f"{STAGE_NAME}/4_window_count/training"] = float(
+        np.mean(member_window_counts)
+    )
 
     for epoch_index in tqdm(range(500), desc="training ensemble", unit="epoch"):
         _log_epoch(

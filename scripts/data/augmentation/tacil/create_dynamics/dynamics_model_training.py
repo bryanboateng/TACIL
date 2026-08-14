@@ -41,6 +41,11 @@ class MemberTrainingState:
     ema_model: AveragedModel
     shuffle_generator: torch.Generator
     histogram_sample_generator: np.random.Generator
+    # The member's own bootstrap resample of the training episodes. Members
+    # disagree only where their resamples support different answers, which is
+    # what makes the ensemble spread an honest uncertainty.
+    train_state_windows: torch.Tensor
+    train_action_windows: torch.Tensor
     best_checkpoint: Checkpoint | None = None
 
     @property
@@ -61,8 +66,6 @@ class TrainingContext:
     normalizers: Normalizers
     training_transitions: TransitionSet
     validation_transitions: TransitionSet
-    train_state_windows: torch.Tensor
-    train_action_windows: torch.Tensor
     validation_state_windows: npt.NDArray[np.float32]
     validation_action_windows: npt.NDArray[np.float32]
 
@@ -72,6 +75,8 @@ def create_member_training_state(
     member_seed: int,
     config: DynamicsConfig,
     transitions: TransitionSet,
+    train_state_windows: torch.Tensor,
+    train_action_windows: torch.Tensor,
     device: torch.device,
 ) -> MemberTrainingState:
     set_seed(seed=member_seed)
@@ -98,6 +103,8 @@ def create_member_training_state(
         ),
         shuffle_generator=torch.Generator(device=device).manual_seed(member_seed),
         histogram_sample_generator=np.random.default_rng(seed=member_seed),
+        train_state_windows=train_state_windows,
+        train_action_windows=train_action_windows,
     )
 
 
@@ -106,14 +113,14 @@ def train_member_for_one_epoch(
 ) -> MemberEpochMetrics:
     batch_size = 2_048
 
-    window_count = context.train_state_windows.shape[0]
+    window_count = state.train_state_windows.shape[0]
     steps_per_epoch = max(window_count // batch_size, 1)
 
     state.model.train()
     shuffled_window_indices = torch.randperm(
         n=window_count,
         generator=state.shuffle_generator,
-        device=context.train_state_windows.device,
+        device=state.train_state_windows.device,
     )
 
     losses: list[float] = []
@@ -129,8 +136,8 @@ def train_member_for_one_epoch(
         loss = compute_loss(
             dynamics_model=state.model,
             normalizers=context.normalizers,
-            state_window_batch=context.train_state_windows[batch_window_indices],
-            action_window_batch=context.train_action_windows[batch_window_indices],
+            state_window_batch=state.train_state_windows[batch_window_indices],
+            action_window_batch=state.train_action_windows[batch_window_indices],
         )
         loss.backward()
         losses.append(loss.detach().item())

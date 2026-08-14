@@ -65,9 +65,13 @@ def create_augmented_data(
             device=device
         ),
         action_noise_std=torch.as_tensor(action_noise_std).to(device=device),
-        error_signal=config.error_signal,
         error_limit=error_limit,
         convergence_tolerance=1e-3 * median_expert_step_distance,
+        # A synthetic run-up longer than the longest demonstration is not a
+        # run-up anymore.
+        max_step_count=int(
+            np.diff(a=episode_store.episode_end_indices, prepend=0).max()
+        ),
     )
 
     log_rollout_statistics(
@@ -81,7 +85,7 @@ def create_augmented_data(
         run.summary[f"{STAGE_NAME}/1_rollout/accepted_count"] = 0
         run.summary[f"{STAGE_NAME}/1_rollout/accepted_fraction"] = 0.0
         raise RuntimeError(
-            "The error budget rejected every anchor's first backward step, so "
+            "The error limit rejected every anchor's first backward step, so "
             "this configuration produced no labels. Training on the expert data "
             "alone would score the unaugmented baseline under an augmented "
             "run's name, so the run stops here instead."

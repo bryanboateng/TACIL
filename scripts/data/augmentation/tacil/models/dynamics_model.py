@@ -97,44 +97,6 @@ class DynamicsModel(torch.nn.Module):
 
         return torch.linalg.matrix_norm(jacobian_batch, ord=2)  # (batch_size,)
 
-    def local_transition_lipschitz_constants(
-        self,
-        *,
-        normalizers: Normalizers,
-        state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
-        action_batch: torch.Tensor,  # (batch_size, action_dimensionality)
-    ) -> torch.Tensor:  # (batch_size,)
-        """Spectral norm of d(normalized next state) / d(normalized state).
-
-        Unlike local_lipschitz_constants, which measures only the steepness of
-        the predicted displacement, this includes the residual identity term:
-        it is the gain of the full state-to-state map, the factor by which one
-        transition stretches a perturbation of the state it starts from.
-        """
-
-        def normalized_next_state(
-            normalized_state: torch.Tensor,  # (state_dimensionality,)
-            action: torch.Tensor,  # (action_dimensionality,)
-        ) -> torch.Tensor:  # (state_dimensionality,)
-            next_state_batch = self.predict_next_state(
-                normalizers=normalizers,
-                state_batch=normalizers.denormalize_state(
-                    normalized_state_batch=normalized_state.unsqueeze(dim=0)
-                ),
-                action_batch=action.unsqueeze(dim=0),
-            )  # (1, state_dimensionality)
-            return normalizers.normalize_state(state_batch=next_state_batch).squeeze(
-                dim=0
-            )  # (state_dimensionality,)
-
-        jacobian_batch = torch.vmap(
-            func=torch.func.jacrev(func=normalized_next_state, argnums=0)
-        )(
-            normalizers.normalize_state(state_batch=state_batch), action_batch
-        )  # (batch_size, state_dimensionality, state_dimensionality)
-
-        return torch.linalg.matrix_norm(jacobian_batch, ord=2)  # (batch_size,)
-
 
 def _create_network(
     *,

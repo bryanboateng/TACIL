@@ -19,43 +19,19 @@ DatasetLabel = Literal["full", "sub025"]
 
 SearchLabel = Literal["bayes", "random"]
 
-MethodLabel = Literal[
-    "tacil-dp-uncertainty",
-    "tacil-dp-sensitivity",
-    "tacil-bc-uncertainty",
-    "tacil-bc-sensitivity",
-    "ccil-bc-noisy",
-    "ccil-bc-euler",
-    "gpi",
-]
+MethodLabel = Literal["tacil-dp", "tacil-bc", "ccil-bc-noisy", "ccil-bc-euler", "gpi"]
 
 METHOD_MODULES: dict[MethodLabel, str] = {
-    "tacil-dp-uncertainty": "scripts.policies.dp.run",
-    "tacil-dp-sensitivity": "scripts.policies.dp.run",
-    "tacil-bc-uncertainty": "scripts.policies.bc.run",
-    "tacil-bc-sensitivity": "scripts.policies.bc.run",
+    "tacil-dp": "scripts.policies.dp.run",
+    "tacil-bc": "scripts.policies.bc.run",
     "ccil-bc-noisy": "scripts.policies.bc.run",
     "ccil-bc-euler": "scripts.policies.bc.run",
     "gpi": "scripts.policies.gpi.run",
 }
 
 METHOD_FIXED_ARGUMENTS: dict[MethodLabel, list[str]] = {
-    "tacil-dp-uncertainty": [
-        "augmentation:tacil",
-        "--augmentation.data.error_signal=uncertainty",
-    ],
-    "tacil-dp-sensitivity": [
-        "augmentation:tacil",
-        "--augmentation.data.error_signal=sensitivity_scaled_step_distance",
-    ],
-    "tacil-bc-uncertainty": [
-        "augmentation:tacil",
-        "--augmentation.data.error_signal=uncertainty",
-    ],
-    "tacil-bc-sensitivity": [
-        "augmentation:tacil",
-        "--augmentation.data.error_signal=sensitivity_scaled_step_distance",
-    ],
+    "tacil-dp": ["augmentation:tacil"],
+    "tacil-bc": ["augmentation:tacil"],
     "ccil-bc-noisy": ["augmentation:ccil", "--augmentation.labels.type=noisy_action"],
     "ccil-bc-euler": [
         "augmentation:ccil",
@@ -77,10 +53,14 @@ _TACIL_PARAMETERS: dict[str, Any] = {
         "min": 0.0,
         "max": 1.0,
     },
+    # The limit is a fraction of the median expert step. The replay error is a
+    # real distance on the same scale, so the range spans "a hair off course"
+    # to "several steps off course" — the old signal-dependent extremes are
+    # not needed anymore.
     "augmentation.data.error_limit_fraction": {
         "distribution": "log_uniform_values",
-        "min": 0.001,
-        "max": 32.0,
+        "min": 0.01,
+        "max": 10.0,
     },
 }
 
@@ -99,10 +79,8 @@ _CCIL_SHARED_PARAMETERS: dict[str, Any] = {
 }
 
 METHOD_PARAMETERS: dict[MethodLabel, dict[str, Any]] = {
-    "tacil-dp-uncertainty": _TACIL_PARAMETERS,
-    "tacil-dp-sensitivity": _TACIL_PARAMETERS,
-    "tacil-bc-uncertainty": _TACIL_PARAMETERS,
-    "tacil-bc-sensitivity": _TACIL_PARAMETERS,
+    "tacil-dp": _TACIL_PARAMETERS,
+    "tacil-bc": _TACIL_PARAMETERS,
     "ccil-bc-noisy": {
         **_CCIL_SHARED_PARAMETERS,
         "augmentation.labels.action_noise_std": {

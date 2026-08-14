@@ -1,11 +1,9 @@
-import itertools
 from dataclasses import dataclass, field
 from enum import IntEnum
 
 import torch
 from tqdm import tqdm
 
-from scripts.data.augmentation.tacil.create_data.config import ErrorSignal
 from scripts.data.augmentation.tacil.create_data.inverse_dynamics import (
     solve_inverse_dynamics,
 )
@@ -17,6 +15,7 @@ from scripts.data.augmentation.tacil.models.dynamics_model_ensemble import (
 class TerminationReason(IntEnum):
     ERROR_LIMIT_EXCEEDED = 0
     NOT_CONVERGED = 1
+    STEP_CAP_REACHED = 2
 
 
 @dataclass(frozen=True)
@@ -34,11 +33,7 @@ class BackwardTrajectories:
 class RolloutDiagnostics:
     termination_reasons_batch: torch.Tensor  # (anchor_count,)
 
-    accumulated_error_estimates: torch.Tensor  # (accepted_step_count,)
-    step_error_estimates: torch.Tensor  # (accepted_step_count,)
-    uncertainties_about_next_state: torch.Tensor  # (accepted_step_count,)
-    sensitivity_scaled_step_distances: torch.Tensor  # (accepted_step_count,)
-    local_transition_lipschitz_constants: torch.Tensor  # (accepted_step_count,)
+    replay_landing_errors: torch.Tensor  # (accepted_step_count,)
 
 
 @torch.no_grad()
@@ -48,9 +43,9 @@ def roll_out_backward(
     anchor_state_batch: torch.Tensor,  # (anchor_count, state_dimensionality)
     anchor_action_batch: torch.Tensor,  # (anchor_count, action_dimensionality)
     action_noise_std: torch.Tensor,  # (action_dimensionality,)
-    error_signal: ErrorSignal,
     error_limit: float,
     convergence_tolerance: float,
+    max_step_count: int,
 ) -> tuple[BackwardTrajectories, RolloutDiagnostics]:
     anchor_count = anchor_state_batch.shape[0]
     device = anchor_state_batch.device
@@ -61,57 +56,62 @@ def roll_out_backward(
     )
 
     current_state_batch = anchor_state_batch.clone()
-    trajectory_error_batch = torch.zeros(anchor_count, device=device)
-    error_amplification_batch = torch.ones(anchor_count, device=device)
     active_mask_batch = torch.ones(anchor_count, dtype=torch.bool, device=device)
+
+    # Entry d holds the noisy action accepted at depth d, indexed by anchor.
+    # A chain that is active at depth d has accepted every earlier depth, so
+    # its rows in all earlier entries are filled.
+    noisy_action_per_depth: list[torch.Tensor] = []
 
     accepted_steps_per_depth: list[_AcceptedSteps] = []
     diagnostics_collector = _DiagnosticsCollector()
 
-    progress_bar = tqdm(desc="backward step", unit="step")
-    for depth in itertools.count():
+    # Unlike the old accumulated error account, the replay error does not have
+    # to grow with depth, so the walk needs a hard stop. The cap also bounds
+    # the replay cost, which grows with the square of the depth.
+    progress_bar = tqdm(desc="backward step", unit="step", total=max_step_count)
+    for depth in range(max_step_count):
         active_indices = active_mask_batch.nonzero().squeeze(dim=1)  # (active_count,)
         if active_indices.numel() == 0:
             break
         progress_bar.set_postfix(active_anchor_count=int(active_indices.numel()))
 
-        backward_step = _compute_backward_step(
+        noisy_action_batch = anchor_action_batch[active_indices] + torch.normal(
+            mean=0.0, std=action_noise_std.expand(active_indices.numel(), -1)
+        )  # (active_count, action_dimensionality)
+
+        inverse_dynamics_solution = solve_inverse_dynamics(
             dynamics_model_ensemble=dynamics_model_ensemble,
-            state_batch=current_state_batch[active_indices],
-            action_batch=anchor_action_batch[active_indices],
-            action_noise_std=action_noise_std,
-            error_signal=error_signal,
+            initial_state_estimate_batch=current_state_batch[active_indices],
+            action_batch=noisy_action_batch,
+            target_next_state_batch=current_state_batch[active_indices],
             convergence_tolerance=convergence_tolerance,
         )
 
-        # An error introduced at this depth passes through every already
-        # accepted transition on its way to the anchor, so it needs to be
-        # amplified accordingly.
-        candidate_trajectory_error_batch = (
-            trajectory_error_batch[active_indices]
-            + error_amplification_batch[active_indices] * backward_step.error_batch
+        # The promise this candidate makes, measured: every member drives the
+        # chain's actions forward from the candidate, and the error is how far
+        # the members land from the anchor. Re-measured from scratch at every
+        # depth, so nothing is estimated or accumulated across steps.
+        replay_error_batch = dynamics_model_ensemble.replay_landing_errors(
+            start_state_batch=inverse_dynamics_solution.state_batch,
+            action_window_batch=_actions_to_anchor(
+                candidate_action_batch=noisy_action_batch,
+                noisy_action_per_depth=noisy_action_per_depth,
+                active_indices=active_indices,
+            ),
+            target_state_batch=anchor_state_batch[active_indices],
         )  # (active_count,)
 
-        accepted_mask_batch = backward_step.has_converged_batch & (
-            candidate_trajectory_error_batch <= error_limit
+        accepted_mask_batch = inverse_dynamics_solution.converged_batch & (
+            replay_error_batch <= error_limit
         )  # (active_count,)
 
         accepted_steps = _AcceptedSteps(
             anchor_indices=active_indices[accepted_mask_batch],
-            predecessor_state_batch=backward_step.predecessor_state_batch[
+            predecessor_state_batch=inverse_dynamics_solution.state_batch[
                 accepted_mask_batch
             ],
-            predecessor_action_batch=backward_step.predecessor_action_batch[
-                accepted_mask_batch
-            ],
-            trajectory_error_batch=candidate_trajectory_error_batch[
-                accepted_mask_batch
-            ],
-            local_transition_lipschitz_constant_batch=(
-                backward_step.local_transition_lipschitz_constant_batch[
-                    accepted_mask_batch
-                ]
-            ),
+            predecessor_action_batch=noisy_action_batch[accepted_mask_batch],
         )
 
         accepted_steps_per_depth.append(accepted_steps)
@@ -120,29 +120,32 @@ def roll_out_backward(
         current_state_batch[accepted_steps.anchor_indices] = (
             accepted_steps.predecessor_state_batch
         )
-        trajectory_error_batch[accepted_steps.anchor_indices] = (
-            accepted_steps.trajectory_error_batch
+
+        depth_action_batch = torch.zeros(
+            anchor_count, anchor_action_batch.shape[1], device=device
         )
-        error_amplification_batch[accepted_steps.anchor_indices] *= (
-            accepted_steps.local_transition_lipschitz_constant_batch
+        depth_action_batch[accepted_steps.anchor_indices] = (
+            accepted_steps.predecessor_action_batch
         )
+        noisy_action_per_depth.append(depth_action_batch)
 
         diagnostics_collector.add(
-            backward_step=backward_step,
-            accepted_mask_batch=accepted_mask_batch,
-            candidate_error_batch=candidate_trajectory_error_batch,
+            replay_error_batch=replay_error_batch[accepted_mask_batch]
         )
 
         rejected_mask_batch = ~accepted_mask_batch  # (active_count,)
         rejected_indices = active_indices[rejected_mask_batch]  # (rejected_count,)
         termination_reason_batch[rejected_indices] = torch.where(
-            backward_step.has_converged_batch[rejected_mask_batch],
+            inverse_dynamics_solution.converged_batch[rejected_mask_batch],
             int(TerminationReason.ERROR_LIMIT_EXCEEDED),
             int(TerminationReason.NOT_CONVERGED),
         )
         active_mask_batch[rejected_indices] = False
         progress_bar.update(n=1)
 
+    termination_reason_batch[active_mask_batch] = int(
+        TerminationReason.STEP_CAP_REACHED
+    )
     progress_bar.close()
 
     backward_trajectories = _assemble_trajectories(
@@ -165,55 +168,20 @@ class _AcceptedSteps:
     anchor_indices: torch.Tensor  # (accepted_count,)
     predecessor_state_batch: torch.Tensor  # (accepted_count, state_dimensionality)
     predecessor_action_batch: torch.Tensor  # (accepted_count, action_dimensionality)
-    trajectory_error_batch: torch.Tensor  # (accepted_count,)
-    local_transition_lipschitz_constant_batch: torch.Tensor  # (accepted_count,)
-
-
-@dataclass(frozen=True)
-class _BackwardStep:
-    predecessor_state_batch: torch.Tensor  # (active_count, state_dimensionality)
-    predecessor_action_batch: torch.Tensor  # (active_count, action_dimensionality)
-    has_converged_batch: torch.Tensor  # (active_count,)
-    error_batch: torch.Tensor  # (active_count,)
-    uncertainty_about_next_state_batch: torch.Tensor  # (active_count,)
-    sensitivity_scaled_step_distance_batch: torch.Tensor  # (active_count,)
-    local_transition_lipschitz_constant_batch: torch.Tensor  # (active_count,)
 
 
 @dataclass
 class _DiagnosticsCollector:
     """Collector for the histogram material, kept out of the walk itself.
 
-    Every accepted step adds one value per quantity. Anchors are not kept
-    apart, because the histograms pool them anyway.
+    Every accepted step adds one value. Anchors are not kept apart, because
+    the histograms pool them anyway.
     """
 
-    accumulated_errors: list[torch.Tensor] = field(default_factory=list)
-    step_errors: list[torch.Tensor] = field(default_factory=list)
-    uncertainties_about_next_state: list[torch.Tensor] = field(default_factory=list)
-    sensitivity_scaled_step_distances: list[torch.Tensor] = field(default_factory=list)
-    local_transition_lipschitz_constants: list[torch.Tensor] = field(
-        default_factory=list
-    )
+    replay_errors: list[torch.Tensor] = field(default_factory=list)
 
-    def add(
-        self,
-        *,
-        backward_step: _BackwardStep,
-        accepted_mask_batch: torch.Tensor,  # (active_count,)
-        candidate_error_batch: torch.Tensor,  # (active_count,)
-    ) -> None:
-        self.accumulated_errors.append(candidate_error_batch[accepted_mask_batch])
-        self.step_errors.append(backward_step.error_batch[accepted_mask_batch])
-        self.uncertainties_about_next_state.append(
-            backward_step.uncertainty_about_next_state_batch[accepted_mask_batch]
-        )
-        self.sensitivity_scaled_step_distances.append(
-            backward_step.sensitivity_scaled_step_distance_batch[accepted_mask_batch]
-        )
-        self.local_transition_lipschitz_constants.append(
-            backward_step.local_transition_lipschitz_constant_batch[accepted_mask_batch]
-        )
+    def add(self, *, replay_error_batch: torch.Tensor) -> None:
+        self.replay_errors.append(replay_error_batch)
 
     def diagnostics(
         self,
@@ -222,74 +190,28 @@ class _DiagnosticsCollector:
     ) -> RolloutDiagnostics:
         return RolloutDiagnostics(
             termination_reasons_batch=termination_reasons_batch,
-            accumulated_error_estimates=torch.cat(tensors=self.accumulated_errors),
-            step_error_estimates=torch.cat(tensors=self.step_errors),
-            uncertainties_about_next_state=torch.cat(
-                tensors=self.uncertainties_about_next_state
-            ),
-            sensitivity_scaled_step_distances=torch.cat(
-                tensors=self.sensitivity_scaled_step_distances
-            ),
-            local_transition_lipschitz_constants=torch.cat(
-                tensors=self.local_transition_lipschitz_constants
-            ),
+            replay_landing_errors=torch.cat(tensors=self.replay_errors),
         )
 
 
-def _compute_backward_step(
+def _actions_to_anchor(
     *,
-    dynamics_model_ensemble: DynamicsModelEnsemble,
-    state_batch: torch.Tensor,  # (active_count, state_dimensionality)
-    action_batch: torch.Tensor,  # (active_count, action_dimensionality)
-    action_noise_std: torch.Tensor,  # (action_dimensionality,)
-    error_signal: ErrorSignal,
-    convergence_tolerance: float,
-) -> _BackwardStep:
-    noisy_action_batch = action_batch + torch.normal(
-        mean=0.0, std=action_noise_std.expand_as(other=action_batch)
-    )  # (active_count, action_dimensionality)
-
-    inverse_dynamics_solution = solve_inverse_dynamics(
-        dynamics_model_ensemble=dynamics_model_ensemble,
-        initial_state_estimate_batch=state_batch,
-        action_batch=noisy_action_batch,
-        target_next_state_batch=state_batch,
-        convergence_tolerance=convergence_tolerance,
-    )
-    predecessor_state_batch = (
-        inverse_dynamics_solution.state_batch
-    )  # (active_count, state_dimensionality)
-
-    uncertainty_about_next_state_batch = (
-        dynamics_model_ensemble.uncertainty_about_next_state(
-            state_batch=predecessor_state_batch, action_batch=noisy_action_batch
-        )
-    )  # (active_count,)
-
-    sensitivity_scaled_step_distance_batch = (
-        dynamics_model_ensemble.sensitivity_scaled_step_distances(
-            state_batch=predecessor_state_batch,
-            next_state_batch=state_batch,
-            action_batch=noisy_action_batch,
-        )
-    )  # (active_count,)
-
-    match error_signal:
-        case "uncertainty":
-            error_batch = uncertainty_about_next_state_batch  # (active_count,)
-        case "sensitivity_scaled_step_distance":
-            error_batch = sensitivity_scaled_step_distance_batch  # (active_count,)
-
-    return _BackwardStep(
-        predecessor_state_batch=predecessor_state_batch,
-        predecessor_action_batch=noisy_action_batch,
-        has_converged_batch=inverse_dynamics_solution.converged_batch,
-        error_batch=error_batch,
-        uncertainty_about_next_state_batch=uncertainty_about_next_state_batch,
-        sensitivity_scaled_step_distance_batch=sensitivity_scaled_step_distance_batch,
-        local_transition_lipschitz_constant_batch=dynamics_model_ensemble.local_transition_lipschitz_constants(
-            state_batch=predecessor_state_batch, action_batch=noisy_action_batch
-        ),
+    candidate_action_batch: torch.Tensor,  # (active_count, action_dimensionality)
+    noisy_action_per_depth: list[torch.Tensor],  # depth × (anchor_count, action_dim)
+    active_indices: torch.Tensor,  # (active_count,)
+) -> torch.Tensor:  # (active_count, depth + 1, action_dimensionality)
+    """The actions that lead from the candidate predecessor to the anchor, in
+    execution order: the candidate's own action first, then the earlier
+    accepted actions, newest to oldest."""
+    return torch.stack(
+        tensors=[
+            candidate_action_batch,
+            *(
+                depth_action_batch[active_indices]
+                for depth_action_batch in reversed(noisy_action_per_depth)
+            ),
+        ],
+        dim=1,
     )
 
 

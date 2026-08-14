@@ -99,81 +99,45 @@ class DynamicsModelEnsemble(torch.nn.Module):
         )  # (batch_size,)
 
     @torch.no_grad()
-    def sensitivity_scaled_step_distances(
+    def replay_landing_errors(
         self,
         *,
-        state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
-        next_state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
-        action_batch: torch.Tensor,  # (batch_size, action_dimensionality)
+        start_state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
+        action_window_batch: torch.Tensor,  # (batch_size, step_count, action_dimensionality)
+        target_state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
     ) -> torch.Tensor:  # (batch_size,)
-        """Step size times local steepness: the room a step leaves for error
-        the ensemble cannot see. The steepness is evaluated at the successor —
-        in the backward rollout that is the trustworthy side of the transition,
-        the one anchored by data."""
-        local_lipschitz_constant_batch = self.local_lipschitz_constants(
-            state_batch=next_state_batch, action_batch=action_batch
-        )  # (batch_size,)
+        """How far the members land from the target when they drive the given
+        actions forward from the start state.
 
-        normalized_step_distance_batch: torch.Tensor = torch.linalg.norm(
-            self.normalizers.scale_to_state_spread_units(
-                state_difference_batch=subtract_states(
-                    minuend_batch=state_batch, subtrahend_batch=next_state_batch
-                )
-            ),
-            dim=-1,
-        )  # (batch_size,)
+        This is the promise a synthetic prefix makes: a policy starts at the
+        start state, executes the actions, and has to arrive at the target.
+        Each member keeps its own state along the way, so a disagreement
+        compounds through the real non-linear map instead of through a product
+        of upper bounds."""
+        step_count = action_window_batch.shape[1]
 
-        return (
-            local_lipschitz_constant_batch * normalized_step_distance_batch
-        )  # (batch_size,)
-
-    def local_lipschitz_constants(
-        self,
-        *,
-        state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
-        action_batch: torch.Tensor,  # (batch_size, action_dimensionality)
-    ) -> torch.Tensor:  # (batch_size,)
-        return torch.stack(
-            tensors=[
-                dynamics_model.local_lipschitz_constants(
+        landing_error_columns: list[torch.Tensor] = []
+        for dynamics_model in self.dynamics_models:
+            state_batch = start_state_batch
+            for step_index in range(step_count):
+                state_batch = dynamics_model.predict_next_state(
                     normalizers=self.normalizers,
                     state_batch=state_batch,
-                    action_batch=action_batch,
+                    action_batch=action_window_batch[:, step_index, :],
                 )
-                for dynamics_model in self.dynamics_models
-            ],
-            dim=0,
-        ).mean(dim=0)
-
-    def local_transition_lipschitz_constants(
-        self,
-        *,
-        state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
-        action_batch: torch.Tensor,  # (batch_size, action_dimensionality)
-    ) -> torch.Tensor:  # (batch_size,)
-        """Worst member's gain of the full transition map (identity included).
-
-        This stands in for the local sensitivity of the TRUE dynamics, which
-        decides how strongly errors compound when a synthetic prefix is
-        executed forward. Underestimating it silently weakens the error
-        account, while overestimating merely shortens prefixes — so take the
-        maximum over members rather than the mean.
-        """
-        return (
-            torch.stack(
-                tensors=[
-                    dynamics_model.local_transition_lipschitz_constants(
-                        normalizers=self.normalizers,
-                        state_batch=state_batch,
-                        action_batch=action_batch,
-                    )
-                    for dynamics_model in self.dynamics_models
-                ],
-                dim=0,
+            landing_error_columns.append(
+                torch.linalg.norm(
+                    self.normalizers.scale_to_state_spread_units(
+                        state_difference_batch=subtract_states(
+                            minuend_batch=state_batch,
+                            subtrahend_batch=target_state_batch,
+                        )
+                    ),
+                    dim=-1,
+                )
             )
-            .max(dim=0)
-            .values
-        )
+
+        return torch.stack(tensors=landing_error_columns, dim=0).mean(dim=0)
 
     @property
     def dynamics_models(self) -> list[DynamicsModel]:

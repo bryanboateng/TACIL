@@ -87,34 +87,62 @@ def diagnose_dynamics_model_ensemble(
         state_windows=state_window_batch,
         action_windows=action_window_batch,
         convergence_tolerance=1e-3 * median_expert_step_distance,
+        # The distance-to-data column compares against the TRAINING data: the
+        # question it answers is whether the models had material to learn
+        # from, and the models never saw the validation split.
+        training_state_batch=torch.from_numpy(
+            np.concatenate([episode.states for episode in training_episodes], axis=0)
+        ).to(device=device),
     )
 
-    # The two candidates for the step error, under the names the data stage
-    # selects them by. Both are measured on the backward chains, which is the
-    # direction the augmentation walks.
+    # The gate signal and the two reference columns, all measured on the
+    # backward chains, which is the direction the augmentation walks. The
+    # replay error is what the data stage gates on; uncertainty is its
+    # one-step ancestor, and the distance to the training data is the
+    # model-free comparison point.
     backward_signals = (
+        ("replay_landing_error", backward_chain_measurements.replay_landing_errors),
         ("uncertainty", backward_chain_measurements.uncertainties),
+        ("training_data_distance", backward_chain_measurements.training_data_distances),
+    )
+    signals_per_direction = (
         (
-            "sensitivity_scaled_step_distance",
-            backward_chain_measurements.sensitivity_scaled_step_distances,
+            "forward",
+            forward_chain_measurements.true_errors,
+            (("uncertainty", forward_chain_measurements.uncertainties),),
         ),
+        ("backward", backward_chain_measurements.true_errors, backward_signals),
     )
 
     # Whether a signal ORDERS the true errors correctly. That is what a
     # threshold needs; being off by a constant factor does not matter, since
     # the limit is fitted anyway.
-    run.summary[f"{_STAGE_NAME}/6_spearman/forward/uncertainty"] = (
-        _spearman_correlation(
-            claims=forward_chain_measurements.uncertainties,
-            truths=forward_chain_measurements.true_errors,
-        )
-    )
-    for signal_name, signals in backward_signals:
-        run.summary[f"{_STAGE_NAME}/6_spearman/backward/{signal_name}"] = (
-            _spearman_correlation(
-                claims=signals, truths=backward_chain_measurements.true_errors
+    for direction_name, true_errors, signals in signals_per_direction:
+        for signal_name, claims in signals:
+            run.summary[f"{_STAGE_NAME}/6_spearman/{direction_name}/{signal_name}"] = (
+                _spearman_correlation(claims=claims, truths=true_errors)
             )
-        )
+
+            # Pooled over all depths, the growth of the error with depth is the
+            # loudest thing in the data. Any signal that also grows with depth
+            # then scores high without ordering anything at a fixed depth. Per
+            # depth that confound is gone, so this is the number the signal
+            # choice rests on.
+            correlations_per_depth = _spearman_correlations_per_depth(
+                claims=claims, truths=true_errors
+            )
+            measured_correlations = correlations_per_depth[
+                np.isfinite(correlations_per_depth)
+            ]
+            if measured_correlations.size == 0:
+                continue
+            for label, value in summarize_distribution(
+                values=measured_correlations
+            ).items():
+                run.summary[
+                    f"{_STAGE_NAME}/6_spearman_per_depth/"
+                    f"{direction_name}/{signal_name}/{label}"
+                ] = value
 
     # The single-step error per state part on both splits: equal values mean
     # the model is as good as it can be on this data, a training value far
@@ -238,9 +266,11 @@ class _BackwardChainMeasurements:
     true_errors: torch.Tensor  # (chain_count, depth_count)
     # The same deviation kept per dimension of the current frame.
     state_differences: torch.Tensor  # (chain_count, depth_count, state_dimensionality)
-    # The two filter signals, evaluated at the solved predecessor.
+    # The gate signal and the reference columns, evaluated at the solved
+    # predecessor.
+    replay_landing_errors: torch.Tensor  # (chain_count, depth_count)
     uncertainties: torch.Tensor  # (chain_count, depth_count)
-    sensitivity_scaled_step_distances: torch.Tensor  # (chain_count, depth_count)
+    training_data_distances: torch.Tensor  # (chain_count, depth_count)
 
 
 @torch.no_grad()
@@ -344,6 +374,7 @@ def _measure_backward_chains(
     state_windows: torch.Tensor,  # (chain_count, depth_count + 1, state_dimensionality)
     action_windows: torch.Tensor,  # (chain_count, depth_count, action_dimensionality)
     convergence_tolerance: float,
+    training_state_batch: torch.Tensor,  # (training_state_count, state_dimensionality)
 ) -> _BackwardChainMeasurements:
     chain_count, depth_count, _ = action_windows.shape
     device = state_windows.device
@@ -359,10 +390,10 @@ def _measure_backward_chains(
         fill_value=float("nan"),
         device=device,
     )
+    replay_landing_errors = torch.full_like(true_errors, fill_value=float("nan"))
     uncertainties = torch.full_like(true_errors, fill_value=float("nan"))
-    sensitivity_scaled_step_distances = torch.full_like(
-        true_errors, fill_value=float("nan")
-    )
+    training_data_distances = torch.full_like(true_errors, fill_value=float("nan"))
+    anchor_state_batch = state_windows[:, -1, :]
 
     for depth_index in tqdm(
         iterable=range(depth_count), desc="backward diagnostic chains", unit="depth"
@@ -410,11 +441,20 @@ def _measure_backward_chains(
                 state_batch=predecessor_state_batch, action_batch=converged_action_batch
             )
         )
-        sensitivity_scaled_step_distances[converged_indices, depth_index] = (
-            dynamics_model_ensemble.sensitivity_scaled_step_distances(
+        replay_landing_errors[converged_indices, depth_index] = (
+            dynamics_model_ensemble.replay_landing_errors(
+                start_state_batch=predecessor_state_batch,
+                # Every action from the predecessor onwards, which is exactly
+                # the prefix a policy would execute from here to the anchor.
+                action_window_batch=action_windows[converged_indices, window_index:],
+                target_state_batch=anchor_state_batch[converged_indices],
+            )
+        )
+        training_data_distances[converged_indices, depth_index] = (
+            _nearest_state_distances(
+                dynamics_model_ensemble=dynamics_model_ensemble,
                 state_batch=predecessor_state_batch,
-                next_state_batch=successor_state_batch[converged_mask_batch],
-                action_batch=converged_action_batch,
+                reference_state_batch=training_state_batch,
             )
         )
 
@@ -423,9 +463,36 @@ def _measure_backward_chains(
     return _BackwardChainMeasurements(
         true_errors=true_errors,
         state_differences=state_differences,
+        replay_landing_errors=replay_landing_errors,
         uncertainties=uncertainties,
-        sensitivity_scaled_step_distances=sensitivity_scaled_step_distances,
+        training_data_distances=training_data_distances,
     )
+
+
+@torch.no_grad()
+def _nearest_state_distances(
+    *,
+    dynamics_model_ensemble: DynamicsModelEnsemble,
+    state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
+    reference_state_batch: torch.Tensor,  # (reference_count, state_dimensionality)
+) -> torch.Tensor:  # (batch_size,)
+    """Distance to the closest reference state, in spread units. A model-free
+    measure of how far a state lies from the data the models learned from."""
+    nearest_distance_columns: list[torch.Tensor] = []
+    # Chunked: the full pairwise difference tensor would not fit in memory.
+    for state_chunk in state_batch.split(split_size=256, dim=0):
+        difference_batch = (
+            dynamics_model_ensemble.normalizers.scale_to_state_spread_units(
+                state_difference_batch=subtract_states(
+                    minuend_batch=state_chunk.unsqueeze(dim=1),
+                    subtrahend_batch=reference_state_batch.unsqueeze(dim=0),
+                )
+            )
+        )  # (chunk_size, reference_count, state_dimensionality)
+        nearest_distance_columns.append(
+            torch.linalg.norm(difference_batch, dim=-1).amin(dim=1)
+        )
+    return torch.cat(tensors=nearest_distance_columns)
 
 
 @torch.no_grad()
@@ -489,6 +556,23 @@ def _spearman_correlation(*, claims: torch.Tensor, truths: torch.Tensor) -> floa
     if claim_values.size < 2:
         return float("nan")
     return float(scipy.stats.spearmanr(a=claim_values, b=truth_values).statistic)
+
+
+def _spearman_correlations_per_depth(
+    *,
+    claims: torch.Tensor,  # (chain_count, depth_count)
+    truths: torch.Tensor,  # (chain_count, depth_count)
+) -> npt.NDArray[np.floating]:  # (depth_count,)
+    """One correlation per depth. A depth where too few chains survived has no
+    correlation to report and stays NaN."""
+    return np.array(
+        [
+            _spearman_correlation(
+                claims=claims[:, depth_index], truths=truths[:, depth_index]
+            )
+            for depth_index in range(claims.shape[1])
+        ]
+    )
 
 
 def _finite_pairs(
@@ -602,9 +686,7 @@ def _error_over_depth_panel(
     axes.set_ylabel(ylabel="error", color=_MUTED_TEXT_COLOR)
     axes.set_yscale(value="log")
     axes.set_title(
-        label="Prediction error vs. number of steps",
-        color=_TEXT_COLOR,
-        fontsize=12,
+        label="Prediction error vs. number of steps", color=_TEXT_COLOR, fontsize=12
     )
     axes.grid(visible=True, color=_GRID_COLOR, linewidth=0.8, linestyle="-")
     axes.set_axisbelow(b=True)
