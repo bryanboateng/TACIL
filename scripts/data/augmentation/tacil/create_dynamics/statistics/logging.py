@@ -18,7 +18,7 @@ from scripts.data.augmentation.tacil.create_dynamics.statistics.chain_measuremen
     draw_chain_windows,
     measure_backward_chains,
     measure_forward_chains,
-    one_step_group_errors,
+    roll_out_members_backward,
     roll_out_members_forward,
 )
 from scripts.data.augmentation.tacil.dynamics.dynamics_model_ensemble import (
@@ -124,7 +124,6 @@ def log_checkpoint_summary(
 def log_ensemble_statistics(
     *,
     dynamics_model_ensemble: DynamicsModelEnsemble,
-    training_episodes: list[TransitionSet],
     validation_episodes: list[TransitionSet],
     episode_store: EpisodeStore,
     run: Run,
@@ -158,13 +157,16 @@ def log_ensemble_statistics(
     # the gate needs; being off by a constant factor does not matter, since
     # the limit is swept anyway. Per depth, because pooled over all depths the
     # growth of the error with depth drowns out the ordering at a fixed depth.
-    for direction_name, measurements in (
-        ("forward", forward_chain_measurements),
-        ("backward", backward_chain_measurements),
-    ):
-        correlations_per_depth = _spearman_correlations_per_depth(
+    correlations_per_direction = {
+        direction_name: _spearman_correlations_per_depth(
             claims=measurements.uncertainties, truths=measurements.true_errors
         )
+        for direction_name, measurements in (
+            ("forward", forward_chain_measurements),
+            ("backward", backward_chain_measurements),
+        )
+    }
+    for direction_name, correlations_per_depth in correlations_per_direction.items():
         measured_correlations = correlations_per_depth[
             np.isfinite(correlations_per_depth)
         ]
@@ -177,45 +179,25 @@ def log_ensemble_statistics(
                 f"{STAGE_NAME}/6_spearman_per_depth/{direction_name}/{label}"
             ] = value
 
-    # The single-step error per state part on both splits: equal values mean
-    # the model is as good as it can be on this data, a training value far
-    # below the validation one means it memorized instead of generalized.
-    one_step_errors_per_split = {
-        split_name: one_step_group_errors(
-            dynamics_model_ensemble=dynamics_model_ensemble, episodes=episodes
-        )
-        for split_name, episodes in (
-            ("training", training_episodes),
-            ("validation", validation_episodes),
-        )
-    }
-    for split_name, group_errors in one_step_errors_per_split.items():
-        for group_name, group_error in group_errors.items():
-            run.summary[f"{STAGE_NAME}/5_one_step_error/{split_name}/{group_name}"] = (
-                group_error
-            )
     run.summary[f"{STAGE_NAME}/7_backward/full_depth_fraction"] = float(
         np.isfinite(backward_chain_measurements.true_errors[:, -1].cpu().numpy()).mean()
     )
 
+    # The single step is the headline number of the error panel: the model's
+    # quality with no compounding mixed in. The deeper steps are a curve and
+    # stay in the panel, where the whole trend is visible at once.
     for direction_name, measurements in (
         ("forward", forward_chain_measurements),
         ("backward", backward_chain_measurements),
     ):
-        for depth in (1, 5, 10):
-            if depth > measurements.true_errors.shape[1]:
-                continue
-            errors_at_depth = measurements.true_errors[:, depth - 1].cpu().numpy()
-            # A chain that stopped before this depth is NaN from there on, and
-            # it has no error to contribute.
-            errors_at_depth = errors_at_depth[np.isfinite(errors_at_depth)]
-            if errors_at_depth.size == 0:
-                continue
-            for label, value in summarize_distribution(values=errors_at_depth).items():
-                run.summary[
-                    f"{STAGE_NAME}/8_error_over_depth/"
-                    f"{direction_name}/depth_{depth}/{label}"
-                ] = value
+        one_step_errors = measurements.true_errors[:, 0].cpu().numpy()
+        one_step_errors = one_step_errors[np.isfinite(one_step_errors)]
+        if one_step_errors.size == 0:
+            continue
+        for label, value in summarize_distribution(values=one_step_errors).items():
+            run.summary[
+                f"{STAGE_NAME}/5_one_step_error/{direction_name}/{label}"
+            ] = value
     forward_uncertainties, forward_true_errors = _finite_pairs(
         claims=forward_chain_measurements.uncertainties,
         truths=forward_chain_measurements.true_errors,
@@ -234,10 +216,14 @@ def log_ensemble_statistics(
                     backward_chain_measurements.true_errors.cpu().numpy()
                 ),
             ),
-            f"{STAGE_NAME}/9_panels/one_step_error_by_split": (
-                panels.split_comparison_panel(
-                    training=one_step_errors_per_split["training"],
-                    validation=one_step_errors_per_split["validation"],
+            f"{STAGE_NAME}/9_panels/spearman_over_depth": (
+                panels.spearman_over_depth_panel(
+                    forward_correlations_per_depth=correlations_per_direction[
+                        "forward"
+                    ],
+                    backward_correlations_per_depth=correlations_per_direction[
+                        "backward"
+                    ],
                 )
             ),
             f"{STAGE_NAME}/9_panels/uncertainty_vs_error": (
@@ -251,6 +237,7 @@ def log_ensemble_statistics(
             **_replay_panels(
                 dynamics_model_ensemble=dynamics_model_ensemble,
                 validation_episodes=validation_episodes,
+                convergence_tolerance=1e-3 * median_expert_step_distance,
                 device=device,
             ),
         }
@@ -297,6 +284,7 @@ def _replay_panels(
     *,
     dynamics_model_ensemble: DynamicsModelEnsemble,
     validation_episodes: list[TransitionSet],
+    convergence_tolerance: float,
     device: torch.device,
 ) -> dict[str, wandb.Image]:
     replay_panels: dict[str, wandb.Image] = {}
@@ -307,16 +295,28 @@ def _replay_panels(
         true_trajectory = np.concatenate(
             [episode.states[:step_count], episode.next_states[[step_count - 1]]], axis=0
         )  # (step_count + 1, state_dimensionality)
+        actions = torch.from_numpy(episode.actions[:step_count]).to(device=device)
 
-        member_trajectories = roll_out_members_forward(
+        forward_member_trajectories = roll_out_members_forward(
             dynamics_model_ensemble=dynamics_model_ensemble,
             initial_state=torch.from_numpy(true_trajectory[0]).to(device=device),
-            actions=torch.from_numpy(episode.actions[:step_count]).to(device=device),
+            actions=actions,
+        )
+        backward_member_trajectories = roll_out_members_backward(
+            dynamics_model_ensemble=dynamics_model_ensemble,
+            final_state=torch.from_numpy(true_trajectory[-1]).to(device=device),
+            actions=actions,
+            convergence_tolerance=convergence_tolerance,
         )
 
         replay_panels[f"{STAGE_NAME}/9_panels/replay_episode_{episode_index}"] = (
             panels.replay_panel(
-                member_trajectories=member_trajectories.cpu().numpy(),
+                forward_member_trajectories=(
+                    forward_member_trajectories.cpu().numpy()
+                ),
+                backward_member_trajectories=(
+                    backward_member_trajectories.cpu().numpy()
+                ),
                 true_trajectory=true_trajectory,
                 episode_index=episode_index,
             )

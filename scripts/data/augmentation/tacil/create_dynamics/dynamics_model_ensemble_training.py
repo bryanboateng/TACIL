@@ -142,7 +142,6 @@ def train_dynamics_model_ensemble(
 
     log_ensemble_statistics(
         dynamics_model_ensemble=dynamics_model_ensemble,
-        training_episodes=training_episodes,
         validation_episodes=validation_episodes,
         episode_store=episode_store,
         run=run,

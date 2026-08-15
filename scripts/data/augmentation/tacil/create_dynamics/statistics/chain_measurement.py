@@ -15,7 +15,7 @@ from scripts.data.augmentation.tacil.create_dynamics.data import (
 from scripts.data.augmentation.tacil.dynamics.dynamics_model_ensemble import (
     DynamicsModelEnsemble,
 )
-from scripts.shared.pusht_state import STATE_GROUPS, subtract_states
+from scripts.shared.pusht_state import subtract_states
 
 # Fixed measurement shape: deep enough to show the growth trend, small enough
 # to stay affordable, and heavily overlapping windows make more chains
@@ -35,8 +35,6 @@ class ForwardChainMeasurements:
 
     # Distance between the model's prediction and the real state.
     true_errors: torch.Tensor  # (chain_count, depth_count)
-    # The same deviation kept per dimension of the current frame.
-    state_differences: torch.Tensor  # (chain_count, depth_count, state_dimensionality)
     # Ensemble uncertainty at the state the prediction was made from.
     uncertainties: torch.Tensor  # (chain_count, depth_count)
 
@@ -98,10 +96,10 @@ def measure_forward_chains(
             )
         )
 
-    state_differences = torch.stack(tensors=difference_columns, dim=1)
     return ForwardChainMeasurements(
-        true_errors=torch.linalg.norm(state_differences, dim=-1),
-        state_differences=state_differences,
+        true_errors=torch.linalg.norm(
+            torch.stack(tensors=difference_columns, dim=1), dim=-1
+        ),
         uncertainties=torch.stack(tensors=uncertainty_columns, dim=1),
     )
 
@@ -179,34 +177,6 @@ def measure_backward_chains(
 
 
 @torch.no_grad()
-def one_step_group_errors(
-    *, dynamics_model_ensemble: DynamicsModelEnsemble, episodes: list[TransitionSet]
-) -> dict[str, float]:
-    """Median error per state part after a single forward step — the model's
-    quality without any compounding mixed in."""
-    device = next(dynamics_model_ensemble.parameters()).device
-    state_windows, action_windows = _subsample(
-        *build_windows(episodes=episodes, window_length=1)
-    )
-
-    measurements = measure_forward_chains(
-        dynamics_model_ensemble=dynamics_model_ensemble,
-        state_windows=torch.from_numpy(state_windows).to(device=device),
-        action_windows=torch.from_numpy(action_windows).to(device=device),
-    )
-    differences = (
-        measurements.state_differences[:, 0, :].cpu().numpy()
-    )  # (chain_count, state_dimensionality)
-
-    return {
-        group_name: float(
-            np.median(np.linalg.norm(differences[:, group_slice], axis=-1))
-        )
-        for group_name, group_slice in STATE_GROUPS
-    }
-
-
-@torch.no_grad()
 def roll_out_members_forward(
     *,
     dynamics_model_ensemble: DynamicsModelEnsemble,
@@ -229,6 +199,59 @@ def roll_out_members_forward(
         member_trajectories.append(torch.cat(tensors=trajectory_states, dim=0))
 
     return torch.stack(tensors=member_trajectories, dim=0)
+
+
+@torch.no_grad()
+def roll_out_members_backward(
+    *,
+    dynamics_model_ensemble: DynamicsModelEnsemble,
+    final_state: torch.Tensor,  # (state_dimensionality,)
+    actions: torch.Tensor,  # (step_count, action_dimensionality)
+    convergence_tolerance: float,
+) -> torch.Tensor:  # (member_count, step_count + 1, state_dimensionality)
+    """The mirror of the forward replay: every member walks back from the last
+    recorded state, inverting its own dynamics one action at a time.
+
+    A member that fails to converge stops there, and its trajectory stays NaN
+    for the steps it never reached.
+    """
+    step_count = actions.shape[0]
+    member_trajectories = torch.full(
+        size=(
+            len(dynamics_model_ensemble.dynamics_models),
+            step_count + 1,
+            final_state.shape[0],
+        ),
+        fill_value=float("nan"),
+        device=final_state.device,
+    )
+
+    for member_index, dynamics_model in enumerate(
+        dynamics_model_ensemble.dynamics_models
+    ):
+        # The solver inverts an ensemble, so the member is handed to it as an
+        # ensemble of one — that keeps the walk on this member's own dynamics.
+        single_member_ensemble = DynamicsModelEnsemble(
+            state_normalizer=dynamics_model_ensemble.state_normalizer,
+            dynamics_models=[dynamics_model],
+        )
+
+        current_state_batch = final_state.unsqueeze(dim=0)
+        member_trajectories[member_index, step_count, :] = final_state
+        for step_index in reversed(range(step_count)):
+            inverse_dynamics_solution = solve_inverse_dynamics(
+                dynamics_model_ensemble=single_member_ensemble,
+                initial_state_estimate_batch=current_state_batch,
+                action_batch=actions[step_index].unsqueeze(dim=0),
+                target_next_state_batch=current_state_batch,
+                convergence_tolerance=convergence_tolerance,
+            )
+            if not bool(inverse_dynamics_solution.converged_batch[0]):
+                break
+            current_state_batch = inverse_dynamics_solution.state_batch
+            member_trajectories[member_index, step_index, :] = current_state_batch[0]
+
+    return member_trajectories
 
 
 # ---- Private --------------------------------------------
