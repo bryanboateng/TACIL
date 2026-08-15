@@ -132,14 +132,6 @@ def _create_synthetic_transitions(
                 # Behavior cloning trains on single (state, action) pairs, not
                 # windows, so no expert part is needed.
                 expert_part_length=0,
-                # Without windows there is no depth at which a synthetic step
-                # stops being usable, so only the gate decides how far a chain
-                # runs. This is the safety net for a chain the gate never
-                # stops: a run-up longer than the longest demonstration is not
-                # a run-up anymore.
-                max_synthetic_part_length=int(
-                    np.diff(a=expert_episodes.episode_end_indices, prepend=0).max()
-                ),
                 seed=seed,
                 device=device,
                 run=run,

@@ -72,8 +72,6 @@ _TACIL_SHARED_PARAMETERS: dict[str, Any] = {
     # 3, while the runs of 2026-08-12 that scored best ran to length 8. A
     # ceiling that the chains cannot reach hides the interesting half of the
     # question, so it now sits far above the last value that was measured.
-    # Above it the run-up length caps the chains anyway, so the top of the
-    # range costs a few indistinguishable runs and no correctness.
     "augmentation.data.uncertainty_limit_step_multiple": {
         "distribution": "log_uniform_values",
         "min": 0.05,
