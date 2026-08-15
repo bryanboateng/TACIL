@@ -85,12 +85,19 @@ _TACIL_SHARED_PARAMETERS: dict[str, Any] = {
 # A range rather than a list of values: a values list is categorical, so the
 # search would treat every bound as unrelated to the next and would have to try
 # each one before it knows anything. Log scale, because the bound acts on the
-# model by its order of magnitude.
+# model by its order of magnitude. The ends are the ends of the list that
+# 2026-08-12 stepped through, 1 to 100, and the floor is not free: below it the
+# network that predicts the state displacement becomes near constant, so every
+# ensemble member learns the same function, they never disagree, and an
+# uncertainty near zero passes any limit. The first four runs of 2026-08-16
+# showed it — the three with a bound under 1 walked all 6177 anchors into the
+# run-up cap and cost about thirteen hours each, while the fourth, at 56, ended
+# its chains after six steps.
 _TACIL_BOUNDED_PARAMETERS: dict[str, Any] = {
     **_TACIL_SHARED_PARAMETERS,
     "augmentation.dynamics.lipschitz_constant_upper_bound": {
         "distribution": "log_uniform_values",
-        "min": 0.01,
+        "min": 1.0,
         "max": 100.0,
     },
 }
