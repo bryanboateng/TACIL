@@ -67,6 +67,11 @@ def _run(*, config: Config) -> None:
                 # starting on a synthetic state. More would add windows that hold
                 # expert steps only, and those just repeat data the policy already has.
                 expert_part_length=config.policy.horizon_lengths.prediction - 1,
+                # The mirror image of the line above. A synthetic part longer
+                # than a window would add windows that hold synthetic steps
+                # only, and a window without a single recorded step cannot
+                # teach the way back to the expert path.
+                max_synthetic_part_length=config.policy.horizon_lengths.prediction - 1,
                 seed=config.seed,
                 device=device,
                 run=run,
