@@ -115,7 +115,9 @@ def train_dynamics_model_ensemble(
         run=run,
     )
 
-    for epoch_index in tqdm(range(500), desc="training ensemble", unit="epoch"):
+    for epoch_index in tqdm(
+        range(config.epoch_count), desc="training ensemble", unit="epoch"
+    ):
         log_epoch(
             epoch_index=epoch_index,
             per_member_metrics=[

@@ -6,6 +6,7 @@ class DynamicsConfig:
     window_length: int
     lipschitz_constant_upper_bound: float | None
     ensemble_size: int = 20
+    epoch_count: int = 500
     hidden_layer_count: int = 2
     hidden_layer_dimensionality: int = 256
 
