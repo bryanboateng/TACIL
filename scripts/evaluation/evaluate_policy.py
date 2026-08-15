@@ -20,10 +20,11 @@ from scripts.evaluation.core.rollout import (
 )
 from scripts.evaluation.core.scoring import (
     RewardStatistics,
+    SuccessStatistics,
     pick_representative_episodes,
     reward_statistics,
     run_scored_episodes,
-    success_rate,
+    success_statistics,
 )
 from scripts.evaluation.core.video import (
     FREEZE_SECONDS,
@@ -53,7 +54,7 @@ def evaluate_policy(
         run=run,
         condition=condition,
         reward=reward_statistics(episode_records),
-        success_fraction=success_rate(episode_records),
+        success=success_statistics(episode_records),
     )
     _log_video(
         policy_label=policy_label,
@@ -64,12 +65,22 @@ def evaluate_policy(
 
 
 def _write_summary(
-    *, run: Run, condition: Condition, reward: RewardStatistics, success_fraction: float
+    *,
+    run: Run,
+    condition: Condition,
+    reward: RewardStatistics,
+    success: SuccessStatistics,
 ) -> None:
     run.summary[f"{STAGE_NAME}/{condition.label}/reward_mean"] = reward.mean
     run.summary[f"{STAGE_NAME}/{condition.label}/reward_std"] = reward.std
+    run.summary[f"{STAGE_NAME}/{condition.label}/reward_standard_error"] = (
+        reward.standard_error
+    )
+    run.summary[f"{STAGE_NAME}/{condition.label}/success_rate"] = success.rate
+    run.summary[f"{STAGE_NAME}/{condition.label}/success_standard_error"] = (
+        success.standard_error
+    )
     run.summary[f"{STAGE_NAME}/{condition.label}/episode_count"] = reward.episode_count
-    run.summary[f"{STAGE_NAME}/{condition.label}/success_rate"] = success_fraction
 
 
 @torch.no_grad()
