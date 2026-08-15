@@ -66,23 +66,16 @@ _TACIL_SHARED_PARAMETERS: dict[str, Any] = {
         "min": 0.0,
         "max": 1.0,
     },
-    # The limit is a fraction of the median expert step and thresholds the raw
-    # per-step uncertainty. The backward chains of 2026-08-14-signals-by-
-    # fraction put the fraction a chain needs to reach a given depth at:
-    #
-    #                depth 1   depth 5   depth 10
-    #   10% data       0.03      0.22       1.3
-    #   100% data      0.005     0.06       0.54
-    #
-    # The floor keeps the sparsest dataset out of the region where no first
-    # step is ever accepted and the run dies with no labels; the ceiling sits
-    # just past the depth-10 value of that same dataset, since a limit no
-    # chain can exceed makes the gate a no-op and leaves the step cap to end
-    # every chain.
+    # The uncertainty a single backward step may show, in multiples of the
+    # median expert step. The ceiling used to be 5.0, which was too low: at a
+    # Lipschitz bound worth having, no run of 2026-08-15 got past chain length
+    # 3, while the runs of 2026-08-12 that scored best ran to length 8. A
+    # ceiling that the chains cannot reach hides the interesting half of the
+    # question, so it now sits far above the last value that was measured.
     "augmentation.data.uncertainty_limit_step_multiple": {
         "distribution": "log_uniform_values",
         "min": 0.05,
-        "max": 5.0,
+        "max": 100.0,
     },
 }
 

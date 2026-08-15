@@ -114,9 +114,8 @@ def main() -> None:
         )
 
         logger.info(
-            "median expert step distance %.4f, step cap %d, %d anchors",
+            "median expert step distance %.4f, %d anchors",
             median_step_distance,
-            max_step_count,
             len(anchor_indices),
         )
 
