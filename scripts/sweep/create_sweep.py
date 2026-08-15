@@ -94,7 +94,7 @@ _TACIL_BOUNDED_PARAMETERS: dict[str, Any] = {
     **_TACIL_SHARED_PARAMETERS,
     "augmentation.dynamics.lipschitz_constant_upper_bound": {
         "distribution": "log_uniform_values",
-        "min": 1.0,
+        "min": 0.01,
         "max": 100.0,
     },
 }
