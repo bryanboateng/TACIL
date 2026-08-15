@@ -67,15 +67,18 @@ _TACIL_SHARED_PARAMETERS: dict[str, Any] = {
         "max": 1.0,
     },
     # The uncertainty a single backward step may show, in multiples of the
-    # median expert step. The ceiling used to be 5.0, which was too low: at a
-    # Lipschitz bound worth having, no run of 2026-08-15 got past chain length
-    # 3, while the runs of 2026-08-12 that scored best ran to length 8. A
-    # ceiling that the chains cannot reach hides the interesting half of the
-    # question, so it now sits far above the last value that was measured.
+    # median expert step. The ceiling used to be 5.0, which was too low: no run
+    # of 2026-08-15 got past chain length 3, while the runs of 2026-08-12 that
+    # scored best ran to length 8. The backward error grows about tenfold every
+    # five depths, so reaching those lengths takes a ceiling one to two orders
+    # of magnitude above the old one. A ceiling too high only costs a few runs
+    # that all end at the run-up cap and look alike; a ceiling too low hides
+    # the answer altogether, which is what happened. Should the best runs sit
+    # at the ceiling, it is still too low.
     "augmentation.data.uncertainty_limit_step_multiple": {
         "distribution": "log_uniform_values",
         "min": 0.05,
-        "max": 100.0,
+        "max": 500.0,
     },
 }
 
