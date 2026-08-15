@@ -61,7 +61,7 @@ _TACIL_SHARED_PARAMETERS: dict[str, Any] = {
         "min": 1,
         "max": 15,
     },
-    "augmentation.data.action_noise_fraction": {
+    "augmentation.data.action_noise_range_fraction": {
         "distribution": "uniform",
         "min": 0.0,
         "max": 1.0,
@@ -79,7 +79,7 @@ _TACIL_SHARED_PARAMETERS: dict[str, Any] = {
     # just past the depth-10 value of that same dataset, since a limit no
     # chain can exceed makes the gate a no-op and leaves the step cap to end
     # every chain.
-    "augmentation.data.uncertainty_limit_fraction": {
+    "augmentation.data.uncertainty_limit_step_multiple": {
         "distribution": "log_uniform_values",
         "min": 0.05,
         "max": 5.0,

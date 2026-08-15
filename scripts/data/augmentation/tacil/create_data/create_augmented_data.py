@@ -46,7 +46,8 @@ def create_augmented_data(
     )  # (anchor_count,)
 
     action_noise_std = _compute_noise_std(
-        samples=episode_store.actions, noise_fraction=config.action_noise_fraction
+        samples=episode_store.actions,
+        noise_range_fraction=config.action_noise_range_fraction,
     )  # (action_dimensionality,)
 
     #  We use the median (rather than the mean) because it's robust to outliers.
@@ -54,7 +55,9 @@ def create_augmented_data(
         episode_store=episode_store, dynamics_model_ensemble=dynamics_model_ensemble
     )
 
-    uncertainty_limit = config.uncertainty_limit_fraction * median_expert_step_distance
+    uncertainty_limit = (
+        config.uncertainty_limit_step_multiple * median_expert_step_distance
+    )
 
     backward_trajectories, rollout_diagnostics = roll_out_backward(
         dynamics_model_ensemble=dynamics_model_ensemble,
@@ -77,8 +80,8 @@ def create_augmented_data(
     )
 
     if not bool((backward_trajectories.step_count_batch > 0).any()):
-        run.summary[f"{STAGE_NAME}/1_rollout/accepted_count"] = 0
-        run.summary[f"{STAGE_NAME}/1_rollout/accepted_fraction"] = 0.0
+        run.summary[f"{STAGE_NAME}/1_rollout/empty_anchor_count"] = len(anchor_indices)
+        run.summary[f"{STAGE_NAME}/1_rollout/empty_anchor_fraction"] = 1.0
         raise RuntimeError(
             "The uncertainty limit rejected every anchor's first backward step, so "
             "this configuration produced no labels. Training on the expert data "
@@ -106,7 +109,7 @@ def create_augmented_data(
 def _compute_noise_std(
     *,
     samples: npt.NDArray[np.float32],  # (N, dimensionality)
-    noise_fraction: float,
+    noise_range_fraction: float,
 ) -> npt.NDArray[np.float32]:  # (dimensionality,)
     min_per_dimension: npt.NDArray[np.float32] = samples.min(
         axis=0
@@ -115,4 +118,4 @@ def _compute_noise_std(
         axis=0
     )  # (dimensionality,)
     range_per_dimension = max_per_dimension - min_per_dimension  # (dimensionality,)
-    return noise_fraction * range_per_dimension
+    return noise_range_fraction * range_per_dimension
