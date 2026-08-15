@@ -47,12 +47,13 @@ def define_epoch_metrics(*, run: Run) -> None:
 
 
 def log_window_counts(
-    *, validation_window_count: int, member_window_counts: list[int], run: Run
+    *, member_training_window_counts: list[int], validation_window_count: int, run: Run
 ) -> None:
+    for label, value in summarize_distribution(
+        values=np.asarray(member_training_window_counts)
+    ).items():
+        run.summary[f"{STAGE_NAME}/4_window_count/training/{label}"] = value
     run.summary[f"{STAGE_NAME}/4_window_count/validation"] = validation_window_count
-    run.summary[f"{STAGE_NAME}/4_window_count/training"] = float(
-        np.mean(member_window_counts)
-    )
 
 
 def log_epoch(
@@ -117,7 +118,7 @@ def log_checkpoint_summary(
     # much the result depends on the initialization of a single one.
     for name, values in (("validation_loss", validation_losses), ("epoch", epochs)):
         for label, value in summarize_distribution(values=values).items():
-            run.summary[f"{STAGE_NAME}/3_best_checkpoint/{name}_{label}"] = value
+            run.summary[f"{STAGE_NAME}/3_best_checkpoint/{name}/{label}"] = value
 
 
 def log_ensemble_statistics(
@@ -173,8 +174,7 @@ def log_ensemble_statistics(
             values=measured_correlations
         ).items():
             run.summary[
-                f"{STAGE_NAME}/6_spearman_per_depth/{direction_name}/uncertainty/"
-                f"{label}"
+                f"{STAGE_NAME}/6_spearman_per_depth/{direction_name}/{label}"
             ] = value
 
     # The single-step error per state part on both splits: equal values mean

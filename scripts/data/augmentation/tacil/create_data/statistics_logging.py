@@ -78,8 +78,8 @@ def log_dataset_statistics(
     augmented_transition_count = int(augmentation_result.episode_store.states.shape[0])
     synthetic_transition_count = int(synthetic_part_lengths.sum())
     for label, value in summarize_distribution(values=synthetic_part_lengths).items():
-        run.summary[f"{STAGE_NAME}/3_synthetic/length_{label}"] = value
-    run.summary[f"{STAGE_NAME}/3_synthetic/length_max"] = int(
+        run.summary[f"{STAGE_NAME}/3_synthetic/length/{label}"] = value
+    run.summary[f"{STAGE_NAME}/3_synthetic/length/max"] = int(
         synthetic_part_lengths.max()
     )
     run.summary[f"{STAGE_NAME}/3_synthetic/transition_count"] = (

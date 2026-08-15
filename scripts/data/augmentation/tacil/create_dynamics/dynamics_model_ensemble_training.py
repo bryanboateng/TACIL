@@ -110,8 +110,8 @@ def train_dynamics_model_ensemble(
             )
         )
     log_window_counts(
+        member_training_window_counts=member_window_counts,
         validation_window_count=validation_action_windows.shape[0],
-        member_window_counts=member_window_counts,
         run=run,
     )
 
