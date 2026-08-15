@@ -32,10 +32,16 @@ logger = create_logger()
 
 STAGE_NAME = "1_dynamics"
 
-EPOCH_METRIC_NAME = f"{STAGE_NAME}/epoch"
+EPOCH_METRIC_NAME = f"{STAGE_NAME}/0_epoch"
 
-_REPLAY_EPISODE_COUNT = 3
+_REPLAY_EPISODE_COUNT = 4
 _REPLAY_STEP_COUNT = 100
+
+# Where the error curve is sampled for the summary. One step is the model
+# without any compounding, twenty is the deepest measured, and the ones in
+# between catch a curve that only bends late. The early ones sit close
+# together because that is where compounding starts and the curve is steepest.
+_SUMMARY_DEPTHS = (1, 2, 3, 5, 10, 20)
 
 
 def define_epoch_metrics(*, run: Run) -> None:
@@ -166,38 +172,50 @@ def log_ensemble_statistics(
             ("backward", backward_chain_measurements),
         )
     }
+    # Sampled at the same depths as the error, so the two can be read side by
+    # side: how big the error is there, and whether the uncertainty saw it
+    # coming.
     for direction_name, correlations_per_depth in correlations_per_direction.items():
-        measured_correlations = correlations_per_depth[
-            np.isfinite(correlations_per_depth)
-        ]
-        if measured_correlations.size == 0:
-            continue
-        for label, value in summarize_distribution(
-            values=measured_correlations
-        ).items():
+        for depth in _SUMMARY_DEPTHS:
+            if depth > correlations_per_depth.shape[0]:
+                continue
+            correlation = correlations_per_depth[depth - 1]
+            # A depth where too few chains survived has no correlation.
+            if not np.isfinite(correlation):
+                continue
             run.summary[
-                f"{STAGE_NAME}/6_spearman_per_depth/{direction_name}/{label}"
-            ] = value
+                f"{STAGE_NAME}/6_uncertainty_vs_error/spearman_per_depth/"
+                f"{direction_name}/{depth:02d}"
+            ] = float(correlation)
 
-    run.summary[f"{STAGE_NAME}/7_backward/full_depth_fraction"] = float(
+    # How much of the deep backward numbers to believe. A chain dies at its
+    # first non-converged solve, so anything below 1 means the deeper errors
+    # were measured on the subset that survived — the easier one.
+    run.summary[
+        f"{STAGE_NAME}/5_error_over_depth/backward/complete_chain_fraction"
+    ] = float(
         np.isfinite(backward_chain_measurements.true_errors[:, -1].cpu().numpy()).mean()
     )
 
-    # The single step is the headline number of the error panel: the model's
-    # quality with no compounding mixed in. The deeper steps are a curve and
-    # stay in the panel, where the whole trend is visible at once.
+    # A few points off the error curve, so runs can be ranked on a number
+    # instead of on a picture.
     for direction_name, measurements in (
-        ("forward", forward_chain_measurements),
         ("backward", backward_chain_measurements),
+        ("forward", forward_chain_measurements),
     ):
-        one_step_errors = measurements.true_errors[:, 0].cpu().numpy()
-        one_step_errors = one_step_errors[np.isfinite(one_step_errors)]
-        if one_step_errors.size == 0:
-            continue
-        for label, value in summarize_distribution(values=one_step_errors).items():
-            run.summary[
-                f"{STAGE_NAME}/5_one_step_error/{direction_name}/{label}"
-            ] = value
+        for depth in _SUMMARY_DEPTHS:
+            if depth > measurements.true_errors.shape[1]:
+                continue
+            errors_at_depth = measurements.true_errors[:, depth - 1].cpu().numpy()
+            # A chain that stopped before this depth has no error to contribute.
+            errors_at_depth = errors_at_depth[np.isfinite(errors_at_depth)]
+            if errors_at_depth.size == 0:
+                continue
+            for label, value in summarize_distribution(values=errors_at_depth).items():
+                run.summary[
+                    f"{STAGE_NAME}/5_error_over_depth/"
+                    f"{direction_name}/{depth:02d}/{label}"
+                ] = value
     forward_uncertainties, forward_true_errors = _finite_pairs(
         claims=forward_chain_measurements.uncertainties,
         truths=forward_chain_measurements.true_errors,
@@ -208,7 +226,7 @@ def log_ensemble_statistics(
     )
     run.log(
         data={
-            f"{STAGE_NAME}/9_panels/error_over_depth": panels.error_over_depth_panel(
+            f"{STAGE_NAME}/5_error_over_depth/plot": panels.error_over_depth_panel(
                 forward_errors_per_depth=(
                     forward_chain_measurements.true_errors.cpu().numpy()
                 ),
@@ -216,7 +234,15 @@ def log_ensemble_statistics(
                     backward_chain_measurements.true_errors.cpu().numpy()
                 ),
             ),
-            f"{STAGE_NAME}/9_panels/spearman_over_depth": (
+            f"{STAGE_NAME}/6_uncertainty_vs_error/plot": (
+                panels.prediction_error_vs_prediction_uncertainty(
+                    forward_uncertainties=forward_uncertainties,
+                    forward_true_errors=forward_true_errors,
+                    backward_uncertainties=backward_uncertainties,
+                    backward_true_errors=backward_true_errors,
+                )
+            ),
+            f"{STAGE_NAME}/6_uncertainty_vs_error/spearman_per_depth/plot": (
                 panels.spearman_over_depth_panel(
                     forward_correlations_per_depth=correlations_per_direction[
                         "forward"
@@ -224,14 +250,6 @@ def log_ensemble_statistics(
                     backward_correlations_per_depth=correlations_per_direction[
                         "backward"
                     ],
-                )
-            ),
-            f"{STAGE_NAME}/9_panels/uncertainty_vs_error": (
-                panels.prediction_error_vs_prediction_uncertainty(
-                    forward_uncertainties=forward_uncertainties,
-                    forward_true_errors=forward_true_errors,
-                    backward_uncertainties=backward_uncertainties,
-                    backward_true_errors=backward_true_errors,
                 )
             ),
             **_replay_panels(
@@ -309,7 +327,7 @@ def _replay_panels(
             convergence_tolerance=convergence_tolerance,
         )
 
-        replay_panels[f"{STAGE_NAME}/9_panels/replay_episode_{episode_index}"] = (
+        replay_panels[f"{STAGE_NAME}/9_replay/episode_{episode_index}"] = (
             panels.replay_panel(
                 forward_member_trajectories=(
                     forward_member_trajectories.cpu().numpy()

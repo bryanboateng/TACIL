@@ -15,7 +15,6 @@ from scripts.data.augmentation.tacil.dynamics.dynamics_model_ensemble import (
 class TerminationReason(IntEnum):
     UNCERTAINTY_LIMIT_EXCEEDED = 0
     NOT_CONVERGED = 1
-    STEP_CAP_REACHED = 2
 
 
 @dataclass(frozen=True)
@@ -45,14 +44,12 @@ def roll_out_backward(
     action_noise_std: torch.Tensor,  # (action_dimensionality,)
     uncertainty_limit: float,
     convergence_tolerance: float,
-    max_step_count: int,
 ) -> tuple[BackwardTrajectories, RolloutDiagnostics]:
     """Walk backward from the anchors while the ensemble still agrees.
 
     A chain ends at its first predecessor whose ensemble uncertainty exceeds
-    the limit, at its first non-converged solve, or at the step cap. The
-    uncertainty does not have to grow with depth, so the cap is what
-    guarantees the walk ends.
+    the limit, or at its first non-converged solve. Nothing else stops it: as
+    long as the ensemble is certain, the walk keeps going.
     """
     anchor_count = anchor_state_batch.shape[0]
     device = anchor_state_batch.device
@@ -68,8 +65,9 @@ def roll_out_backward(
     accepted_steps_per_depth: list[_AcceptedSteps] = []
     diagnostics_collector = _DiagnosticsCollector()
 
-    progress_bar = tqdm(desc="backward step", unit="step", total=max_step_count)
-    for depth in range(max_step_count):
+    progress_bar = tqdm(desc="backward step", unit="step")
+    depth = 0
+    while True:
         active_indices = active_mask_batch.nonzero().squeeze(dim=1)  # (active_count,)
         if active_indices.numel() == 0:
             break
@@ -117,10 +115,8 @@ def roll_out_backward(
         )
         active_mask_batch[rejected_indices] = False
         progress_bar.update(n=1)
+        depth += 1
 
-    termination_reason_batch[active_mask_batch] = int(
-        TerminationReason.STEP_CAP_REACHED
-    )
     progress_bar.close()
 
     backward_trajectories = _assemble_trajectories(

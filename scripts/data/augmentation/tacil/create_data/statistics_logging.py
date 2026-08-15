@@ -21,6 +21,8 @@ from scripts.shared.distribution_summary import summarize_distribution  # noqa: 
 
 STAGE_NAME = "2_data"
 
+_CLIPPING_PERCENTILE = 99.5
+
 
 def log_rollout_statistics(
     *,
@@ -45,19 +47,17 @@ def log_rollout_statistics(
             int((termination_reasons == termination_reason).sum())
         )
 
-    histogram_panels: dict[str, wandb.Image] = {}
-    for name, values_batch in (
-        ("step_uncertainties", rollout_diagnostics.step_uncertainties),
-    ):
-        values = values_batch.cpu().numpy()
-        if values.size > 0:
-            histogram_panels[f"{STAGE_NAME}/5_panels/{name}"] = _distribution_panel(
-                values=values, column_name=name
-            )
-            for label, value in summarize_distribution(values=values).items():
-                run.summary[f"{STAGE_NAME}/6_distributions/{name}/{label}"] = value
-
-    run.log(data=histogram_panels)
+    step_uncertainties = rollout_diagnostics.step_uncertainties.cpu().numpy()
+    if step_uncertainties.size > 0:
+        for label, value in summarize_distribution(values=step_uncertainties).items():
+            run.summary[f"{STAGE_NAME}/5_step_uncertainties/{label}"] = value
+        run.log(
+            data={
+                f"{STAGE_NAME}/5_step_uncertainties/plot": _distribution_panel(
+                    values=step_uncertainties, column_name="step uncertainty"
+                )
+            }
+        )
 
 
 def log_dataset_statistics(
@@ -70,18 +70,18 @@ def log_dataset_statistics(
     synthetic_part_lengths = augmentation_result.synthetic_part_lengths
     counts = augmentation_result.counts
 
+    # Every anchor is either accepted or empty, so the two together are the
+    # anchor count.
+    anchor_count = counts.accepted + counts.empty
     run.summary[f"{STAGE_NAME}/1_rollout/accepted_count"] = counts.accepted
-    run.summary[f"{STAGE_NAME}/1_rollout/accepted_fraction"] = counts.accepted / (
-        counts.accepted + counts.empty
+    run.summary[f"{STAGE_NAME}/1_rollout/accepted_fraction"] = (
+        counts.accepted / anchor_count
     )
 
     augmented_transition_count = int(augmentation_result.episode_store.states.shape[0])
     synthetic_transition_count = int(synthetic_part_lengths.sum())
     for label, value in summarize_distribution(values=synthetic_part_lengths).items():
         run.summary[f"{STAGE_NAME}/3_synthetic/length/{label}"] = value
-    run.summary[f"{STAGE_NAME}/3_synthetic/length/max"] = int(
-        synthetic_part_lengths.max()
-    )
     run.summary[f"{STAGE_NAME}/3_synthetic/transition_count"] = (
         synthetic_transition_count
     )
@@ -100,8 +100,8 @@ def log_dataset_statistics(
 
     run.log(
         data={
-            f"{STAGE_NAME}/5_panels/synthetic_lengths": _distribution_panel(
-                values=synthetic_part_lengths, column_name="synthetic_part_length"
+            f"{STAGE_NAME}/3_synthetic/length/plot": _distribution_panel(
+                values=synthetic_part_lengths, column_name="synthetic part length"
             )
         }
     )
@@ -117,13 +117,16 @@ def _bins(*, values: np.ndarray) -> list[float] | int:
 
 
 def _distribution_panel(*, values: np.ndarray, column_name: str) -> wandb.Image:
-    clipped_values = values[
-        values <= float(np.percentile(a=values, q=99.5))
-    ]  # (clipped_count,)
+    clipping_limit = float(np.percentile(a=values, q=_CLIPPING_PERCENTILE))
+    clipped_values = values[values <= clipping_limit]  # (clipped_count,)
 
     figure, axes = plt.subplots(figsize=(6, 4))
     axes.hist(clipped_values, bins=_bins(values=clipped_values), edgecolor="white")
-    axes.set_xlabel(xlabel=column_name)
+    # The tail is cut off to keep the bars readable, so the axis has to say so
+    # — otherwise the picture quietly contradicts the logged maximum.
+    axes.set_xlabel(
+        xlabel=f"{column_name} (longest {100.0 - _CLIPPING_PERCENTILE:g}% not shown)"
+    )
     axes.set_ylabel(ylabel="count")
     figure.tight_layout()
 

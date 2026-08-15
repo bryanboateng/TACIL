@@ -67,11 +67,6 @@ def create_augmented_data(
         action_noise_std=torch.as_tensor(action_noise_std).to(device=device),
         uncertainty_limit=uncertainty_limit,
         convergence_tolerance=1e-3 * median_expert_step_distance,
-        # A synthetic run-up longer than the longest demonstration is not a
-        # run-up anymore.
-        max_step_count=int(
-            np.diff(a=episode_store.episode_end_indices, prepend=0).max()
-        ),
     )
 
     log_rollout_statistics(
