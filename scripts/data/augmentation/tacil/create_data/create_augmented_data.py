@@ -45,7 +45,7 @@ def create_augmented_data(
         expert_part_length=expert_part_length,
     )  # (anchor_count,)
 
-    action_noise_std = _compute_noise_std(
+    action_noise_std = compute_noise_std(
         samples=episode_store.actions,
         noise_range_fraction=config.action_noise_range_fraction,
     )  # (action_dimensionality,)
@@ -70,6 +70,11 @@ def create_augmented_data(
         action_noise_std=torch.as_tensor(action_noise_std).to(device=device),
         uncertainty_limit=uncertainty_limit,
         convergence_tolerance=1e-3 * median_expert_step_distance,
+        # A synthetic run-up longer than the longest demonstration is not a
+        # run-up anymore.
+        max_step_count=int(
+            np.diff(a=episode_store.episode_end_indices, prepend=0).max()
+        ),
     )
 
     log_rollout_statistics(
@@ -106,7 +111,7 @@ def create_augmented_data(
     return augmentation_result.episode_store
 
 
-def _compute_noise_std(
+def compute_noise_std(
     *,
     samples: npt.NDArray[np.float32],  # (N, dimensionality)
     noise_range_fraction: float,
