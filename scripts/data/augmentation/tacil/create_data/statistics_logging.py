@@ -1,23 +1,14 @@
-import matplotlib
-import numpy as np
-import wandb
 from wandb import Run
 
-matplotlib.use(backend="Agg")
-from matplotlib import pyplot as plt  # noqa: E402
-
-plt.style.use(style="seaborn-v0_8-whitegrid")
-plt.rcParams["figure.dpi"] = 150
-plt.rcParams["savefig.dpi"] = 300
-
-from scripts.data.augmentation.tacil.create_data.backward_rollout import (  # noqa: E402
+from scripts.data.augmentation.tacil.create_data.backward_rollout import (
     RolloutDiagnostics,
     TerminationReason,
 )
-from scripts.data.augmentation.tacil.create_data.episode_assembly import (  # noqa: E402
+from scripts.data.augmentation.tacil.create_data.episode_assembly import (
     AugmentationResult,
 )
-from scripts.shared.distribution_summary import summarize_distribution  # noqa: E402
+from scripts.shared.distribution_panel import distribution_panel
+from scripts.shared.distribution_summary import summarize_distribution
 
 STAGE_NAME = "2_data"
 
@@ -51,7 +42,7 @@ def log_rollout_statistics(
             run.summary[f"{STAGE_NAME}/2_step_uncertainties/{label}"] = value
         run.log(
             data={
-                f"{STAGE_NAME}/2_step_uncertainties/plot": _distribution_panel(
+                f"{STAGE_NAME}/2_step_uncertainties/plot": distribution_panel(
                     values=step_uncertainties, column_name="step uncertainty"
                 )
             }
@@ -99,33 +90,8 @@ def log_dataset_statistics(
 
     run.log(
         data={
-            f"{STAGE_NAME}/4_synthetic/length/plot": _distribution_panel(
+            f"{STAGE_NAME}/4_synthetic/length/plot": distribution_panel(
                 values=synthetic_part_lengths, column_name="synthetic part length"
             )
         }
     )
-
-
-def _bins(*, values: np.ndarray) -> list[float] | int:
-    if np.issubdtype(values.dtype, np.integer):
-        # One bar per integer value, centered on it.
-        return np.arange(values.min() - 0.5, values.max() + 1.5).tolist()
-
-    edges = np.linspace(float(values.min()), float(values.max()), num=21)
-    return edges.tolist() if np.all(np.diff(edges) > 0.0) else 1
-
-
-def _distribution_panel(*, values: np.ndarray, column_name: str) -> wandb.Image:
-    figure, axes = plt.subplots(figsize=(6, 4))
-    axes.hist(values, bins=_bins(values=values), edgecolor="white")
-    axes.set_xlabel(xlabel=column_name)
-    # Every value is drawn, and a log count axis keeps the peak from flattening
-    # the tail. Cutting the tail off instead would hide the rare long chains,
-    # which are the ones worth seeing.
-    axes.set_ylabel(ylabel="count")
-    axes.set_yscale(value="log")
-    figure.tight_layout()
-
-    image = wandb.Image(figure)
-    plt.close(fig=figure)
-    return image

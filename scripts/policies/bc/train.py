@@ -24,6 +24,8 @@ logger = create_logger()
 
 STAGE_NAME = "3_policy"
 
+STEP_METRIC_NAME = f"{STAGE_NAME}/step"
+
 
 def train_behavior_cloning_policy(
     *,
@@ -35,6 +37,7 @@ def train_behavior_cloning_policy(
     run: Run,
 ) -> BehaviorCloningPolicyModel:
     set_seed(seed=seed)
+    _define_step_metrics(run=run)
 
     loss_function = torch.nn.MSELoss()
 
@@ -68,6 +71,7 @@ def train_behavior_cloning_policy(
     )
 
     best_checkpoint: Checkpoint | None = None
+    global_step = 0
 
     for epoch_index in tqdm(
         iterable=range(config.optimization.epoch_count), desc="Epoch", unit="epoch"
@@ -96,9 +100,26 @@ def train_behavior_cloning_policy(
 
             loss.backward()
 
+            gradient_norm = torch.norm(
+                input=torch.stack(
+                    tensors=[
+                        parameter.grad.norm()
+                        for parameter in policy_model.parameters()
+                        if parameter.grad is not None
+                    ]
+                )
+            )
+
             optimizer.step()
 
-            run.log(data={f"{STAGE_NAME}/1_training/loss": loss.item()})
+            run.log(
+                data={
+                    f"{STAGE_NAME}/1_training/loss": loss.item(),
+                    f"{STAGE_NAME}/1_training/gradient_norm": gradient_norm.item(),
+                    STEP_METRIC_NAME: global_step,
+                }
+            )
+            global_step += 1
 
         if (epoch_index + 1) % config.validation.interval_epoch_count != 0:
             continue
@@ -118,6 +139,7 @@ def train_behavior_cloning_policy(
                 f"{STAGE_NAME}/2_validation/reward_mean": validation_reward.mean,
                 f"{STAGE_NAME}/2_validation/reward_std": validation_reward.std,
                 f"{STAGE_NAME}/epoch": epoch_index,
+                STEP_METRIC_NAME: global_step,
             }
         )
 
@@ -135,6 +157,7 @@ def train_behavior_cloning_policy(
     if best_checkpoint is None:
         raise ValueError("No checkpoint was recorded")
 
+    run.summary[f"{STAGE_NAME}/completed_step_count"] = global_step
     run.summary[f"{STAGE_NAME}/3_best_checkpoint/epoch"] = best_checkpoint.epoch
     run.summary[f"{STAGE_NAME}/3_best_checkpoint/validation_reward_mean"] = (
         best_checkpoint.validation_reward_mean
@@ -145,3 +168,11 @@ def train_behavior_cloning_policy(
 
     policy_model.load_state_dict(state_dict=best_checkpoint.state_dict)
     return policy_model
+
+
+def _define_step_metrics(*, run: Run) -> None:
+    run.define_metric(name=STEP_METRIC_NAME)
+    for metric_pattern in ("epoch", "1_training/*", "2_validation/*"):
+        run.define_metric(
+            name=f"{STAGE_NAME}/{metric_pattern}", step_metric=STEP_METRIC_NAME
+        )

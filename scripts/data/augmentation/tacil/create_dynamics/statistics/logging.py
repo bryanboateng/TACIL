@@ -191,10 +191,12 @@ def log_ensemble_statistics(
     # How much of the deep backward numbers to believe. A chain dies at its
     # first non-converged solve, so anything below 1 means the deeper errors
     # were measured on the subset that survived — the easier one.
-    run.summary[
-        f"{STAGE_NAME}/5_error_over_depth/backward/complete_chain_fraction"
-    ] = float(
-        np.isfinite(backward_chain_measurements.true_errors[:, -1].cpu().numpy()).mean()
+    run.summary[f"{STAGE_NAME}/5_error_over_depth/backward/complete_chain_fraction"] = (
+        float(
+            np.isfinite(
+                backward_chain_measurements.true_errors[:, -1].cpu().numpy()
+            ).mean()
+        )
     )
 
     # A few points off the error curve, so runs can be ranked on a number
@@ -329,9 +331,7 @@ def _replay_panels(
 
         replay_panels[f"{STAGE_NAME}/9_replay/episode_{episode_index}"] = (
             panels.replay_panel(
-                forward_member_trajectories=(
-                    forward_member_trajectories.cpu().numpy()
-                ),
+                forward_member_trajectories=(forward_member_trajectories.cpu().numpy()),
                 backward_member_trajectories=(
                     backward_member_trajectories.cpu().numpy()
                 ),

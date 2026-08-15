@@ -4,6 +4,8 @@ from wandb import Run
 
 from scripts.data.augmentation.ccil.config import CcilConfig
 from scripts.data.augmentation.ccil.world_model import WorldModel, fit_world_model
+from scripts.shared.distribution_panel import distribution_panel
+from scripts.shared.distribution_summary import summarize_distribution
 from scripts.shared.episode_store import EpisodeStore
 from scripts.shared.log import create_logger
 from scripts.shared.seeding import set_seed
@@ -12,6 +14,9 @@ from scripts.shared.transition_batch import TransitionBatch
 logger = create_logger()
 
 STAGE_NAME = "2_data"
+DYNAMICS_STAGE_NAME = "1_dynamics"
+
+EPOCH_METRIC_NAME = f"{DYNAMICS_STAGE_NAME}/0_epoch"
 
 _BATCH_SIZE = 4_096
 
@@ -46,13 +51,16 @@ def create_ccil_augmented_data(
         action_batch=action_batch,
         next_state_batch=next_state_batch,
     )
+    _define_epoch_metrics(run=run)
     for epoch_index, losses in enumerate(iterable=epoch_losses):
         run.log(
             data={
-                "1_dynamics-loss/total": losses.total,
-                "1_dynamics-loss/mse": losses.mse,
-                "1_dynamics-loss/lipschitz_penalty": losses.lipschitz_penalty,
-                "1_dynamics-epoch": epoch_index,
+                f"{DYNAMICS_STAGE_NAME}/1_loss/total": losses.total,
+                f"{DYNAMICS_STAGE_NAME}/1_loss/mse": losses.mse,
+                f"{DYNAMICS_STAGE_NAME}/1_loss/lipschitz_penalty": (
+                    losses.lipschitz_penalty
+                ),
+                EPOCH_METRIC_NAME: epoch_index,
             }
         )
 
@@ -68,22 +76,40 @@ def create_ccil_augmented_data(
         np.quantile(a=label_distances, q=config.labels.rejection_quantile)
     )
     accepted_mask = label_distances <= distance_threshold
-    accepted_count = int(accepted_mask.sum())
     label_count = label_states.shape[0]
-    run.summary[f"{STAGE_NAME}/1_labels/distance_threshold"] = distance_threshold
+    rejected_count = label_count - int(accepted_mask.sum())
 
-    run.summary[f"{STAGE_NAME}/1_labels/transition_count"] = states.shape[0]
+    run.summary[f"{STAGE_NAME}/1_labels/expert_transition_count"] = states.shape[0]
     run.summary[f"{STAGE_NAME}/1_labels/label_count"] = label_count
-    run.summary[f"{STAGE_NAME}/1_labels/accepted_count"] = accepted_count
-    run.summary[f"{STAGE_NAME}/1_labels/accepted_fraction"] = accepted_count / max(
-        label_count, 1
-    )
-    run.summary[f"{STAGE_NAME}/1_labels/distance_median"] = float(
-        np.median(label_distances)
+    run.summary[f"{STAGE_NAME}/1_labels/distance_threshold"] = distance_threshold
+    # A rejected label sits further from its expert state than the threshold
+    # allows. The denominator is the label_count logged next to it.
+    run.summary[f"{STAGE_NAME}/1_labels/rejected_label_count"] = rejected_count
+    run.summary[f"{STAGE_NAME}/1_labels/rejected_label_fraction"] = (
+        rejected_count / max(label_count, 1)
     )
 
-    return TransitionBatch(
-        states=label_states[accepted_mask], actions=label_actions[accepted_mask]
+    for label, value in summarize_distribution(values=label_distances).items():
+        run.summary[f"{STAGE_NAME}/2_label_distances/{label}"] = value
+    run.log(
+        data={
+            f"{STAGE_NAME}/2_label_distances/plot": distribution_panel(
+                values=label_distances, column_name="label distance"
+            )
+        }
+    )
+
+    accepted_states = label_states[accepted_mask]
+    run.summary[f"{STAGE_NAME}/3_dataset/synthetic_transition_count"] = int(
+        accepted_states.shape[0]
+    )
+    return TransitionBatch(states=accepted_states, actions=label_actions[accepted_mask])
+
+
+def _define_epoch_metrics(*, run: Run) -> None:
+    run.define_metric(name=EPOCH_METRIC_NAME)
+    run.define_metric(
+        name=f"{DYNAMICS_STAGE_NAME}/1_loss/*", step_metric=EPOCH_METRIC_NAME
     )
 
 
