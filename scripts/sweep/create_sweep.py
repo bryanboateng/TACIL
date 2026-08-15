@@ -17,19 +17,37 @@ logger = create_logger()
 
 SearchLabel = Literal["bayes", "random"]
 
-MethodLabel = Literal["tacil-dp", "tacil-bc", "ccil-bc-noisy", "ccil-bc-euler", "gpi"]
+MethodLabel = Literal[
+    "tacil-dp-bounded",
+    "tacil-dp-unbounded",
+    "tacil-bc-bounded",
+    "tacil-bc-unbounded",
+    "ccil-bc-noisy",
+    "ccil-bc-euler",
+    "gpi",
+]
 
 METHOD_MODULES: dict[MethodLabel, str] = {
-    "tacil-dp": "scripts.policies.dp.run",
-    "tacil-bc": "scripts.policies.bc.run",
+    "tacil-dp-bounded": "scripts.policies.dp.run",
+    "tacil-dp-unbounded": "scripts.policies.dp.run",
+    "tacil-bc-bounded": "scripts.policies.bc.run",
+    "tacil-bc-unbounded": "scripts.policies.bc.run",
     "ccil-bc-noisy": "scripts.policies.bc.run",
     "ccil-bc-euler": "scripts.policies.bc.run",
     "gpi": "scripts.policies.gpi.run",
 }
 
+# The unbounded methods pin the bound instead of sweeping it, so that each
+# regime gets its own search over the remaining parameters. Their optima are
+# not expected to agree: a model that may bend as it likes wants a different
+# window length, noise level and uncertainty limit than a constrained one.
+_UNBOUNDED_ARGUMENT = "--augmentation.dynamics.lipschitz-constant-upper-bound=None"
+
 METHOD_FIXED_ARGUMENTS: dict[MethodLabel, list[str]] = {
-    "tacil-dp": ["augmentation:tacil"],
-    "tacil-bc": ["augmentation:tacil"],
+    "tacil-dp-bounded": ["augmentation:tacil"],
+    "tacil-dp-unbounded": ["augmentation:tacil", _UNBOUNDED_ARGUMENT],
+    "tacil-bc-bounded": ["augmentation:tacil"],
+    "tacil-bc-unbounded": ["augmentation:tacil", _UNBOUNDED_ARGUMENT],
     "ccil-bc-noisy": ["augmentation:ccil", "--augmentation.labels.type=noisy_action"],
     "ccil-bc-euler": [
         "augmentation:ccil",
@@ -37,10 +55,7 @@ METHOD_FIXED_ARGUMENTS: dict[MethodLabel, list[str]] = {
     ],
 }
 
-_TACIL_PARAMETERS: dict[str, Any] = {
-    "augmentation.dynamics.lipschitz_constant_upper_bound": {
-        "values": [None, 1, 2, 5, 10, 20, 50, 100]
-    },
+_TACIL_SHARED_PARAMETERS: dict[str, Any] = {
     "augmentation.dynamics.window_length": {
         "distribution": "int_uniform",
         "min": 1,
@@ -71,6 +86,19 @@ _TACIL_PARAMETERS: dict[str, Any] = {
     },
 }
 
+# A range rather than a list of values: a values list is categorical, so the
+# search would treat every bound as unrelated to the next and would have to try
+# each one before it knows anything. Log scale, because the bound acts on the
+# model by its order of magnitude.
+_TACIL_BOUNDED_PARAMETERS: dict[str, Any] = {
+    **_TACIL_SHARED_PARAMETERS,
+    "augmentation.dynamics.lipschitz_constant_upper_bound": {
+        "distribution": "log_uniform_values",
+        "min": 1.0,
+        "max": 100.0,
+    },
+}
+
 _CCIL_SHARED_PARAMETERS: dict[str, Any] = {
     "augmentation.dynamics.lipschitz_type": {
         "values": ["soft_sampling", "spectral_normalization", "none"]
@@ -86,8 +114,10 @@ _CCIL_SHARED_PARAMETERS: dict[str, Any] = {
 }
 
 METHOD_PARAMETERS: dict[MethodLabel, dict[str, Any]] = {
-    "tacil-dp": _TACIL_PARAMETERS,
-    "tacil-bc": _TACIL_PARAMETERS,
+    "tacil-dp-bounded": _TACIL_BOUNDED_PARAMETERS,
+    "tacil-dp-unbounded": _TACIL_SHARED_PARAMETERS,
+    "tacil-bc-bounded": _TACIL_BOUNDED_PARAMETERS,
+    "tacil-bc-unbounded": _TACIL_SHARED_PARAMETERS,
     "ccil-bc-noisy": {
         **_CCIL_SHARED_PARAMETERS,
         "augmentation.labels.action_noise_std": {
