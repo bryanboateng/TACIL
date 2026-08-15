@@ -77,13 +77,18 @@ def error_over_depth_panel(
 
 
 def split_comparison_panel(
-    *, one_step_errors_per_split: dict[str, dict[str, float]]
+    *, training: dict[str, float], validation: dict[str, float]
 ) -> wandb.Image:
     """Training against validation, per state part. Equal bars mean the model
     generalizes; a much lower training bar means it overfits."""
     group_names = [group_name for group_name, _ in STATE_GROUPS]
     group_positions = np.arange(len(group_names))
     bar_width = 0.38
+
+    one_step_errors_per_split: dict[str, dict[str, float]] = {
+        "training": training,
+        "validation": validation,
+    }
 
     figure, axes = plt.subplots(figsize=(6.5, 4))
     for offset, (split_name, group_errors) in zip(
@@ -161,18 +166,28 @@ def replay_panel(
         (agent_position_subplot, block_position_subplot, block_orientation_subplot),
     ) = plt.subplots(ncols=3, figsize=(14, 5))
 
+    prediction_width = 0.8
+    prediction_alpha = 0.5
+    prediction_color = _FORWARD_COLOR
+
+    a_width = 1.6
+    a_color = "black"
+
     for subplot, dimension_slice, title in (
         (agent_position_subplot, slice(0, 2), "Agent Position"),
         (block_position_subplot, slice(2, 4), "Block Position"),
     ):
+        if not isinstance(subplot, plt.Axes):
+            raise TypeError()
+
         for member_index, member_trajectory in enumerate(iterable=member_trajectories):
             path = member_trajectory[:, dimension_slice]
             subplot.plot(
                 path[:, 0],
                 path[:, 1],
-                linewidth=0.8,
-                alpha=0.5,
-                color=_FORWARD_COLOR,
+                linewidth=prediction_width,
+                alpha=prediction_alpha,
+                color=prediction_color,
                 # One legend entry for all members.
                 label="model predictions" if member_index == 0 else None,
             )
@@ -180,88 +195,50 @@ def replay_panel(
         subplot.plot(
             true_path[:, 0],
             true_path[:, 1],
-            linewidth=1.6,
-            color="black",
+            linewidth=a_width,
+            color=a_color,
             label="recorded episode",
         )
-        subplot.plot(
-            true_path[0, 0],
-            true_path[0, 1],
-            marker="o",
-            markersize=9,
-            color="black",
-            markerfacecolor="white",
-            linestyle="none",
-            label="start",
-        )
-        subplot.plot(
-            true_path[-1, 0],
-            true_path[-1, 1],
-            marker="X",
-            markersize=9,
-            color="black",
-            linestyle="none",
-            label="end",
-        )
         subplot.set_title(label=title)
-        subplot.set_xlabel(xlabel="x position")
-        subplot.set_ylabel(ylabel="y position")
+        subplot.set_xlabel(xlabel="x position [px]")
+        subplot.set_ylabel(ylabel="y position [px]")
         subplot.set_xlim(left=0, right=ARENA_SIZE)
         subplot.set_ylim(bottom=0, top=ARENA_SIZE)
         subplot.set_aspect(aspect="equal", adjustable="box")
 
-    # How far the block has turned since the episode started, rather than the
-    # angle itself: the zero of an angle is arbitrary, turning is what the
-    # model has to get right, and a rotation past a full turn just keeps
-    # counting instead of falling off the axis.
     steps = np.arange(true_trajectory.shape[0])
-    recorded_rotation = _rotation_since_start(
-        angle_series=true_trajectory[:, BLOCK_ANGLE_INDEX]
-    )
     for member_trajectory in member_trajectories:
         block_orientation_subplot.plot(
             steps,
-            _rotation_since_start(angle_series=member_trajectory[:, BLOCK_ANGLE_INDEX]),
-            linewidth=0.6,
-            alpha=0.35,
-            color=_FORWARD_COLOR,
+            _break_at_wraps(angle_timeline=member_trajectory[:, BLOCK_ANGLE_INDEX]),
+            linewidth=prediction_width,
+            alpha=prediction_alpha,
+            color=prediction_color,
         )
     block_orientation_subplot.plot(
-        steps, recorded_rotation, linewidth=2.0, color="black"
-    )
-    block_orientation_subplot.plot(
-        steps[0],
-        recorded_rotation[0],
-        marker="o",
-        markersize=9,
-        color="black",
-        markerfacecolor="white",
-        linestyle="none",
-    )
-    block_orientation_subplot.plot(
-        steps[-1],
-        recorded_rotation[-1],
-        marker="X",
-        markersize=9,
-        color="black",
-        linestyle="none",
-    )
-    block_orientation_subplot.axhline(
-        y=0.0, color="gray", linewidth=0.8, linestyle="--"
+        steps,
+        _break_at_wraps(angle_timeline=true_trajectory[:, BLOCK_ANGLE_INDEX]),
+        linewidth=a_width,
+        color=a_color,
     )
     block_orientation_subplot.set_title(label="Block Orientation")
     block_orientation_subplot.set_xlabel(xlabel="step")
-    block_orientation_subplot.set_ylabel(ylabel="turned since start (rad)")
-
-    # One legend for the whole figure; the subplots share the same entries.
-    handles, labels = agent_position_subplot.get_legend_handles_labels()
-    figure.legend(handles=handles, labels=labels, loc="lower center", ncol=4)
-    figure.suptitle(
-        t=f"Replay: True Dynamics vs. Model (Held-Out Episode {episode_index})"
+    block_orientation_subplot.set_ylabel(ylabel="orientation [rad]")
+    block_orientation_subplot.set_ylim(bottom=0, top=2.0 * np.pi)
+    block_orientation_subplot.yaxis.set_major_locator(
+        locator=plt.MultipleLocator(base=np.pi / 2)
     )
-    figure.tight_layout(rect=(0, 0.08, 1, 0.94))
+    block_orientation_subplot.yaxis.set_major_formatter(
+        formatter=plt.FuncFormatter(func=_pi_multiple_label)
+    )
 
-    image = wandb.Image(figure)
+    # One legend for the whole figure because the subplots share the same entries.
+    handles, labels = agent_position_subplot.get_legend_handles_labels()
+    figure.legend(handles=handles, labels=labels)
+    figure.suptitle(t=f"True Dynamics vs. Model (Validation Episode {episode_index})")
+    figure.tight_layout()
+
+    image = wandb.Image(data_or_path=figure)
     plt.close(fig=figure)
     return image
 
@@ -269,16 +246,24 @@ def replay_panel(
 # ---- Private --------------------------------------------
 
 
-def _rotation_since_start(
-    *,
-    angle_series: npt.NDArray[np.floating],  # (step_count,)
-) -> npt.NDArray[np.floating]:  # (step_count,)
-    """Total turning relative to the first step, counted through the 0 / 2π
-    seam.
+def _pi_multiple_label(value: float, _position: int) -> str:
+    """Format a tick that `MultipleLocator(pi / 2)` placed, e.g. `pi`, `3pi/2`."""
+    quarter_turns = round(value / (np.pi / 2))
+    if quarter_turns == 0:
+        return "0"
+    if quarter_turns % 2 == 0:
+        half_turns = quarter_turns // 2
+        return "π" if half_turns == 1 else f"{half_turns}π"
+    return "π/2" if quarter_turns == 1 else f"{quarter_turns}π/2"
 
-    For plotting only. Everywhere else an orientation stays inside [0, 2π), but
-    a curve that drops back to zero on every full turn hides the trend the plot
-    exists to show.
-    """
-    continuous_angle_series = np.unwrap(p=angle_series)
-    return continuous_angle_series - continuous_angle_series[0]
+
+def _break_at_wraps(
+    *,
+    angle_timeline: npt.NDArray[np.floating],  # (step_count,)
+) -> npt.NDArray[np.floating]:  # (step_count,)
+    """NaN out the step right after a 0/2π crossing, so the plotted line lifts
+    the pen there instead of drawing a spurious jump across the full range."""
+    broken_timeline = angle_timeline.copy()
+    crossed_seam = np.abs(np.diff(a=angle_timeline)) > np.pi
+    broken_timeline[1:][crossed_seam] = np.nan
+    return broken_timeline

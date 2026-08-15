@@ -236,7 +236,8 @@ def log_ensemble_statistics(
             ),
             f"{STAGE_NAME}/9_panels/one_step_error_by_split": (
                 panels.split_comparison_panel(
-                    one_step_errors_per_split=one_step_errors_per_split
+                    training=one_step_errors_per_split["training"],
+                    validation=one_step_errors_per_split["validation"],
                 )
             ),
             f"{STAGE_NAME}/9_panels/uncertainty_vs_error": (
