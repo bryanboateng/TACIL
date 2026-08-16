@@ -27,16 +27,6 @@ from scripts.data.augmentation.tacil.dynamics.dynamics_model_ensemble import (
 from scripts.shared.episode_store import EpisodeStore
 from scripts.shared.seeding import set_seed
 
-# How far back a chain may walk before it is stopped regardless of the gate.
-# This is a compute budget, not a claim about the method: training time grows
-# with the number of synthetic steps, and a chain that the gate never stops
-# would walk the length of a whole demonstration. At 6177 anchors that is 1.27
-# million invented transitions against 6417 recorded ones, and a run of about
-# 52 hours instead of one. Fifty steps is six times the length the best runs
-# so far reached, and about five state spreads of travel, so it leaves room
-# for a run-up far longer than any disturbance can call for.
-MAX_SYNTHETIC_PART_LENGTH = 50
-
 
 def create_augmented_data(
     *,
@@ -80,7 +70,7 @@ def create_augmented_data(
         action_noise_std=torch.as_tensor(action_noise_std).to(device=device),
         uncertainty_limit=uncertainty_limit,
         convergence_tolerance=1e-3 * median_expert_step_distance,
-        max_step_count=MAX_SYNTHETIC_PART_LENGTH,
+        max_step_count=config.max_synthetic_part_length,
     )
 
     log_rollout_statistics(
