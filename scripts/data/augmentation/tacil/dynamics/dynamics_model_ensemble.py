@@ -61,35 +61,48 @@ class DynamicsModelEnsemble(torch.nn.Module):
         )  # (batch_size,)
 
     @torch.no_grad()
-    def local_transition_lipschitz_constants(
+    def uncertainty_about_chain_end(
         self,
         *,
-        state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
-        action_batch: torch.Tensor,  # (batch_size, action_dimensionality)
+        start_state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
+        chain_action_batches: list[
+            torch.Tensor
+        ],  # each (batch_size, action_dimensionality), first one applied first
+        end_state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
     ) -> torch.Tensor:  # (batch_size,)
-        """Worst member's gain of the full transition map, identity included.
+        """RMS distance of the members' replay endpoints from the claimed end.
 
-        This stands in for the local sensitivity of the TRUE dynamics, which
-        decides how strongly errors compound when a synthetic prefix is
-        executed forward. Underestimating it silently weakens the error
-        account, while overestimating merely shortens prefixes — so take the
-        maximum over members rather than the mean.
+        Each member plays the whole action chain forward on its own, so an
+        error made early passes through every later transition — exactly what
+        happens when the chain is executed. With a single action this reduces
+        to the disagreement about one transition.
         """
-        return (
-            torch.stack(
-                tensors=[
-                    dynamics_model.local_transition_lipschitz_constants(
-                        state_normalizer=self.state_normalizer,
-                        state_batch=state_batch,
-                        action_batch=action_batch,
-                    )
-                    for dynamics_model in self.dynamics_models
-                ],
-                dim=0,
+        per_member_end_state_batch = torch.stack(
+            tensors=[
+                _replay_chain(
+                    dynamics_model=dynamics_model,
+                    start_state_batch=start_state_batch,
+                    chain_action_batches=chain_action_batches,
+                )
+                for dynamics_model in self.dynamics_models
+            ],
+            dim=0,
+        )  # (member_count, batch_size, state_dimensionality)
+
+        per_member_deviation_batch = self.state_normalizer.normalize_difference(
+            difference_batch=subtract_states(
+                minuend_batch=per_member_end_state_batch,
+                subtrahend_batch=end_state_batch.unsqueeze(dim=0),
             )
-            .max(dim=0)
-            .values
-        )
+        )  # (member_count, batch_size, state_dimensionality)
+
+        per_dimension_uncertainty_batch = (
+            per_member_deviation_batch.square().mean(dim=0).sqrt()
+        )  # (batch_size, state_dimensionality)
+
+        return torch.linalg.norm(
+            per_dimension_uncertainty_batch, dim=-1
+        )  # (batch_size,)
 
     @property
     def dynamics_models(self) -> list[DynamicsModel]:
@@ -116,3 +129,20 @@ class DynamicsModelEnsemble(torch.nn.Module):
             ],
             dim=0,
         )
+
+
+# ---- Private --------------------------------------------
+
+
+def _replay_chain(
+    *,
+    dynamics_model: DynamicsModel,
+    start_state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
+    chain_action_batches: list[torch.Tensor],
+) -> torch.Tensor:  # (batch_size, state_dimensionality)
+    state_batch = start_state_batch
+    for action_batch in chain_action_batches:
+        state_batch = dynamics_model.predict_next_state(
+            state_batch=state_batch, action_batch=action_batch
+        )
+    return state_batch

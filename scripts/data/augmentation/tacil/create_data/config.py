@@ -5,26 +5,29 @@ from typing import Literal
 #
 # "per_step" tests each predecessor on its own: the ensemble uncertainty at
 # that one step must stay under the limit. It carries nothing from step to
-# step, so it cannot grow with depth and needs the step cap to terminate.
+# step; chains still end on their own because the walk drifts away from the
+# data and the ensemble's uncertainty rises with depth.
 #
-# "account" spends a budget. Each step adds its uncertainty, amplified by the
-# product of the local transition Lipschitz constants of the steps already
-# taken, because an error introduced here passes through every accepted
-# transition on its way to the anchor. The sum only grows, so a chain always
-# stops on its own.
-GateRule = Literal["per_step", "account"]
+# "chain" tests the whole prefix: every ensemble member replays the chain's
+# actions forward from the candidate predecessor, and the RMS distance of the
+# members' endpoints from the anchor must stay under the limit. An error made
+# early passes through every later transition, exactly as it does when the
+# synthetic data is executed — so this is the uncertainty about what the data
+# claims: that these actions lead to the anchor. With a single step it reduces
+# to the per-step test.
+GateRule = Literal["per_step", "chain"]
 
 
 @dataclass(frozen=True)
 class DataConfig:
     action_noise_range_fraction: float = 0.1
 
-    # Read as a per-step ceiling under "per_step" and as a total budget for the
-    # whole chain under "account". Both are multiples of the median expert step
-    # distance, so neither number transfers to the other rule.
+    # Read as a per-step ceiling under "per_step" and as a ceiling on the whole
+    # chain's endpoint spread under "chain". Both are multiples of the median
+    # expert step distance, so neither number transfers to the other rule.
     uncertainty_limit_step_multiple: float = 0.5
 
-    gate_rule: GateRule = "per_step"
+    gate_rule: GateRule = "chain"
 
     # How far back a chain may walk before it is stopped regardless of the gate.
     # This is a compute budget, not a claim about the method: training time grows

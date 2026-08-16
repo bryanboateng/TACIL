@@ -65,10 +65,10 @@ def roll_out_backward(
     current_state_batch = anchor_state_batch.clone()
     active_mask_batch = torch.ones(anchor_count, dtype=torch.bool, device=device)
 
-    # Only "account" carries state between steps: the budget spent so far, and
-    # the factor by which a fresh error is stretched on its way to the anchor.
-    spent_budget_batch = torch.zeros(anchor_count, device=device)
-    error_amplification_batch = torch.ones(anchor_count, device=device)
+    # Only "chain" needs the accepted actions again: every gate test replays
+    # the whole prefix. Element d holds the action accepted at depth d + 1;
+    # anchors that stopped earlier keep zeros there, which are never read.
+    chain_action_batch_per_depth: list[torch.Tensor] = []
 
     accepted_steps_per_depth: list[_AcceptedSteps] = []
     diagnostics_collector = _DiagnosticsCollector()
@@ -85,18 +85,25 @@ def roll_out_backward(
             state_batch=current_state_batch[active_indices],
             action_batch=anchor_action_batch[active_indices],
             action_noise_std=action_noise_std,
-            gate_rule=gate_rule,
             convergence_tolerance=convergence_tolerance,
         )
 
         match gate_rule:
             case "per_step":
                 tested_error_batch = backward_step.uncertainty_batch
-            case "account":
+            case "chain":
+                # Forward order: the candidate action first, then the accepted
+                # actions from the deepest back to the one at the anchor.
                 tested_error_batch = (
-                    spent_budget_batch[active_indices]
-                    + error_amplification_batch[active_indices]
-                    * backward_step.uncertainty_batch
+                    dynamics_model_ensemble.uncertainty_about_chain_end(
+                        start_state_batch=backward_step.predecessor_state_batch,
+                        chain_action_batches=[backward_step.predecessor_action_batch]
+                        + [
+                            chain_action_batch_per_depth[earlier_depth][active_indices]
+                            for earlier_depth in reversed(range(depth))
+                        ],
+                        end_state_batch=anchor_state_batch[active_indices],
+                    )
                 )  # (active_count,)
 
         accepted_mask_batch = backward_step.has_converged_batch & (
@@ -120,13 +127,12 @@ def roll_out_backward(
             accepted_steps.predecessor_state_batch
         )
 
-        if gate_rule == "account":
-            spent_budget_batch[accepted_steps.anchor_indices] = tested_error_batch[
-                accepted_mask_batch
-            ]
-            error_amplification_batch[accepted_steps.anchor_indices] *= (
-                backward_step.transition_lipschitz_constant_batch[accepted_mask_batch]
+        if gate_rule == "chain":
+            chain_action_batch = torch.zeros_like(input=anchor_action_batch)
+            chain_action_batch[accepted_steps.anchor_indices] = (
+                accepted_steps.predecessor_action_batch
             )
+            chain_action_batch_per_depth.append(chain_action_batch)
 
         diagnostics_collector.add(
             step_uncertainty_batch=backward_step.uncertainty_batch[accepted_mask_batch]
@@ -175,9 +181,6 @@ class _BackwardStep:
     predecessor_action_batch: torch.Tensor  # (active_count, action_dimensionality)
     has_converged_batch: torch.Tensor  # (active_count,)
     uncertainty_batch: torch.Tensor  # (active_count,)
-    # All ones unless the account rule asked for them. The Jacobian behind them
-    # costs a backward pass per member, so it is not paid when unused.
-    transition_lipschitz_constant_batch: torch.Tensor  # (active_count,)
 
 
 @dataclass
@@ -210,7 +213,6 @@ def _compute_backward_step(
     state_batch: torch.Tensor,  # (active_count, state_dimensionality)
     action_batch: torch.Tensor,  # (active_count, action_dimensionality)
     action_noise_std: torch.Tensor,  # (action_dimensionality,)
-    gate_rule: GateRule,
     convergence_tolerance: float,
 ) -> _BackwardStep:
     noisy_action_batch = action_batch + torch.normal(
@@ -228,21 +230,6 @@ def _compute_backward_step(
         inverse_dynamics_solution.state_batch
     )  # (active_count, state_dimensionality)
 
-    match gate_rule:
-        case "per_step":
-            transition_lipschitz_constant_batch = torch.ones_like(
-                input=inverse_dynamics_solution.converged_batch, dtype=torch.float32
-            )
-        case "account":
-            # Evaluated at the predecessor, the state the accepted transition
-            # would start from, because that is the perturbation the constant
-            # has to stretch.
-            transition_lipschitz_constant_batch = (
-                dynamics_model_ensemble.local_transition_lipschitz_constants(
-                    state_batch=predecessor_state_batch, action_batch=noisy_action_batch
-                )
-            )
-
     return _BackwardStep(
         predecessor_state_batch=predecessor_state_batch,
         predecessor_action_batch=noisy_action_batch,
@@ -250,7 +237,6 @@ def _compute_backward_step(
         uncertainty_batch=dynamics_model_ensemble.uncertainty_about_next_state(
             state_batch=predecessor_state_batch, action_batch=noisy_action_batch
         ),
-        transition_lipschitz_constant_batch=transition_lipschitz_constant_batch,
     )
 
 
