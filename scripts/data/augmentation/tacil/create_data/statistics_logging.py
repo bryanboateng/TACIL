@@ -36,14 +36,14 @@ def log_rollout_statistics(
             int((termination_reasons == termination_reason).sum())
         )
 
-    step_uncertainties = rollout_diagnostics.step_uncertainties.cpu().numpy()
-    if step_uncertainties.size > 0:
-        for label, value in summarize_distribution(values=step_uncertainties).items():
-            run.summary[f"{STAGE_NAME}/2_step_uncertainties/{label}"] = value
+    chain_uncertainties = rollout_diagnostics.chain_uncertainties.cpu().numpy()
+    if chain_uncertainties.size > 0:
+        for label, value in summarize_distribution(values=chain_uncertainties).items():
+            run.summary[f"{STAGE_NAME}/2_chain_uncertainties/{label}"] = value
         run.log(
             data={
-                f"{STAGE_NAME}/2_step_uncertainties/plot": distribution_panel(
-                    values=step_uncertainties, column_name="step uncertainty"
+                f"{STAGE_NAME}/2_chain_uncertainties/plot": distribution_panel(
+                    values=chain_uncertainties, column_name="chain uncertainty"
                 )
             }
         )

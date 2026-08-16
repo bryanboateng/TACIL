@@ -61,24 +61,31 @@ _TACIL_SHARED_PARAMETERS: dict[str, Any] = {
         "min": 1,
         "max": 15,
     },
+    # Log scale, not uniform: under uniform 0..1 only 7% of draws land below
+    # 0.07, yet that is where every good run of 2026-08-12 sat (best at 0.017,
+    # eval reward against noise ρ = −0.53). The uniform range made the
+    # 2026-08-16 sweep spend 93% of its runs where none had ever scored, which
+    # is why it found nothing. This range puts half the draws below 0.017 and
+    # still reaches far above every noise level that ever worked.
     "augmentation.data.action_noise_range_fraction": {
-        "distribution": "uniform",
-        "min": 0.0,
-        "max": 1.0,
+        "distribution": "log_uniform_values",
+        "min": 0.001,
+        "max": 0.3,
     },
-    # The uncertainty a single backward step may show, in multiples of the
-    # median expert step. The ceiling used to be 5.0, which was too low: no run
-    # of 2026-08-15 got past chain length 3, while the runs of 2026-08-12 that
-    # scored best ran to length 8. The backward error grows about tenfold every
-    # five depths, so reaching those lengths takes a ceiling one to two orders
-    # of magnitude above the old one. A ceiling too high only costs a few runs
-    # that all end at the run-up cap and look alike; a ceiling too low hides
-    # the answer altogether, which is what happened. Should the best runs sit
-    # at the ceiling, it is still too low.
+    # Ceiling on the gate signal: how far the members' replay endpoints may
+    # spread around the anchor, in multiples of the median expert step. Old
+    # per-step limits do not transfer, because this signal accumulates over
+    # the chain. The anchor points: a first step needs roughly the per-step
+    # uncertainty (~0.7 multiples at the accepted-step median), and length 8
+    # is estimated between √8 and 8 times that step's uncertainty — about 2
+    # to 13 multiples — depending on how strongly the members' errors add up.
+    # The range brackets that with an order of magnitude on both sides,
+    # because the depth curve showed the reward cliff (0.70 at length 8,
+    # 0.38 at 14) and the sweep has to see both sides of it.
     "augmentation.data.uncertainty_limit_step_multiple": {
         "distribution": "log_uniform_values",
-        "min": 0.05,
-        "max": 500.0,
+        "min": 0.3,
+        "max": 60.0,
     },
 }
 

@@ -50,7 +50,7 @@ class BackwardChainMeasurements:
 
     # Distance between the solved predecessor and the real predecessor.
     true_errors: torch.Tensor  # (chain_count, depth_count)
-    # The gate signal, evaluated at the solved predecessor.
+    # Ensemble uncertainty, evaluated at the solved predecessor.
     uncertainties: torch.Tensor  # (chain_count, depth_count)
 
 

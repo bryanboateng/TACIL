@@ -4,7 +4,6 @@ from enum import IntEnum
 import torch
 from tqdm import tqdm
 
-from scripts.data.augmentation.tacil.create_data.config import GateRule
 from scripts.data.augmentation.tacil.create_data.inverse_dynamics import (
     solve_inverse_dynamics,
 )
@@ -34,7 +33,9 @@ class BackwardTrajectories:
 class RolloutDiagnostics:
     termination_reasons_batch: torch.Tensor  # (anchor_count,)
 
-    step_uncertainties: torch.Tensor  # (accepted_step_count,)
+    # The gate signal at every accepted step: how far the members' replay
+    # endpoints spread around the anchor after taking that step.
+    chain_uncertainties: torch.Tensor  # (accepted_step_count,)
 
 
 @torch.no_grad()
@@ -44,15 +45,16 @@ def roll_out_backward(
     anchor_state_batch: torch.Tensor,  # (anchor_count, state_dimensionality)
     anchor_action_batch: torch.Tensor,  # (anchor_count, action_dimensionality)
     action_noise_std: torch.Tensor,  # (action_dimensionality,)
-    gate_rule: GateRule,
     uncertainty_limit: float,
     convergence_tolerance: float,
     max_step_count: int,
 ) -> tuple[BackwardTrajectories, RolloutDiagnostics]:
     """Walk backward from the anchors while the ensemble still agrees.
 
-    A chain ends where `gate_rule` says the walk has gone far enough, at its
-    first non-converged solve, or at the step cap.
+    The gate replays each candidate chain forward with every member: the
+    chain may grow while the members' endpoints stay near the anchor. A chain
+    ends at the uncertainty limit, at its first non-converged solve, or at
+    the step cap.
     """
     anchor_count = anchor_state_batch.shape[0]
     device = anchor_state_batch.device
@@ -65,9 +67,9 @@ def roll_out_backward(
     current_state_batch = anchor_state_batch.clone()
     active_mask_batch = torch.ones(anchor_count, dtype=torch.bool, device=device)
 
-    # Only "chain" needs the accepted actions again: every gate test replays
-    # the whole prefix. Element d holds the action accepted at depth d + 1;
-    # anchors that stopped earlier keep zeros there, which are never read.
+    # Every gate test replays the whole prefix, so the accepted actions are
+    # kept. Element d holds the action accepted at depth d + 1; anchors that
+    # stopped earlier keep zeros there, which are never read.
     chain_action_batch_per_depth: list[torch.Tensor] = []
 
     accepted_steps_per_depth: list[_AcceptedSteps] = []
@@ -88,23 +90,17 @@ def roll_out_backward(
             convergence_tolerance=convergence_tolerance,
         )
 
-        match gate_rule:
-            case "per_step":
-                tested_error_batch = backward_step.uncertainty_batch
-            case "chain":
-                # Forward order: the candidate action first, then the accepted
-                # actions from the deepest back to the one at the anchor.
-                tested_error_batch = (
-                    dynamics_model_ensemble.uncertainty_about_chain_end(
-                        start_state_batch=backward_step.predecessor_state_batch,
-                        chain_action_batches=[backward_step.predecessor_action_batch]
-                        + [
-                            chain_action_batch_per_depth[earlier_depth][active_indices]
-                            for earlier_depth in reversed(range(depth))
-                        ],
-                        end_state_batch=anchor_state_batch[active_indices],
-                    )
-                )  # (active_count,)
+        # Forward order: the candidate action first, then the accepted
+        # actions from the deepest back to the one at the anchor.
+        tested_error_batch = dynamics_model_ensemble.uncertainty_about_chain_end(
+            start_state_batch=backward_step.predecessor_state_batch,
+            chain_action_batches=[backward_step.predecessor_action_batch]
+            + [
+                chain_action_batch_per_depth[earlier_depth][active_indices]
+                for earlier_depth in reversed(range(depth))
+            ],
+            end_state_batch=anchor_state_batch[active_indices],
+        )  # (active_count,)
 
         accepted_mask_batch = backward_step.has_converged_batch & (
             tested_error_batch <= uncertainty_limit
@@ -127,15 +123,14 @@ def roll_out_backward(
             accepted_steps.predecessor_state_batch
         )
 
-        if gate_rule == "chain":
-            chain_action_batch = torch.zeros_like(input=anchor_action_batch)
-            chain_action_batch[accepted_steps.anchor_indices] = (
-                accepted_steps.predecessor_action_batch
-            )
-            chain_action_batch_per_depth.append(chain_action_batch)
+        chain_action_batch = torch.zeros_like(input=anchor_action_batch)
+        chain_action_batch[accepted_steps.anchor_indices] = (
+            accepted_steps.predecessor_action_batch
+        )
+        chain_action_batch_per_depth.append(chain_action_batch)
 
         diagnostics_collector.add(
-            step_uncertainty_batch=backward_step.uncertainty_batch[accepted_mask_batch]
+            chain_uncertainty_batch=tested_error_batch[accepted_mask_batch]
         )
 
         rejected_mask_batch = ~accepted_mask_batch  # (active_count,)
@@ -180,7 +175,6 @@ class _BackwardStep:
     predecessor_state_batch: torch.Tensor  # (active_count, state_dimensionality)
     predecessor_action_batch: torch.Tensor  # (active_count, action_dimensionality)
     has_converged_batch: torch.Tensor  # (active_count,)
-    uncertainty_batch: torch.Tensor  # (active_count,)
 
 
 @dataclass
@@ -191,10 +185,10 @@ class _DiagnosticsCollector:
     the histograms pool them anyway.
     """
 
-    step_uncertainties: list[torch.Tensor] = field(default_factory=list)
+    chain_uncertainties: list[torch.Tensor] = field(default_factory=list)
 
-    def add(self, *, step_uncertainty_batch: torch.Tensor) -> None:
-        self.step_uncertainties.append(step_uncertainty_batch)
+    def add(self, *, chain_uncertainty_batch: torch.Tensor) -> None:
+        self.chain_uncertainties.append(chain_uncertainty_batch)
 
     def diagnostics(
         self,
@@ -203,7 +197,7 @@ class _DiagnosticsCollector:
     ) -> RolloutDiagnostics:
         return RolloutDiagnostics(
             termination_reasons_batch=termination_reasons_batch,
-            step_uncertainties=torch.cat(tensors=self.step_uncertainties),
+            chain_uncertainties=torch.cat(tensors=self.chain_uncertainties),
         )
 
 
@@ -234,9 +228,6 @@ def _compute_backward_step(
         predecessor_state_batch=predecessor_state_batch,
         predecessor_action_batch=noisy_action_batch,
         has_converged_batch=inverse_dynamics_solution.converged_batch,
-        uncertainty_batch=dynamics_model_ensemble.uncertainty_about_next_state(
-            state_batch=predecessor_state_batch, action_batch=noisy_action_batch
-        ),
     )
 
 
