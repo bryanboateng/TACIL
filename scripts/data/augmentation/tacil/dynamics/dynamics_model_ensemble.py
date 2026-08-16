@@ -60,6 +60,37 @@ class DynamicsModelEnsemble(torch.nn.Module):
             per_dimension_uncertainty_batch, dim=-1
         )  # (batch_size,)
 
+    @torch.no_grad()
+    def local_transition_lipschitz_constants(
+        self,
+        *,
+        state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
+        action_batch: torch.Tensor,  # (batch_size, action_dimensionality)
+    ) -> torch.Tensor:  # (batch_size,)
+        """Worst member's gain of the full transition map, identity included.
+
+        This stands in for the local sensitivity of the TRUE dynamics, which
+        decides how strongly errors compound when a synthetic prefix is
+        executed forward. Underestimating it silently weakens the error
+        account, while overestimating merely shortens prefixes — so take the
+        maximum over members rather than the mean.
+        """
+        return (
+            torch.stack(
+                tensors=[
+                    dynamics_model.local_transition_lipschitz_constants(
+                        state_normalizer=self.state_normalizer,
+                        state_batch=state_batch,
+                        action_batch=action_batch,
+                    )
+                    for dynamics_model in self.dynamics_models
+                ],
+                dim=0,
+            )
+            .max(dim=0)
+            .values
+        )
+
     @property
     def dynamics_models(self) -> list[DynamicsModel]:
         dynamics_models: list[DynamicsModel] = []
