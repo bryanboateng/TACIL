@@ -39,11 +39,8 @@ class MemberTrainingState:
     ema_model: AveragedModel
     shuffle_generator: torch.Generator
     histogram_sample_generator: np.random.Generator
-    # The member's own bootstrap resample of the training episodes. Members
-    # disagree only where their resamples support different answers, which is
-    # what makes the ensemble spread an honest uncertainty.
-    train_state_windows: torch.Tensor
-    train_action_windows: torch.Tensor
+    state_windows: torch.Tensor
+    action_windows: torch.Tensor
     best_checkpoint: Checkpoint | None = None
 
     @property
@@ -77,6 +74,7 @@ def create_member_training_state(
     action_windows: torch.Tensor,
     device: torch.device,
 ) -> MemberTrainingState:
+    # Seeds the weight initialization below of the DynamicsModel.
     set_seed(seed=member_seed)
 
     dynamics_model = DynamicsModel(
@@ -101,8 +99,8 @@ def create_member_training_state(
         ),
         shuffle_generator=torch.Generator(device=device).manual_seed(member_seed),
         histogram_sample_generator=np.random.default_rng(seed=member_seed),
-        train_state_windows=state_windows,
-        train_action_windows=action_windows,
+        state_windows=state_windows,
+        action_windows=action_windows,
     )
 
 
@@ -111,14 +109,14 @@ def train_member_for_one_epoch(
 ) -> MemberEpochMetrics:
     batch_size = 2_048
 
-    window_count = state.train_state_windows.shape[0]
+    window_count = state.state_windows.shape[0]
     steps_per_epoch = max(window_count // batch_size, 1)
 
     state.model.train()
     shuffled_window_indices = torch.randperm(
         n=window_count,
         generator=state.shuffle_generator,
-        device=state.train_state_windows.device,
+        device=state.state_windows.device,
     )
 
     losses: list[float] = []
@@ -133,8 +131,8 @@ def train_member_for_one_epoch(
 
         loss = compute_loss(
             dynamics_model=state.model,
-            state_window_batch=state.train_state_windows[batch_window_indices],
-            action_window_batch=state.train_action_windows[batch_window_indices],
+            state_window_batch=state.state_windows[batch_window_indices],
+            action_window_batch=state.action_windows[batch_window_indices],
         )
         loss.backward()
         losses.append(loss.detach().item())
