@@ -92,11 +92,14 @@ def error_over_depth_panel(
         )
 
     axes.set_xlabel(xlabel="steps")
-    axes.set_ylabel(ylabel="error (normalized)")
+    # Not "error": the dashed line is a spread, not a distance from the truth.
+    # Both are lengths in the same normalized state space, which is what lets
+    # them share the axis.
+    axes.set_ylabel(ylabel="normalized state distance")
     axes.set_yscale(value="log")
     axes.xaxis.set_major_locator(plt.MaxNLocator(integer=True))
     axes.legend()
-    axes.set_title(label="Prediction Error vs. Number of Steps")
+    axes.set_title(label="Prediction Error and Ensemble Disagreement vs. Steps")
     figure.tight_layout()
 
     image = wandb.Image(data_or_path=figure)
