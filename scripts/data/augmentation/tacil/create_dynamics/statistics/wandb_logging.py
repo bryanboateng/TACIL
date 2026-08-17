@@ -16,7 +16,6 @@ from scripts.data.augmentation.tacil.create_dynamics.statistics.chain_measuremen
     draw_chain_windows,
     measure_backward_chains,
     measure_forward_chains,
-    roll_out_members_forward,
 )
 from scripts.data.augmentation.tacil.dynamics.dynamics_model_ensemble import (
     DynamicsModelEnsemble,
@@ -31,8 +30,6 @@ STAGE_NAME = "1_dynamics"
 
 EPOCH_METRIC_NAME = f"{STAGE_NAME}/0_epoch"
 
-_REPLAY_EPISODE_COUNT = 4
-_REPLAY_STEP_COUNT = 100
 
 _SUMMARY_STEP_COUNTS = (1, 2, 3, 5, 10, 20)
 
@@ -255,16 +252,15 @@ def _replay_panels(
     device: torch.device,
 ) -> dict[str, wandb.Image]:
     replay_panels: dict[str, wandb.Image] = {}
-    for episode_index in range(min(_REPLAY_EPISODE_COUNT, len(validation_episodes))):
+    for episode_index in range(4):
         episode = validation_episodes[episode_index]
-        step_count = min(_REPLAY_STEP_COUNT, episode.actions.shape[0])
 
         true_trajectory = np.concatenate(
-            [episode.states[:step_count], episode.next_states[[step_count - 1]]], axis=0
+            [episode.states, episode.next_states[[-1]]], axis=0
         )  # (step_count + 1, state_dimensionality)
-        actions = torch.from_numpy(episode.actions[:step_count]).to(device=device)
+        actions = torch.from_numpy(episode.actions).to(device=device)
 
-        forward_member_trajectories = roll_out_members_forward(
+        forward_member_trajectories = _roll_out_members_forward(
             dynamics_model_ensemble=dynamics_model_ensemble,
             initial_state=torch.from_numpy(true_trajectory[0]).to(device=device),
             actions=actions,
@@ -278,3 +274,25 @@ def _replay_panels(
             )
         )
     return replay_panels
+
+
+@torch.no_grad()
+def _roll_out_members_forward(
+    *,
+    dynamics_model_ensemble: DynamicsModelEnsemble,
+    initial_state: torch.Tensor,  # (state_dimensionality,)
+    actions: torch.Tensor,  # (step_count, action_dimensionality)
+) -> torch.Tensor:  # (member_count, step_count + 1, state_dimensionality)
+    member_trajectories: list[torch.Tensor] = []
+    for dynamics_model in dynamics_model_ensemble.dynamics_models:
+        current_state_batch = initial_state.unsqueeze(dim=0)
+        trajectory_states = [current_state_batch]
+        for step_index in range(actions.shape[0]):
+            current_state_batch = dynamics_model.predict_next_state(
+                state_batch=current_state_batch,
+                action_batch=actions[step_index].unsqueeze(dim=0),
+            )
+            trajectory_states.append(current_state_batch)
+        member_trajectories.append(torch.cat(tensors=trajectory_states, dim=0))
+
+    return torch.stack(tensors=member_trajectories, dim=0)

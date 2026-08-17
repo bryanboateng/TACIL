@@ -181,28 +181,6 @@ def measure_backward_chains(
     )
 
 
-@torch.no_grad()
-def roll_out_members_forward(
-    *,
-    dynamics_model_ensemble: DynamicsModelEnsemble,
-    initial_state: torch.Tensor,  # (state_dimensionality,)
-    actions: torch.Tensor,  # (step_count, action_dimensionality)
-) -> torch.Tensor:  # (member_count, step_count + 1, state_dimensionality)
-    member_trajectories: list[torch.Tensor] = []
-    for dynamics_model in dynamics_model_ensemble.dynamics_models:
-        current_state_batch = initial_state.unsqueeze(dim=0)
-        trajectory_states = [current_state_batch]
-        for step_index in range(actions.shape[0]):
-            current_state_batch = dynamics_model.predict_next_state(
-                state_batch=current_state_batch,
-                action_batch=actions[step_index].unsqueeze(dim=0),
-            )
-            trajectory_states.append(current_state_batch)
-        member_trajectories.append(torch.cat(tensors=trajectory_states, dim=0))
-
-    return torch.stack(tensors=member_trajectories, dim=0)
-
-
 # ---- Private --------------------------------------------
 
 
