@@ -12,8 +12,6 @@ from scripts.shared.pusht_state import subtract_states
 def calculate_median_step_distance(
     *, episode_store: EpisodeStore, dynamics_model_ensemble: DynamicsModelEnsemble
 ) -> float:
-    """Typical per-step motion of the expert, in normalized state units."""
-
     device = next(dynamics_model_ensemble.parameters()).device
 
     state_batch = torch.as_tensor(data=episode_store.states).to(
@@ -22,10 +20,6 @@ def calculate_median_step_distance(
 
     # For every consecutive pair of states (s_t, s_{t+1}), compute how far
     # apart they are in space.
-    # This is "how much did the state change in one step" for every step across every episode.
-    #
-    # The shape is (total_timestep_count - 1,).
-    # I.e. one distance per consecutive pair of states.
     step_distance_batch = torch.linalg.norm(
         dynamics_model_ensemble.state_normalizer.normalize_difference(
             difference_batch=subtract_states(
