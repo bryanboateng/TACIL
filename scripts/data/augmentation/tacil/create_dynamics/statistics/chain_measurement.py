@@ -50,7 +50,8 @@ class BackwardChainMeasurements:
 
     # Distance between the solved predecessor and the real predecessor.
     true_errors: torch.Tensor  # (chain_count, depth_count)
-    # Ensemble uncertainty, evaluated at the solved predecessor.
+    # What the gate would read for a chain of this depth: the spread of the
+    # members' replay endpoints around the state the chain started from.
     uncertainties: torch.Tensor  # (chain_count, depth_count)
 
 
@@ -153,7 +154,6 @@ def measure_backward_chains(
         predecessor_state_batch = inverse_dynamics_solution.state_batch[
             converged_mask_batch
         ]
-        converged_action_batch = action_batch[converged_mask_batch]
 
         true_errors[converged_indices, depth_index] = torch.linalg.norm(
             _normalized_differences(
@@ -163,9 +163,19 @@ def measure_backward_chains(
             ),
             dim=-1,
         )
+        # The gate signal itself, on held-out chains: every member replays the
+        # actions from this predecessor up to the chain's start, and this is
+        # how far their endpoints land from it. Measured against the true
+        # error in the row above, it says whether the gate can see the error
+        # it is meant to stop.
         uncertainties[converged_indices, depth_index] = (
-            dynamics_model_ensemble.uncertainty_about_next_state(
-                state_batch=predecessor_state_batch, action_batch=converged_action_batch
+            dynamics_model_ensemble.uncertainty_about_chain_end(
+                start_state_batch=predecessor_state_batch,
+                chain_action_batches=[
+                    action_windows[converged_indices, replayed_window_index, :]
+                    for replayed_window_index in range(window_index, depth_count)
+                ],
+                end_state_batch=state_windows[converged_indices, -1, :],
             )
         )
 
