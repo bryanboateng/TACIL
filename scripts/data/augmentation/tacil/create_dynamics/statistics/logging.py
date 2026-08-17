@@ -156,48 +156,35 @@ def log_ensemble_statistics(
         convergence_tolerance=1e-3 * median_expert_step_distance,
     )
 
-    # How far apart the members are on held-out data, at the same depths as
-    # the error above so the two can be read against each other: how wrong the
-    # model is, and how wrong it believes it might be.
+    # What the gate would read at each depth, sampled at the same depths as the
+    # error it is meant to catch, so the two can be held against each other. In
+    # normalized state units, like the error, because that comparison is the
+    # whole point.
     #
-    # Disagreement is the only thing the gate can see, so this says whether it
-    # can see anything at all. Members that collapsed onto one function
-    # disagree nowhere, pass every limit, and let chains run as long as they
-    # like. Measured in the sweep of 2026-08-16: a lower Lipschitz bound
-    # lengthened the chains even at a stricter limit (r = -0.39, p = 0.004
-    # with the limit partialled out; bound under 10 drew a median limit of
-    # 11.6 and still reached length 9.5, against 17.7 and 8.0 above it). Those
-    # runs scored 0.59 against 0.69.
-    #
-    # Backward is the side that counts, because that is the signal the gate
-    # reads in a real run. Forward is the cheaper cross-check: it needs no
-    # solver, so it still says whether the members differ at all.
-    #
-    # In normalized state units, the same as the error above. Not in step
-    # multiples: the point of these numbers is the comparison against the true
-    # error, and two units on one axis would defeat it.
-    disagreements_per_direction = {
-        "forward": forward_chain_measurements.disagreements.cpu().numpy(),
-        "backward": backward_chain_measurements.disagreements.cpu().numpy(),
-    }  # each (chain_count, depth_count)
-    for direction_name, disagreements_per_depth in disagreements_per_direction.items():
-        for depth in _SUMMARY_DEPTHS:
-            if depth > disagreements_per_depth.shape[1]:
-                continue
-            disagreements_at_depth = disagreements_per_depth[:, depth - 1]
-            # A chain that stopped before this depth has nothing to contribute.
-            disagreements_at_depth = disagreements_at_depth[
-                np.isfinite(disagreements_at_depth)
-            ]
-            if disagreements_at_depth.size == 0:
-                continue
-            for label, value in summarize_distribution(
-                values=disagreements_at_depth
-            ).items():
-                run.summary[
-                    f"{STAGE_NAME}/7_ensemble_disagreement/"
-                    f"{direction_name}/{depth:02d}/{label}"
-                ] = value
+    # It also carries the run-is-worthless alarm: members that collapsed onto
+    # one function all replay onto the anchor, so the signal falls to zero and
+    # every limit passes. Measured in the sweep of 2026-08-16, a lower
+    # Lipschitz bound lengthened the chains even at a stricter limit
+    # (r = -0.39, p = 0.004 with the limit partialled out; bound under 10 drew
+    # a median limit of 11.6 and still reached length 9.5, against 17.7 and
+    # 8.0 above it). Those runs scored 0.59 against 0.69.
+    backward_gate_signals_per_depth = (
+        backward_chain_measurements.gate_signals.cpu().numpy()
+    )  # (chain_count, depth_count)
+    for depth in _SUMMARY_DEPTHS:
+        if depth > backward_gate_signals_per_depth.shape[1]:
+            continue
+        gate_signals_at_depth = backward_gate_signals_per_depth[:, depth - 1]
+        # A chain that stopped before this depth has nothing to contribute.
+        gate_signals_at_depth = gate_signals_at_depth[
+            np.isfinite(gate_signals_at_depth)
+        ]
+        if gate_signals_at_depth.size == 0:
+            continue
+        for label, value in summarize_distribution(
+            values=gate_signals_at_depth
+        ).items():
+            run.summary[f"{STAGE_NAME}/7_gate_signal/{depth:02d}/{label}"] = value
 
     # How much of the deep backward numbers to believe. A chain dies at its
     # first non-converged solve, so anything below 1 means the deeper errors
@@ -238,10 +225,7 @@ def log_ensemble_statistics(
                 backward_errors_per_depth=(
                     backward_chain_measurements.true_errors.cpu().numpy()
                 ),
-                forward_disagreements_per_depth=disagreements_per_direction["forward"],
-                backward_disagreements_per_depth=disagreements_per_direction[
-                    "backward"
-                ],
+                backward_gate_signals_per_depth=backward_gate_signals_per_depth,
             ),
             **_replay_panels(
                 dynamics_model_ensemble=dynamics_model_ensemble,

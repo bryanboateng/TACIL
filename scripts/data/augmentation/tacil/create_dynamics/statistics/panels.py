@@ -23,10 +23,7 @@ def error_over_depth_panel(
     *,
     forward_errors_per_depth: npt.NDArray[np.floating],  # (chain_count, depth_count)
     backward_errors_per_depth: npt.NDArray[np.floating],  # (chain_count, depth_count)
-    forward_disagreements_per_depth: npt.NDArray[
-        np.floating
-    ],  # (chain_count, depth_count)
-    backward_disagreements_per_depth: npt.NDArray[
+    backward_gate_signals_per_depth: npt.NDArray[
         np.floating
     ],  # (chain_count, depth_count)
 ) -> wandb.Image:
@@ -35,35 +32,17 @@ def error_over_depth_panel(
     Backward chains run to the left of zero, forward chains to the right, so
     both directions share one axis and stay comparable.
 
-    The dashed line is how wrong the ensemble believes it might be, against the
-    solid line of how wrong it actually is. Backward, the dashed line is the
-    gate's own signal, so the gap between the two is what the gate is working
-    with: a dashed line far under the solid one means the gate is told less
-    than it needs to stop in time.
+    The dashed line is the gate's own signal, read against the solid line of
+    how wrong the chain actually is. The gap between them is what the gate has
+    to work with: a dashed line far under the solid one means the gate is told
+    less than it needs to stop in time, and a dashed line flat on the floor
+    means the members collapsed and the gate is blind.
     """
     figure, axes = plt.subplots(figsize=(9, 5))
 
-    for (
-        errors_per_depth,
-        disagreements_per_depth,
-        direction_label,
-        color,
-        direction_sign,
-    ) in (
-        (
-            backward_errors_per_depth,
-            backward_disagreements_per_depth,
-            "backward",
-            _BACKWARD_COLOR,
-            -1,
-        ),
-        (
-            forward_errors_per_depth,
-            forward_disagreements_per_depth,
-            "forward",
-            _FORWARD_COLOR,
-            +1,
-        ),
+    for errors_per_depth, direction_label, color, direction_sign in (
+        (backward_errors_per_depth, "backward", _BACKWARD_COLOR, -1),
+        (forward_errors_per_depth, "forward", _FORWARD_COLOR, +1),
     ):
         measured_depth_mask = np.isfinite(errors_per_depth).any(axis=0)
         if not measured_depth_mask.any():
@@ -95,36 +74,34 @@ def error_over_depth_panel(
             label=f"{direction_label} 10th-90th percentile",
         )
 
-        disagreement_depth_mask = np.isfinite(disagreements_per_depth).any(axis=0)
-        if not disagreement_depth_mask.any():
-            continue
-        disagreement_positions = (
-            direction_sign
-            * np.arange(1, disagreements_per_depth.shape[1] + 1)[
-                disagreement_depth_mask
-            ]
-        )
-        disagreement_order = np.argsort(disagreement_positions)
+    # Backward only. Forward has no counterpart worth drawing: the gate never
+    # runs forward, and the collapse alarm is already carried by this line.
+    gate_signal_depth_mask = np.isfinite(backward_gate_signals_per_depth).any(axis=0)
+    if gate_signal_depth_mask.any():
+        positions = -np.arange(1, backward_gate_signals_per_depth.shape[1] + 1)[
+            gate_signal_depth_mask
+        ]
+        drawing_order = np.argsort(positions)
         axes.plot(
-            disagreement_positions[disagreement_order],
-            np.nanmedian(a=disagreements_per_depth[:, disagreement_depth_mask], axis=0)[
-                disagreement_order
-            ],
-            color=color,
+            positions[drawing_order],
+            np.nanmedian(
+                a=backward_gate_signals_per_depth[:, gate_signal_depth_mask], axis=0
+            )[drawing_order],
+            color=_BACKWARD_COLOR,
             linewidth=2.0,
             linestyle="--",
-            label=f"{direction_label} ensemble disagreement (median)",
+            label="backward gate signal (median)",
         )
 
     axes.set_xlabel(xlabel="steps")
-    # Not "error": the dashed line is a spread, not a distance from the truth.
-    # Both are lengths in the same normalized state space, which is what lets
-    # them share the axis.
+    # Not "error": the dashed line is a spread around the anchor, not a
+    # distance from the truth. Both are lengths in the same normalized state
+    # space, which is what lets them share the axis.
     axes.set_ylabel(ylabel="normalized state distance")
     axes.set_yscale(value="log")
     axes.xaxis.set_major_locator(plt.MaxNLocator(integer=True))
     axes.legend()
-    axes.set_title(label="Prediction Error and Ensemble Disagreement vs. Steps")
+    axes.set_title(label="Prediction Error and Gate Signal vs. Steps")
     figure.tight_layout()
 
     image = wandb.Image(data_or_path=figure)
