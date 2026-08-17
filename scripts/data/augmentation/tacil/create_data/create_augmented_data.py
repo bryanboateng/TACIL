@@ -35,10 +35,11 @@ def create_augmented_data(
     dynamics_model_ensemble: DynamicsModelEnsemble,
     expert_part_length: int,
     seed: int,
-    device: torch.device,
     run: Run,
 ) -> EpisodeStore:
     set_seed(seed=seed)
+
+    device = next(dynamics_model_ensemble.parameters()).device
 
     anchor_indices = get_anchor_indices(
         episode_end_indices=episode_store.episode_end_indices,

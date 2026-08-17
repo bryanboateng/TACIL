@@ -43,6 +43,5 @@ def augment(
         dynamics_model_ensemble=dynamics_model_ensemble,
         expert_part_length=expert_part_length,
         seed=seed,
-        device=device,
         run=run,
     )
