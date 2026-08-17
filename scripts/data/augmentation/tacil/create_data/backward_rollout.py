@@ -1,3 +1,4 @@
+import itertools
 from dataclasses import dataclass
 
 import torch
@@ -9,13 +10,6 @@ from scripts.data.augmentation.tacil.create_data.inverse_dynamics import (
 from scripts.data.augmentation.tacil.dynamics.dynamics_model_ensemble import (
     DynamicsModelEnsemble,
 )
-
-
-# A chain that walks further than the longest demonstration has left the
-# region the data can speak about, so the walk is broken. Across 50 sweep runs
-# and 308850 anchors this never happened: every chain ended at the limit. It is
-# a guard against a runaway loop, not a length the method chooses.
-_IMPLAUSIBLE_DEPTH = 1000
 
 
 @dataclass(frozen=True)
@@ -82,7 +76,7 @@ def roll_out_backward(
     final_replay_error_batch = torch.zeros(anchor_count, device=device)
 
     progress_bar = tqdm(desc="backward step", unit="step")
-    for depth in range(_IMPLAUSIBLE_DEPTH):
+    for depth in itertools.count():
         active_indices = active_mask_batch.nonzero().squeeze(dim=1)  # (active_count,)
         if active_indices.numel() == 0:
             break
@@ -145,12 +139,6 @@ def roll_out_backward(
         )
         active_mask_batch[active_indices[rejected_mask_batch]] = False
         progress_bar.update(n=1)
-    else:
-        raise RuntimeError(
-            f"A backward chain passed {_IMPLAUSIBLE_DEPTH} steps without the "
-            "limit stopping it. The ensemble members agree everywhere, which "
-            "means they collapsed onto one function and nothing stops the walk."
-        )
     progress_bar.close()
 
     backward_trajectories = _assemble_trajectories(
