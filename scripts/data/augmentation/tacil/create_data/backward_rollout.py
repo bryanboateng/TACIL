@@ -26,15 +26,7 @@ class BackwardTrajectories:
 @dataclass(frozen=True)
 class RolloutDiagnostics:
     anchor_count: int
-
-    # Chains that ended because the solver failed rather than because the limit
-    # was reached. Zero across every run so far; anything else means the inverse
-    # dynamics broke down and the lengths below are not the limit's doing.
     not_converged_count: int
-
-    # The replay error at the last accepted step of each chain — the
-    # value that came closest to the limit. Read against the limit it shows
-    # whether the limit is what stopped the walk, and how tightly.
     final_replay_errors: torch.Tensor  # (accepted_anchor_count,)
 
 
@@ -48,13 +40,6 @@ def roll_out_backward(
     replay_error_limit: float,
     convergence_tolerance: float,
 ) -> tuple[BackwardTrajectories, RolloutDiagnostics]:
-    """Walk backward from the anchors while the ensemble still agrees.
-
-    Each candidate chain is replayed forward with every member: the chain may
-    grow while the members' endpoints stay near the anchor. Every step adds
-    error that the replay carries all the way to the anchor, so the spread only
-    grows and each chain stops on its own.
-    """
     anchor_count = anchor_state_batch.shape[0]
     device = anchor_state_batch.device
 
@@ -62,7 +47,9 @@ def roll_out_backward(
     not_converged_count = 0
 
     current_state_batch = anchor_state_batch.clone()
-    active_mask_batch = torch.ones(anchor_count, dtype=torch.bool, device=device)
+    active_trajectory_mask_batch = torch.ones(
+        anchor_count, dtype=torch.bool, device=device
+    )
 
     # Every test replays the whole prefix, so the accepted actions are
     # kept. Element d holds the action accepted at depth d + 1; anchors that
@@ -77,29 +64,31 @@ def roll_out_backward(
 
     progress_bar = tqdm(desc="backward step", unit="step")
     for depth in itertools.count():
-        active_indices = active_mask_batch.nonzero().squeeze(dim=1)  # (active_count,)
-        if active_indices.numel() == 0:
+        active_trajectory_indices = active_trajectory_mask_batch.nonzero().squeeze(
+            dim=1
+        )  # (active_count,)
+        if active_trajectory_indices.numel() == 0:
             break
-        progress_bar.set_postfix(active_anchor_count=int(active_indices.numel()))
+        progress_bar.set_postfix(
+            active_anchor_count=int(active_trajectory_indices.numel())
+        )
 
         backward_step = _compute_backward_step(
             dynamics_model_ensemble=dynamics_model_ensemble,
-            state_batch=current_state_batch[active_indices],
-            action_batch=anchor_action_batch[active_indices],
+            state_batch=current_state_batch[active_trajectory_indices],
+            action_batch=anchor_action_batch[active_trajectory_indices],
             action_noise_std=action_noise_std,
             convergence_tolerance=convergence_tolerance,
         )
 
-        # Forward order: the candidate action first, then the accepted
-        # actions from the deepest back to the one at the anchor.
         replay_error_batch = dynamics_model_ensemble.replay_error(
             start_state_batch=backward_step.predecessor_state_batch,
             action_batch_list=[backward_step.predecessor_action_batch]
             + [
-                chain_action_batch_per_depth[earlier_depth][active_indices]
+                chain_action_batch_per_depth[earlier_depth][active_trajectory_indices]
                 for earlier_depth in reversed(range(depth))
             ],
-            end_state_batch=anchor_state_batch[active_indices],
+            end_state_batch=anchor_state_batch[active_trajectory_indices],
         )  # (active_count,)
 
         accepted_mask_batch = backward_step.has_converged_batch & (
@@ -107,7 +96,7 @@ def roll_out_backward(
         )  # (active_count,)
 
         accepted_steps = _AcceptedSteps(
-            anchor_indices=active_indices[accepted_mask_batch],
+            anchor_indices=active_trajectory_indices[accepted_mask_batch],
             predecessor_state_batch=backward_step.predecessor_state_batch[
                 accepted_mask_batch
             ],
@@ -137,7 +126,9 @@ def roll_out_backward(
         not_converged_count += int(
             (~backward_step.has_converged_batch[rejected_mask_batch]).sum()
         )
-        active_mask_batch[active_indices[rejected_mask_batch]] = False
+        active_trajectory_mask_batch[active_trajectory_indices[rejected_mask_batch]] = (
+            False
+        )
         progress_bar.update(n=1)
     progress_bar.close()
 
@@ -190,12 +181,9 @@ def _compute_backward_step(
         target_next_state_batch=state_batch,
         convergence_tolerance=convergence_tolerance,
     )
-    predecessor_state_batch = (
-        inverse_dynamics_solution.state_batch
-    )  # (active_count, state_dimensionality)
 
     return _BackwardStep(
-        predecessor_state_batch=predecessor_state_batch,
+        predecessor_state_batch=inverse_dynamics_solution.state_batch,
         predecessor_action_batch=noisy_action_batch,
         has_converged_batch=inverse_dynamics_solution.converged_batch,
     )
