@@ -43,6 +43,10 @@ def main() -> None:
             # that underestimates its own drift looks.
             forward_disagreements_per_depth=0.3
             * _growing_errors(rng=rng, growth_per_step=1.15),
+            backward_disagreements_per_depth=_stop_chains_early(
+                true_errors=0.2 * _growing_errors(rng=rng, growth_per_step=1.35),
+                rng=rng,
+            ),
         ),
         "replay_episode_0": panels.replay_panel(
             forward_member_trajectories=forward_member_trajectories,

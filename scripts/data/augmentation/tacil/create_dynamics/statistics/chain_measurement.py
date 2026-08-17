@@ -35,8 +35,9 @@ class ForwardChainMeasurements:
 
     # Distance between the model's prediction and the real state.
     true_errors: torch.Tensor  # (chain_count, depth_count)
-    # Ensemble uncertainty at the state the prediction was made from.
-    uncertainties: torch.Tensor  # (chain_count, depth_count)
+    # How far the members disagree about the next state, at the state the
+    # prediction was made from.
+    disagreements: torch.Tensor  # (chain_count, depth_count)
 
 
 @dataclass(frozen=True)
@@ -50,6 +51,10 @@ class BackwardChainMeasurements:
 
     # Distance between the solved predecessor and the real predecessor.
     true_errors: torch.Tensor  # (chain_count, depth_count)
+    # The gate's own signal for a chain of this depth: every member replays the
+    # chain's actions from the solved predecessor, and this is how far their
+    # endpoints spread around the state the chain started from.
+    disagreements: torch.Tensor  # (chain_count, depth_count)
 
 
 def draw_chain_windows(
@@ -74,11 +79,11 @@ def measure_forward_chains(
 
     current_state_batch = state_windows[:, 0, :]
     difference_columns: list[torch.Tensor] = []
-    uncertainty_columns: list[torch.Tensor] = []
+    disagreement_columns: list[torch.Tensor] = []
 
     for depth_index in range(depth_count):
         action_batch = action_windows[:, depth_index, :]
-        uncertainty_columns.append(
+        disagreement_columns.append(
             dynamics_model_ensemble.uncertainty_about_next_state(
                 state_batch=current_state_batch, action_batch=action_batch
             )
@@ -98,7 +103,7 @@ def measure_forward_chains(
         true_errors=torch.linalg.norm(
             torch.stack(tensors=difference_columns, dim=1), dim=-1
         ),
-        uncertainties=torch.stack(tensors=uncertainty_columns, dim=1),
+        disagreements=torch.stack(tensors=disagreement_columns, dim=1),
     )
 
 
@@ -119,6 +124,7 @@ def measure_backward_chains(
     true_errors = torch.full(
         size=(chain_count, depth_count), fill_value=float("nan"), device=device
     )
+    disagreements = torch.full_like(input=true_errors, fill_value=float("nan"))
 
     for depth_index in tqdm(
         iterable=range(depth_count), desc="backward diagnostic chains", unit="depth"
@@ -159,9 +165,22 @@ def measure_backward_chains(
             ),
             dim=-1,
         )
+        disagreements[converged_indices, depth_index] = (
+            dynamics_model_ensemble.uncertainty_about_chain_end(
+                start_state_batch=predecessor_state_batch,
+                chain_action_batches=[
+                    action_windows[converged_indices, replayed_window_index, :]
+                    for replayed_window_index in range(window_index, depth_count)
+                ],
+                end_state_batch=state_windows[converged_indices, -1, :],
+            )
+        )
+
         current_state_batch[converged_indices] = predecessor_state_batch
 
-    return BackwardChainMeasurements(true_errors=true_errors)
+    return BackwardChainMeasurements(
+        true_errors=true_errors, disagreements=disagreements
+    )
 
 
 @torch.no_grad()

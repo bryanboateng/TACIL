@@ -169,21 +169,35 @@ def log_ensemble_statistics(
     # 11.6 and still reached length 9.5, against 17.7 and 8.0 above it). Those
     # runs scored 0.59 against 0.69.
     #
+    # Backward is the side that counts, because that is the signal the gate
+    # reads in a real run. Forward is the cheaper cross-check: it needs no
+    # solver, so it still says whether the members differ at all.
+    #
     # In normalized state units, the same as the error above. Not in step
     # multiples: the point of these numbers is the comparison against the true
     # error, and two units on one axis would defeat it.
-    forward_disagreements_per_depth = (
-        forward_chain_measurements.uncertainties.cpu().numpy()
-    )  # (chain_count, depth_count)
-    for depth in _SUMMARY_DEPTHS:
-        if depth > forward_disagreements_per_depth.shape[1]:
-            continue
-        for label, value in summarize_distribution(
-            values=forward_disagreements_per_depth[:, depth - 1]
-        ).items():
-            run.summary[f"{STAGE_NAME}/7_ensemble_disagreement/{depth:02d}/{label}"] = (
-                value
-            )
+    disagreements_per_direction = {
+        "forward": forward_chain_measurements.disagreements.cpu().numpy(),
+        "backward": backward_chain_measurements.disagreements.cpu().numpy(),
+    }  # each (chain_count, depth_count)
+    for direction_name, disagreements_per_depth in disagreements_per_direction.items():
+        for depth in _SUMMARY_DEPTHS:
+            if depth > disagreements_per_depth.shape[1]:
+                continue
+            disagreements_at_depth = disagreements_per_depth[:, depth - 1]
+            # A chain that stopped before this depth has nothing to contribute.
+            disagreements_at_depth = disagreements_at_depth[
+                np.isfinite(disagreements_at_depth)
+            ]
+            if disagreements_at_depth.size == 0:
+                continue
+            for label, value in summarize_distribution(
+                values=disagreements_at_depth
+            ).items():
+                run.summary[
+                    f"{STAGE_NAME}/7_ensemble_disagreement/"
+                    f"{direction_name}/{depth:02d}/{label}"
+                ] = value
 
     # How much of the deep backward numbers to believe. A chain dies at its
     # first non-converged solve, so anything below 1 means the deeper errors
@@ -224,7 +238,10 @@ def log_ensemble_statistics(
                 backward_errors_per_depth=(
                     backward_chain_measurements.true_errors.cpu().numpy()
                 ),
-                forward_disagreements_per_depth=forward_disagreements_per_depth,
+                forward_disagreements_per_depth=disagreements_per_direction["forward"],
+                backward_disagreements_per_depth=disagreements_per_direction[
+                    "backward"
+                ],
             ),
             **_replay_panels(
                 dynamics_model_ensemble=dynamics_model_ensemble,
