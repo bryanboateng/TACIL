@@ -40,22 +40,12 @@ class DynamicsModelEnsemble(torch.nn.Module):
         ],  # each (batch_size, action_dimensionality), first one applied first
         end_state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
     ) -> torch.Tensor:  # (batch_size,)
-        """RMS distance of the members' replay endpoints from the claimed end.
-
-        Each member plays the whole action chain forward on its own, so an
-        error made early passes through every later transition — exactly what
-        happens when the chain is executed.
-
-        Measured against the claimed end, not against the members' own mean, so
-        it grows both when the members disagree and when they agree on the
-        wrong endpoint.
-        """
         per_member_end_state_batch = torch.stack(
             tensors=[
-                _replay_chain(
+                _replay_actions(
                     dynamics_model=dynamics_model,
                     start_state_batch=start_state_batch,
-                    chain_action_batches=action_batch_list,
+                    action_batches=action_batch_list,
                 )
                 for dynamics_model in self.dynamics_models
             ],
@@ -105,14 +95,14 @@ class DynamicsModelEnsemble(torch.nn.Module):
 # ---- Private --------------------------------------------
 
 
-def _replay_chain(
+def _replay_actions(
     *,
     dynamics_model: DynamicsModel,
     start_state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
-    chain_action_batches: list[torch.Tensor],
+    action_batches: list[torch.Tensor],
 ) -> torch.Tensor:  # (batch_size, state_dimensionality)
     state_batch = start_state_batch
-    for action_batch in chain_action_batches:
+    for action_batch in action_batches:
         state_batch = dynamics_model.predict_next_state(
             state_batch=state_batch, action_batch=action_batch
         )
