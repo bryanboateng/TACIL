@@ -1,8 +1,6 @@
 import numpy as np
-import scipy.stats
 import torch
 import wandb
-from numpy import typing as npt
 from wandb import Run
 
 from scripts.data.augmentation.tacil.create_data.step_distance import (
@@ -158,27 +156,17 @@ def log_ensemble_statistics(
         convergence_tolerance=1e-3 * median_expert_step_distance,
     )
 
-    # Whether the uncertainty ORDERS the true errors correctly — that is what
-    # the gate needs; being off by a constant factor does not matter, since
-    # the limit is swept anyway. Pooled over all depths, because that is how
-    # the gate meets the values: it never compares two chains at the same
-    # depth, it decides whether to take one more step.
-    for direction_name, measurements in (
-        ("forward", forward_chain_measurements),
-        ("backward", backward_chain_measurements),
-    ):
-        run.summary[
-            f"{STAGE_NAME}/6_uncertainty_vs_error/spearman/{direction_name}"
-        ] = _spearman_correlation(
-            claims=measurements.uncertainties, truths=measurements.true_errors
-        )
-
     # How far apart the members are on held-out data, in multiples of the
-    # median expert step. This is what the gate reads, so it decides whether
-    # the gate can see anything at all: members that collapsed onto one
-    # function disagree nowhere, pass every limit, and let chains run as long
-    # as they like. In the sweep of 2026-08-16 the runs whose Lipschitz bound
-    # was under 10 sat here near zero and scored 0.59 against 0.69.
+    # median expert step. Disagreement is the only thing the gate can see, so
+    # this decides whether it can see anything at all: members that collapsed
+    # onto one function disagree nowhere, pass every limit, and let chains run
+    # as long as they like.
+    #
+    # Measured in the sweep of 2026-08-16: a lower Lipschitz bound lengthened
+    # the chains even at a stricter limit (r = -0.39, p = 0.004 with the limit
+    # partialled out; bound under 10 drew a median limit of 11.6 and still
+    # reached length 9.5, against 17.7 and 8.0 above it). Those runs scored
+    # 0.59 against 0.69.
     for label, value in summarize_distribution(
         values=(
             forward_chain_measurements.uncertainties.cpu().numpy().ravel()
@@ -217,14 +205,6 @@ def log_ensemble_statistics(
                     f"{STAGE_NAME}/5_error_over_depth/"
                     f"{direction_name}/{depth:02d}/{label}"
                 ] = value
-    forward_uncertainties, forward_true_errors = _finite_pairs(
-        claims=forward_chain_measurements.uncertainties,
-        truths=forward_chain_measurements.true_errors,
-    )
-    backward_uncertainties, backward_true_errors = _finite_pairs(
-        claims=backward_chain_measurements.uncertainties,
-        truths=backward_chain_measurements.true_errors,
-    )
     run.log(
         data={
             f"{STAGE_NAME}/5_error_over_depth/plot": panels.error_over_depth_panel(
@@ -234,14 +214,6 @@ def log_ensemble_statistics(
                 backward_errors_per_depth=(
                     backward_chain_measurements.true_errors.cpu().numpy()
                 ),
-            ),
-            f"{STAGE_NAME}/6_uncertainty_vs_error/plot": (
-                panels.prediction_error_vs_prediction_uncertainty(
-                    forward_uncertainties=forward_uncertainties,
-                    forward_true_errors=forward_true_errors,
-                    backward_uncertainties=backward_uncertainties,
-                    backward_true_errors=backward_true_errors,
-                )
             ),
             **_replay_panels(
                 dynamics_model_ensemble=dynamics_model_ensemble,
@@ -254,22 +226,6 @@ def log_ensemble_statistics(
 
 
 # ---- Private --------------------------------------------
-
-
-def _spearman_correlation(*, claims: torch.Tensor, truths: torch.Tensor) -> float:
-    claim_values, truth_values = _finite_pairs(claims=claims, truths=truths)
-    if claim_values.size < 2:
-        return float("nan")
-    return float(scipy.stats.spearmanr(a=claim_values, b=truth_values).statistic)
-
-
-def _finite_pairs(
-    *, claims: torch.Tensor, truths: torch.Tensor
-) -> tuple[npt.NDArray[np.floating], npt.NDArray[np.floating]]:
-    claim_values = claims.cpu().numpy().ravel()
-    truth_values = truths.cpu().numpy().ravel()
-    finite_mask = np.isfinite(claim_values) & np.isfinite(truth_values)
-    return claim_values[finite_mask], truth_values[finite_mask]
 
 
 def _replay_panels(

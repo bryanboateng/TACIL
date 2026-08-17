@@ -78,55 +78,6 @@ def error_over_depth_panel(
     return image
 
 
-def prediction_error_vs_prediction_uncertainty(
-    *,
-    forward_uncertainties: npt.NDArray[np.floating],  # (point_count,)
-    forward_true_errors: npt.NDArray[np.floating],  # (point_count,)
-    backward_uncertainties: npt.NDArray[np.floating],  # (point_count,)
-    backward_true_errors: npt.NDArray[np.floating],  # (point_count,)
-) -> wandb.Image:
-    """Uncertainty against the error it is supposed to stand in for.
-
-    Both directions share one pair of axes. How tightly a cloud rises is only
-    half the story — the other half is which errors a direction even reaches,
-    and separate axes would hide exactly that.
-    """
-    figure, (backward_subplot, forward_subplot) = plt.subplots(
-        ncols=2, figsize=(10, 5), sharex=True, sharey=True
-    )
-
-    for subplot, uncertainties, true_errors, direction_label, color in (
-        (
-            backward_subplot,
-            backward_uncertainties,
-            backward_true_errors,
-            "Backward",
-            _BACKWARD_COLOR,
-        ),
-        (
-            forward_subplot,
-            forward_uncertainties,
-            forward_true_errors,
-            "Forward",
-            _FORWARD_COLOR,
-        ),
-    ):
-        subplot.scatter(uncertainties, true_errors, s=4, alpha=0.3, color=color)
-        subplot.set_title(label=direction_label)
-        subplot.set_xlabel(xlabel="uncertainty")
-        subplot.set_xscale(value="log")
-        subplot.set_yscale(value="log")
-
-    backward_subplot.set_ylabel(ylabel="error")
-
-    figure.suptitle(t="Prediction Error vs. Prediction Uncertainty")
-    figure.tight_layout()
-
-    image = wandb.Image(data_or_path=figure)
-    plt.close(fig=figure)
-    return image
-
-
 def replay_panel(
     *,
     forward_member_trajectories: npt.NDArray[

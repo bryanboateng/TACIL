@@ -40,9 +40,6 @@ def main() -> None:
                 true_errors=_growing_errors(rng=rng, growth_per_step=1.6), rng=rng
             ),
         ),
-        "uncertainty_vs_error": panels.prediction_error_vs_prediction_uncertainty(
-            **_correlated_uncertainty_and_error(rng=rng)
-        ),
         "replay_episode_0": panels.replay_panel(
             forward_member_trajectories=forward_member_trajectories,
             true_trajectory=true_trajectory,
@@ -81,24 +78,6 @@ def _stop_chains_early(
 
     stopped_mask = depths > survived_depths[:, None]
     return np.where(stopped_mask, np.nan, true_errors)
-
-
-def _correlated_uncertainty_and_error(
-    *, rng: np.random.Generator
-) -> dict[str, npt.NDArray[np.floating]]:
-    """A cloud that rises to the right, which is what the scatter panel is read
-    for: the uncertainty ordering the real error."""
-    arrays: dict[str, npt.NDArray[np.floating]] = {}
-    for direction_name, correlation in (("forward", 0.8), ("backward", 0.55)):
-        point_count = _CHAIN_COUNT * _CHAIN_DEPTH // 4
-        log_uncertainties = rng.normal(loc=-5.0, scale=1.2, size=point_count)
-        log_errors = correlation * log_uncertainties + np.sqrt(
-            1.0 - correlation**2
-        ) * rng.normal(loc=0.0, scale=1.2, size=point_count)
-
-        arrays[f"{direction_name}_uncertainties"] = np.exp(log_uncertainties)
-        arrays[f"{direction_name}_true_errors"] = np.exp(log_errors - 1.0)
-    return arrays
 
 
 def _fanning_replay(
