@@ -35,21 +35,21 @@ def main() -> None:
 
     images = {
         "prediction_error_vs_step_count": plots.create_prediction_error_vs_step_count_plot(
-            forward_errors_per_step_count=_growing_errors(
+            forward_prediction_errors_per_step_count=_growing_errors(
                 rng=rng, growth_per_step=1.25
             ),
-            backward_errors_per_step_count=_stop_chains_early(
-                true_errors=_growing_errors(rng=rng, growth_per_step=1.6), rng=rng
+            backward_prediction_errors_per_step_count=_stop_chains_early(
+                prediction_errors=_growing_errors(rng=rng, growth_per_step=1.6), rng=rng
             ),
         ),
         "replay_error": plots.create_replay_error_plot(
-            backward_errors_per_step_count=_stop_chains_early(
-                true_errors=_growing_errors(rng=rng, growth_per_step=1.6), rng=rng
+            backward_prediction_errors_per_step_count=_stop_chains_early(
+                prediction_errors=_growing_errors(rng=rng, growth_per_step=1.6), rng=rng
             ),
-            # Below the true error and growing more slowly, the way an ensemble
+            # Below the prediction error and growing more slowly, the way an
             # that underestimates its own drift looks.
             backward_replay_errors_per_step_count=_stop_chains_early(
-                true_errors=0.2 * _growing_errors(rng=rng, growth_per_step=1.35),
+                prediction_errors=0.2 * _growing_errors(rng=rng, growth_per_step=1.35),
                 rng=rng,
             ),
         ),
@@ -82,7 +82,7 @@ def _growing_errors(
 
 
 def _stop_chains_early(
-    *, true_errors: npt.NDArray[np.floating], rng: np.random.Generator
+    *, prediction_errors: npt.NDArray[np.floating], rng: np.random.Generator
 ) -> npt.NDArray[np.floating]:  # (_CHAIN_COUNT, _CHAIN_DEPTH)
     """A backward chain ends at its first non-converged solve and is NaN from
     there on, so the deeper columns hold fewer and fewer chains."""
@@ -90,7 +90,7 @@ def _stop_chains_early(
     depths = np.arange(1, _CHAIN_DEPTH + 1)  # (_CHAIN_DEPTH,)
 
     stopped_mask = depths > survived_depths[:, None]
-    return np.where(stopped_mask, np.nan, true_errors)
+    return np.where(stopped_mask, np.nan, prediction_errors)
 
 
 def _fanning_replay(

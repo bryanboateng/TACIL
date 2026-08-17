@@ -194,7 +194,9 @@ def log_ensemble_statistics(
     run.summary[
         f"{STAGE_NAME}/5_error_over_step_count/backward/complete_chain_fraction"
     ] = float(
-        np.isfinite(backward_chain_measurements.true_errors[:, -1].cpu().numpy()).mean()
+        np.isfinite(
+            backward_chain_measurements.prediction_errors[:, -1].cpu().numpy()
+        ).mean()
     )
 
     # A few points off the error curve, so runs can be ranked on a number
@@ -204,10 +206,10 @@ def log_ensemble_statistics(
         ("forward", forward_chain_measurements),
     ):
         for step_count in _SUMMARY_STEP_COUNTS:
-            if step_count > measurements.true_errors.shape[1]:
+            if step_count > measurements.prediction_errors.shape[1]:
                 continue
             errors_at_step_count = (
-                measurements.true_errors[:, step_count - 1].cpu().numpy()
+                measurements.prediction_errors[:, step_count - 1].cpu().numpy()
             )
             # A chain that stopped earlier than this has no error to contribute.
             errors_at_step_count = errors_at_step_count[
@@ -225,17 +227,17 @@ def log_ensemble_statistics(
     run.log(
         data={
             f"{STAGE_NAME}/5_error_over_step_count/plot": plots.create_prediction_error_vs_step_count_plot(
-                forward_errors_per_step_count=(
-                    forward_chain_measurements.true_errors.cpu().numpy()
+                forward_prediction_errors_per_step_count=(
+                    forward_chain_measurements.prediction_errors.cpu().numpy()
                 ),
-                backward_errors_per_step_count=(
-                    backward_chain_measurements.true_errors.cpu().numpy()
+                backward_prediction_errors_per_step_count=(
+                    backward_chain_measurements.prediction_errors.cpu().numpy()
                 ),
             ),
             f"{STAGE_NAME}/7_replay_error/plot": (
                 plots.create_replay_error_plot(
-                    backward_errors_per_step_count=(
-                        backward_chain_measurements.true_errors.cpu().numpy()
+                    backward_prediction_errors_per_step_count=(
+                        backward_chain_measurements.prediction_errors.cpu().numpy()
                     ),
                     backward_replay_errors_per_step_count=(
                         backward_replay_errors_per_step_count

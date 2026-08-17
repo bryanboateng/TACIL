@@ -21,10 +21,10 @@ _REPLAY_ERROR_COLOR = "tab:green"
 
 def create_prediction_error_vs_step_count_plot(
     *,
-    forward_errors_per_step_count: npt.NDArray[
+    forward_prediction_errors_per_step_count: npt.NDArray[
         np.floating
     ],  # (trajectory_count, step_count)
-    backward_errors_per_step_count: npt.NDArray[
+    backward_prediction_errors_per_step_count: npt.NDArray[
         np.floating
     ],  # (trajectory_count, step_count)
 ) -> wandb.Image:
@@ -33,20 +33,26 @@ def create_prediction_error_vs_step_count_plot(
     legend_handles: list[tuple[Artist, Artist]] = []
     legend_labels: list[str] = []
 
-    for errors_per_step_count, direction_label, color, direction_sign in (
-        (backward_errors_per_step_count, "backward", _BACKWARD_COLOR, -1),
-        (forward_errors_per_step_count, "forward", _FORWARD_COLOR, +1),
+    for prediction_errors_per_step_count, direction_label, color, direction_sign in (
+        (backward_prediction_errors_per_step_count, "backward", _BACKWARD_COLOR, -1),
+        (forward_prediction_errors_per_step_count, "forward", _FORWARD_COLOR, +1),
     ):
-        measured_step_count_mask = np.isfinite(errors_per_step_count).any(axis=0)
+        measured_step_count_mask = np.isfinite(prediction_errors_per_step_count).any(
+            axis=0
+        )
         if not measured_step_count_mask.any():
             continue
 
         low_percentiles, medians, high_percentiles = np.nanpercentile(
-            a=errors_per_step_count[:, measured_step_count_mask], q=(10, 50, 90), axis=0
+            a=prediction_errors_per_step_count[:, measured_step_count_mask],
+            q=(10, 50, 90),
+            axis=0,
         )
         positions = (
             direction_sign
-            * np.arange(1, errors_per_step_count.shape[1] + 1)[measured_step_count_mask]
+            * np.arange(1, prediction_errors_per_step_count.shape[1] + 1)[
+                measured_step_count_mask
+            ]
         )
         drawing_order = np.argsort(positions)
 
@@ -85,7 +91,7 @@ def create_prediction_error_vs_step_count_plot(
 
 def create_replay_error_plot(
     *,
-    backward_errors_per_step_count: npt.NDArray[
+    backward_prediction_errors_per_step_count: npt.NDArray[
         np.floating
     ],  # (chain_count, step_count)
     backward_replay_errors_per_step_count: npt.NDArray[
@@ -100,9 +106,14 @@ def create_replay_error_plot(
     # Negative, like the backward half of the error plot, so a step count keeps
     # the same sign in both. The axis is flipped below, which puts the anchor
     # at the left and lets the chain grow rightwards as it is read.
-    positions = -np.arange(1, backward_errors_per_step_count.shape[1] + 1)
+    positions = -np.arange(1, backward_prediction_errors_per_step_count.shape[1] + 1)
     for values_per_step_count, label, color, line_style in (
-        (backward_errors_per_step_count, "true error", _BACKWARD_COLOR, "-"),
+        (
+            backward_prediction_errors_per_step_count,
+            "prediction error",
+            _BACKWARD_COLOR,
+            "-",
+        ),
         (
             backward_replay_errors_per_step_count,
             "replay error",

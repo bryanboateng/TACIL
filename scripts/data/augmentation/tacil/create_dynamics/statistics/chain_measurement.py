@@ -34,7 +34,7 @@ class ForwardChainMeasurements:
     """
 
     # Distance between the model's prediction and the real state.
-    true_errors: torch.Tensor  # (chain_count, depth_count)
+    prediction_errors: torch.Tensor  # (chain_count, depth_count)
 
 
 @dataclass(frozen=True)
@@ -47,7 +47,7 @@ class BackwardChainMeasurements:
     """
 
     # Distance between the solved predecessor and the real predecessor.
-    true_errors: torch.Tensor  # (chain_count, depth_count)
+    prediction_errors: torch.Tensor  # (chain_count, depth_count)
     # Every member replays the chain's actions from the solved predecessor, and
     # this is how far their endpoints land from the state the chain started at.
     # The limit is read against this value.
@@ -95,7 +95,7 @@ def measure_forward_chains(
         )
 
     return ForwardChainMeasurements(
-        true_errors=torch.linalg.norm(
+        prediction_errors=torch.linalg.norm(
             torch.stack(tensors=difference_columns, dim=1), dim=-1
         )
     )
@@ -115,10 +115,10 @@ def measure_backward_chains(
     current_state_batch = state_windows[:, -1, :].clone()
     active_mask_batch = torch.ones(chain_count, dtype=torch.bool, device=device)
 
-    true_errors = torch.full(
+    prediction_errors = torch.full(
         size=(chain_count, depth_count), fill_value=float("nan"), device=device
     )
-    replay_errors = torch.full_like(input=true_errors, fill_value=float("nan"))
+    replay_errors = torch.full_like(input=prediction_errors, fill_value=float("nan"))
 
     for depth_index in tqdm(
         iterable=range(depth_count), desc="backward diagnostic chains", unit="depth"
@@ -151,7 +151,7 @@ def measure_backward_chains(
             converged_mask_batch
         ]
 
-        true_errors[converged_indices, depth_index] = torch.linalg.norm(
+        prediction_errors[converged_indices, depth_index] = torch.linalg.norm(
             _normalized_differences(
                 dynamics_model_ensemble=dynamics_model_ensemble,
                 state_batch=predecessor_state_batch,
@@ -173,7 +173,7 @@ def measure_backward_chains(
         current_state_batch[converged_indices] = predecessor_state_batch
 
     return BackwardChainMeasurements(
-        true_errors=true_errors, replay_errors=replay_errors
+        prediction_errors=prediction_errors, replay_errors=replay_errors
     )
 
 
