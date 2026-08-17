@@ -5,11 +5,11 @@ import torch
 
 
 def set_seed(*, seed) -> None:
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
+    random.seed(a=seed)
+    np.random.seed(seed=seed)
+    torch.manual_seed(seed=seed)
+    torch.cuda.manual_seed_all(seed=seed)
 
-    torch.use_deterministic_algorithms(True)
+    torch.use_deterministic_algorithms(mode=True)
     torch.backends.cudnn.benchmark = False
     torch.backends.cudnn.deterministic = True
