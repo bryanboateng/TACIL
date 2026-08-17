@@ -20,27 +20,8 @@ from scripts.shared.pusht_state import subtract_states
 
 @dataclass(frozen=True)
 class ErrorMeasurements:
-    """How far the ensemble drifts from held-out episodes, step by step.
-
-    Entry [w, s] belongs to window w after s + 1 steps. Forward the model has
-    taken s + 1 steps on its own predictions; backward the Newton solver has
-    stepped s + 1 states back from the window's last state. A backward walk
-    ends at its first non-converged solve; entries past that point stay NaN.
-
-    All values are in normalized state units.
-    """
-
-    # Distance between the model's prediction and the real state.
     forward_prediction_errors: torch.Tensor  # (window_count, step_count)
-    # Distance between the solved predecessor and the real predecessor.
     backward_prediction_errors: torch.Tensor  # (window_count, step_count)
-    # Every member replays the window's actions from the solved predecessor,
-    # and this is how far their endpoints land from the window's last state.
-    # The limit is read against this value.
-    #
-    # It falls to zero when the members collapse onto one function, because the
-    # solver fits the mean and identical members all replay onto the same state.
-    # That is the run-is-worthless alarm.
     backward_replay_errors: torch.Tensor  # (window_count, step_count)
 
 
@@ -121,11 +102,12 @@ def _measure_forward(
         current_state_batch = dynamics_model_ensemble.predict_next_state(
             state_batch=current_state_batch, action_batch=action_batch
         )
-        batch = state_windows[:, step_index + 1, :]
+        true_next_state_batch = state_windows[:, step_index + 1, :]
         difference_columns.append(
             dynamics_model_ensemble.state_normalizer.normalize_difference(
                 difference_batch=subtract_states(
-                    minuend_batch=current_state_batch, subtrahend_batch=batch
+                    minuend_batch=current_state_batch,
+                    subtrahend_batch=true_next_state_batch,
                 )
             )
         )
@@ -162,8 +144,6 @@ def _measure_backward(
         if active_indices.numel() == 0:
             break
 
-        # The action that led into the walk's current state, and therefore
-        # out of the predecessor the solver is asked for.
         window_index = step_count - 1 - step_index
         action_batch = action_windows[active_indices, window_index, :]
         successor_state_batch = current_state_batch[active_indices]
