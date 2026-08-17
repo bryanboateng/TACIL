@@ -245,8 +245,6 @@ def create_true_dynamics_vs_model_plot(
         formatter=plt.FuncFormatter(func=_pi_multiple_label)
     )
 
-    # One legend for the figure, taken from the first subplot -- all three
-    # draw the same two kinds of line.
     figure.legend(*subplots[0].get_legend_handles_labels(), loc="lower center", ncol=2)
     figure.suptitle(t=f"True Dynamics vs. Model (Validation Episode {episode_index})")
     figure.tight_layout(rect=(0, 0.08, 1, 1))
@@ -260,7 +258,6 @@ def create_true_dynamics_vs_model_plot(
 
 
 def _pi_multiple_label(value: float, _position: int) -> str:
-    """Format a tick that `MultipleLocator(pi / 2)` placed, e.g. `pi`, `3pi/2`."""
     quarter_turns = round(value / (np.pi / 2))
     if quarter_turns == 0:
         return "0"
@@ -274,8 +271,6 @@ def _break_at_wraps(
     *,
     orientation_timeline: npt.NDArray[np.floating],  # (step_count,)
 ) -> npt.NDArray[np.floating]:  # (step_count,)
-    """NaN out the step right after a 0/2π crossing, so the plotted line lifts
-    the pen there instead of drawing a spurious jump across the full range."""
     broken_timeline = orientation_timeline.copy()
     crossed_seam = np.abs(np.diff(a=orientation_timeline)) > np.pi
     broken_timeline[1:][crossed_seam] = np.nan

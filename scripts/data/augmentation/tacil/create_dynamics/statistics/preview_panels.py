@@ -16,7 +16,6 @@ from scripts.shared.pusht_state import ARENA_SIZE, BLOCK_ORIENTATION_INDEX
 
 logger = create_logger()
 
-_OUTPUT_DIRECTORY_PATH = OUTPUT_DIRECTORY_PATH / "panel_preview"
 
 _SEED = 0
 
@@ -53,16 +52,17 @@ def main() -> None:
                 rng=rng,
             ),
         ),
-        "replay_episode_0": plots.create_true_dynamics_vs_model_plot(
+        "true_dynamics_vs_model_0": plots.create_true_dynamics_vs_model_plot(
             forward_member_trajectories=forward_member_trajectories,
             true_trajectory=true_trajectory,
             episode_index=0,
         ),
     }
 
-    _OUTPUT_DIRECTORY_PATH.mkdir(parents=True, exist_ok=True)
+    output_directory_path = OUTPUT_DIRECTORY_PATH / "panel_preview"
+    output_directory_path.mkdir(parents=True, exist_ok=True)
     for name, image in images.items():
-        image_path = _OUTPUT_DIRECTORY_PATH / f"{name}.png"
+        image_path = output_directory_path / f"{name}.png"
         image.image.save(image_path)
         logger.info("Wrote %s", image_path)
 
