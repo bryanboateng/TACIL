@@ -12,7 +12,7 @@ from scripts.data.augmentation.tacil.create_dynamics.dynamics_model_training imp
     MemberTrainingState,
 )
 from scripts.data.augmentation.tacil.create_dynamics.statistics import plots
-from scripts.data.augmentation.tacil.create_dynamics.statistics.error_measurement import (  # noqa: E501
+from scripts.data.augmentation.tacil.create_dynamics.statistics.error_measurement import (
     measure_errors,
 )
 from scripts.data.augmentation.tacil.dynamics.dynamics_model_ensemble import (
@@ -29,25 +29,12 @@ STAGE_NAME = "1_dynamics"
 EPOCH_METRIC_NAME = f"{STAGE_NAME}/0_epoch"
 
 
-_SUMMARY_STEP_COUNTS = (1, 2, 3, 5, 10, 20)
-
-
 def define_epoch_metrics(*, run: Run) -> None:
     run.define_metric(name=EPOCH_METRIC_NAME)
     for metric_pattern in ("1_loss/*", "2_gradient_norm/*", "7_lipschitz/*"):
         run.define_metric(
             name=f"{STAGE_NAME}/{metric_pattern}", step_metric=EPOCH_METRIC_NAME
         )
-
-
-def log_window_counts(
-    *, member_training_window_counts: list[int], validation_window_count: int, run: Run
-) -> None:
-    for label, value in summarize_distribution(
-        values=np.asarray(member_training_window_counts)
-    ).items():
-        run.summary[f"{STAGE_NAME}/4_window_count/training/{label}"] = value
-    run.summary[f"{STAGE_NAME}/4_window_count/validation"] = validation_window_count
 
 
 def log_epoch(
@@ -112,6 +99,16 @@ def log_best_checkpoint_summary(
             run.summary[f"{STAGE_NAME}/3_best_checkpoint/{name}/{label}"] = value
 
 
+def log_window_counts(
+    *, member_training_window_counts: list[int], validation_window_count: int, run: Run
+) -> None:
+    for label, value in summarize_distribution(
+        values=np.asarray(member_training_window_counts)
+    ).items():
+        run.summary[f"{STAGE_NAME}/4_window_count/training/{label}"] = value
+    run.summary[f"{STAGE_NAME}/4_window_count/validation"] = validation_window_count
+
+
 def log_ensemble_statistics(
     *,
     dynamics_model_ensemble: DynamicsModelEnsemble,
@@ -119,6 +116,8 @@ def log_ensemble_statistics(
     episode_store: EpisodeStore,
     run: Run,
 ) -> None:
+    summary_step_counts = (1, 2, 3, 5, 10, 20)
+
     device = next(dynamics_model_ensemble.parameters()).device
 
     median_expert_step_distance = calculate_median_step_distance(
@@ -130,22 +129,10 @@ def log_ensemble_statistics(
         convergence_tolerance=1e-3 * median_expert_step_distance,
     )
 
-    # What the limit would be read against after each number of steps, sampled
-    # at the same counts as the error it is meant to catch, so the two can be
-    # held against each other. In normalized state units, like the error,
-    # because that comparison is the whole point.
-    #
-    # It also carries the run-is-worthless alarm: members that collapsed onto
-    # one function all replay onto the anchor, so the signal falls to zero and
-    # every limit passes. Measured in the sweep of 2026-08-16, a lower
-    # Lipschitz bound lengthened the walks even at a stricter limit
-    # (r = -0.39, p = 0.004 with the limit partialled out; bound under 10 drew
-    # a median limit of 11.6 and still reached length 9.5, against 17.7 and
-    # 8.0 above it). Those runs scored 0.59 against 0.69.
     backward_replay_errors_per_step_count = (
         error_measurements.backward_replay_errors.cpu().numpy()
     )  # (window_count, step_count)
-    for step_count in _SUMMARY_STEP_COUNTS:
+    for step_count in summary_step_counts:
         if step_count > backward_replay_errors_per_step_count.shape[1]:
             continue
         replay_errors_at_step_count = backward_replay_errors_per_step_count[
@@ -162,9 +149,6 @@ def log_ensemble_statistics(
         ).items():
             run.summary[f"{STAGE_NAME}/6_replay_error/{step_count:02d}/{label}"] = value
 
-    # How much of the long backward numbers to believe. A walk dies at its
-    # first non-converged solve, so anything below 1 means the errors after
-    # more steps were measured on the subset that survived — the easier one.
     run.summary[
         f"{STAGE_NAME}/5_error_over_step_count/backward/complete_walk_fraction"
     ] = float(
@@ -173,13 +157,11 @@ def log_ensemble_statistics(
         ).mean()
     )
 
-    # A few points off the error curve, so runs can be ranked on a number
-    # instead of on a picture.
     for direction_name, prediction_errors in (
         ("backward", error_measurements.backward_prediction_errors),
         ("forward", error_measurements.forward_prediction_errors),
     ):
-        for step_count in _SUMMARY_STEP_COUNTS:
+        for step_count in summary_step_counts:
             if step_count > prediction_errors.shape[1]:
                 continue
             errors_at_step_count = prediction_errors[:, step_count - 1].cpu().numpy()
