@@ -88,11 +88,12 @@ def measure_forward_chains(
         current_state_batch = dynamics_model_ensemble.predict_next_state(
             state_batch=current_state_batch, action_batch=action_batch
         )
+        batch = state_windows[:, step_index + 1, :]
         difference_columns.append(
-            _normalized_differences(
-                dynamics_model_ensemble=dynamics_model_ensemble,
-                state_batch=current_state_batch,
-                other_state_batch=state_windows[:, step_index + 1, :],
+            dynamics_model_ensemble.state_normalizer.normalize_difference(
+                difference_batch=subtract_states(
+                    minuend_batch=current_state_batch, subtrahend_batch=batch
+                )
             )
         )
 
@@ -153,11 +154,12 @@ def measure_backward_chains(
             converged_mask_batch
         ]
 
+        batch = state_windows[converged_indices, window_index, :]
         prediction_errors[converged_indices, step_index] = torch.linalg.norm(
-            _normalized_differences(
-                dynamics_model_ensemble=dynamics_model_ensemble,
-                state_batch=predecessor_state_batch,
-                other_state_batch=state_windows[converged_indices, window_index, :],
+            dynamics_model_ensemble.state_normalizer.normalize_difference(
+                difference_batch=subtract_states(
+                    minuend_batch=predecessor_state_batch, subtrahend_batch=batch
+                )
             ),
             dim=-1,
         )
@@ -218,18 +220,3 @@ def _subsample(
         window_count, size=_CHAIN_COUNT, replace=False
     )
     return state_windows[window_indices], action_windows[window_indices]
-
-
-def _normalized_differences(
-    *,
-    dynamics_model_ensemble: DynamicsModelEnsemble,
-    state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
-    other_state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
-) -> torch.Tensor:  # (batch_size, state_dimensionality)
-    """How far the two states are apart, per dimension, in units of that
-    dimension's spread."""
-    return dynamics_model_ensemble.state_normalizer.normalize_difference(
-        difference_batch=subtract_states(
-            minuend_batch=state_batch, subtrahend_batch=other_state_batch
-        )
-    )
