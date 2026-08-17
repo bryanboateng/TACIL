@@ -17,13 +17,6 @@ from scripts.data.augmentation.tacil.dynamics.dynamics_model_ensemble import (
 )
 from scripts.shared.pusht_state import subtract_states
 
-# Fixed measurement shape: long enough to show the growth trend, short enough
-# to stay affordable, and windows overlap heavily, so more of them are
-# redundant anyway.
-_WINDOW_STEP_COUNT = 20
-_WINDOW_COUNT = 1024
-_SUBSAMPLE_SEED = 0
-
 
 @dataclass(frozen=True)
 class ErrorMeasurements:
@@ -95,9 +88,20 @@ def _draw_windows(
         np.float32
     ],  # (window_count, _WINDOW_STEP_COUNT, action_dimensionality)
 ]:
-    return _subsample(
-        *build_windows(episodes=validation_episodes, window_length=_WINDOW_STEP_COUNT)
+    state_windows, action_windows = build_windows(
+        episodes=validation_episodes, window_length=20
     )
+
+    maximum_window_count = 1024
+
+    window_count = state_windows.shape[0]
+    if window_count <= maximum_window_count:
+        return state_windows, action_windows
+
+    window_indices = np.random.default_rng(seed=0).choice(
+        window_count, size=maximum_window_count, replace=False
+    )
+    return state_windows[window_indices], action_windows[window_indices]
 
 
 @torch.no_grad()
@@ -205,19 +209,3 @@ def _measure_backward(
         current_state_batch[converged_indices] = predecessor_state_batch
 
     return prediction_errors, replay_errors
-
-
-def _subsample(
-    state_windows: npt.NDArray[np.float32],  # (window_count, length + 1, state_dim)
-    action_windows: npt.NDArray[np.float32],  # (window_count, length, action_dim)
-) -> tuple[npt.NDArray[np.float32], npt.NDArray[np.float32]]:
-    """Cap the number of windows. They overlap heavily (stride 1), so a random
-    subset loses no coverage, only redundancy."""
-    window_count = state_windows.shape[0]
-    if window_count <= _WINDOW_COUNT:
-        return state_windows, action_windows
-
-    window_indices = np.random.default_rng(seed=_SUBSAMPLE_SEED).choice(
-        window_count, size=_WINDOW_COUNT, replace=False
-    )
-    return state_windows[window_indices], action_windows[window_indices]
