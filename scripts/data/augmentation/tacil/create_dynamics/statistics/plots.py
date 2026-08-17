@@ -97,8 +97,9 @@ def create_replay_error_plot(
     legend_handles: list[tuple[Artist, Artist]] = []
     legend_labels: list[str] = []
 
-    # Negative, like the backward half of the error plot, so both read the same
-    # way: the walk leaves the anchor at zero and runs left.
+    # Negative, like the backward half of the error plot, so a step count keeps
+    # the same sign in both. The axis is flipped below, which puts the anchor
+    # at the left and lets the chain grow rightwards as it is read.
     positions = -np.arange(1, backward_errors_per_step_count.shape[1] + 1)
     for values_per_step_count, label, color, line_style in (
         (backward_errors_per_step_count, "true error", _BACKWARD_COLOR, "-"),
@@ -140,6 +141,9 @@ def create_replay_error_plot(
     plot_area.set_ylabel(ylabel="normalized state distance")
     plot_area.set_yscale(value="log")
     plot_area.xaxis.set_major_locator(locator=plt.MaxNLocator(integer=True))
+    # Zero on the left, the deepest step on the right, so the chain grows in
+    # the direction the plot is read.
+    plot_area.set_xlim(left=0, right=float(positions.min()) - 0.5)
     plot_area.legend(
         handles=legend_handles,
         labels=legend_labels,
