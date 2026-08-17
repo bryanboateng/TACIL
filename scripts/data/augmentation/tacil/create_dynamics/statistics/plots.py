@@ -2,6 +2,8 @@ import matplotlib
 import numpy as np
 import wandb
 from matplotlib import pyplot as plt
+from matplotlib.artist import Artist
+from matplotlib.legend_handler import HandlerTuple
 from numpy import typing as npt
 
 from scripts.shared.pusht_state import ARENA_SIZE, BLOCK_ORIENTATION_INDEX
@@ -28,6 +30,9 @@ def create_error_over_depth_plot(
 ) -> wandb.Image:
     figure, plot_area = plt.subplots(figsize=(9, 5))
 
+    legend_handles: list[tuple[Artist, Artist]] = []
+    legend_labels: list[str] = []
+
     for errors_per_depth, direction_label, color, direction_sign in (
         (backward_errors_per_depth, "backward", _BACKWARD_COLOR, -1),
         (forward_errors_per_depth, "forward", _FORWARD_COLOR, +1),
@@ -45,28 +50,31 @@ def create_error_over_depth_plot(
         )
         drawing_order = np.argsort(positions)
 
-        plot_area.plot(
-            positions[drawing_order],
-            medians[drawing_order],
-            color=color,
-            linewidth=2.0,
-            label=f"{direction_label} median",
-        )
-        plot_area.fill_between(
+        median_line = plot_area.plot(
+            positions[drawing_order], medians[drawing_order], color=color, linewidth=2.0
+        )[0]
+        percentile_band = plot_area.fill_between(
             positions[drawing_order],
             low_percentiles[drawing_order],
             high_percentiles[drawing_order],
             color=color,
             alpha=0.15,
             linewidth=0,
-            label=f"{direction_label} 10th-90th percentile",
         )
+
+        legend_handles.append((percentile_band, median_line))
+        legend_labels.append(direction_label)
 
     plot_area.set_xlabel(xlabel="steps")
     plot_area.set_ylabel(ylabel="error (normalized)")
     plot_area.set_yscale(value="log")
     plot_area.xaxis.set_major_locator(locator=plt.MaxNLocator(integer=True))
-    plot_area.legend()
+    plot_area.legend(
+        handles=legend_handles,
+        labels=legend_labels,
+        title="median and 10th-90th percentile",
+        handler_map={tuple: HandlerTuple(ndivide=1)},
+    )
     plot_area.set_title(label="Prediction Error vs. Number of Steps")
     figure.tight_layout()
 
