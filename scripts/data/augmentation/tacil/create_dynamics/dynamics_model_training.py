@@ -78,8 +78,9 @@ def create_member_training_state(
     state_displacement_normalizer: ZScoreNormalizer,
     state_windows: torch.Tensor,
     action_windows: torch.Tensor,
-    device: torch.device,
 ) -> MemberTrainingState:
+    device = state_windows.device
+
     # Seeds the weight initialization below of the DynamicsModel.
     set_seed(seed=member_seed)
 

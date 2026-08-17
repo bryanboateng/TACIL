@@ -158,7 +158,6 @@ def roll_out_backward(
         step_count_batch=step_count_batch,
         state_dimensionality=anchor_state_batch.shape[1],
         action_dimensionality=anchor_action_batch.shape[1],
-        device=device,
     )
     return backward_trajectories, RolloutDiagnostics(
         anchor_count=anchor_count,
@@ -220,8 +219,9 @@ def _assemble_trajectories(
     step_count_batch: torch.Tensor,  # (anchor_count,)
     state_dimensionality: int,
     action_dimensionality: int,
-    device: torch.device,
 ) -> BackwardTrajectories:
+    device = step_count_batch.device
+
     total_step_count = int(step_count_batch.sum().item())
     predecessor_states = torch.empty(
         total_step_count, state_dimensionality, device=device

@@ -118,8 +118,6 @@ def log_ensemble_statistics(
 ) -> None:
     summary_step_counts = (1, 2, 3, 5, 10, 20)
 
-    device = next(dynamics_model_ensemble.parameters()).device
-
     median_expert_step_distance = calculate_median_step_distance(
         episode_store=episode_store, dynamics_model_ensemble=dynamics_model_ensemble
     )
@@ -201,7 +199,6 @@ def log_ensemble_statistics(
             **_replay_panels(
                 dynamics_model_ensemble=dynamics_model_ensemble,
                 validation_episodes=validation_episodes,
-                device=device,
             ),
         }
     )
@@ -214,8 +211,9 @@ def _replay_panels(
     *,
     dynamics_model_ensemble: DynamicsModelEnsemble,
     validation_episodes: list[TransitionSet],
-    device: torch.device,
 ) -> dict[str, wandb.Image]:
+    device = next(dynamics_model_ensemble.parameters()).device
+
     replay_panels: dict[str, wandb.Image] = {}
     for episode_index in range(4):
         episode = validation_episodes[episode_index]

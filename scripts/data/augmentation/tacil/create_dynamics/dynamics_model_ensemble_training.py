@@ -108,7 +108,6 @@ def train_dynamics_model_ensemble(
                 action_windows=torch.from_numpy(member_action_windows).to(
                     device=device
                 ),
-                device=device,
             )
         )
     log_window_counts(
