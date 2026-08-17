@@ -2,7 +2,6 @@ from dataclasses import dataclass
 
 import numpy as np
 import torch
-from diffusers import training_utils
 from sklearn.model_selection import train_test_split
 from tqdm import tqdm
 from wandb import Run
