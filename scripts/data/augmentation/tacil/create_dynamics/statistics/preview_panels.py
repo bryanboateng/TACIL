@@ -39,6 +39,10 @@ def main() -> None:
             backward_errors_per_depth=_stop_chains_early(
                 true_errors=_growing_errors(rng=rng, growth_per_step=1.6), rng=rng
             ),
+            # Below the true error and growing more slowly, the way a model
+            # that underestimates its own drift looks.
+            forward_disagreements_per_depth=0.3
+            * _growing_errors(rng=rng, growth_per_step=1.15),
         ),
         "replay_episode_0": panels.replay_panel(
             forward_member_trajectories=forward_member_trajectories,

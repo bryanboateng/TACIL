@@ -23,11 +23,19 @@ def error_over_depth_panel(
     *,
     forward_errors_per_depth: npt.NDArray[np.floating],  # (chain_count, depth_count)
     backward_errors_per_depth: npt.NDArray[np.floating],  # (chain_count, depth_count)
+    forward_disagreements_per_depth: npt.NDArray[
+        np.floating
+    ],  # (chain_count, depth_count)
 ) -> wandb.Image:
     """Error against the number of steps, over the whole state at once.
 
     Backward chains run to the left of zero, forward chains to the right, so
     both directions share one error axis and stay comparable.
+
+    The dashed line is how wrong the ensemble believes it is, against the solid
+    line of how wrong it actually is. Both are read off the same axis, so the
+    gap between them is the model's self-knowledge: a dashed line far under the
+    solid one means the gate is told less than it needs to stop in time.
     """
     figure, axes = plt.subplots(figsize=(9, 5))
 
@@ -63,6 +71,24 @@ def error_over_depth_panel(
             alpha=0.15,
             linewidth=0,
             label=f"{direction_label} 10th-90th percentile",
+        )
+
+    # Forward only: there the two quantities describe the same thing, the
+    # distance the state moves away from where it should be. Backward, the
+    # gate's signal is a spread around the anchor, which is not that.
+    disagreement_depth_mask = np.isfinite(forward_disagreements_per_depth).any(axis=0)
+    if disagreement_depth_mask.any():
+        axes.plot(
+            np.arange(1, forward_disagreements_per_depth.shape[1] + 1)[
+                disagreement_depth_mask
+            ],
+            np.nanmedian(
+                a=forward_disagreements_per_depth[:, disagreement_depth_mask], axis=0
+            ),
+            color=_FORWARD_COLOR,
+            linewidth=2.0,
+            linestyle="--",
+            label="forward ensemble disagreement (median)",
         )
 
     axes.set_xlabel(xlabel="steps")
