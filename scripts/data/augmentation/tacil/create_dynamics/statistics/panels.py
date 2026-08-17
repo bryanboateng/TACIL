@@ -97,7 +97,9 @@ def gate_signal_panel(
     """
     figure, axes = plt.subplots(figsize=(9, 5))
 
-    depths = np.arange(1, backward_errors_per_depth.shape[1] + 1)
+    # Negative, like the backward half of the error panel: the walk starts at
+    # the anchor on the right and runs left, so both panels read the same way.
+    positions = -np.arange(1, backward_errors_per_depth.shape[1] + 1)
     for values_per_depth, label, color, line_style in (
         (backward_errors_per_depth, "true error", _BACKWARD_COLOR, "-"),
         (backward_gate_signals_per_depth, "gate signal", _GATE_SIGNAL_COLOR, "--"),
@@ -109,29 +111,35 @@ def gate_signal_panel(
         low_percentiles, medians, high_percentiles = np.nanpercentile(
             a=values_per_depth[:, measured_depth_mask], q=(10, 50, 90), axis=0
         )
+        drawing_order = np.argsort(positions[measured_depth_mask])
         axes.plot(
-            depths[measured_depth_mask],
-            medians,
+            positions[measured_depth_mask][drawing_order],
+            medians[drawing_order],
             color=color,
             linewidth=2.0,
             linestyle=line_style,
             label=f"{label} median",
         )
         axes.fill_between(
-            depths[measured_depth_mask],
-            low_percentiles,
-            high_percentiles,
+            positions[measured_depth_mask][drawing_order],
+            low_percentiles[drawing_order],
+            high_percentiles[drawing_order],
             color=color,
             alpha=0.15,
             linewidth=0,
             label=f"{label} 10th-90th percentile",
         )
 
-    axes.set_xlabel(xlabel="steps back")
+    axes.set_xlabel(xlabel="steps")
     axes.set_ylabel(ylabel="normalized state distance")
     axes.set_yscale(value="log")
     axes.xaxis.set_major_locator(plt.MaxNLocator(integer=True))
-    axes.legend()
+    # Axis and labels on the right, where the walk starts: zero is the anchor,
+    # and the chain grows to the left away from it.
+    axes.set_xlim(right=0)
+    axes.yaxis.set_label_position(position="right")
+    axes.yaxis.tick_right()
+    axes.legend(loc="upper left")
     axes.set_title(label="Gate Signal vs. Backward Error")
     figure.tight_layout()
 
