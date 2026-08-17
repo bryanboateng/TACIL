@@ -6,7 +6,7 @@ from scripts.data.augmentation.tacil.dynamics.dynamics_model.dynamics_model impo
 from scripts.shared.pusht_state import subtract_states
 
 
-def compute_loss(
+def calculate_loss(
     *,
     dynamics_model: DynamicsModel,
     state_window_batch: torch.Tensor,  # (batch_size, window_length + 1, state_dimensionality)

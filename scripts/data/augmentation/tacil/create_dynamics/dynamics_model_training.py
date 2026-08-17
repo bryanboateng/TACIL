@@ -8,7 +8,9 @@ from torch.optim.swa_utils import AveragedModel
 
 from scripts.data.augmentation.tacil.create_dynamics.config import DynamicsConfig
 from scripts.data.augmentation.tacil.create_dynamics.data import TransitionSet
-from scripts.data.augmentation.tacil.create_dynamics.losses import compute_loss
+from scripts.data.augmentation.tacil.create_dynamics.loss_calculation import (
+    calculate_loss,
+)
 from scripts.data.augmentation.tacil.dynamics.dynamics_model.dynamics_model import (
     DynamicsModel,
 )
@@ -129,7 +131,7 @@ def train_member_for_one_epoch(
 
         state.optimizer.zero_grad()
 
-        loss = compute_loss(
+        loss = calculate_loss(
             dynamics_model=state.model,
             state_window_batch=state.state_windows[batch_window_indices],
             action_window_batch=state.action_windows[batch_window_indices],
@@ -229,7 +231,7 @@ def _calculate_validation_loss(
             batch_slice
         ]  # (batch_size, window_length, state_dimensionality)
 
-        batch_loss = compute_loss(
+        batch_loss = calculate_loss(
             dynamics_model=dynamics_model,
             state_window_batch=state_window_batch,
             action_window_batch=action_window_batch,
