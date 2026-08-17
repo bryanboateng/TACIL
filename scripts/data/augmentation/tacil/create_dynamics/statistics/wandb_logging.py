@@ -43,7 +43,7 @@ _SUMMARY_STEP_COUNTS = (1, 2, 3, 5, 10, 20)
 
 def define_epoch_metrics(*, run: Run) -> None:
     run.define_metric(name=EPOCH_METRIC_NAME)
-    for metric_pattern in ("1_loss/*", "2_gradient_norm/*", "8_lipschitz/*"):
+    for metric_pattern in ("1_loss/*", "2_gradient_norm/*", "7_lipschitz/*"):
         run.define_metric(
             name=f"{STAGE_NAME}/{metric_pattern}", step_metric=EPOCH_METRIC_NAME
         )
@@ -95,7 +95,7 @@ def log_epoch(
             ],
         ),
     ):
-        logged_metrics[f"{STAGE_NAME}/8_lipschitz/{split}"] = wandb.Histogram(
+        logged_metrics[f"{STAGE_NAME}/7_lipschitz/{split}"] = wandb.Histogram(
             sequence=np.concatenate(member_split_lipschitz).tolist()
         )
 
@@ -186,7 +186,7 @@ def log_ensemble_statistics(
         for label, value in summarize_distribution(
             values=replay_errors_at_step_count
         ).items():
-            run.summary[f"{STAGE_NAME}/7_replay_error/{step_count:02d}/{label}"] = value
+            run.summary[f"{STAGE_NAME}/6_replay_error/{step_count:02d}/{label}"] = value
 
     # How much of the long backward numbers to believe. A chain dies at its
     # first non-converged solve, so anything below 1 means the errors after
@@ -234,7 +234,7 @@ def log_ensemble_statistics(
                     backward_chain_measurements.prediction_errors.cpu().numpy()
                 ),
             ),
-            f"{STAGE_NAME}/7_replay_error/plot": (
+            f"{STAGE_NAME}/6_replay_error/plot": (
                 plots.create_replay_error_plot(
                     backward_prediction_errors_per_step_count=(
                         backward_chain_measurements.prediction_errors.cpu().numpy()
@@ -280,7 +280,7 @@ def _replay_panels(
             actions=actions,
         )
 
-        replay_panels[f"{STAGE_NAME}/9_replay/episode_{episode_index}"] = (
+        replay_panels[f"{STAGE_NAME}/8_replay/episode_{episode_index}"] = (
             plots.create_true_dynamics_vs_model_plot(
                 forward_member_trajectories=(forward_member_trajectories.cpu().numpy()),
                 true_trajectory=true_trajectory,
