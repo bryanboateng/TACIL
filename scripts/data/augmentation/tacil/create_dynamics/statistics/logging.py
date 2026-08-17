@@ -11,7 +11,7 @@ from scripts.data.augmentation.tacil.create_dynamics.dynamics_model_training imp
     MemberEpochMetrics,
     MemberTrainingState,
 )
-from scripts.data.augmentation.tacil.create_dynamics.statistics import panels
+from scripts.data.augmentation.tacil.create_dynamics.statistics import plots
 from scripts.data.augmentation.tacil.create_dynamics.statistics.chain_measurement import (  # noqa: E501
     draw_chain_windows,
     measure_backward_chains,
@@ -218,7 +218,7 @@ def log_ensemble_statistics(
                 ] = value
     run.log(
         data={
-            f"{STAGE_NAME}/5_error_over_depth/plot": panels.error_over_depth_panel(
+            f"{STAGE_NAME}/5_error_over_depth/plot": plots.error_over_depth_panel(
                 forward_errors_per_depth=(
                     forward_chain_measurements.true_errors.cpu().numpy()
                 ),
@@ -226,7 +226,7 @@ def log_ensemble_statistics(
                     backward_chain_measurements.true_errors.cpu().numpy()
                 ),
             ),
-            f"{STAGE_NAME}/7_gate_signal/plot": panels.gate_signal_panel(
+            f"{STAGE_NAME}/7_gate_signal/plot": plots.gate_signal_panel(
                 backward_errors_per_depth=(
                     backward_chain_measurements.true_errors.cpu().numpy()
                 ),
@@ -269,7 +269,7 @@ def _replay_panels(
         )
 
         replay_panels[f"{STAGE_NAME}/9_replay/episode_{episode_index}"] = (
-            panels.replay_panel(
+            plots.replay_panel(
                 forward_member_trajectories=(forward_member_trajectories.cpu().numpy()),
                 true_trajectory=true_trajectory,
                 episode_index=episode_index,

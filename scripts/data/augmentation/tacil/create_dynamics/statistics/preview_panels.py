@@ -9,7 +9,7 @@ measures anything.
 import numpy as np
 from numpy import typing as npt
 
-from scripts.data.augmentation.tacil.create_dynamics.statistics import panels
+from scripts.data.augmentation.tacil.create_dynamics.statistics import plots
 from scripts.shared.log import create_logger
 from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
 from scripts.shared.pusht_state import ARENA_SIZE, BLOCK_ORIENTATION_INDEX
@@ -34,13 +34,13 @@ def main() -> None:
     forward_member_trajectories, _, true_trajectory = _fanning_replay(rng=rng)
 
     images = {
-        "error_over_depth": panels.error_over_depth_panel(
+        "error_over_depth": plots.error_over_depth_panel(
             forward_errors_per_depth=_growing_errors(rng=rng, growth_per_step=1.25),
             backward_errors_per_depth=_stop_chains_early(
                 true_errors=_growing_errors(rng=rng, growth_per_step=1.6), rng=rng
             ),
         ),
-        "gate_signal": panels.gate_signal_panel(
+        "gate_signal": plots.gate_signal_panel(
             backward_errors_per_depth=_stop_chains_early(
                 true_errors=_growing_errors(rng=rng, growth_per_step=1.6), rng=rng
             ),
@@ -51,7 +51,7 @@ def main() -> None:
                 rng=rng,
             ),
         ),
-        "replay_episode_0": panels.replay_panel(
+        "replay_episode_0": plots.replay_panel(
             forward_member_trajectories=forward_member_trajectories,
             true_trajectory=true_trajectory,
             episode_index=0,
