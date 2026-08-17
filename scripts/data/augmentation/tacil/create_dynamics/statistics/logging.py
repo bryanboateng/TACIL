@@ -225,6 +225,11 @@ def log_ensemble_statistics(
                 backward_errors_per_depth=(
                     backward_chain_measurements.true_errors.cpu().numpy()
                 ),
+            ),
+            f"{STAGE_NAME}/7_gate_signal/plot": panels.gate_signal_panel(
+                backward_errors_per_depth=(
+                    backward_chain_measurements.true_errors.cpu().numpy()
+                ),
                 backward_gate_signals_per_depth=backward_gate_signals_per_depth,
             ),
             **_replay_panels(

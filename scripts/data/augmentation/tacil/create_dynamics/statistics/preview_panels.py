@@ -39,8 +39,13 @@ def main() -> None:
             backward_errors_per_depth=_stop_chains_early(
                 true_errors=_growing_errors(rng=rng, growth_per_step=1.6), rng=rng
             ),
-            # Below the true error and growing more slowly, the way an
-            # ensemble that underestimates its own drift looks.
+        ),
+        "gate_signal": panels.gate_signal_panel(
+            backward_errors_per_depth=_stop_chains_early(
+                true_errors=_growing_errors(rng=rng, growth_per_step=1.6), rng=rng
+            ),
+            # Below the true error and growing more slowly, the way an ensemble
+            # that underestimates its own drift looks.
             backward_gate_signals_per_depth=_stop_chains_early(
                 true_errors=0.2 * _growing_errors(rng=rng, growth_per_step=1.35),
                 rng=rng,

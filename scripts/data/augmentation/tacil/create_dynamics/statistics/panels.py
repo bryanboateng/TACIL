@@ -17,26 +17,19 @@ from scripts.shared.pusht_state import (  # noqa: E402
 
 _FORWARD_COLOR = "tab:red"
 _BACKWARD_COLOR = "tab:blue"
+_GATE_SIGNAL_COLOR = "tab:green"
 
 
 def error_over_depth_panel(
     *,
     forward_errors_per_depth: npt.NDArray[np.floating],  # (chain_count, depth_count)
     backward_errors_per_depth: npt.NDArray[np.floating],  # (chain_count, depth_count)
-    backward_gate_signals_per_depth: npt.NDArray[
-        np.floating
-    ],  # (chain_count, depth_count)
 ) -> wandb.Image:
     """Error against the number of steps, over the whole state at once.
 
     Backward chains run to the left of zero, forward chains to the right, so
-    both directions share one axis and stay comparable.
-
-    The dashed line is the gate's own signal, read against the solid line of
-    how wrong the chain actually is. The gap between them is what the gate has
-    to work with: a dashed line far under the solid one means the gate is told
-    less than it needs to stop in time, and a dashed line flat on the floor
-    means the members collapsed and the gate is blind.
+    both directions share one axis and the asymmetry between them is the whole
+    point: going back is far harder than going on.
     """
     figure, axes = plt.subplots(figsize=(9, 5))
 
@@ -74,34 +67,72 @@ def error_over_depth_panel(
             label=f"{direction_label} 10th-90th percentile",
         )
 
-    # Backward only. Forward has no counterpart worth drawing: the gate never
-    # runs forward, and the collapse alarm is already carried by this line.
-    gate_signal_depth_mask = np.isfinite(backward_gate_signals_per_depth).any(axis=0)
-    if gate_signal_depth_mask.any():
-        positions = -np.arange(1, backward_gate_signals_per_depth.shape[1] + 1)[
-            gate_signal_depth_mask
-        ]
-        drawing_order = np.argsort(positions)
+    axes.set_xlabel(xlabel="steps")
+    axes.set_ylabel(ylabel="error (normalized)")
+    axes.set_yscale(value="log")
+    axes.xaxis.set_major_locator(plt.MaxNLocator(integer=True))
+    axes.legend()
+    axes.set_title(label="Prediction Error vs. Number of Steps")
+    figure.tight_layout()
+
+    image = wandb.Image(data_or_path=figure)
+    plt.close(fig=figure)
+    return image
+
+
+def gate_signal_panel(
+    *,
+    backward_errors_per_depth: npt.NDArray[np.floating],  # (chain_count, depth_count)
+    backward_gate_signals_per_depth: npt.NDArray[
+        np.floating
+    ],  # (chain_count, depth_count)
+) -> wandb.Image:
+    """What the gate reads against what it is meant to catch.
+
+    Both lines are lengths in the same normalized state space, so the gap
+    between them can be read directly. The signal running well under the error
+    means the gate is told less than it needs to stop in time. The signal flat
+    on the floor means the members collapsed onto one function: they all replay
+    onto the anchor, every limit passes, and the gate is blind.
+    """
+    figure, axes = plt.subplots(figsize=(9, 5))
+
+    depths = np.arange(1, backward_errors_per_depth.shape[1] + 1)
+    for values_per_depth, label, color, line_style in (
+        (backward_errors_per_depth, "true error", _BACKWARD_COLOR, "-"),
+        (backward_gate_signals_per_depth, "gate signal", _GATE_SIGNAL_COLOR, "--"),
+    ):
+        measured_depth_mask = np.isfinite(values_per_depth).any(axis=0)
+        if not measured_depth_mask.any():
+            continue
+
+        low_percentiles, medians, high_percentiles = np.nanpercentile(
+            a=values_per_depth[:, measured_depth_mask], q=(10, 50, 90), axis=0
+        )
         axes.plot(
-            positions[drawing_order],
-            np.nanmedian(
-                a=backward_gate_signals_per_depth[:, gate_signal_depth_mask], axis=0
-            )[drawing_order],
-            color=_BACKWARD_COLOR,
+            depths[measured_depth_mask],
+            medians,
+            color=color,
             linewidth=2.0,
-            linestyle="--",
-            label="backward gate signal (median)",
+            linestyle=line_style,
+            label=f"{label} median",
+        )
+        axes.fill_between(
+            depths[measured_depth_mask],
+            low_percentiles,
+            high_percentiles,
+            color=color,
+            alpha=0.15,
+            linewidth=0,
+            label=f"{label} 10th-90th percentile",
         )
 
-    axes.set_xlabel(xlabel="steps")
-    # Not "error": the dashed line is a spread around the anchor, not a
-    # distance from the truth. Both are lengths in the same normalized state
-    # space, which is what lets them share the axis.
+    axes.set_xlabel(xlabel="steps back")
     axes.set_ylabel(ylabel="normalized state distance")
     axes.set_yscale(value="log")
     axes.xaxis.set_major_locator(plt.MaxNLocator(integer=True))
     axes.legend()
-    axes.set_title(label="Prediction Error and Gate Signal vs. Steps")
+    axes.set_title(label="Gate Signal vs. Backward Error")
     figure.tight_layout()
 
     image = wandb.Image(data_or_path=figure)
