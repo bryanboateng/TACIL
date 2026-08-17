@@ -19,7 +19,7 @@ class Config:
 
 
 def main() -> None:
-    config = tyro.cli(f=Config, config=[tyro.conf.UsePythonSyntaxForLiteralCollections])
+    config = tyro.cli(f=Config)
     logger.info(pretty_repr(config))
     _run(config=config)
 
