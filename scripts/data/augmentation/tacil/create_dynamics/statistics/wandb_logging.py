@@ -38,7 +38,7 @@ _REPLAY_STEP_COUNT = 100
 # without any compounding, twenty is the deepest measured, and the ones in
 # between catch a curve that only bends late. The early ones sit close
 # together because that is where compounding starts and the curve is steepest.
-_SUMMARY_DEPTHS = (1, 2, 3, 5, 10, 20)
+_SUMMARY_STEP_COUNTS = (1, 2, 3, 5, 10, 20)
 
 
 def define_epoch_metrics(*, run: Run) -> None:
@@ -156,10 +156,10 @@ def log_ensemble_statistics(
         convergence_tolerance=1e-3 * median_expert_step_distance,
     )
 
-    # What the gate would read at each depth, sampled at the same depths as the
-    # error it is meant to catch, so the two can be held against each other. In
-    # normalized state units, like the error, because that comparison is the
-    # whole point.
+    # What the gate would read after each number of steps, sampled at the same
+    # counts as the error it is meant to catch, so the two can be held against
+    # each other. In normalized state units, like the error, because that
+    # comparison is the whole point.
     #
     # It also carries the run-is-worthless alarm: members that collapsed onto
     # one function all replay onto the anchor, so the signal falls to zero and
@@ -171,30 +171,28 @@ def log_ensemble_statistics(
     backward_gate_signals_per_depth = (
         backward_chain_measurements.gate_signals.cpu().numpy()
     )  # (chain_count, depth_count)
-    for depth in _SUMMARY_DEPTHS:
-        if depth > backward_gate_signals_per_depth.shape[1]:
+    for step_count in _SUMMARY_STEP_COUNTS:
+        if step_count > backward_gate_signals_per_depth.shape[1]:
             continue
-        gate_signals_at_depth = backward_gate_signals_per_depth[:, depth - 1]
-        # A chain that stopped before this depth has nothing to contribute.
-        gate_signals_at_depth = gate_signals_at_depth[
-            np.isfinite(gate_signals_at_depth)
+        gate_signals_at_step_count = backward_gate_signals_per_depth[:, step_count - 1]
+        # A chain that stopped earlier than this has nothing to contribute.
+        gate_signals_at_step_count = gate_signals_at_step_count[
+            np.isfinite(gate_signals_at_step_count)
         ]
-        if gate_signals_at_depth.size == 0:
+        if gate_signals_at_step_count.size == 0:
             continue
         for label, value in summarize_distribution(
-            values=gate_signals_at_depth
+            values=gate_signals_at_step_count
         ).items():
-            run.summary[f"{STAGE_NAME}/7_gate_signal/{depth:02d}/{label}"] = value
+            run.summary[f"{STAGE_NAME}/7_gate_signal/{step_count:02d}/{label}"] = value
 
-    # How much of the deep backward numbers to believe. A chain dies at its
-    # first non-converged solve, so anything below 1 means the deeper errors
-    # were measured on the subset that survived — the easier one.
-    run.summary[f"{STAGE_NAME}/5_error_over_depth/backward/complete_chain_fraction"] = (
-        float(
-            np.isfinite(
-                backward_chain_measurements.true_errors[:, -1].cpu().numpy()
-            ).mean()
-        )
+    # How much of the long backward numbers to believe. A chain dies at its
+    # first non-converged solve, so anything below 1 means the errors after
+    # more steps were measured on the subset that survived — the easier one.
+    run.summary[
+        f"{STAGE_NAME}/5_error_over_step_count/backward/complete_chain_fraction"
+    ] = float(
+        np.isfinite(backward_chain_measurements.true_errors[:, -1].cpu().numpy()).mean()
     )
 
     # A few points off the error curve, so runs can be ranked on a number
@@ -203,26 +201,32 @@ def log_ensemble_statistics(
         ("backward", backward_chain_measurements),
         ("forward", forward_chain_measurements),
     ):
-        for depth in _SUMMARY_DEPTHS:
-            if depth > measurements.true_errors.shape[1]:
+        for step_count in _SUMMARY_STEP_COUNTS:
+            if step_count > measurements.true_errors.shape[1]:
                 continue
-            errors_at_depth = measurements.true_errors[:, depth - 1].cpu().numpy()
-            # A chain that stopped before this depth has no error to contribute.
-            errors_at_depth = errors_at_depth[np.isfinite(errors_at_depth)]
-            if errors_at_depth.size == 0:
+            errors_at_step_count = (
+                measurements.true_errors[:, step_count - 1].cpu().numpy()
+            )
+            # A chain that stopped earlier than this has no error to contribute.
+            errors_at_step_count = errors_at_step_count[
+                np.isfinite(errors_at_step_count)
+            ]
+            if errors_at_step_count.size == 0:
                 continue
-            for label, value in summarize_distribution(values=errors_at_depth).items():
+            for label, value in summarize_distribution(
+                values=errors_at_step_count
+            ).items():
                 run.summary[
-                    f"{STAGE_NAME}/5_error_over_depth/"
-                    f"{direction_name}/{depth:02d}/{label}"
+                    f"{STAGE_NAME}/5_error_over_step_count/"
+                    f"{direction_name}/{step_count:02d}/{label}"
                 ] = value
     run.log(
         data={
-            f"{STAGE_NAME}/5_error_over_depth/plot": plots.create_error_over_depth_plot(
-                forward_errors_per_depth=(
+            f"{STAGE_NAME}/5_error_over_step_count/plot": plots.create_prediction_error_vs_step_count_plot(
+                forward_errors_per_step_count=(
                     forward_chain_measurements.true_errors.cpu().numpy()
                 ),
-                backward_errors_per_depth=(
+                backward_errors_per_step_count=(
                     backward_chain_measurements.true_errors.cpu().numpy()
                 ),
             ),

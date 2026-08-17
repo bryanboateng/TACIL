@@ -19,34 +19,34 @@ _BACKWARD_COLOR = "tab:blue"
 _GATE_SIGNAL_COLOR = "tab:green"
 
 
-def create_error_over_depth_plot(
+def create_prediction_error_vs_step_count_plot(
     *,
-    forward_errors_per_depth: npt.NDArray[
+    forward_errors_per_step_count: npt.NDArray[
         np.floating
-    ],  # (trajectory_count, depth_count)
-    backward_errors_per_depth: npt.NDArray[
+    ],  # (trajectory_count, step_count)
+    backward_errors_per_step_count: npt.NDArray[
         np.floating
-    ],  # (trajectory_count, depth_count)
+    ],  # (trajectory_count, step_count)
 ) -> wandb.Image:
     figure, plot_area = plt.subplots(figsize=(9, 5))
 
     legend_handles: list[tuple[Artist, Artist]] = []
     legend_labels: list[str] = []
 
-    for errors_per_depth, direction_label, color, direction_sign in (
-        (backward_errors_per_depth, "backward", _BACKWARD_COLOR, -1),
-        (forward_errors_per_depth, "forward", _FORWARD_COLOR, +1),
+    for errors_per_step_count, direction_label, color, direction_sign in (
+        (backward_errors_per_step_count, "backward", _BACKWARD_COLOR, -1),
+        (forward_errors_per_step_count, "forward", _FORWARD_COLOR, +1),
     ):
-        measured_depth_mask = np.isfinite(errors_per_depth).any(axis=0)
-        if not measured_depth_mask.any():
+        measured_step_count_mask = np.isfinite(errors_per_step_count).any(axis=0)
+        if not measured_step_count_mask.any():
             continue
 
         low_percentiles, medians, high_percentiles = np.nanpercentile(
-            a=errors_per_depth[:, measured_depth_mask], q=(10, 50, 90), axis=0
+            a=errors_per_step_count[:, measured_step_count_mask], q=(10, 50, 90), axis=0
         )
         positions = (
             direction_sign
-            * np.arange(1, errors_per_depth.shape[1] + 1)[measured_depth_mask]
+            * np.arange(1, errors_per_step_count.shape[1] + 1)[measured_step_count_mask]
         )
         drawing_order = np.argsort(positions)
 

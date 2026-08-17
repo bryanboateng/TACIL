@@ -34,9 +34,11 @@ def main() -> None:
     forward_member_trajectories, _, true_trajectory = _fanning_replay(rng=rng)
 
     images = {
-        "error_over_depth": plots.create_error_over_depth_plot(
-            forward_errors_per_depth=_growing_errors(rng=rng, growth_per_step=1.25),
-            backward_errors_per_depth=_stop_chains_early(
+        "prediction_error_vs_step_count": plots.create_prediction_error_vs_step_count_plot(
+            forward_errors_per_step_count=_growing_errors(
+                rng=rng, growth_per_step=1.25
+            ),
+            backward_errors_per_step_count=_stop_chains_early(
                 true_errors=_growing_errors(rng=rng, growth_per_step=1.6), rng=rng
             ),
         ),
