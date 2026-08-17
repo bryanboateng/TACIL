@@ -13,7 +13,7 @@ from scripts.data.augmentation.tacil.dynamics.dynamics_model_ensemble import (
 
 # A chain that walks further than the longest demonstration has left the
 # region the data can speak about, so the walk is broken. Across 50 sweep runs
-# and 308850 anchors this never happened: every chain ended at the gate. It is
+# and 308850 anchors this never happened: every chain ended at the limit. It is
 # a guard against a runaway loop, not a length the method chooses.
 _IMPLAUSIBLE_DEPTH = 1000
 
@@ -33,15 +33,15 @@ class BackwardTrajectories:
 class RolloutDiagnostics:
     anchor_count: int
 
-    # Chains that ended because the solver failed rather than because the gate
-    # said stop. Zero across every run so far; anything else means the inverse
-    # dynamics broke down and the lengths below are not the gate's doing.
+    # Chains that ended because the solver failed rather than because the limit
+    # was reached. Zero across every run so far; anything else means the inverse
+    # dynamics broke down and the lengths below are not the limit's doing.
     not_converged_count: int
 
-    # The gate signal at the last accepted step of each chain — the value that
-    # came closest to the limit. Read against the limit it shows whether the
-    # gate is what stopped the walk, and how tightly.
-    final_chain_uncertainties: torch.Tensor  # (accepted_anchor_count,)
+    # The replay error at the last accepted step of each chain — the
+    # value that came closest to the limit. Read against the limit it shows
+    # whether the limit is what stopped the walk, and how tightly.
+    final_replay_errors: torch.Tensor  # (accepted_anchor_count,)
 
 
 @torch.no_grad()
@@ -51,15 +51,15 @@ def roll_out_backward(
     anchor_state_batch: torch.Tensor,  # (anchor_count, state_dimensionality)
     anchor_action_batch: torch.Tensor,  # (anchor_count, action_dimensionality)
     action_noise_std: torch.Tensor,  # (action_dimensionality,)
-    uncertainty_limit: float,
+    replay_error_limit: float,
     convergence_tolerance: float,
 ) -> tuple[BackwardTrajectories, RolloutDiagnostics]:
     """Walk backward from the anchors while the ensemble still agrees.
 
-    The gate replays each candidate chain forward with every member: the
-    chain may grow while the members' endpoints stay near the anchor. Every
-    step adds error that the replay carries all the way to the anchor, so the
-    signal only grows and each chain stops on its own.
+    Each candidate chain is replayed forward with every member: the chain may
+    grow while the members' endpoints stay near the anchor. Every step adds
+    error that the replay carries all the way to the anchor, so the spread only
+    grows and each chain stops on its own.
     """
     anchor_count = anchor_state_batch.shape[0]
     device = anchor_state_batch.device
@@ -70,7 +70,7 @@ def roll_out_backward(
     current_state_batch = anchor_state_batch.clone()
     active_mask_batch = torch.ones(anchor_count, dtype=torch.bool, device=device)
 
-    # Every gate test replays the whole prefix, so the accepted actions are
+    # Every test replays the whole prefix, so the accepted actions are
     # kept. Element d holds the action accepted at depth d + 1; anchors that
     # stopped earlier keep zeros there, which are never read.
     chain_action_batch_per_depth: list[torch.Tensor] = []
@@ -79,7 +79,7 @@ def roll_out_backward(
 
     # Overwritten at every accepted step, so what survives is the last one —
     # the value that came closest to the limit before the chain stopped.
-    final_chain_uncertainty_batch = torch.zeros(anchor_count, device=device)
+    final_replay_error_batch = torch.zeros(anchor_count, device=device)
 
     progress_bar = tqdm(desc="backward step", unit="step")
     for depth in range(_IMPLAUSIBLE_DEPTH):
@@ -98,7 +98,7 @@ def roll_out_backward(
 
         # Forward order: the candidate action first, then the accepted
         # actions from the deepest back to the one at the anchor.
-        tested_error_batch = dynamics_model_ensemble.uncertainty_about_chain_end(
+        replay_error_batch = dynamics_model_ensemble.replay_error(
             start_state_batch=backward_step.predecessor_state_batch,
             chain_action_batches=[backward_step.predecessor_action_batch]
             + [
@@ -109,7 +109,7 @@ def roll_out_backward(
         )  # (active_count,)
 
         accepted_mask_batch = backward_step.has_converged_batch & (
-            tested_error_batch <= uncertainty_limit
+            replay_error_batch <= replay_error_limit
         )  # (active_count,)
 
         accepted_steps = _AcceptedSteps(
@@ -135,9 +135,9 @@ def roll_out_backward(
         )
         chain_action_batch_per_depth.append(chain_action_batch)
 
-        final_chain_uncertainty_batch[accepted_steps.anchor_indices] = (
-            tested_error_batch[accepted_mask_batch]
-        )
+        final_replay_error_batch[accepted_steps.anchor_indices] = replay_error_batch[
+            accepted_mask_batch
+        ]
 
         rejected_mask_batch = ~accepted_mask_batch  # (active_count,)
         not_converged_count += int(
@@ -148,8 +148,8 @@ def roll_out_backward(
     else:
         raise RuntimeError(
             f"A backward chain passed {_IMPLAUSIBLE_DEPTH} steps without the "
-            "gate stopping it. The ensemble members agree everywhere, which "
-            "means they collapsed onto one function and the gate is blind."
+            "limit stopping it. The ensemble members agree everywhere, which "
+            "means they collapsed onto one function and nothing stops the walk."
         )
     progress_bar.close()
 
@@ -163,7 +163,7 @@ def roll_out_backward(
     return backward_trajectories, RolloutDiagnostics(
         anchor_count=anchor_count,
         not_converged_count=not_converged_count,
-        final_chain_uncertainties=final_chain_uncertainty_batch[step_count_batch > 0],
+        final_replay_errors=final_replay_error_batch[step_count_batch > 0],
     )
 
 

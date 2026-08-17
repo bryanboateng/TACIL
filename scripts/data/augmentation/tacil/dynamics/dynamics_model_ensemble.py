@@ -31,7 +31,7 @@ class DynamicsModelEnsemble(torch.nn.Module):
         )
 
     @torch.no_grad()
-    def uncertainty_about_chain_end(
+    def replay_error(
         self,
         *,
         start_state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
@@ -44,8 +44,11 @@ class DynamicsModelEnsemble(torch.nn.Module):
 
         Each member plays the whole action chain forward on its own, so an
         error made early passes through every later transition — exactly what
-        happens when the chain is executed. With a single action this reduces
-        to the disagreement about one transition.
+        happens when the chain is executed.
+
+        Measured against the claimed end, not against the members' own mean, so
+        it grows both when the members disagree and when they agree on the
+        wrong endpoint.
         """
         per_member_end_state_batch = torch.stack(
             tensors=[
@@ -66,13 +69,11 @@ class DynamicsModelEnsemble(torch.nn.Module):
             )
         )  # (member_count, batch_size, state_dimensionality)
 
-        per_dimension_uncertainty_batch = (
+        per_dimension_deviation_batch = (
             per_member_deviation_batch.square().mean(dim=0).sqrt()
         )  # (batch_size, state_dimensionality)
 
-        return torch.linalg.norm(
-            per_dimension_uncertainty_batch, dim=-1
-        )  # (batch_size,)
+        return torch.linalg.norm(per_dimension_deviation_batch, dim=-1)  # (batch_size,)
 
     @property
     def dynamics_models(self) -> list[DynamicsModel]:

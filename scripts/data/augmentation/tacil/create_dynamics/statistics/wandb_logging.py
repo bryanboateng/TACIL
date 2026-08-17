@@ -156,10 +156,10 @@ def log_ensemble_statistics(
         convergence_tolerance=1e-3 * median_expert_step_distance,
     )
 
-    # What the gate would read after each number of steps, sampled at the same
-    # counts as the error it is meant to catch, so the two can be held against
-    # each other. In normalized state units, like the error, because that
-    # comparison is the whole point.
+    # What the limit would be read against after each number of steps, sampled
+    # at the same counts as the error it is meant to catch, so the two can be
+    # held against each other. In normalized state units, like the error,
+    # because that comparison is the whole point.
     #
     # It also carries the run-is-worthless alarm: members that collapsed onto
     # one function all replay onto the anchor, so the signal falls to zero and
@@ -168,23 +168,25 @@ def log_ensemble_statistics(
     # (r = -0.39, p = 0.004 with the limit partialled out; bound under 10 drew
     # a median limit of 11.6 and still reached length 9.5, against 17.7 and
     # 8.0 above it). Those runs scored 0.59 against 0.69.
-    backward_gate_signals_per_depth = (
-        backward_chain_measurements.gate_signals.cpu().numpy()
-    )  # (chain_count, depth_count)
+    backward_replay_errors_per_step_count = (
+        backward_chain_measurements.replay_errors.cpu().numpy()
+    )  # (chain_count, step_count)
     for step_count in _SUMMARY_STEP_COUNTS:
-        if step_count > backward_gate_signals_per_depth.shape[1]:
+        if step_count > backward_replay_errors_per_step_count.shape[1]:
             continue
-        gate_signals_at_step_count = backward_gate_signals_per_depth[:, step_count - 1]
-        # A chain that stopped earlier than this has nothing to contribute.
-        gate_signals_at_step_count = gate_signals_at_step_count[
-            np.isfinite(gate_signals_at_step_count)
+        replay_errors_at_step_count = backward_replay_errors_per_step_count[
+            :, step_count - 1
         ]
-        if gate_signals_at_step_count.size == 0:
+        # A chain that stopped earlier than this has nothing to contribute.
+        replay_errors_at_step_count = replay_errors_at_step_count[
+            np.isfinite(replay_errors_at_step_count)
+        ]
+        if replay_errors_at_step_count.size == 0:
             continue
         for label, value in summarize_distribution(
-            values=gate_signals_at_step_count
+            values=replay_errors_at_step_count
         ).items():
-            run.summary[f"{STAGE_NAME}/7_gate_signal/{step_count:02d}/{label}"] = value
+            run.summary[f"{STAGE_NAME}/7_replay_error/{step_count:02d}/{label}"] = value
 
     # How much of the long backward numbers to believe. A chain dies at its
     # first non-converged solve, so anything below 1 means the errors after
@@ -230,11 +232,15 @@ def log_ensemble_statistics(
                     backward_chain_measurements.true_errors.cpu().numpy()
                 ),
             ),
-            f"{STAGE_NAME}/7_gate_signal/plot": plots.gate_signal_panel(
-                backward_errors_per_depth=(
-                    backward_chain_measurements.true_errors.cpu().numpy()
-                ),
-                backward_gate_signals_per_depth=backward_gate_signals_per_depth,
+            f"{STAGE_NAME}/7_replay_error/plot": (
+                plots.create_replay_error_plot(
+                    backward_errors_per_step_count=(
+                        backward_chain_measurements.true_errors.cpu().numpy()
+                    ),
+                    backward_replay_errors_per_step_count=(
+                        backward_replay_errors_per_step_count
+                    ),
+                )
             ),
             **_replay_panels(
                 dynamics_model_ensemble=dynamics_model_ensemble,

@@ -40,7 +40,7 @@ METHOD_MODULES: dict[MethodLabel, str] = {
 # The unbounded methods pin the bound instead of sweeping it, so that each
 # regime gets its own search over the remaining parameters. Their optima are
 # not expected to agree: a model that may bend as it likes wants a different
-# window length, noise level and uncertainty limit than a constrained one.
+# window length, noise level and replay error limit than a constrained one.
 _UNBOUNDED_ARGUMENT = "--augmentation.dynamics.lipschitz-constant-upper-bound=None"
 
 METHOD_FIXED_ARGUMENTS: dict[MethodLabel, list[str]] = {
@@ -72,17 +72,17 @@ _TACIL_SHARED_PARAMETERS: dict[str, Any] = {
         "min": 0.001,
         "max": 0.3,
     },
-    # Ceiling on the gate signal: how far the members' replay endpoints may
-    # spread around the anchor, in multiples of the median expert step. Old
-    # per-step limits do not transfer, because this signal accumulates over
-    # the chain. The anchor points: a first step needs roughly the per-step
-    # uncertainty (~0.7 multiples at the accepted-step median), and length 8
-    # is estimated between √8 and 8 times that step's uncertainty — about 2
+    # Ceiling on the replay error: how far the members' replay
+    # endpoints may land from the anchor, in multiples of the median expert
+    # step. Old per-step limits do not transfer, because this error accumulates
+    # over the chain. The anchor points: a first step needs roughly the per-step
+    # replay error (~0.7 multiples at the accepted-step median), and length 8
+    # is estimated between √8 and 8 times that step's error — about 2
     # to 13 multiples — depending on how strongly the members' errors add up.
     # The range brackets that with an order of magnitude on both sides,
     # because the depth curve showed the reward cliff (0.70 at length 8,
     # 0.38 at 14) and the sweep has to see both sides of it.
-    "augmentation.data.uncertainty_limit_step_multiple": {
+    "augmentation.data.replay_error_limit_step_multiple": {
         "distribution": "log_uniform_values",
         "min": 0.3,
         "max": 60.0,
@@ -96,7 +96,7 @@ _TACIL_SHARED_PARAMETERS: dict[str, Any] = {
 # 2026-08-12 stepped through, 1 to 100, and the floor is not free: below it the
 # network that predicts the state displacement becomes near constant, so every
 # ensemble member learns the same function, they never disagree, and an
-# uncertainty near zero passes any limit. The first four runs of 2026-08-16
+# replay error near zero passes any limit. The first four runs of 2026-08-16
 # showed it — the three with a bound under 1 walked all 6177 anchors into the
 # run-up cap and cost about thirteen hours each, while the fourth, at 56, ended
 # its chains after six steps.

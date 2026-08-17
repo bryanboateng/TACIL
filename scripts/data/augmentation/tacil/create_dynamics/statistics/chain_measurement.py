@@ -48,14 +48,14 @@ class BackwardChainMeasurements:
 
     # Distance between the solved predecessor and the real predecessor.
     true_errors: torch.Tensor  # (chain_count, depth_count)
-    # What the gate reads for a chain of this depth: every member replays the
-    # chain's actions from the solved predecessor, and this is how far their
-    # endpoints land from the state the chain started at.
+    # Every member replays the chain's actions from the solved predecessor, and
+    # this is how far their endpoints land from the state the chain started at.
+    # The limit is read against this value.
     #
     # It falls to zero when the members collapse onto one function, because the
     # solver fits the mean and identical members all replay onto the anchor.
     # That is the run-is-worthless alarm.
-    gate_signals: torch.Tensor  # (chain_count, depth_count)
+    replay_errors: torch.Tensor  # (chain_count, depth_count)
 
 
 def draw_chain_windows(
@@ -118,7 +118,7 @@ def measure_backward_chains(
     true_errors = torch.full(
         size=(chain_count, depth_count), fill_value=float("nan"), device=device
     )
-    gate_signals = torch.full_like(input=true_errors, fill_value=float("nan"))
+    replay_errors = torch.full_like(input=true_errors, fill_value=float("nan"))
 
     for depth_index in tqdm(
         iterable=range(depth_count), desc="backward diagnostic chains", unit="depth"
@@ -159,8 +159,8 @@ def measure_backward_chains(
             ),
             dim=-1,
         )
-        gate_signals[converged_indices, depth_index] = (
-            dynamics_model_ensemble.uncertainty_about_chain_end(
+        replay_errors[converged_indices, depth_index] = (
+            dynamics_model_ensemble.replay_error(
                 start_state_batch=predecessor_state_batch,
                 chain_action_batches=[
                     action_windows[converged_indices, replayed_window_index, :]
@@ -172,7 +172,9 @@ def measure_backward_chains(
 
         current_state_batch[converged_indices] = predecessor_state_batch
 
-    return BackwardChainMeasurements(true_errors=true_errors, gate_signals=gate_signals)
+    return BackwardChainMeasurements(
+        true_errors=true_errors, replay_errors=replay_errors
+    )
 
 
 @torch.no_grad()

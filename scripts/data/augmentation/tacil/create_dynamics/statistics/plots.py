@@ -16,7 +16,7 @@ plt.rcParams["savefig.dpi"] = 300
 
 _FORWARD_COLOR = "tab:red"
 _BACKWARD_COLOR = "tab:blue"
-_GATE_SIGNAL_COLOR = "tab:green"
+_REPLAY_ERROR_COLOR = "tab:green"
 
 
 def create_prediction_error_vs_step_count_plot(
@@ -83,40 +83,48 @@ def create_prediction_error_vs_step_count_plot(
     return image
 
 
-def gate_signal_panel(
+def create_replay_error_plot(
     *,
-    backward_errors_per_depth: npt.NDArray[np.floating],  # (chain_count, depth_count)
-    backward_gate_signals_per_depth: npt.NDArray[
+    backward_errors_per_step_count: npt.NDArray[
         np.floating
-    ],  # (chain_count, depth_count)
+    ],  # (chain_count, step_count)
+    backward_replay_errors_per_step_count: npt.NDArray[
+        np.floating
+    ],  # (chain_count, step_count)
 ) -> wandb.Image:
-    """What the gate reads against what it is meant to catch.
+    """The replay error, held against the true error it stands in for.
 
     Both lines are lengths in the same normalized state space, so the gap
-    between them can be read directly. The signal running well under the error
-    means the gate is told less than it needs to stop in time. The signal flat
-    on the floor means the members collapsed onto one function: they all replay
-    onto the anchor, every limit passes, and the gate is blind.
+    between them can be read directly. The replay error running well under the
+    true error means the limit is told less than it needs to stop in time. The
+    replay error flat on the floor means the members collapsed onto one
+    function: they all replay onto the anchor, every limit passes, and nothing
+    stops the walk.
     """
     figure, axes = plt.subplots(figsize=(9, 5))
 
     # Negative, like the backward half of the error panel: the walk starts at
     # the anchor on the right and runs left, so both panels read the same way.
-    positions = -np.arange(1, backward_errors_per_depth.shape[1] + 1)
-    for values_per_depth, label, color, line_style in (
-        (backward_errors_per_depth, "true error", _BACKWARD_COLOR, "-"),
-        (backward_gate_signals_per_depth, "gate signal", _GATE_SIGNAL_COLOR, "--"),
+    positions = -np.arange(1, backward_errors_per_step_count.shape[1] + 1)
+    for values_per_step_count, label, color, line_style in (
+        (backward_errors_per_step_count, "true error", _BACKWARD_COLOR, "-"),
+        (
+            backward_replay_errors_per_step_count,
+            "replay error",
+            _REPLAY_ERROR_COLOR,
+            "--",
+        ),
     ):
-        measured_depth_mask = np.isfinite(values_per_depth).any(axis=0)
-        if not measured_depth_mask.any():
+        measured_step_count_mask = np.isfinite(values_per_step_count).any(axis=0)
+        if not measured_step_count_mask.any():
             continue
 
         low_percentiles, medians, high_percentiles = np.nanpercentile(
-            a=values_per_depth[:, measured_depth_mask], q=(10, 50, 90), axis=0
+            a=values_per_step_count[:, measured_step_count_mask], q=(10, 50, 90), axis=0
         )
-        drawing_order = np.argsort(positions[measured_depth_mask])
+        drawing_order = np.argsort(positions[measured_step_count_mask])
         axes.plot(
-            positions[measured_depth_mask][drawing_order],
+            positions[measured_step_count_mask][drawing_order],
             medians[drawing_order],
             color=color,
             linewidth=2.0,
@@ -124,7 +132,7 @@ def gate_signal_panel(
             label=f"{label} median",
         )
         axes.fill_between(
-            positions[measured_depth_mask][drawing_order],
+            positions[measured_step_count_mask][drawing_order],
             low_percentiles[drawing_order],
             high_percentiles[drawing_order],
             color=color,
@@ -143,7 +151,7 @@ def gate_signal_panel(
     axes.yaxis.set_label_position(position="right")
     axes.yaxis.tick_right()
     axes.legend(loc="upper left")
-    axes.set_title(label="Gate Signal vs. Backward Error")
+    axes.set_title(label="Replay Error vs. True Error")
     figure.tight_layout()
 
     image = wandb.Image(data_or_path=figure)
