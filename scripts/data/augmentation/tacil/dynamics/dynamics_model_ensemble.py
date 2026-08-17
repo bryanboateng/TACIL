@@ -35,7 +35,7 @@ class DynamicsModelEnsemble(torch.nn.Module):
         self,
         *,
         start_state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
-        chain_action_batches: list[
+        action_batch_list: list[
             torch.Tensor
         ],  # each (batch_size, action_dimensionality), first one applied first
         end_state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
@@ -55,7 +55,7 @@ class DynamicsModelEnsemble(torch.nn.Module):
                 _replay_chain(
                     dynamics_model=dynamics_model,
                     start_state_batch=start_state_batch,
-                    chain_action_batches=chain_action_batches,
+                    chain_action_batches=action_batch_list,
                 )
                 for dynamics_model in self.dynamics_models
             ],
