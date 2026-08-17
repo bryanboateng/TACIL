@@ -172,16 +172,17 @@ def create_true_dynamics_vs_model_plot(
     true_trajectory: npt.NDArray[np.floating],  # (step_count + 1, state_dimensionality)
     episode_index: int,
 ) -> wandb.Image:
-    figure, subplots = plt.subplots(nrows=1, ncols=3, figsize=(14, 4.5))
+    (
+        figure,
+        (agent_position_subplot, block_position_subplot, block_orientation_subplot),
+    ) = plt.subplots(nrows=1, ncols=3, figsize=(11.5, 4.5))
 
     prediction_line_width = 0.8
     prediction_line_alpha = 0.5
-    prediciton_line_color = _FORWARD_COLOR
+    prediction_line_color = _FORWARD_COLOR
 
     true_line_width = 1.6
     true_line_color = "black"
-
-    agent_position_subplot, block_position_subplot, block_orientation_subplot = subplots
 
     for subplot, dimension_slice, title in (
         (agent_position_subplot, slice(0, 2), "Agent Position"),
@@ -196,7 +197,7 @@ def create_true_dynamics_vs_model_plot(
                 path[:, 1],
                 linewidth=prediction_line_width,
                 alpha=prediction_line_alpha,
-                color=prediciton_line_color,
+                color=prediction_line_color,
                 # One legend entry for all members.
                 label="model prediction" if member_index == 0 else None,
             )
@@ -224,7 +225,7 @@ def create_true_dynamics_vs_model_plot(
             ),
             linewidth=prediction_line_width,
             alpha=prediction_line_alpha,
-            color=prediciton_line_color,
+            color=prediction_line_color,
         )
     block_orientation_subplot.plot(
         steps,
@@ -244,8 +245,11 @@ def create_true_dynamics_vs_model_plot(
     block_orientation_subplot.yaxis.set_major_formatter(
         formatter=plt.FuncFormatter(func=_pi_multiple_label)
     )
+    block_orientation_subplot.set_box_aspect(aspect=1.0)
 
-    figure.legend(*subplots[0].get_legend_handles_labels(), loc="lower center", ncol=2)
+    figure.legend(
+        *agent_position_subplot.get_legend_handles_labels(), loc="lower center", ncol=2
+    )
     figure.suptitle(t=f"True Dynamics vs. Model (Validation Episode {episode_index})")
     figure.tight_layout(rect=(0, 0.08, 1, 1))
 
