@@ -53,6 +53,9 @@ METHOD_FIXED_ARGUMENTS: dict[MethodLabel, list[str]] = {
         "augmentation:ccil",
         "--augmentation.labels.type=backward_euler_fast",
     ],
+    # GPI has no augmentation stage, but the field is still part of the run
+    # config, and tyro asks for every field.
+    "gpi": ["--augmentation=None"],
 }
 
 _TACIL_SHARED_PARAMETERS: dict[str, Any] = {
@@ -211,7 +214,9 @@ def _build_sweep_configuration(
             f"--floor-condition={config.floor_condition.name}",
             f"--disturbance-level={'None' if config.disturbance_level is None else config.disturbance_level.name}",
             f"--seed={config.seed}",
-            *METHOD_FIXED_ARGUMENTS.get(config.method, []),
+            # Indexed, not `.get`: a method missing here is a mistake, and a
+            # silent empty default hides it until the sweep agent fails.
+            *METHOD_FIXED_ARGUMENTS[config.method],
             "${args_no_boolean_flags}",
         ],
         "parameters": METHOD_PARAMETERS[config.method],

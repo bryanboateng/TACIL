@@ -49,8 +49,8 @@ def add_states(
 
 def average_states(
     *,
-    state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
-) -> torch.Tensor:  # (state_dimensionality,)
+    state_batch: torch.Tensor,  # (member_count, batch_size, state_dimensionality)
+) -> torch.Tensor:  # (batch_size, state_dimensionality)
     average_batch = state_batch.mean(dim=0)
 
     orientation_batch = state_batch[..., BLOCK_ORIENTATION_INDEX]

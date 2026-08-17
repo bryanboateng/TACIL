@@ -1,7 +1,7 @@
 import torch
 
 from scripts.shared.pusht_state import (
-    BLOCK_ANGLE_INDEX,
+    BLOCK_ORIENTATION_INDEX,
     BLOCK_POSITION_SLICE,
     POSITION_SLICE,
 )
@@ -13,7 +13,7 @@ def convert_actions_to_block_frame(
     action_batch: torch.Tensor,  # (batch_size, 2)
 ) -> torch.Tensor:  # (batch_size, 2)
     block_position_batch = observation_batch[:, BLOCK_POSITION_SLICE]  # (batch_size, 2)
-    block_angle_batch = observation_batch[:, BLOCK_ANGLE_INDEX]  # (batch_size,)
+    block_angle_batch = observation_batch[:, BLOCK_ORIENTATION_INDEX]  # (batch_size,)
 
     return _rotate(
         vector_batch=action_batch - block_position_batch, angle_batch=-block_angle_batch
@@ -26,7 +26,7 @@ def convert_actions_to_world_frame(
     action_batch: torch.Tensor,  # (batch_size, 2)
 ) -> torch.Tensor:  # (batch_size, 2)
     block_position_batch = observation_batch[:, BLOCK_POSITION_SLICE]  # (batch_size, 2)
-    block_angle_batch = observation_batch[:, BLOCK_ANGLE_INDEX]  # (batch_size,)
+    block_angle_batch = observation_batch[:, BLOCK_ORIENTATION_INDEX]  # (batch_size,)
 
     rotated_action_batch = _rotate(
         vector_batch=action_batch, angle_batch=block_angle_batch
@@ -46,7 +46,8 @@ def calculate_observation_distances(
     )  # (step_count, 4)
 
     angle_difference_batch = (
-        observation_batch[:, BLOCK_ANGLE_INDEX] - query_observation[BLOCK_ANGLE_INDEX]
+        observation_batch[:, BLOCK_ORIENTATION_INDEX]
+        - query_observation[BLOCK_ORIENTATION_INDEX]
     ).abs()  # (step_count,)
     # The angle wraps at 2.0, not at 2π, because the states arrive min-max
     # normalized into [-1, 1].

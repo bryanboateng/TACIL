@@ -214,8 +214,11 @@ def _replay_panels(
 ) -> dict[str, wandb.Image]:
     device = next(dynamics_model_ensemble.parameters()).device
 
+    panel_count = 4
+
     replay_panels: dict[str, wandb.Image] = {}
-    for episode_index in range(4):
+    # A small dataset can leave fewer validation episodes than there are panels.
+    for episode_index in range(min(panel_count, len(validation_episodes))):
         episode = validation_episodes[episode_index]
 
         true_trajectory = np.concatenate(

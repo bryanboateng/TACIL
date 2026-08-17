@@ -148,6 +148,12 @@ def _calculate_agent_target(
     progression_weight: float,
     attraction_weight: float,
 ) -> torch.Tensor:  # (2,), normalized
+    # The action is read in the block frame, the two positions in the world
+    # frame. Do not "correct" this. It is what the reference does, at
+    # GPI/gpi/policies/state.py:99, because its dataset converts only the
+    # action (GPI/pusht/datasets.py:68). The paper converts the agent position
+    # as well (equations 16 and 17), so the reference diverges from it. The
+    # baseline is ported from the code, not from the paper.
     progression_flow = recorded_action - recorded_position  # (2,)
     attraction_flow = recorded_position - current_position  # (2,)
     return (

@@ -36,13 +36,11 @@ def create_augmented_episodes(
     accepted_anchor_count = int((synthetic_part_lengths > 0).sum())
     empty_anchor_count = int(synthetic_part_lengths.shape[0]) - accepted_anchor_count
     if accepted_anchor_count == 0:
-        # A precondition, not a user-facing error: an empty result has no
-        # episodes to assemble. The caller decides what an empty rollout
-        # means and returns the expert data unchanged.
+        # A precondition, not a user-facing error: the caller already stops on
+        # an empty rollout and reports it. Reaching this means the caller
+        # dropped that check.
         raise RuntimeError(
-            "create_augmented_episodes needs at least one accepted anchor. "
-            "Raise "
-            "replay_error_limit_step_multiple or retrain the dynamics model."
+            "create_augmented_episodes needs at least one accepted anchor."
         )
 
     augmented_episode_store = _assemble_episodes(

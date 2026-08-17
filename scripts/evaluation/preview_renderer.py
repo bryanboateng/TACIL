@@ -109,4 +109,4 @@ def _quit_requested() -> bool:
 
 
 if __name__ == "__main__":
-    tyro.cli(f=main)
+    main()

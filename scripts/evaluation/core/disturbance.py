@@ -72,13 +72,13 @@ def _calculate_push_direction(*, environment: PushTEnv) -> Vec2d:
     block_to_agent_vector = block_position - agent_position
 
     block_to_agent_normal_vector = block_to_agent_vector.perpendicular().normalized()
-    goal_to_block_vector = Vec2d(*environment.goal_pose[:2]) - block_position
+    block_to_goal_vector = Vec2d(*environment.goal_pose[:2]) - block_position
 
     # Of the two perpendicular directions, choose the one that moves the block away from
     # the goal, so the burst is always adversarial rather than helping the
     # block into the goal.
     return (
         block_to_agent_normal_vector
-        if block_to_agent_normal_vector.dot(other=goal_to_block_vector) <= 0
+        if block_to_agent_normal_vector.dot(other=block_to_goal_vector) <= 0
         else -block_to_agent_normal_vector
     )
