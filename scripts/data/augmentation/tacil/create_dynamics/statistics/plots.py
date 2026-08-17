@@ -1,19 +1,16 @@
 import matplotlib
 import numpy as np
 import wandb
+from matplotlib import pyplot as plt
 from numpy import typing as npt
 
+from scripts.shared.pusht_state import ARENA_SIZE, BLOCK_ORIENTATION_INDEX
+
 matplotlib.use(backend="Agg")
-from matplotlib import pyplot as plt  # noqa: E402
 
 plt.style.use(style="seaborn-v0_8-whitegrid")
 plt.rcParams["figure.dpi"] = 150
 plt.rcParams["savefig.dpi"] = 300
-
-from scripts.shared.pusht_state import (  # noqa: E402
-    ARENA_SIZE,
-    BLOCK_ORIENTATION_INDEX,
-)
 
 _FORWARD_COLOR = "tab:red"
 _BACKWARD_COLOR = "tab:blue"

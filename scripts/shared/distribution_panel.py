@@ -1,10 +1,10 @@
 import matplotlib
 import numpy as np
 import wandb
+from matplotlib import pyplot as plt
+from matplotlib.ticker import MaxNLocator
 
 matplotlib.use(backend="Agg")
-from matplotlib import pyplot as plt  # noqa: E402
-from matplotlib.ticker import MaxNLocator  # noqa: E402
 
 plt.style.use(style="seaborn-v0_8-whitegrid")
 plt.rcParams["figure.dpi"] = 150
