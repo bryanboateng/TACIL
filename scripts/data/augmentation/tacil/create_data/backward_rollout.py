@@ -101,7 +101,7 @@ def roll_out_backward(
         replay_error_batch = dynamics_model_ensemble.replay_error(
             start_state_batch=backward_step.predecessor_state_batch,
             action_batch_list=[backward_step.predecessor_action_batch]
-                              + [
+            + [
                 chain_action_batch_per_depth[earlier_depth][active_indices]
                 for earlier_depth in reversed(range(depth))
             ],

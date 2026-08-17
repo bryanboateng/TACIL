@@ -62,12 +62,8 @@ def measure_errors(
 def _draw_windows(
     *, validation_episodes: list[TransitionSet]
 ) -> tuple[
-    npt.NDArray[
-        np.float32
-    ],  # (window_count, _WINDOW_STEP_COUNT + 1, state_dimensionality)
-    npt.NDArray[
-        np.float32
-    ],  # (window_count, _WINDOW_STEP_COUNT, action_dimensionality)
+    npt.NDArray[np.float32],  # (window_count, window_length + 1, state_dimensionality)
+    npt.NDArray[np.float32],  # (window_count, window_length, action_dimensionality)
 ]:
     state_windows, action_windows = build_windows(
         episodes=validation_episodes, window_length=20
