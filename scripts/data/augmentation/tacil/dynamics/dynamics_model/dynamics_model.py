@@ -8,15 +8,13 @@ from scripts.data.augmentation.tacil.dynamics.network_input import (
     create_raw_network_input,
 )
 from scripts.shared.normalization import ZScoreNormalizer
-from scripts.shared.pusht_state import add_states
+from scripts.shared.pusht_state import STATE_DIMENSIONALITY, add_states
 
 
 class DynamicsModel(torch.nn.Module):
     def __init__(
         self,
         *,
-        state_dimensionality: int,
-        action_dimensionality: int,
         hidden_layer_count: int,
         hidden_layer_dimensionality: int,
         lipschitz_constant_upper_bound: float | None,
@@ -25,28 +23,16 @@ class DynamicsModel(torch.nn.Module):
     ):
         super().__init__()
 
-        self.state_dimensionality = state_dimensionality
-        self.action_dimensionality = action_dimensionality
-        self.hidden_layer_count = hidden_layer_count
-        self.hidden_layer_dimensionality = hidden_layer_dimensionality
-        self.lipschitz_constant_upper_bound = lipschitz_constant_upper_bound
-
         self.input_normalizer = input_normalizer
         self.state_displacement_normalizer = state_displacement_normalizer
 
         self._network = _create_network(
             input_dimensionality=NETWORK_INPUT_DIMENSIONALITY,
-            output_dimensionality=state_dimensionality,
+            output_dimensionality=STATE_DIMENSIONALITY,
             hidden_layer_count=hidden_layer_count,
             hidden_layer_dimensionality=hidden_layer_dimensionality,
             lipschitz_constant_upper_bound=lipschitz_constant_upper_bound,
         )
-
-    def forward(
-        self,
-        network_input_batch: torch.Tensor,  # (batch_size, input_dimensionality)
-    ) -> torch.Tensor:  # (batch_size, state_dimensionality)
-        return self._network(network_input_batch)
 
     def predict_next_state(
         self, *, state_batch: torch.Tensor, action_batch: torch.Tensor

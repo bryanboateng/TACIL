@@ -71,7 +71,6 @@ def create_member_training_state(
     *,
     member_seed: int,
     config: DynamicsConfig,
-    transitions: TransitionSet,
     network_input_normalizer: ZScoreNormalizer,
     state_displacement_normalizer: ZScoreNormalizer,
     train_state_windows: torch.Tensor,
@@ -81,8 +80,6 @@ def create_member_training_state(
     set_seed(seed=member_seed)
 
     dynamics_model = DynamicsModel(
-        state_dimensionality=transitions.states.shape[1],
-        action_dimensionality=transitions.actions.shape[1],
         hidden_layer_count=config.hidden_layer_count,
         hidden_layer_dimensionality=config.hidden_layer_dimensionality,
         lipschitz_constant_upper_bound=config.lipschitz_constant_upper_bound,

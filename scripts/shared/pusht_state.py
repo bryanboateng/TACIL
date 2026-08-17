@@ -5,6 +5,9 @@ BLOCK_POSITION_SLICE = slice(2, 4)
 POSITION_SLICE = slice(0, 4)
 BLOCK_ORIENTATION_INDEX = 4
 
+# The block orientation is the last entry of a state.
+STATE_DIMENSIONALITY = BLOCK_ORIENTATION_INDEX + 1
+
 STATE_GROUPS = (
     ("agent", AGENT_POSITION_SLICE),
     ("block", BLOCK_POSITION_SLICE),

@@ -97,7 +97,6 @@ def train_dynamics_model_ensemble(
             create_member_training_state(
                 member_seed=int(member_seed),
                 config=config,
-                transitions=training_transitions,
                 network_input_normalizer=normalizers.network_input,
                 state_displacement_normalizer=normalizers.state_displacement,
                 train_state_windows=torch.from_numpy(member_state_windows).to(
