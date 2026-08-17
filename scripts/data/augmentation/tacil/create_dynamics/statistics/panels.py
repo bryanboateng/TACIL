@@ -12,7 +12,7 @@ plt.rcParams["savefig.dpi"] = 300
 
 from scripts.shared.pusht_state import (  # noqa: E402
     ARENA_SIZE,
-    BLOCK_ANGLE_INDEX,
+    BLOCK_ORIENTATION_INDEX,
 )
 
 _FORWARD_COLOR = "tab:red"
@@ -78,57 +78,6 @@ def error_over_depth_panel(
     return image
 
 
-def spearman_over_depth_panel(
-    *,
-    forward_correlations_per_depth: npt.NDArray[np.floating],  # (depth_count,)
-    backward_correlations_per_depth: npt.NDArray[np.floating],  # (depth_count,)
-) -> wandb.Image:
-    """How well the uncertainty orders the true error, at each depth.
-
-    The gate only needs the ordering, so 1 is perfect and 0 says the
-    uncertainty carries no information about the error.
-    """
-    figure, axes = plt.subplots(figsize=(8, 5))
-
-    for correlations_per_depth, direction_label, color, direction_sign in (
-        (backward_correlations_per_depth, "backward", _BACKWARD_COLOR, -1),
-        (forward_correlations_per_depth, "forward", _FORWARD_COLOR, +1),
-    ):
-        measured_depth_mask = np.isfinite(correlations_per_depth)
-        if not measured_depth_mask.any():
-            continue
-
-        positions = (
-            direction_sign
-            * np.arange(1, correlations_per_depth.shape[0] + 1)[measured_depth_mask]
-        )
-        drawing_order = np.argsort(positions)
-
-        axes.plot(
-            positions[drawing_order],
-            correlations_per_depth[measured_depth_mask][drawing_order],
-            color=color,
-            linewidth=2.0,
-            marker="o",
-            markersize=4,
-            label=direction_label,
-        )
-
-    # No ordering at all, the line the curves must stay above to be useful.
-    axes.axhline(y=0.0, color="gray", linewidth=0.8, linestyle="--")
-    axes.set_ylim(bottom=-1.0, top=1.0)
-    axes.set_xlabel(xlabel="steps")
-    axes.set_ylabel(ylabel="Spearman correlation")
-    axes.xaxis.set_major_locator(plt.MaxNLocator(integer=True))
-    axes.legend()
-    axes.set_title(label="Uncertainty vs. Error: Ordering per Depth")
-    figure.tight_layout()
-
-    image = wandb.Image(data_or_path=figure)
-    plt.close(fig=figure)
-    return image
-
-
 def prediction_error_vs_prediction_uncertainty(
     *,
     forward_uncertainties: npt.NDArray[np.floating],  # (point_count,)
@@ -183,19 +132,16 @@ def replay_panel(
     forward_member_trajectories: npt.NDArray[
         np.floating
     ],  # (member_count, step_count + 1, state_dimensionality)
-    backward_member_trajectories: npt.NDArray[
-        np.floating
-    ],  # (member_count, step_count + 1, state_dimensionality)
     true_trajectory: npt.NDArray[np.floating],  # (step_count + 1, state_dimensionality)
     episode_index: int,
 ) -> wandb.Image:
-    """One recorded episode, replayed by every member on its own.
+    """One recorded episode, replayed forward by every member on its own.
 
-    The top row starts at the episode's first state and predicts forward, the
-    bottom row starts at its last state and inverts its way back. A member that
-    stops converging leaves its row early.
+    Only forward. The backward map is not a function -- many predecessors lead
+    to the same successor -- so a backward replay spreads out however well the
+    model fits, and says nothing about its quality.
     """
-    figure, subplot_rows = plt.subplots(nrows=2, ncols=3, figsize=(14, 9))
+    figure, subplots = plt.subplots(nrows=1, ncols=3, figsize=(14, 4.5))
 
     prediction_width = 0.8
     prediction_alpha = 0.5
@@ -203,88 +149,75 @@ def replay_panel(
     recorded_width = 1.6
     recorded_color = "black"
 
-    for subplots, member_trajectories, prediction_color, direction_label in (
-        (subplot_rows[0], forward_member_trajectories, _FORWARD_COLOR, "forward"),
-        (subplot_rows[1], backward_member_trajectories, _BACKWARD_COLOR, "backward"),
+    agent_position_subplot, block_position_subplot, block_orientation_subplot = subplots
+
+    for subplot, dimension_slice, title in (
+        (agent_position_subplot, slice(0, 2), "Agent Position"),
+        (block_position_subplot, slice(2, 4), "Block Position"),
     ):
-        agent_position_subplot, block_position_subplot, block_orientation_subplot = (
-            subplots
-        )
-
-        for subplot, dimension_slice, title in (
-            (agent_position_subplot, slice(0, 2), "Agent Position"),
-            (block_position_subplot, slice(2, 4), "Block Position"),
+        for member_index, member_trajectory in enumerate(
+            iterable=forward_member_trajectories
         ):
-            for member_index, member_trajectory in enumerate(
-                iterable=member_trajectories
-            ):
-                path = member_trajectory[:, dimension_slice]
-                subplot.plot(
-                    path[:, 0],
-                    path[:, 1],
-                    linewidth=prediction_width,
-                    alpha=prediction_alpha,
-                    color=prediction_color,
-                    # One legend entry for all members.
-                    label=f"{direction_label} predictions"
-                    if member_index == 0
-                    else None,
-                )
-            true_path = true_trajectory[:, dimension_slice]
+            path = member_trajectory[:, dimension_slice]
             subplot.plot(
-                true_path[:, 0],
-                true_path[:, 1],
-                linewidth=recorded_width,
-                color=recorded_color,
-                label="recorded episode",
-            )
-            subplot.set_title(label=f"{title} ({direction_label})")
-            subplot.set_xlabel(xlabel="x position [px]")
-            subplot.set_ylabel(ylabel="y position [px]")
-            subplot.set_xlim(left=0, right=ARENA_SIZE)
-            subplot.set_ylim(bottom=0, top=ARENA_SIZE)
-            subplot.set_aspect(aspect="equal", adjustable="box")
-
-        steps = np.arange(true_trajectory.shape[0])
-        for member_trajectory in member_trajectories:
-            block_orientation_subplot.plot(
-                steps,
-                _break_at_wraps(angle_timeline=member_trajectory[:, BLOCK_ANGLE_INDEX]),
+                path[:, 0],
+                path[:, 1],
                 linewidth=prediction_width,
                 alpha=prediction_alpha,
-                color=prediction_color,
+                color=_FORWARD_COLOR,
+                # One legend entry for all members.
+                label="model prediction" if member_index == 0 else None,
             )
-        block_orientation_subplot.plot(
-            steps,
-            _break_at_wraps(angle_timeline=true_trajectory[:, BLOCK_ANGLE_INDEX]),
+        true_path = true_trajectory[:, dimension_slice]
+        subplot.plot(
+            true_path[:, 0],
+            true_path[:, 1],
             linewidth=recorded_width,
             color=recorded_color,
+            label="recorded episode",
         )
-        block_orientation_subplot.set_title(
-            label=f"Block Orientation ({direction_label})"
-        )
-        block_orientation_subplot.set_xlabel(xlabel="step")
-        block_orientation_subplot.set_ylabel(ylabel="orientation [rad]")
-        block_orientation_subplot.set_ylim(bottom=0, top=2.0 * np.pi)
-        block_orientation_subplot.yaxis.set_major_locator(
-            locator=plt.MultipleLocator(base=np.pi / 2)
-        )
-        block_orientation_subplot.yaxis.set_major_formatter(
-            formatter=plt.FuncFormatter(func=_pi_multiple_label)
-        )
+        subplot.set_title(label=title)
+        subplot.set_xlabel(xlabel="x position [px]")
+        subplot.set_ylabel(ylabel="y position [px]")
+        subplot.set_xlim(left=0, right=ARENA_SIZE)
+        subplot.set_ylim(bottom=0, top=ARENA_SIZE)
+        subplot.set_aspect(aspect="equal", adjustable="box")
 
-    # One legend for the whole figure, with the recorded episode kept once —
-    # both rows draw it, and the two rows differ only in their prediction color.
-    handles = []
-    labels = []
-    for row_subplots in subplot_rows:
-        for handle, label in zip(*row_subplots[0].get_legend_handles_labels()):
-            if label not in labels:
-                handles.append(handle)
-                labels.append(label)
-    figure.legend(handles=handles, labels=labels, loc="lower center", ncol=3)
+    steps = np.arange(true_trajectory.shape[0])
+    for member_trajectory in forward_member_trajectories:
+        block_orientation_subplot.plot(
+            steps,
+            _break_at_wraps(
+                orientation_timeline=member_trajectory[:, BLOCK_ORIENTATION_INDEX]
+            ),
+            linewidth=prediction_width,
+            alpha=prediction_alpha,
+            color=_FORWARD_COLOR,
+        )
+    block_orientation_subplot.plot(
+        steps,
+        _break_at_wraps(
+            orientation_timeline=true_trajectory[:, BLOCK_ORIENTATION_INDEX]
+        ),
+        linewidth=recorded_width,
+        color=recorded_color,
+    )
+    block_orientation_subplot.set_title(label="Block Orientation")
+    block_orientation_subplot.set_xlabel(xlabel="step")
+    block_orientation_subplot.set_ylabel(ylabel="orientation [rad]")
+    block_orientation_subplot.set_ylim(bottom=0, top=2.0 * np.pi)
+    block_orientation_subplot.yaxis.set_major_locator(
+        locator=plt.MultipleLocator(base=np.pi / 2)
+    )
+    block_orientation_subplot.yaxis.set_major_formatter(
+        formatter=plt.FuncFormatter(func=_pi_multiple_label)
+    )
+
+    # One legend for the figure, taken from the first subplot -- all three
+    # draw the same two kinds of line.
+    figure.legend(*subplots[0].get_legend_handles_labels(), loc="lower center", ncol=2)
     figure.suptitle(t=f"True Dynamics vs. Model (Validation Episode {episode_index})")
-    figure.tight_layout(rect=(0, 0.05, 1, 1))
+    figure.tight_layout(rect=(0, 0.08, 1, 1))
 
     image = wandb.Image(data_or_path=figure)
     plt.close(fig=figure)
@@ -307,11 +240,11 @@ def _pi_multiple_label(value: float, _position: int) -> str:
 
 def _break_at_wraps(
     *,
-    angle_timeline: npt.NDArray[np.floating],  # (step_count,)
+    orientation_timeline: npt.NDArray[np.floating],  # (step_count,)
 ) -> npt.NDArray[np.floating]:  # (step_count,)
     """NaN out the step right after a 0/2π crossing, so the plotted line lifts
     the pen there instead of drawing a spurious jump across the full range."""
-    broken_timeline = angle_timeline.copy()
-    crossed_seam = np.abs(np.diff(a=angle_timeline)) > np.pi
+    broken_timeline = orientation_timeline.copy()
+    crossed_seam = np.abs(np.diff(a=orientation_timeline)) > np.pi
     broken_timeline[1:][crossed_seam] = np.nan
     return broken_timeline

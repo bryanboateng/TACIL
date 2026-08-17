@@ -201,59 +201,6 @@ def roll_out_members_forward(
     return torch.stack(tensors=member_trajectories, dim=0)
 
 
-@torch.no_grad()
-def roll_out_members_backward(
-    *,
-    dynamics_model_ensemble: DynamicsModelEnsemble,
-    final_state: torch.Tensor,  # (state_dimensionality,)
-    actions: torch.Tensor,  # (step_count, action_dimensionality)
-    convergence_tolerance: float,
-) -> torch.Tensor:  # (member_count, step_count + 1, state_dimensionality)
-    """The mirror of the forward replay: every member walks back from the last
-    recorded state, inverting its own dynamics one action at a time.
-
-    A member that fails to converge stops there, and its trajectory stays NaN
-    for the steps it never reached.
-    """
-    step_count = actions.shape[0]
-    member_trajectories = torch.full(
-        size=(
-            len(dynamics_model_ensemble.dynamics_models),
-            step_count + 1,
-            final_state.shape[0],
-        ),
-        fill_value=float("nan"),
-        device=final_state.device,
-    )
-
-    for member_index, dynamics_model in enumerate(
-        dynamics_model_ensemble.dynamics_models
-    ):
-        # The solver inverts an ensemble, so the member is handed to it as an
-        # ensemble of one — that keeps the walk on this member's own dynamics.
-        single_member_ensemble = DynamicsModelEnsemble(
-            state_normalizer=dynamics_model_ensemble.state_normalizer,
-            dynamics_models=[dynamics_model],
-        )
-
-        current_state_batch = final_state.unsqueeze(dim=0)
-        member_trajectories[member_index, step_count, :] = final_state
-        for step_index in reversed(range(step_count)):
-            inverse_dynamics_solution = solve_inverse_dynamics(
-                dynamics_model_ensemble=single_member_ensemble,
-                initial_state_estimate_batch=current_state_batch,
-                action_batch=actions[step_index].unsqueeze(dim=0),
-                target_next_state_batch=current_state_batch,
-                convergence_tolerance=convergence_tolerance,
-            )
-            if not bool(inverse_dynamics_solution.converged_batch[0]):
-                break
-            current_state_batch = inverse_dynamics_solution.state_batch
-            member_trajectories[member_index, step_index, :] = current_state_batch[0]
-
-    return member_trajectories
-
-
 # ---- Private --------------------------------------------
 
 

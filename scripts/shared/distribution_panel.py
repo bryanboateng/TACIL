@@ -4,6 +4,7 @@ import wandb
 
 matplotlib.use(backend="Agg")
 from matplotlib import pyplot as plt  # noqa: E402
+from matplotlib.ticker import MaxNLocator  # noqa: E402
 
 plt.style.use(style="seaborn-v0_8-whitegrid")
 plt.rcParams["figure.dpi"] = 150
@@ -14,6 +15,10 @@ def distribution_panel(*, values: np.ndarray, column_name: str) -> wandb.Image:
     figure, axes = plt.subplots(figsize=(6, 4))
     axes.hist(values, bins=_bins(values=values), edgecolor="white")
     axes.set_xlabel(xlabel=column_name)
+    if np.issubdtype(values.dtype, np.integer):
+        # The bars sit on integers, so the ticks have to as well. Left to
+        # itself the axis places them at the bin edges, which are halves.
+        axes.xaxis.set_major_locator(locator=MaxNLocator(integer=True))
     # Every value is drawn, and a log count axis keeps the peak from flattening
     # the tail. Cutting the tail off instead would hide the rare extremes,
     # which are the ones worth seeing.

@@ -12,7 +12,7 @@ from numpy import typing as npt
 from scripts.data.augmentation.tacil.create_dynamics.statistics import panels
 from scripts.shared.log import create_logger
 from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
-from scripts.shared.pusht_state import ARENA_SIZE, BLOCK_ANGLE_INDEX
+from scripts.shared.pusht_state import ARENA_SIZE, BLOCK_ORIENTATION_INDEX
 
 logger = create_logger()
 
@@ -31,9 +31,7 @@ _STATE_DIMENSIONALITY = 5
 def main() -> None:
     rng = np.random.default_rng(seed=_SEED)
 
-    forward_member_trajectories, backward_member_trajectories, true_trajectory = (
-        _fanning_replay(rng=rng)
-    )
+    forward_member_trajectories, _, true_trajectory = _fanning_replay(rng=rng)
 
     images = {
         "error_over_depth": panels.error_over_depth_panel(
@@ -42,15 +40,11 @@ def main() -> None:
                 true_errors=_growing_errors(rng=rng, growth_per_step=1.6), rng=rng
             ),
         ),
-        "spearman_over_depth": panels.spearman_over_depth_panel(
-            **_ordering_per_depth(rng=rng)
-        ),
         "uncertainty_vs_error": panels.prediction_error_vs_prediction_uncertainty(
             **_correlated_uncertainty_and_error(rng=rng)
         ),
         "replay_episode_0": panels.replay_panel(
             forward_member_trajectories=forward_member_trajectories,
-            backward_member_trajectories=backward_member_trajectories,
             true_trajectory=true_trajectory,
             episode_index=0,
         ),
@@ -87,25 +81,6 @@ def _stop_chains_early(
 
     stopped_mask = depths > survived_depths[:, None]
     return np.where(stopped_mask, np.nan, true_errors)
-
-
-def _ordering_per_depth(
-    *, rng: np.random.Generator
-) -> dict[str, npt.NDArray[np.floating]]:  # each (_CHAIN_DEPTH,)
-    """Ordering that decays with depth, and a backward side that runs out of
-    chains before the last depths — those stay NaN."""
-    depths = np.arange(1, _CHAIN_DEPTH + 1)
-    arrays: dict[str, npt.NDArray[np.floating]] = {}
-    for direction_name, initial_correlation, measured_depth_count in (
-        ("forward", 0.75, _CHAIN_DEPTH),
-        ("backward", 0.6, _CHAIN_DEPTH - 6),
-    ):
-        correlations = initial_correlation * 0.94 ** (depths - 1) + rng.normal(
-            loc=0.0, scale=0.03, size=_CHAIN_DEPTH
-        )
-        correlations[measured_depth_count:] = np.nan
-        arrays[f"{direction_name}_correlations_per_depth"] = correlations
-    return arrays
 
 
 def _correlated_uncertainty_and_error(
@@ -150,7 +125,9 @@ def _fanning_replay(
     true_trajectory[:, 3] = 0.45 * ARENA_SIZE + 0.20 * ARENA_SIZE * progress**2
     # Wrapped to [0, 2*pi), like the real state: the block spins through
     # several full turns over the episode.
-    true_trajectory[:, BLOCK_ANGLE_INDEX] = (2.5 * np.pi * progress) % (2.0 * np.pi)
+    true_trajectory[:, BLOCK_ORIENTATION_INDEX] = (2.5 * np.pi * progress) % (
+        2.0 * np.pi
+    )
 
     drift_per_dimension = np.array([22.0, 22.0, 18.0, 18.0, 0.9])
     member_trajectories = []
@@ -167,7 +144,7 @@ def _fanning_replay(
             true_trajectory[None, :, :]
             + drift_scale * member_noise * drift_per_dimension
         )
-        trajectories[..., BLOCK_ANGLE_INDEX] %= 2.0 * np.pi
+        trajectories[..., BLOCK_ORIENTATION_INDEX] %= 2.0 * np.pi
         member_trajectories.append(trajectories)
 
     forward_member_trajectories, backward_member_trajectories = member_trajectories

@@ -18,7 +18,6 @@ from scripts.data.augmentation.tacil.create_dynamics.statistics.chain_measuremen
     draw_chain_windows,
     measure_backward_chains,
     measure_forward_chains,
-    roll_out_members_backward,
     roll_out_members_forward,
 )
 from scripts.data.augmentation.tacil.dynamics.dynamics_model_ensemble import (
@@ -161,32 +160,32 @@ def log_ensemble_statistics(
 
     # Whether the uncertainty ORDERS the true errors correctly — that is what
     # the gate needs; being off by a constant factor does not matter, since
-    # the limit is swept anyway. Per depth, because pooled over all depths the
-    # growth of the error with depth drowns out the ordering at a fixed depth.
-    correlations_per_direction = {
-        direction_name: _spearman_correlations_per_depth(
+    # the limit is swept anyway. Pooled over all depths, because that is how
+    # the gate meets the values: it never compares two chains at the same
+    # depth, it decides whether to take one more step.
+    for direction_name, measurements in (
+        ("forward", forward_chain_measurements),
+        ("backward", backward_chain_measurements),
+    ):
+        run.summary[
+            f"{STAGE_NAME}/6_uncertainty_vs_error/spearman/{direction_name}"
+        ] = _spearman_correlation(
             claims=measurements.uncertainties, truths=measurements.true_errors
         )
-        for direction_name, measurements in (
-            ("forward", forward_chain_measurements),
-            ("backward", backward_chain_measurements),
+
+    # How far apart the members are on held-out data, in multiples of the
+    # median expert step. This is what the gate reads, so it decides whether
+    # the gate can see anything at all: members that collapsed onto one
+    # function disagree nowhere, pass every limit, and let chains run as long
+    # as they like. In the sweep of 2026-08-16 the runs whose Lipschitz bound
+    # was under 10 sat here near zero and scored 0.59 against 0.69.
+    for label, value in summarize_distribution(
+        values=(
+            forward_chain_measurements.uncertainties.cpu().numpy().ravel()
+            / median_expert_step_distance
         )
-    }
-    # Sampled at the same depths as the error, so the two can be read side by
-    # side: how big the error is there, and whether the uncertainty saw it
-    # coming.
-    for direction_name, correlations_per_depth in correlations_per_direction.items():
-        for depth in _SUMMARY_DEPTHS:
-            if depth > correlations_per_depth.shape[0]:
-                continue
-            correlation = correlations_per_depth[depth - 1]
-            # A depth where too few chains survived has no correlation.
-            if not np.isfinite(correlation):
-                continue
-            run.summary[
-                f"{STAGE_NAME}/6_uncertainty_vs_error/spearman_per_depth/"
-                f"{direction_name}/{depth:02d}"
-            ] = float(correlation)
+    ).items():
+        run.summary[f"{STAGE_NAME}/7_ensemble_disagreement/{label}"] = value
 
     # How much of the deep backward numbers to believe. A chain dies at its
     # first non-converged solve, so anything below 1 means the deeper errors
@@ -244,16 +243,6 @@ def log_ensemble_statistics(
                     backward_true_errors=backward_true_errors,
                 )
             ),
-            f"{STAGE_NAME}/6_uncertainty_vs_error/spearman_per_depth/plot": (
-                panels.spearman_over_depth_panel(
-                    forward_correlations_per_depth=correlations_per_direction[
-                        "forward"
-                    ],
-                    backward_correlations_per_depth=correlations_per_direction[
-                        "backward"
-                    ],
-                )
-            ),
             **_replay_panels(
                 dynamics_model_ensemble=dynamics_model_ensemble,
                 validation_episodes=validation_episodes,
@@ -272,23 +261,6 @@ def _spearman_correlation(*, claims: torch.Tensor, truths: torch.Tensor) -> floa
     if claim_values.size < 2:
         return float("nan")
     return float(scipy.stats.spearmanr(a=claim_values, b=truth_values).statistic)
-
-
-def _spearman_correlations_per_depth(
-    *,
-    claims: torch.Tensor,  # (chain_count, depth_count)
-    truths: torch.Tensor,  # (chain_count, depth_count)
-) -> npt.NDArray[np.floating]:  # (depth_count,)
-    """One correlation per depth. A depth where too few chains survived has no
-    correlation to report and stays NaN."""
-    return np.array(
-        [
-            _spearman_correlation(
-                claims=claims[:, depth_index], truths=truths[:, depth_index]
-            )
-            for depth_index in range(claims.shape[1])
-        ]
-    )
 
 
 def _finite_pairs(
@@ -322,19 +294,10 @@ def _replay_panels(
             initial_state=torch.from_numpy(true_trajectory[0]).to(device=device),
             actions=actions,
         )
-        backward_member_trajectories = roll_out_members_backward(
-            dynamics_model_ensemble=dynamics_model_ensemble,
-            final_state=torch.from_numpy(true_trajectory[-1]).to(device=device),
-            actions=actions,
-            convergence_tolerance=convergence_tolerance,
-        )
 
         replay_panels[f"{STAGE_NAME}/9_replay/episode_{episode_index}"] = (
             panels.replay_panel(
                 forward_member_trajectories=(forward_member_trajectories.cpu().numpy()),
-                backward_member_trajectories=(
-                    backward_member_trajectories.cpu().numpy()
-                ),
                 true_trajectory=true_trajectory,
                 episode_index=episode_index,
             )

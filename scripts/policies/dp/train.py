@@ -24,7 +24,7 @@ logger = create_logger()
 
 STAGE_NAME = "3_policy"
 
-STEP_METRIC_NAME = f"{STAGE_NAME}/step"
+STEP_METRIC_NAME = f"{STAGE_NAME}/0_step"
 
 
 def train_diffusion_policy(
@@ -188,7 +188,7 @@ def train_diffusion_policy(
             data={
                 f"{STAGE_NAME}/2_validation/reward_mean": validation_reward.mean,
                 f"{STAGE_NAME}/2_validation/reward_std": validation_reward.std,
-                f"{STAGE_NAME}/epoch": epoch_index,
+                f"{STAGE_NAME}/0_epoch": epoch_index,
                 STEP_METRIC_NAME: global_step,
             }
         )
@@ -228,7 +228,7 @@ def train_diffusion_policy(
 
 def _define_step_metrics(*, run: Run) -> None:
     run.define_metric(name=STEP_METRIC_NAME)
-    for metric_pattern in ("epoch", "1_training/*", "2_validation/*"):
+    for metric_pattern in ("0_epoch", "1_training/*", "2_validation/*"):
         run.define_metric(
             name=f"{STAGE_NAME}/{metric_pattern}", step_metric=STEP_METRIC_NAME
         )

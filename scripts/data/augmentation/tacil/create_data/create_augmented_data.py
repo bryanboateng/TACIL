@@ -70,7 +70,6 @@ def create_augmented_data(
         action_noise_std=torch.as_tensor(action_noise_std).to(device=device),
         uncertainty_limit=uncertainty_limit,
         convergence_tolerance=1e-3 * median_expert_step_distance,
-        max_step_count=config.max_synthetic_part_length,
     )
 
     log_rollout_statistics(

@@ -84,6 +84,7 @@ class DynamicsModel(torch.nn.Module):
 
         return torch.linalg.matrix_norm(jacobian_batch, ord=2)  # (batch_size,)
 
+
 # ---- Private --------------------------------------------
 
 
