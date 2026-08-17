@@ -73,8 +73,12 @@ def train_dynamics_model_ensemble(
         config=config,
         training_transitions=training_transitions,
         validation_transitions=validation_transitions,
-        validation_state_windows=validation_state_windows,
-        validation_action_windows=validation_action_windows,
+        validation_state_windows=torch.from_numpy(validation_state_windows).to(
+            device=device
+        ),
+        validation_action_windows=torch.from_numpy(validation_action_windows).to(
+            device=device
+        ),
     )
 
     member_training_states = []

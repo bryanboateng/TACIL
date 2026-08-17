@@ -62,8 +62,12 @@ class TrainingContext:
     config: DynamicsConfig
     training_transitions: TransitionSet
     validation_transitions: TransitionSet
-    validation_state_windows: npt.NDArray[np.float32]
-    validation_action_windows: npt.NDArray[np.float32]
+    validation_state_windows: (
+        torch.Tensor
+    )  # (window_count, window_length + 1, state_dimensionality)
+    validation_action_windows: (
+        torch.Tensor
+    )  # (window_count, window_length, action_dimensionality)
 
 
 def create_member_training_state(
@@ -189,6 +193,7 @@ def load_best_member_model(
     member_training_state.model.load_state_dict(
         state_dict=member_training_state.best_checkpoint.state_dict
     )
+    member_training_state.model.eval()
     return member_training_state.model
 
 
@@ -199,37 +204,23 @@ def load_best_member_model(
 def _calculate_validation_loss(
     *,
     dynamics_model: DynamicsModel,
-    state_windows: npt.NDArray[
-        np.float32
-    ],  # (window_count, window_length + 1, state_dimensionality)
-    action_windows: npt.NDArray[
-        np.float32
-    ],  # (window_count, window_length, action_dimensionality)
+    state_windows: torch.Tensor,  # (window_count, window_length + 1, state_dimensionality)
+    action_windows: torch.Tensor,  # (window_count, window_length, action_dimensionality)
     batch_size: int,
 ) -> float:
-
-    device = next(dynamics_model.parameters()).device
-
-    state_windows_tensor = torch.from_numpy(state_windows).to(
-        device=device
-    )  # (window_count, window_length + 1, state_dimensionality)
-    action_windows_tensor = torch.from_numpy(action_windows).to(
-        device=device
-    )  # (window_count, window_length, action_dimensionality)
-
-    window_count = state_windows_tensor.shape[0]
+    window_count = state_windows.shape[0]
     total_loss = 0.0
 
     dynamics_model.eval()
     for batch_start in range(0, window_count, batch_size):
         batch_slice = slice(batch_start, batch_start + batch_size)
 
-        state_window_batch = state_windows_tensor[
+        state_window_batch = state_windows[
             batch_slice
         ]  # (batch_size, window_length + 1, state_dimensionality)
-        action_window_batch = action_windows_tensor[
+        action_window_batch = action_windows[
             batch_slice
-        ]  # (batch_size, window_length, state_dimensionality)
+        ]  # (batch_size, window_length, action_dimensionality)
 
         batch_loss = calculate_loss(
             dynamics_model=dynamics_model,
