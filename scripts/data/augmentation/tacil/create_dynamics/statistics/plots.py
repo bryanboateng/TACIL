@@ -93,10 +93,10 @@ def create_replay_error_plot(
     *,
     backward_prediction_errors_per_step_count: npt.NDArray[
         np.floating
-    ],  # (chain_count, step_count)
+    ],  # (window_count, step_count)
     backward_replay_errors_per_step_count: npt.NDArray[
         np.floating
-    ],  # (chain_count, step_count)
+    ],  # (window_count, step_count)
 ) -> wandb.Image:
     figure, plot_area = plt.subplots(figsize=(9, 5))
 

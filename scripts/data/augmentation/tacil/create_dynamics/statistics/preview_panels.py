@@ -2,7 +2,7 @@
 training a model first.
 
 The numbers are shaped like the real ones — errors that grow with depth,
-backward chains that stop early, an ensemble that fans out — but nothing here
+backward walks that stop early, an ensemble that fans out — but nothing here
 measures anything.
 """
 
@@ -19,7 +19,7 @@ logger = create_logger()
 
 _SEED = 0
 
-_CHAIN_COUNT = 1024
+_WINDOW_COUNT = 1024
 _CHAIN_DEPTH = 20
 _MEMBER_COUNT = 8
 _REPLAY_STEP_COUNT = 100
@@ -37,17 +37,17 @@ def main() -> None:
             forward_prediction_errors_per_step_count=_growing_errors(
                 rng=rng, growth_per_step=1.25
             ),
-            backward_prediction_errors_per_step_count=_stop_chains_early(
+            backward_prediction_errors_per_step_count=_stop_walks_early(
                 prediction_errors=_growing_errors(rng=rng, growth_per_step=1.6), rng=rng
             ),
         ),
         "replay_error": plots.create_replay_error_plot(
-            backward_prediction_errors_per_step_count=_stop_chains_early(
+            backward_prediction_errors_per_step_count=_stop_walks_early(
                 prediction_errors=_growing_errors(rng=rng, growth_per_step=1.6), rng=rng
             ),
             # Below the prediction error and growing more slowly, the way an
             # that underestimates its own drift looks.
-            backward_replay_errors_per_step_count=_stop_chains_early(
+            backward_replay_errors_per_step_count=_stop_walks_early(
                 prediction_errors=0.2 * _growing_errors(rng=rng, growth_per_step=1.35),
                 rng=rng,
             ),
@@ -69,24 +69,24 @@ def main() -> None:
 
 def _growing_errors(
     *, rng: np.random.Generator, growth_per_step: float
-) -> npt.NDArray[np.floating]:  # (_CHAIN_COUNT, _CHAIN_DEPTH)
-    """Error that compounds with depth, spread over chains by a lognormal
+) -> npt.NDArray[np.floating]:  # (_WINDOW_COUNT, _CHAIN_DEPTH)
+    """Error that compounds with depth, spread over windows by a lognormal
     factor — the log-scale axes of the panels need a spread, not a band of
     equal width."""
     depths = np.arange(1, _CHAIN_DEPTH + 1)  # (_CHAIN_DEPTH,)
     median_per_depth = 0.01 * growth_per_step ** (depths - 1)  # (_CHAIN_DEPTH,)
-    per_chain_factors = rng.lognormal(
-        mean=0.0, sigma=0.55, size=(_CHAIN_COUNT, _CHAIN_DEPTH)
+    per_window_factors = rng.lognormal(
+        mean=0.0, sigma=0.55, size=(_WINDOW_COUNT, _CHAIN_DEPTH)
     )
-    return median_per_depth * per_chain_factors
+    return median_per_depth * per_window_factors
 
 
-def _stop_chains_early(
+def _stop_walks_early(
     *, prediction_errors: npt.NDArray[np.floating], rng: np.random.Generator
-) -> npt.NDArray[np.floating]:  # (_CHAIN_COUNT, _CHAIN_DEPTH)
-    """A backward chain ends at its first non-converged solve and is NaN from
-    there on, so the deeper columns hold fewer and fewer chains."""
-    survived_depths = rng.geometric(p=0.12, size=_CHAIN_COUNT)  # (_CHAIN_COUNT,)
+) -> npt.NDArray[np.floating]:  # (_WINDOW_COUNT, _CHAIN_DEPTH)
+    """A backward walk ends at its first non-converged solve and is NaN from
+    there on, so the later columns hold fewer and fewer walks."""
+    survived_depths = rng.geometric(p=0.12, size=_WINDOW_COUNT)  # (_WINDOW_COUNT,)
     depths = np.arange(1, _CHAIN_DEPTH + 1)  # (_CHAIN_DEPTH,)
 
     stopped_mask = depths > survived_depths[:, None]

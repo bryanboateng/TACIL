@@ -18,66 +18,95 @@ from scripts.data.augmentation.tacil.dynamics.dynamics_model_ensemble import (
 from scripts.shared.pusht_state import subtract_states
 
 # Fixed measurement shape: long enough to show the growth trend, short enough
-# to stay affordable, and heavily overlapping windows make more chains
+# to stay affordable, and windows overlap heavily, so more of them are
 # redundant anyway.
-_CHAIN_STEP_COUNT = 20
-_CHAIN_COUNT = 1024
+_WINDOW_STEP_COUNT = 20
+_WINDOW_COUNT = 1024
 _SUBSAMPLE_SEED = 0
 
 
 @dataclass(frozen=True)
-class ForwardChainMeasurements:
-    """Open-loop rollouts of the ensemble mean, one chain per window.
+class ErrorMeasurements:
+    """How far the ensemble drifts from held-out episodes, step by step.
 
-    Entry [c, s] belongs to chain c after s + 1 steps: the model has taken s + 1
-    steps on its own predictions. All values are in normalized state units.
+    Entry [w, s] belongs to window w after s + 1 steps. Forward the model has
+    taken s + 1 steps on its own predictions; backward the Newton solver has
+    stepped s + 1 states back from the window's last state. A backward walk
+    ends at its first non-converged solve; entries past that point stay NaN.
+
+    All values are in normalized state units.
     """
 
     # Distance between the model's prediction and the real state.
-    prediction_errors: torch.Tensor  # (chain_count, step_count)
-
-
-@dataclass(frozen=True)
-class BackwardChainMeasurements:
-    """Backward walks from the windows' final states, one chain per window.
-
-    Entry [c, s] belongs to chain c after s + 1 steps: the Newton solver has
-    stepped s + 1 states back from the anchor. A chain ends at its first
-    non-converged solve; entries past that point stay NaN.
-    """
-
+    forward_prediction_errors: torch.Tensor  # (window_count, step_count)
     # Distance between the solved predecessor and the real predecessor.
-    prediction_errors: torch.Tensor  # (chain_count, step_count)
-    # Every member replays the chain's actions from the solved predecessor, and
-    # this is how far their endpoints land from the state the chain started at.
+    backward_prediction_errors: torch.Tensor  # (window_count, step_count)
+    # Every member replays the window's actions from the solved predecessor,
+    # and this is how far their endpoints land from the window's last state.
     # The limit is read against this value.
     #
     # It falls to zero when the members collapse onto one function, because the
-    # solver fits the mean and identical members all replay onto the anchor.
+    # solver fits the mean and identical members all replay onto the same state.
     # That is the run-is-worthless alarm.
-    replay_errors: torch.Tensor  # (chain_count, step_count)
+    backward_replay_errors: torch.Tensor  # (window_count, step_count)
 
 
-def draw_chain_windows(
+def measure_errors(
+    *,
+    dynamics_model_ensemble: DynamicsModelEnsemble,
+    validation_episodes: list[TransitionSet],
+    convergence_tolerance: float,
+) -> ErrorMeasurements:
+    device = next(dynamics_model_ensemble.parameters()).device
+    state_windows, action_windows = _draw_windows(
+        validation_episodes=validation_episodes
+    )
+    state_window_batch = torch.from_numpy(state_windows).to(device=device)
+    action_window_batch = torch.from_numpy(action_windows).to(device=device)
+
+    forward_prediction_errors = _measure_forward(
+        dynamics_model_ensemble=dynamics_model_ensemble,
+        state_windows=state_window_batch,
+        action_windows=action_window_batch,
+    )
+    backward_prediction_errors, backward_replay_errors = _measure_backward(
+        dynamics_model_ensemble=dynamics_model_ensemble,
+        state_windows=state_window_batch,
+        action_windows=action_window_batch,
+        convergence_tolerance=convergence_tolerance,
+    )
+    return ErrorMeasurements(
+        forward_prediction_errors=forward_prediction_errors,
+        backward_prediction_errors=backward_prediction_errors,
+        backward_replay_errors=backward_replay_errors,
+    )
+
+
+# ---- Private --------------------------------------------
+
+
+def _draw_windows(
     *, validation_episodes: list[TransitionSet]
 ) -> tuple[
     npt.NDArray[
         np.float32
-    ],  # (chain_count, _CHAIN_STEP_COUNT + 1, state_dimensionality)
-    npt.NDArray[np.float32],  # (chain_count, _CHAIN_STEP_COUNT, action_dimensionality)
+    ],  # (window_count, _WINDOW_STEP_COUNT + 1, state_dimensionality)
+    npt.NDArray[
+        np.float32
+    ],  # (window_count, _WINDOW_STEP_COUNT, action_dimensionality)
 ]:
     return _subsample(
-        *build_windows(episodes=validation_episodes, window_length=_CHAIN_STEP_COUNT)
+        *build_windows(episodes=validation_episodes, window_length=_WINDOW_STEP_COUNT)
     )
 
 
 @torch.no_grad()
-def measure_forward_chains(
+def _measure_forward(
     *,
     dynamics_model_ensemble: DynamicsModelEnsemble,
-    state_windows: torch.Tensor,  # (chain_count, step_count + 1, state_dimensionality)
-    action_windows: torch.Tensor,  # (chain_count, step_count, action_dimensionality)
-) -> ForwardChainMeasurements:
+    state_windows: torch.Tensor,  # (window_count, step_count + 1, state_dimensionality)
+    action_windows: torch.Tensor,  # (window_count, step_count, action_dimensionality)
+) -> torch.Tensor:  # (window_count, step_count)
     step_count = action_windows.shape[1]
 
     current_state_batch = state_windows[:, 0, :]
@@ -97,40 +126,39 @@ def measure_forward_chains(
             )
         )
 
-    return ForwardChainMeasurements(
-        prediction_errors=torch.linalg.norm(
-            torch.stack(tensors=difference_columns, dim=1), dim=-1
-        )
-    )
+    return torch.linalg.norm(torch.stack(tensors=difference_columns, dim=1), dim=-1)
 
 
 @torch.no_grad()
-def measure_backward_chains(
+def _measure_backward(
     *,
     dynamics_model_ensemble: DynamicsModelEnsemble,
-    state_windows: torch.Tensor,  # (chain_count, step_count + 1, state_dimensionality)
-    action_windows: torch.Tensor,  # (chain_count, step_count, action_dimensionality)
+    state_windows: torch.Tensor,  # (window_count, step_count + 1, state_dimensionality)
+    action_windows: torch.Tensor,  # (window_count, step_count, action_dimensionality)
     convergence_tolerance: float,
-) -> BackwardChainMeasurements:
-    chain_count, step_count, _ = action_windows.shape
+) -> tuple[
+    torch.Tensor,  # prediction errors, (window_count, step_count)
+    torch.Tensor,  # replay errors, (window_count, step_count)
+]:
+    window_count, step_count, _ = action_windows.shape
     device = state_windows.device
 
     current_state_batch = state_windows[:, -1, :].clone()
-    active_mask_batch = torch.ones(chain_count, dtype=torch.bool, device=device)
+    active_mask_batch = torch.ones(window_count, dtype=torch.bool, device=device)
 
     prediction_errors = torch.full(
-        size=(chain_count, step_count), fill_value=float("nan"), device=device
+        size=(window_count, step_count), fill_value=float("nan"), device=device
     )
     replay_errors = torch.full_like(input=prediction_errors, fill_value=float("nan"))
 
     for step_index in tqdm(
-        iterable=range(step_count), desc="backward diagnostic chains", unit="step"
+        iterable=range(step_count), desc="walking windows backward", unit="step"
     ):
         active_indices = active_mask_batch.nonzero().squeeze(dim=1)
         if active_indices.numel() == 0:
             break
 
-        # The action that led into the chain's current state, and therefore
+        # The action that led into the walk's current state, and therefore
         # out of the predecessor the solver is asked for.
         window_index = step_count - 1 - step_index
         action_batch = action_windows[active_indices, window_index, :]
@@ -176,12 +204,7 @@ def measure_backward_chains(
 
         current_state_batch[converged_indices] = predecessor_state_batch
 
-    return BackwardChainMeasurements(
-        prediction_errors=prediction_errors, replay_errors=replay_errors
-    )
-
-
-# ---- Private --------------------------------------------
+    return prediction_errors, replay_errors
 
 
 def _subsample(
@@ -191,10 +214,10 @@ def _subsample(
     """Cap the number of windows. They overlap heavily (stride 1), so a random
     subset loses no coverage, only redundancy."""
     window_count = state_windows.shape[0]
-    if window_count <= _CHAIN_COUNT:
+    if window_count <= _WINDOW_COUNT:
         return state_windows, action_windows
 
     window_indices = np.random.default_rng(seed=_SUBSAMPLE_SEED).choice(
-        window_count, size=_CHAIN_COUNT, replace=False
+        window_count, size=_WINDOW_COUNT, replace=False
     )
     return state_windows[window_indices], action_windows[window_indices]

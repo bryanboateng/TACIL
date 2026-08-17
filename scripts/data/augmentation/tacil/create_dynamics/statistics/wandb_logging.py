@@ -12,10 +12,8 @@ from scripts.data.augmentation.tacil.create_dynamics.dynamics_model_training imp
     MemberTrainingState,
 )
 from scripts.data.augmentation.tacil.create_dynamics.statistics import plots
-from scripts.data.augmentation.tacil.create_dynamics.statistics.chain_measurement import (  # noqa: E501
-    draw_chain_windows,
-    measure_backward_chains,
-    measure_forward_chains,
+from scripts.data.augmentation.tacil.create_dynamics.statistics.error_measurement import (  # noqa: E501
+    measure_errors,
 )
 from scripts.data.augmentation.tacil.dynamics.dynamics_model_ensemble import (
     DynamicsModelEnsemble,
@@ -123,25 +121,12 @@ def log_ensemble_statistics(
 ) -> None:
     device = next(dynamics_model_ensemble.parameters()).device
 
-    state_windows, action_windows = draw_chain_windows(
-        validation_episodes=validation_episodes
-    )
-    state_window_batch = torch.from_numpy(state_windows).to(device=device)
-    action_window_batch = torch.from_numpy(action_windows).to(device=device)
-
-    forward_chain_measurements = measure_forward_chains(
-        dynamics_model_ensemble=dynamics_model_ensemble,
-        state_windows=state_window_batch,
-        action_windows=action_window_batch,
-    )
-
     median_expert_step_distance = calculate_median_step_distance(
         episode_store=episode_store, dynamics_model_ensemble=dynamics_model_ensemble
     )
-    backward_chain_measurements = measure_backward_chains(
+    error_measurements = measure_errors(
         dynamics_model_ensemble=dynamics_model_ensemble,
-        state_windows=state_window_batch,
-        action_windows=action_window_batch,
+        validation_episodes=validation_episodes,
         convergence_tolerance=1e-3 * median_expert_step_distance,
     )
 
@@ -153,20 +138,20 @@ def log_ensemble_statistics(
     # It also carries the run-is-worthless alarm: members that collapsed onto
     # one function all replay onto the anchor, so the signal falls to zero and
     # every limit passes. Measured in the sweep of 2026-08-16, a lower
-    # Lipschitz bound lengthened the chains even at a stricter limit
+    # Lipschitz bound lengthened the walks even at a stricter limit
     # (r = -0.39, p = 0.004 with the limit partialled out; bound under 10 drew
     # a median limit of 11.6 and still reached length 9.5, against 17.7 and
     # 8.0 above it). Those runs scored 0.59 against 0.69.
     backward_replay_errors_per_step_count = (
-        backward_chain_measurements.replay_errors.cpu().numpy()
-    )  # (chain_count, step_count)
+        error_measurements.backward_replay_errors.cpu().numpy()
+    )  # (window_count, step_count)
     for step_count in _SUMMARY_STEP_COUNTS:
         if step_count > backward_replay_errors_per_step_count.shape[1]:
             continue
         replay_errors_at_step_count = backward_replay_errors_per_step_count[
             :, step_count - 1
         ]
-        # A chain that stopped earlier than this has nothing to contribute.
+        # A walk that stopped earlier than this has nothing to contribute.
         replay_errors_at_step_count = replay_errors_at_step_count[
             np.isfinite(replay_errors_at_step_count)
         ]
@@ -177,30 +162,28 @@ def log_ensemble_statistics(
         ).items():
             run.summary[f"{STAGE_NAME}/6_replay_error/{step_count:02d}/{label}"] = value
 
-    # How much of the long backward numbers to believe. A chain dies at its
+    # How much of the long backward numbers to believe. A walk dies at its
     # first non-converged solve, so anything below 1 means the errors after
     # more steps were measured on the subset that survived — the easier one.
     run.summary[
-        f"{STAGE_NAME}/5_error_over_step_count/backward/complete_chain_fraction"
+        f"{STAGE_NAME}/5_error_over_step_count/backward/complete_walk_fraction"
     ] = float(
         np.isfinite(
-            backward_chain_measurements.prediction_errors[:, -1].cpu().numpy()
+            error_measurements.backward_prediction_errors[:, -1].cpu().numpy()
         ).mean()
     )
 
     # A few points off the error curve, so runs can be ranked on a number
     # instead of on a picture.
-    for direction_name, measurements in (
-        ("backward", backward_chain_measurements),
-        ("forward", forward_chain_measurements),
+    for direction_name, prediction_errors in (
+        ("backward", error_measurements.backward_prediction_errors),
+        ("forward", error_measurements.forward_prediction_errors),
     ):
         for step_count in _SUMMARY_STEP_COUNTS:
-            if step_count > measurements.prediction_errors.shape[1]:
+            if step_count > prediction_errors.shape[1]:
                 continue
-            errors_at_step_count = (
-                measurements.prediction_errors[:, step_count - 1].cpu().numpy()
-            )
-            # A chain that stopped earlier than this has no error to contribute.
+            errors_at_step_count = prediction_errors[:, step_count - 1].cpu().numpy()
+            # A walk that stopped earlier than this has no error to contribute.
             errors_at_step_count = errors_at_step_count[
                 np.isfinite(errors_at_step_count)
             ]
@@ -217,16 +200,16 @@ def log_ensemble_statistics(
         data={
             f"{STAGE_NAME}/5_error_over_step_count/plot": plots.create_prediction_error_vs_step_count_plot(
                 forward_prediction_errors_per_step_count=(
-                    forward_chain_measurements.prediction_errors.cpu().numpy()
+                    error_measurements.forward_prediction_errors.cpu().numpy()
                 ),
                 backward_prediction_errors_per_step_count=(
-                    backward_chain_measurements.prediction_errors.cpu().numpy()
+                    error_measurements.backward_prediction_errors.cpu().numpy()
                 ),
             ),
             f"{STAGE_NAME}/6_replay_error/plot": (
                 plots.create_replay_error_plot(
                     backward_prediction_errors_per_step_count=(
-                        backward_chain_measurements.prediction_errors.cpu().numpy()
+                        error_measurements.backward_prediction_errors.cpu().numpy()
                     ),
                     backward_replay_errors_per_step_count=(
                         backward_replay_errors_per_step_count
