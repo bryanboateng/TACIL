@@ -17,18 +17,16 @@ _BACKWARD_COLOR = "tab:blue"
 _GATE_SIGNAL_COLOR = "tab:green"
 
 
-def error_over_depth_panel(
+def create_error_over_depth_plot(
     *,
-    forward_errors_per_depth: npt.NDArray[np.floating],  # (chain_count, depth_count)
-    backward_errors_per_depth: npt.NDArray[np.floating],  # (chain_count, depth_count)
+    forward_errors_per_depth: npt.NDArray[
+        np.floating
+    ],  # (trajectory_count, depth_count)
+    backward_errors_per_depth: npt.NDArray[
+        np.floating
+    ],  # (trajectory_count, depth_count)
 ) -> wandb.Image:
-    """Error against the number of steps, over the whole state at once.
-
-    Backward chains run to the left of zero, forward chains to the right, so
-    both directions share one axis and the asymmetry between them is the whole
-    point: going back is far harder than going on.
-    """
-    figure, axes = plt.subplots(figsize=(9, 5))
+    figure, plot_area = plt.subplots(figsize=(9, 5))
 
     for errors_per_depth, direction_label, color, direction_sign in (
         (backward_errors_per_depth, "backward", _BACKWARD_COLOR, -1),
@@ -47,14 +45,14 @@ def error_over_depth_panel(
         )
         drawing_order = np.argsort(positions)
 
-        axes.plot(
+        plot_area.plot(
             positions[drawing_order],
             medians[drawing_order],
             color=color,
             linewidth=2.0,
             label=f"{direction_label} median",
         )
-        axes.fill_between(
+        plot_area.fill_between(
             positions[drawing_order],
             low_percentiles[drawing_order],
             high_percentiles[drawing_order],
@@ -64,12 +62,12 @@ def error_over_depth_panel(
             label=f"{direction_label} 10th-90th percentile",
         )
 
-    axes.set_xlabel(xlabel="steps")
-    axes.set_ylabel(ylabel="error (normalized)")
-    axes.set_yscale(value="log")
-    axes.xaxis.set_major_locator(plt.MaxNLocator(integer=True))
-    axes.legend()
-    axes.set_title(label="Prediction Error vs. Number of Steps")
+    plot_area.set_xlabel(xlabel="steps")
+    plot_area.set_ylabel(ylabel="error (normalized)")
+    plot_area.set_yscale(value="log")
+    plot_area.xaxis.set_major_locator(locator=plt.MaxNLocator(integer=True))
+    plot_area.legend()
+    plot_area.set_title(label="Prediction Error vs. Number of Steps")
     figure.tight_layout()
 
     image = wandb.Image(data_or_path=figure)

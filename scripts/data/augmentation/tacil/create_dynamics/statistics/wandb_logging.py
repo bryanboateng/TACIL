@@ -218,7 +218,7 @@ def log_ensemble_statistics(
                 ] = value
     run.log(
         data={
-            f"{STAGE_NAME}/5_error_over_depth/plot": plots.error_over_depth_panel(
+            f"{STAGE_NAME}/5_error_over_depth/plot": plots.create_error_over_depth_plot(
                 forward_errors_per_depth=(
                     forward_chain_measurements.true_errors.cpu().numpy()
                 ),
