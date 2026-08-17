@@ -2,6 +2,7 @@ from dataclasses import dataclass
 
 import numpy as np
 import torch
+from diffusers import training_utils
 from sklearn.model_selection import train_test_split
 from tqdm import tqdm
 from wandb import Run
@@ -62,9 +63,10 @@ def train_dynamics_model_ensemble(
     training_transitions = concatenate_episodes(episodes=training_episodes)
     validation_transitions = concatenate_episodes(episodes=validation_episodes)
 
-    validation_state_windows, validation_action_windows = build_windows(
-        episodes=validation_episodes, window_length=config.window_length
-    )
+    (
+        validation_state_windows,  # (window_count, window_length + 1, state_dimensionality)
+        validation_action_windows,  # (window_count, window_length, action_dimensionality)
+    ) = build_windows(episodes=validation_episodes, window_length=config.window_length)
 
     normalizers = _create_normalizers(transitions=training_transitions, device=device)
 
@@ -81,13 +83,13 @@ def train_dynamics_model_ensemble(
     for member_seed in np.random.SeedSequence(entropy=seed).generate_state(
         n_words=config.ensemble_size
     ):
-        # Bootstrap: each member trains on its own resample of the training
-        # episodes, drawn with replacement and equally large. Every member
-        # sees a full-size dataset, but each one has different gaps.
         episode_indices = np.random.default_rng(seed=int(member_seed)).integers(
             low=0, high=len(training_episodes), size=len(training_episodes)
-        )
-        member_state_windows, member_action_windows = build_windows(
+        )  # (episode_count,)
+        (
+            member_state_windows,  # (window_count, window_length + 1, state_dimensionality)
+            member_action_windows,  # (window_count, window_length, action_dimensionality)
+        ) = build_windows(
             episodes=[training_episodes[index] for index in episode_indices],
             window_length=config.window_length,
         )
@@ -99,10 +101,8 @@ def train_dynamics_model_ensemble(
                 config=config,
                 network_input_normalizer=normalizers.network_input,
                 state_displacement_normalizer=normalizers.state_displacement,
-                train_state_windows=torch.from_numpy(member_state_windows).to(
-                    device=device
-                ),
-                train_action_windows=torch.from_numpy(member_action_windows).to(
+                state_windows=torch.from_numpy(member_state_windows).to(device=device),
+                action_windows=torch.from_numpy(member_action_windows).to(
                     device=device
                 ),
                 device=device,
@@ -161,9 +161,15 @@ class _Normalizers:
 def _create_normalizers(
     *, transitions: TransitionSet, device: torch.device
 ) -> _Normalizers:
-    state_batch = torch.from_numpy(transitions.states).to(device=device)
-    next_state_batch = torch.from_numpy(transitions.next_states).to(device=device)
-    action_batch = torch.from_numpy(transitions.actions).to(device=device)
+    state_batch = torch.from_numpy(transitions.states).to(
+        device=device
+    )  # (transition_count, state_dimensionality)
+    next_state_batch = torch.from_numpy(transitions.next_states).to(
+        device=device
+    )  # (transition_count, state_dimensionality)
+    action_batch = torch.from_numpy(transitions.actions).to(
+        device=device
+    )  # (transition_count, action_dimensionality)
     return _Normalizers(
         state=ZScoreNormalizer(value_batch=state_batch).to(device=device),
         network_input=ZScoreNormalizer(

@@ -73,8 +73,8 @@ def create_member_training_state(
     config: DynamicsConfig,
     network_input_normalizer: ZScoreNormalizer,
     state_displacement_normalizer: ZScoreNormalizer,
-    train_state_windows: torch.Tensor,
-    train_action_windows: torch.Tensor,
+    state_windows: torch.Tensor,
+    action_windows: torch.Tensor,
     device: torch.device,
 ) -> MemberTrainingState:
     set_seed(seed=member_seed)
@@ -101,8 +101,8 @@ def create_member_training_state(
         ),
         shuffle_generator=torch.Generator(device=device).manual_seed(member_seed),
         histogram_sample_generator=np.random.default_rng(seed=member_seed),
-        train_state_windows=train_state_windows,
-        train_action_windows=train_action_windows,
+        train_state_windows=state_windows,
+        train_action_windows=action_windows,
     )
 
 
