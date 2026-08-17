@@ -281,7 +281,7 @@ def _replay_panels(
         )
 
         replay_panels[f"{STAGE_NAME}/9_replay/episode_{episode_index}"] = (
-            plots.replay_panel(
+            plots.create_true_dynamics_vs_model_plot(
                 forward_member_trajectories=(forward_member_trajectories.cpu().numpy()),
                 true_trajectory=true_trajectory,
                 episode_index=episode_index,

@@ -164,7 +164,7 @@ def create_replay_error_plot(
     return image
 
 
-def replay_panel(
+def create_true_dynamics_vs_model_plot(
     *,
     forward_member_trajectories: npt.NDArray[
         np.floating
@@ -172,19 +172,14 @@ def replay_panel(
     true_trajectory: npt.NDArray[np.floating],  # (step_count + 1, state_dimensionality)
     episode_index: int,
 ) -> wandb.Image:
-    """One recorded episode, replayed forward by every member on its own.
-
-    Only forward. The backward map is not a function -- many predecessors lead
-    to the same successor -- so a backward replay spreads out however well the
-    model fits, and says nothing about its quality.
-    """
     figure, subplots = plt.subplots(nrows=1, ncols=3, figsize=(14, 4.5))
 
-    prediction_width = 0.8
-    prediction_alpha = 0.5
+    prediction_line_width = 0.8
+    prediction_line_alpha = 0.5
+    prediciton_line_color = _FORWARD_COLOR
 
-    recorded_width = 1.6
-    recorded_color = "black"
+    true_line_width = 1.6
+    true_line_color = "black"
 
     agent_position_subplot, block_position_subplot, block_orientation_subplot = subplots
 
@@ -199,9 +194,9 @@ def replay_panel(
             subplot.plot(
                 path[:, 0],
                 path[:, 1],
-                linewidth=prediction_width,
-                alpha=prediction_alpha,
-                color=_FORWARD_COLOR,
+                linewidth=prediction_line_width,
+                alpha=prediction_line_alpha,
+                color=prediciton_line_color,
                 # One legend entry for all members.
                 label="model prediction" if member_index == 0 else None,
             )
@@ -209,8 +204,8 @@ def replay_panel(
         subplot.plot(
             true_path[:, 0],
             true_path[:, 1],
-            linewidth=recorded_width,
-            color=recorded_color,
+            linewidth=true_line_width,
+            color=true_line_color,
             label="recorded episode",
         )
         subplot.set_title(label=title)
@@ -227,17 +222,17 @@ def replay_panel(
             _break_at_wraps(
                 orientation_timeline=member_trajectory[:, BLOCK_ORIENTATION_INDEX]
             ),
-            linewidth=prediction_width,
-            alpha=prediction_alpha,
-            color=_FORWARD_COLOR,
+            linewidth=prediction_line_width,
+            alpha=prediction_line_alpha,
+            color=prediciton_line_color,
         )
     block_orientation_subplot.plot(
         steps,
         _break_at_wraps(
             orientation_timeline=true_trajectory[:, BLOCK_ORIENTATION_INDEX]
         ),
-        linewidth=recorded_width,
-        color=recorded_color,
+        linewidth=true_line_width,
+        color=true_line_color,
     )
     block_orientation_subplot.set_title(label="Block Orientation")
     block_orientation_subplot.set_xlabel(xlabel="step")

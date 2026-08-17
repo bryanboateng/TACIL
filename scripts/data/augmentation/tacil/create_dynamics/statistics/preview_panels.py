@@ -53,7 +53,7 @@ def main() -> None:
                 rng=rng,
             ),
         ),
-        "replay_episode_0": plots.replay_panel(
+        "replay_episode_0": plots.create_true_dynamics_vs_model_plot(
             forward_member_trajectories=forward_member_trajectories,
             true_trajectory=true_trajectory,
             episode_index=0,
