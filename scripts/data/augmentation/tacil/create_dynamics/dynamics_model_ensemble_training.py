@@ -21,7 +21,7 @@ from scripts.data.augmentation.tacil.create_dynamics.dynamics_model_training imp
 )
 from scripts.data.augmentation.tacil.create_dynamics.statistics.wandb_logging import (
     define_epoch_metrics,
-    log_checkpoint_summary,
+    log_best_checkpoint_summary,
     log_ensemble_statistics,
     log_epoch,
     log_window_counts,
@@ -130,7 +130,7 @@ def train_dynamics_model_ensemble(
             run=run,
         )
 
-    log_checkpoint_summary(member_states=member_training_states, run=run)
+    log_best_checkpoint_summary(member_states=member_training_states, run=run)
 
     dynamics_model_ensemble = DynamicsModelEnsemble(
         state_normalizer=normalizers.state,

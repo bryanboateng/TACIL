@@ -34,10 +34,6 @@ EPOCH_METRIC_NAME = f"{STAGE_NAME}/0_epoch"
 _REPLAY_EPISODE_COUNT = 4
 _REPLAY_STEP_COUNT = 100
 
-# Where the error curve is sampled for the summary. One step is the model
-# without any compounding, twenty is the deepest measured, and the ones in
-# between catch a curve that only bends late. The early ones sit close
-# together because that is where compounding starts and the curve is steepest.
 _SUMMARY_STEP_COUNTS = (1, 2, 3, 5, 10, 20)
 
 
@@ -65,18 +61,17 @@ def log_epoch(
     logged_metrics: dict[str, float | wandb.Histogram] = {
         EPOCH_METRIC_NAME: epoch_index
     }
-    # Summarized over the members rather than one curve each: twenty curves per
-    # quantity are unreadable, and what the curves are watched for — does it
-    # come down, do the members stay together — the summary says too.
     for name, member_values in (
-        ("1_loss/training", [m.training_loss for m in per_member_metrics]),
-        ("1_loss/validation", [m.validation_loss for m in per_member_metrics]),
-        ("2_gradient_norm", [m.gradient_norm for m in per_member_metrics]),
+        ("1_loss/training", [metrics.training_loss for metrics in per_member_metrics]),
+        (
+            "1_loss/validation",
+            [metrics.validation_loss for metrics in per_member_metrics],
+        ),
+        ("2_gradient_norm", [metrics.gradient_norm for metrics in per_member_metrics]),
     ):
-        summary = summarize_distribution(
+        for label, value in summarize_distribution(
             values=np.asarray(member_values, dtype=np.float64)
-        )
-        for label, value in summary.items():
+        ).items():
             logged_metrics[f"{STAGE_NAME}/{name}/{label}"] = value
 
     for split, member_split_lipschitz in (
@@ -102,24 +97,22 @@ def log_epoch(
     run.log(data=logged_metrics)
 
 
-def log_checkpoint_summary(
+def log_best_checkpoint_summary(
     *, member_states: list[MemberTrainingState], run: Run
 ) -> None:
-    checkpoints = []
+    best_checkpoints = []
     for member_state in member_states:
         if member_state.best_checkpoint is None:
             raise ValueError("No checkpoint was recorded")
-        checkpoints.append(member_state.best_checkpoint)
+        best_checkpoints.append(member_state.best_checkpoint)
 
-    validation_losses = np.array(
-        [checkpoint.validation_loss for checkpoint in checkpoints]
-    )
-    epochs = np.array([checkpoint.epoch for checkpoint in checkpoints])
-
-    # Each member keeps the epoch with its lowest validation loss, and this is
-    # what those kept epochs look like across the members. The spread shows how
-    # much the result depends on the initialization of a single one.
-    for name, values in (("validation_loss", validation_losses), ("epoch", epochs)):
+    for name, values in (
+        (
+            "validation_loss",
+            np.array([checkpoint.validation_loss for checkpoint in best_checkpoints]),
+        ),
+        ("epoch", np.array([checkpoint.epoch for checkpoint in best_checkpoints])),
+    ):
         for label, value in summarize_distribution(values=values).items():
             run.summary[f"{STAGE_NAME}/3_best_checkpoint/{name}/{label}"] = value
 
@@ -133,21 +126,20 @@ def log_ensemble_statistics(
 ) -> None:
     device = next(dynamics_model_ensemble.parameters()).device
 
-    median_expert_step_distance = calculate_median_step_distance(
-        episode_store=episode_store, dynamics_model_ensemble=dynamics_model_ensemble
-    )
-
     state_windows, action_windows = draw_chain_windows(
         validation_episodes=validation_episodes
     )
     state_window_batch = torch.from_numpy(state_windows).to(device=device)
     action_window_batch = torch.from_numpy(action_windows).to(device=device)
 
-    logger.info("Diagnosing on %d held-out chains.", state_window_batch.shape[0])
     forward_chain_measurements = measure_forward_chains(
         dynamics_model_ensemble=dynamics_model_ensemble,
         state_windows=state_window_batch,
         action_windows=action_window_batch,
+    )
+
+    median_expert_step_distance = calculate_median_step_distance(
+        episode_store=episode_store, dynamics_model_ensemble=dynamics_model_ensemble
     )
     backward_chain_measurements = measure_backward_chains(
         dynamics_model_ensemble=dynamics_model_ensemble,
@@ -247,7 +239,6 @@ def log_ensemble_statistics(
             **_replay_panels(
                 dynamics_model_ensemble=dynamics_model_ensemble,
                 validation_episodes=validation_episodes,
-                convergence_tolerance=1e-3 * median_expert_step_distance,
                 device=device,
             ),
         }
@@ -261,7 +252,6 @@ def _replay_panels(
     *,
     dynamics_model_ensemble: DynamicsModelEnsemble,
     validation_episodes: list[TransitionSet],
-    convergence_tolerance: float,
     device: torch.device,
 ) -> dict[str, wandb.Image]:
     replay_panels: dict[str, wandb.Image] = {}
