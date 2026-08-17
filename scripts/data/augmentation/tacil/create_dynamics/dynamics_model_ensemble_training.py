@@ -19,7 +19,7 @@ from scripts.data.augmentation.tacil.create_dynamics.dynamics_model_training imp
     load_best_member_model,
     train_member_for_one_epoch,
 )
-from scripts.data.augmentation.tacil.create_dynamics.statistics.logging import (
+from scripts.data.augmentation.tacil.create_dynamics.statistics.wandb_logging import (
     define_epoch_metrics,
     log_checkpoint_summary,
     log_ensemble_statistics,
