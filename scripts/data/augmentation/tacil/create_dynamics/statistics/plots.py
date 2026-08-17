@@ -92,19 +92,13 @@ def create_replay_error_plot(
         np.floating
     ],  # (chain_count, step_count)
 ) -> wandb.Image:
-    """The replay error, held against the true error it stands in for.
+    figure, plot_area = plt.subplots(figsize=(9, 5))
 
-    Both lines are lengths in the same normalized state space, so the gap
-    between them can be read directly. The replay error running well under the
-    true error means the limit is told less than it needs to stop in time. The
-    replay error flat on the floor means the members collapsed onto one
-    function: they all replay onto the anchor, every limit passes, and nothing
-    stops the walk.
-    """
-    figure, axes = plt.subplots(figsize=(9, 5))
+    legend_handles: list[tuple[Artist, Artist]] = []
+    legend_labels: list[str] = []
 
-    # Negative, like the backward half of the error panel: the walk starts at
-    # the anchor on the right and runs left, so both panels read the same way.
+    # Negative, like the backward half of the error plot, so both read the same
+    # way: the walk leaves the anchor at zero and runs left.
     positions = -np.arange(1, backward_errors_per_step_count.shape[1] + 1)
     for values_per_step_count, label, color, line_style in (
         (backward_errors_per_step_count, "true error", _BACKWARD_COLOR, "-"),
@@ -123,35 +117,36 @@ def create_replay_error_plot(
             a=values_per_step_count[:, measured_step_count_mask], q=(10, 50, 90), axis=0
         )
         drawing_order = np.argsort(positions[measured_step_count_mask])
-        axes.plot(
+        median_line = plot_area.plot(
             positions[measured_step_count_mask][drawing_order],
             medians[drawing_order],
             color=color,
             linewidth=2.0,
             linestyle=line_style,
-            label=f"{label} median",
-        )
-        axes.fill_between(
+        )[0]
+        percentile_band = plot_area.fill_between(
             positions[measured_step_count_mask][drawing_order],
             low_percentiles[drawing_order],
             high_percentiles[drawing_order],
             color=color,
             alpha=0.15,
             linewidth=0,
-            label=f"{label} 10th-90th percentile",
         )
 
-    axes.set_xlabel(xlabel="steps")
-    axes.set_ylabel(ylabel="normalized state distance")
-    axes.set_yscale(value="log")
-    axes.xaxis.set_major_locator(plt.MaxNLocator(integer=True))
-    # Axis and labels on the right, where the walk starts: zero is the anchor,
-    # and the chain grows to the left away from it.
-    axes.set_xlim(right=0)
-    axes.yaxis.set_label_position(position="right")
-    axes.yaxis.tick_right()
-    axes.legend(loc="upper left")
-    axes.set_title(label="Replay Error vs. True Error")
+        legend_handles.append((percentile_band, median_line))
+        legend_labels.append(label)
+
+    plot_area.set_xlabel(xlabel="steps")
+    plot_area.set_ylabel(ylabel="normalized state distance")
+    plot_area.set_yscale(value="log")
+    plot_area.xaxis.set_major_locator(locator=plt.MaxNLocator(integer=True))
+    plot_area.legend(
+        handles=legend_handles,
+        labels=legend_labels,
+        title="median and 10th-90th percentile",
+        handler_map={tuple: HandlerTuple(ndivide=1)},
+    )
+    plot_area.set_title(label="Replay Error vs. True Error")
     figure.tight_layout()
 
     image = wandb.Image(data_or_path=figure)
