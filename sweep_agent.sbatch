@@ -8,7 +8,7 @@
 #SBATCH --output=/scratch/%u/logs/%x.%A_%a.out
 #SBATCH --array=1-4
 
-# One agent per array task. Each agent pulls runs from the same sweep, so four
+# One agent per array task. Each agent pulls runs from the same sweep, so the
 # array tasks search the space in parallel.
 #
 # Submit with:

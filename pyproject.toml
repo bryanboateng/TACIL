@@ -19,7 +19,7 @@ dependencies = [
     "scikit-learn>=1.8.0",
     "scipy>=1.17.1",
     "scipy-stubs~=1.17.1",
-    "torch>=2.10.0",
+    "torch==2.10.0",
     "tqdm>=4.67.3",
     "tyro>=1.0.13",
     "wandb>=0.27.0",
@@ -37,6 +37,20 @@ dev = [
 # Force it out so only opencv-python-headless provides cv2. The marker is never
 # satisfied, so opencv-python is dropped from resolution entirely.
 override-dependencies = ["opencv-python; sys_platform == 'never'"]
+
+# The default torch wheel is built against CUDA 12.8, which dropped the Pascal
+# architecture. The cluster's idle GPUs are P100 cards, so that wheel refuses to
+# launch a kernel on them. The CUDA 12.6 build still carries sm_50 to sm_90,
+# which covers both the P100 and the A100. The version is pinned so that a
+# later resolve keeps the torch this thesis was run with, and changes only the
+# CUDA build.
+[[tool.uv.index]]
+name = "pytorch-cu126"
+url = "https://download.pytorch.org/whl/cu126"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu126" }
 
 [tool.ruff.format]
 skip-magic-trailing-comma = true
