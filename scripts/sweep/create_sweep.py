@@ -78,7 +78,7 @@ _TACIL_SHARED_PARAMETERS: dict[str, Any] = {
     "augmentation.data.replay_error_limit_step_multiple": {
         "distribution": "log_uniform_values",
         "min": 0.05,
-        "max": 60.0,
+        "max": 120.0,
     },
 }
 
@@ -98,7 +98,7 @@ _TACIL_BOUNDED_PARAMETERS: dict[str, Any] = {
     "augmentation.dynamics.lipschitz_constant_upper_bound": {
         "distribution": "log_uniform_values",
         "min": 1.0,
-        "max": 100.0,
+        "max": 120.0,
     },
 }
 
