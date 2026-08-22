@@ -8,11 +8,7 @@ import tyro
 import wandb
 from rich.pretty import pretty_repr
 
-from scripts.evaluation.core.condition import (
-    Condition,
-    DisturbanceLevel,
-    FloorCondition,
-)
+from scripts.evaluation.core.condition import ALL_CONDITIONS
 from scripts.evaluation.core.renderer import RenderSettings
 from scripts.evaluation.core.rollout import create_environment, roll_out_episodes
 from scripts.evaluation.core.video import (
@@ -46,13 +42,7 @@ def _run(*, config: gpi.Config) -> None:
     fps = get_video_fps()
     policy_factory = _create_policy_factory(config=config)
 
-    conditions = [
-        Condition(floor_condition=floor_condition, disturbance_level=disturbance_level)
-        for floor_condition in FloorCondition
-        for disturbance_level in (None, DisturbanceLevel.LOW, DisturbanceLevel.HIGH)
-    ]
-
-    for condition in itertools.cycle(conditions):
+    for condition in itertools.cycle(ALL_CONDITIONS):
         seed = random.randint(a=0, b=2**31 - 1)
         pygame.display.set_caption(title="Preview")
 

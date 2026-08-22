@@ -6,7 +6,7 @@ import tyro
 import wandb
 from rich.pretty import pretty_repr
 
-from scripts.evaluation.core.condition import Condition
+from scripts.evaluation.core.condition import ALL_CONDITIONS, VALIDATION_CONDITION
 from scripts.evaluation.evaluate_policy import evaluate_policy
 from scripts.policies.gpi import config as gpi_config
 from scripts.policies.gpi.policy import create_geometric_policy_factory
@@ -14,6 +14,7 @@ from scripts.policies.shared.run_config import RunConfig
 from scripts.shared.episode_store import download_episode_store
 from scripts.shared.log import create_logger, log_device_info
 from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
+from scripts.shared.seeding import set_seed
 
 logger = create_logger()
 
@@ -27,10 +28,8 @@ def main() -> None:
 
 
 def _run(*, config: Config) -> None:
-    condition = Condition(
-        floor_condition=config.floor_condition,
-        disturbance_level=config.disturbance_level,
-    )
+    set_seed(seed=config.seed)
+
     device = torch.device(device="cuda" if torch.cuda.is_available() else "cpu")
     log_device_info(device=device, logger=logger)
 
@@ -54,7 +53,12 @@ def _run(*, config: Config) -> None:
                 episode_store=expert_episodes, config=config.policy, device=device
             ),
             policy_label=f"gpi ({run_name})",
-            condition=condition,
+            conditions=(
+                list(ALL_CONDITIONS)
+                if config.evaluate_all_conditions
+                else [VALIDATION_CONDITION]
+            ),
+            seed=config.seed,
             run=run,
         )
         logger.info("Stage 1/1: done.")

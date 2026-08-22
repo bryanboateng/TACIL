@@ -28,3 +28,14 @@ class Condition:
                 case DisturbanceLevel.HIGH:
                     disturbance_label = "high_disturbance"
         return f"{self.floor_condition.name.lower()}_{disturbance_label}"
+
+
+ALL_CONDITIONS: tuple[Condition, ...] = tuple(
+    Condition(floor_condition=floor_condition, disturbance_level=disturbance_level)
+    for floor_condition in FloorCondition
+    for disturbance_level in (None, DisturbanceLevel.LOW, DisturbanceLevel.HIGH)
+)
+
+VALIDATION_CONDITION = Condition(
+    floor_condition=FloorCondition.GRIPPY, disturbance_level=DisturbanceLevel.LOW
+)

@@ -5,11 +5,7 @@ import tyro
 import wandb
 from rich.pretty import pretty_repr
 
-from scripts.evaluation.core.condition import (
-    Condition,
-    DisturbanceLevel,
-    FloorCondition,
-)
+from scripts.evaluation.core.condition import VALIDATION_CONDITION
 from scripts.evaluation.evaluate_policy import STAGE_NAME
 from scripts.shared.log import create_logger
 
@@ -22,8 +18,7 @@ MethodLabel = Literal[
     "tacil-dp-unbounded",
     "tacil-bc-bounded",
     "tacil-bc-unbounded",
-    "ccil-bc-noisy",
-    "ccil-bc-euler",
+    "ccil-bc",
     "gpi",
 ]
 
@@ -32,8 +27,7 @@ METHOD_MODULES: dict[MethodLabel, str] = {
     "tacil-dp-unbounded": "scripts.policies.dp.run",
     "tacil-bc-bounded": "scripts.policies.bc.run",
     "tacil-bc-unbounded": "scripts.policies.bc.run",
-    "ccil-bc-noisy": "scripts.policies.bc.run",
-    "ccil-bc-euler": "scripts.policies.bc.run",
+    "ccil-bc": "scripts.policies.bc.run",
     "gpi": "scripts.policies.gpi.run",
 }
 
@@ -48,11 +42,7 @@ METHOD_FIXED_ARGUMENTS: dict[MethodLabel, list[str]] = {
     "tacil-dp-unbounded": ["augmentation:tacil", _UNBOUNDED_ARGUMENT],
     "tacil-bc-bounded": ["augmentation:tacil"],
     "tacil-bc-unbounded": ["augmentation:tacil", _UNBOUNDED_ARGUMENT],
-    "ccil-bc-noisy": ["augmentation:ccil", "--augmentation.labels.type=noisy_action"],
-    "ccil-bc-euler": [
-        "augmentation:ccil",
-        "--augmentation.labels.type=backward_euler_fast",
-    ],
+    "ccil-bc": ["augmentation:ccil"],
     # GPI has no augmentation stage, but the field is still part of the run
     # config, and tyro asks for every field.
     "gpi": ["--augmentation=None"],
@@ -87,7 +77,7 @@ _TACIL_SHARED_PARAMETERS: dict[str, Any] = {
     # 0.38 at 14) and the sweep has to see both sides of it.
     "augmentation.data.replay_error_limit_step_multiple": {
         "distribution": "log_uniform_values",
-        "min": 0.3,
+        "min": 0.05,
         "max": 60.0,
     },
 }
@@ -131,15 +121,15 @@ METHOD_PARAMETERS: dict[MethodLabel, dict[str, Any]] = {
     "tacil-dp-unbounded": _TACIL_SHARED_PARAMETERS,
     "tacil-bc-bounded": _TACIL_BOUNDED_PARAMETERS,
     "tacil-bc-unbounded": _TACIL_SHARED_PARAMETERS,
-    "ccil-bc-noisy": {
+    "ccil-bc": {
         **_CCIL_SHARED_PARAMETERS,
+        "augmentation.labels.type": {"values": ["noisy_action", "backward_euler_fast"]},
         "augmentation.labels.action_noise_std": {
             "distribution": "log_uniform_values",
             "min": 1e-5,
             "max": 10.0,
         },
     },
-    "ccil-bc-euler": _CCIL_SHARED_PARAMETERS,
     "gpi": {
         "policy.progression_weight": {
             "distribution": "log_uniform_values",
@@ -151,7 +141,7 @@ METHOD_PARAMETERS: dict[MethodLabel, dict[str, Any]] = {
             "min": 0.1,
             "max": 10.0,
         },
-        "policy.plan_length": {"distribution": "int_uniform", "min": 1, "max": 16},
+        "policy.plan_length": {"distribution": "int_uniform", "min": 1, "max": 32},
     },
 }
 
@@ -161,8 +151,6 @@ class Config:
     project_prefix: str
     dataset_percentage: int
     method: MethodLabel
-    floor_condition: FloorCondition
-    disturbance_level: DisturbanceLevel | None
 
     seed: int
 
@@ -175,15 +163,12 @@ def main() -> None:
     config = tyro.cli(f=Config, config=[tyro.conf.UsePythonSyntaxForLiteralCollections])
     logger.info(pretty_repr(config))
 
-    condition = Condition(
-        floor_condition=config.floor_condition,
-        disturbance_level=config.disturbance_level,
+    project = (
+        f"{config.project_prefix}-{config.dataset_percentage}-{config.method}"
+        f"-{VALIDATION_CONDITION.label}"
     )
-    project = f"{config.project_prefix}-{config.dataset_percentage}-{config.method}-{condition.label}"
 
-    sweep_configuration = _build_sweep_configuration(
-        config=config, condition=condition, project=project
-    )
+    sweep_configuration = _build_sweep_configuration(config=config, project=project)
     logger.info(pretty_repr(sweep_configuration))
 
     sweep_id = wandb.sweep(
@@ -193,15 +178,13 @@ def main() -> None:
     logger.info("Sweep path: %s", f"{config.entity}/{project}/{sweep_id}")
 
 
-def _build_sweep_configuration(
-    *, config: Config, condition: Condition, project: str
-) -> dict[str, Any]:
+def _build_sweep_configuration(*, config: Config, project: str) -> dict[str, Any]:
     pipeline_module = METHOD_MODULES[config.method]
     return {
         "program": pipeline_module.replace(".", "/") + ".py",
         "method": config.sweep_method,
         "metric": {
-            "name": f"{STAGE_NAME}/{condition.label}/reward_mean",
+            "name": f"{STAGE_NAME}/{VALIDATION_CONDITION.label}/reward_mean",
             "goal": "maximize",
         },
         "command": [
@@ -211,8 +194,6 @@ def _build_sweep_configuration(
             pipeline_module,
             f"--wandb-project={project}",
             f"--expert-dataset-artifact=datasets/dataset-{config.dataset_percentage}:latest",
-            f"--floor-condition={config.floor_condition.name}",
-            f"--disturbance-level={'None' if config.disturbance_level is None else config.disturbance_level.name}",
             f"--seed={config.seed}",
             # Indexed, not `.get`: a method missing here is a mistake, and a
             # silent empty default hides it until the sweep agent fails.

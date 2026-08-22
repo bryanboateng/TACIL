@@ -8,7 +8,7 @@ from torch import nn as nn
 from tqdm.auto import tqdm
 from wandb import Run
 
-from scripts.evaluation.core.condition import Condition
+from scripts.evaluation.core.condition import VALIDATION_CONDITION
 from scripts.evaluation.core.scoring import reward_statistics, run_scored_episodes
 from scripts.policies.dp.config import Config
 from scripts.policies.dp.dataset import Dataset
@@ -32,7 +32,6 @@ def train_diffusion_policy(
     config: Config,
     expert_episodes: EpisodeStore,
     augmented_episodes: EpisodeStore | None,
-    condition: Condition,
     seed: int,
     device: torch.device,
     run: Run,
@@ -177,7 +176,7 @@ def train_diffusion_policy(
                         ),
                         start_episode_seed=100_000,
                         episode_count=config.validation.episode_count,
-                        condition=condition,
+                        condition=VALIDATION_CONDITION,
                     )
                 )
         finally:

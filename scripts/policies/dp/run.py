@@ -8,7 +8,7 @@ from rich.pretty import pretty_repr
 
 from scripts.data.augmentation.tacil import augmentation as tacil
 from scripts.data.augmentation.tacil.augmentation import TacilConfig
-from scripts.evaluation.core.condition import Condition
+from scripts.evaluation.core.condition import ALL_CONDITIONS, VALIDATION_CONDITION
 from scripts.evaluation.evaluate_policy import evaluate_policy
 from scripts.policies.dp import config as policy_config
 from scripts.policies.dp.policy import create_diffusion_policy_factory
@@ -31,10 +31,6 @@ def main() -> None:
 
 
 def _run(*, config: Config) -> None:
-    condition = Condition(
-        floor_condition=config.floor_condition,
-        disturbance_level=config.disturbance_level,
-    )
     device = torch.device(device="cuda" if torch.cuda.is_available() else "cpu")
     log_device_info(device=device, logger=logger)
 
@@ -78,7 +74,6 @@ def _run(*, config: Config) -> None:
             config=config.policy,
             expert_episodes=expert_episodes,
             augmented_episodes=augmented_episodes,
-            condition=condition,
             seed=config.seed,
             device=device,
             run=run,
@@ -94,7 +89,12 @@ def _run(*, config: Config) -> None:
                 device=device,
             ),
             policy_label=f"dp ({run_name})",
-            condition=condition,
+            conditions=(
+                list(ALL_CONDITIONS)
+                if config.evaluate_all_conditions
+                else [VALIDATION_CONDITION]
+            ),
+            seed=config.seed,
             run=run,
         )
         logger.info("Stage 3/3: done.")

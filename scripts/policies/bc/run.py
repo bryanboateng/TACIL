@@ -12,7 +12,7 @@ from scripts.data.augmentation.ccil import augmentation as ccil
 from scripts.data.augmentation.ccil.config import CcilConfig
 from scripts.data.augmentation.tacil import augmentation as tacil
 from scripts.data.augmentation.tacil.augmentation import TacilConfig
-from scripts.evaluation.core.condition import Condition
+from scripts.evaluation.core.condition import ALL_CONDITIONS, VALIDATION_CONDITION
 from scripts.evaluation.evaluate_policy import evaluate_policy
 from scripts.policies.bc import config as bc_config
 from scripts.policies.bc.policy import create_behavior_cloning_policy_factory
@@ -39,10 +39,6 @@ def main() -> None:
 
 
 def _run(*, config: Config) -> None:
-    condition = Condition(
-        floor_condition=config.floor_condition,
-        disturbance_level=config.disturbance_level,
-    )
     device = torch.device(device="cuda" if torch.cuda.is_available() else "cpu")
     log_device_info(device=device, logger=logger)
 
@@ -89,7 +85,6 @@ def _run(*, config: Config) -> None:
         policy_model = train_behavior_cloning_policy(
             config=config.policy,
             transitions=transitions,
-            condition=condition,
             seed=config.seed,
             device=device,
             run=run,
@@ -102,7 +97,12 @@ def _run(*, config: Config) -> None:
                 policy_model=policy_model, device=device
             ),
             policy_label=f"bc ({run_name})",
-            condition=condition,
+            conditions=(
+                list(ALL_CONDITIONS)
+                if config.evaluate_all_conditions
+                else [VALIDATION_CONDITION]
+            ),
+            seed=config.seed,
             run=run,
         )
         logger.info("Stage 3/3: done.")

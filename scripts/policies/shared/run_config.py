@@ -1,7 +1,5 @@
 from dataclasses import dataclass
 
-from scripts.evaluation.core.condition import DisturbanceLevel, FloorCondition
-
 
 @dataclass(frozen=True)
 class RunConfig[PolicyConfigT, AugmentationT]:
@@ -9,10 +7,9 @@ class RunConfig[PolicyConfigT, AugmentationT]:
 
     wandb_project: str
 
-    floor_condition: FloorCondition
-    disturbance_level: DisturbanceLevel | None
-
     expert_dataset_artifact: str
 
     policy: PolicyConfigT
     augmentation: AugmentationT | None
+
+    evaluate_all_conditions: bool = False

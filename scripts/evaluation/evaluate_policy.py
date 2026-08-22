@@ -41,27 +41,39 @@ STAGE_NAME = "4_evaluation"
 
 
 def evaluate_policy(
-    *, policy_factory: PolicyFactory, policy_label: str, condition: Condition, run: Run
+    *,
+    policy_factory: PolicyFactory,
+    policy_label: str,
+    conditions: list[Condition],
+    seed: int,
+    run: Run,
 ) -> None:
-    episode_records = run_scored_episodes(
-        policy_factory=policy_factory,
-        start_episode_seed=1_000_000,
-        episode_count=100,
-        condition=condition,
-    )
+    start_episode_seed = 2_000_000 + seed * 10_000
+    run.summary[f"{STAGE_NAME}/start_episode_seed"] = start_episode_seed
 
-    _write_summary(
-        run=run,
-        condition=condition,
-        reward=reward_statistics(episode_records),
-        success=success_statistics(episode_records),
-    )
-    _log_video(
-        policy_label=policy_label,
-        condition=condition,
-        episode_records=pick_representative_episodes(episode_records=episode_records),
-        run=run,
-    )
+    for condition in conditions:
+        logger.info("Scoring the policy in %s.", condition.label)
+        episode_records = run_scored_episodes(
+            policy_factory=policy_factory,
+            start_episode_seed=start_episode_seed,
+            episode_count=100,
+            condition=condition,
+        )
+
+        _write_summary(
+            run=run,
+            condition=condition,
+            reward=reward_statistics(episode_records),
+            success=success_statistics(episode_records),
+        )
+        _log_video(
+            policy_label=policy_label,
+            condition=condition,
+            episode_records=pick_representative_episodes(
+                episode_records=episode_records
+            ),
+            run=run,
+        )
 
 
 def _write_summary(
