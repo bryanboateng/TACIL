@@ -163,10 +163,7 @@ def main() -> None:
     config = tyro.cli(f=Config, config=[tyro.conf.UsePythonSyntaxForLiteralCollections])
     logger.info(pretty_repr(config))
 
-    project = (
-        f"{config.project_prefix}-{config.dataset_percentage}-{config.method}"
-        f"-{VALIDATION_CONDITION.label}"
-    )
+    project = f"{config.project_prefix}-{config.dataset_percentage}-{config.method}"
 
     sweep_configuration = _build_sweep_configuration(config=config, project=project)
     logger.info(pretty_repr(sweep_configuration))
