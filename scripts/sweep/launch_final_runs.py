@@ -74,9 +74,11 @@ def main() -> None:
                 f"--wandb-project={final_project}",
                 f"--expert-dataset-artifact=datasets/dataset-{config.dataset_percentage}:latest",
                 f"--seed={seed}",
+                # Top-level option: it must precede the augmentation subcommand,
+                # or tyro reads it as a (missing) option of that subcommand.
+                "--evaluate-all-conditions",
                 *METHOD_FIXED_ARGUMENTS[config.method],
                 *swept_arguments,
-                "--evaluate-all-conditions",
             ]
             print(" ".join(command))
 
