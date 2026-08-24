@@ -29,7 +29,7 @@ class Config:
     sweep_id: str
 
     project_prefix: str = "2026-08-22"
-    final_project_prefix: str = "2026-08-24-final"
+    final_project: str = "2026-08-24-final"
     entity: str = "bryanboateng-team"
 
     top_k: int = 3
@@ -59,9 +59,7 @@ def main() -> None:
             config.top_k,
         )
 
-    final_project = (
-        f"{config.final_project_prefix}-{config.dataset_percentage}-{config.method}"
-    )
+    final_project = config.final_project
     module = METHOD_MODULES[config.method]
 
     for run in ranked[: config.top_k]:
