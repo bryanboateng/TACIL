@@ -55,13 +55,18 @@ def main() -> None:
             continue
         method = next((t for t in run.tags if "pct" not in t), None)
         pct = next((t for t in run.tags if "pct" in t), None)
-        if method not in METHOD_PARAMETERS:
+        if method in METHOD_PARAMETERS:
+            config_key = tuple(
+                (key, round(value, 6) if isinstance(value, float) else value)
+                for key in METHOD_PARAMETERS[method]
+                for value in [_get_param(run.config, key)]
+            )
+        elif method is not None and method.endswith("-noaug"):
+            # No augmentation means no swept hyperparameters, so all seeds of a
+            # baseline are one group.
+            config_key = ()
+        else:
             continue
-        config_key = tuple(
-            (key, round(value, 6) if isinstance(value, float) else value)
-            for key in METHOD_PARAMETERS[method]
-            for value in [_get_param(run.config, key)]
-        )
         group = (pct, method, config_key)
         group_config[group] = dict(config_key)
         for condition in ALL_CONDITIONS:
