@@ -4,6 +4,9 @@ from dataclasses import dataclass
 import torch
 from tqdm import tqdm
 
+from scripts.data.augmentation.tacil.create_data.episode_assembly import (
+    SyntheticTrajectories,
+)
 from scripts.data.augmentation.tacil.create_data.inverse_dynamics import (
     solve_inverse_dynamics,
 )
@@ -21,6 +24,34 @@ class BackwardTrajectories:
     @property
     def start_index_batch(self) -> torch.Tensor:  # (anchor_count,)
         return torch.cumsum(input=self.step_count_batch, dim=0) - self.step_count_batch
+
+    def to_temporal_order(self) -> SyntheticTrajectories:
+        """Reverse each chain: the walk found predecessors anchor-first, but a
+        training episode runs the other way, toward the anchor."""
+        step_count_batch = self.step_count_batch
+        start_index_batch = self.start_index_batch
+        device = step_count_batch.device
+
+        chain_index_per_step = torch.repeat_interleave(
+            input=torch.arange(len(step_count_batch), device=device),
+            repeats=step_count_batch,
+        )  # (total_step_count,)
+        position_in_chain = (
+            torch.arange(len(chain_index_per_step), device=device)
+            - start_index_batch[chain_index_per_step]
+        )  # (total_step_count,)
+        source_index = (
+            start_index_batch[chain_index_per_step]
+            + step_count_batch[chain_index_per_step]
+            - 1
+            - position_in_chain
+        )  # (total_step_count,)
+
+        return SyntheticTrajectories(
+            states=self.predecessor_states[source_index],
+            actions=self.predecessor_actions[source_index],
+            step_count_batch=step_count_batch,
+        )
 
 
 @dataclass(frozen=True)

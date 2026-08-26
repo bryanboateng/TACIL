@@ -1,5 +1,3 @@
-from dataclasses import replace
-
 import numpy as np
 import torch
 from numpy import typing as npt
@@ -10,9 +8,6 @@ from scripts.data.augmentation.tacil.create_data.anchor_selection import (
 )
 from scripts.data.augmentation.tacil.create_data.backward_rollout import (
     roll_out_backward,
-)
-from scripts.data.augmentation.tacil.create_data.gpi_labeling import (
-    relabel_synthetic_actions,
 )
 from scripts.data.augmentation.tacil.create_data.config import DataConfig
 from scripts.data.augmentation.tacil.create_data.episode_assembly import (
@@ -95,22 +90,8 @@ def create_augmented_data(
             "run's name, so the run stops here instead."
         )
 
-    # The rollout shaped which states were invented; optionally replace their
-    # anchor-action labels with GPI's geometric recovery action.
-    if config.use_gpi_labels:
-        backward_trajectories = replace(
-            backward_trajectories,
-            predecessor_actions=relabel_synthetic_actions(
-                synthetic_state_batch=backward_trajectories.predecessor_states,
-                expert_episode_store=episode_store,
-                progression_weight=config.gpi_progression_weight,
-                attraction_weight=config.gpi_attraction_weight,
-                device=device,
-            ),
-        )
-
     augmentation_result = create_augmented_episodes(
-        backward_trajectories=backward_trajectories,
+        synthetic_trajectories=backward_trajectories.to_temporal_order(),
         episode_store=episode_store,
         anchor_indices=anchor_indices,
         expert_part_length=expert_part_length,

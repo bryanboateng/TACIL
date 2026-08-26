@@ -6,6 +6,8 @@ import tyro
 import wandb
 from rich.pretty import pretty_repr
 
+from scripts.data.augmentation.recovery import augmentation as recovery
+from scripts.data.augmentation.recovery.augmentation import RecoveryConfig
 from scripts.data.augmentation.tacil import augmentation as tacil
 from scripts.data.augmentation.tacil.augmentation import TacilConfig
 from scripts.evaluation.core.condition import ALL_CONDITIONS, VALIDATION_CONDITION
@@ -20,7 +22,10 @@ from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
 
 logger = create_logger()
 
-Augmentation: TypeAlias = Annotated[TacilConfig, tyro.conf.subcommand(name="tacil")]
+Augmentation: TypeAlias = (
+    Annotated[TacilConfig, tyro.conf.subcommand(name="tacil")]
+    | Annotated[RecoveryConfig, tyro.conf.subcommand(name="recovery")]
+)
 Config: TypeAlias = RunConfig[policy_config.Config, Augmentation]
 
 
@@ -49,24 +54,35 @@ def _run(*, config: Config) -> None:
         )
 
         logger.info("Stage 1/3: creating the augmented episodes.")
-        if config.augmentation is None:
-            augmented_episodes = None
-            logger.info("Stage 1/3: skipped, no augmentation configured.")
-        else:
-            augmented_episodes = tacil.augment(
-                config=config.augmentation,
-                expert_episodes=expert_episodes,
-                # The policy trains on windows of `prediction` steps. The expert
-                # steps let the last windows run from synthetic states into
-                # recorded ones, which is what teaches the policy how to get back
-                # on track. One step fewer than a full window keeps every window
-                # starting on a synthetic state. More would add windows that hold
-                # expert steps only, and those just repeat data the policy already has.
-                expert_part_length=config.policy.horizon_lengths.prediction - 1,
-                seed=config.seed,
-                device=device,
-                run=run,
-            )
+        # The policy trains on windows of `prediction` steps. The expert
+        # steps let the last windows run from synthetic states into
+        # recorded ones, which is what teaches the policy how to get back
+        # on track. One step fewer than a full window keeps every window
+        # starting on a synthetic state. More would add windows that hold
+        # expert steps only, and those just repeat data the policy already has.
+        expert_part_length = config.policy.horizon_lengths.prediction - 1
+        match config.augmentation:
+            case None:
+                augmented_episodes = None
+                logger.info("Stage 1/3: skipped, no augmentation configured.")
+            case TacilConfig() as tacil_configuration:
+                augmented_episodes = tacil.augment(
+                    config=tacil_configuration,
+                    expert_episodes=expert_episodes,
+                    expert_part_length=expert_part_length,
+                    seed=config.seed,
+                    device=device,
+                    run=run,
+                )
+            case RecoveryConfig() as recovery_configuration:
+                augmented_episodes = recovery.augment(
+                    config=recovery_configuration,
+                    expert_episodes=expert_episodes,
+                    expert_part_length=expert_part_length,
+                    seed=config.seed,
+                    device=device,
+                    run=run,
+                )
         logger.info("Stage 1/3: done.")
 
         logger.info("Stage 2/3: training the diffusion policy.")

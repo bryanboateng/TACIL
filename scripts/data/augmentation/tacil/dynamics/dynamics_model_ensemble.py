@@ -52,10 +52,22 @@ class DynamicsModelEnsemble(torch.nn.Module):
             dim=0,
         )  # (member_count, batch_size, state_dimensionality)
 
+        return self.endpoint_deviation(
+            per_member_state_batch=per_member_end_state_batch,
+            target_state_batch=end_state_batch,
+        )
+
+    @torch.no_grad()
+    def endpoint_deviation(
+        self,
+        *,
+        per_member_state_batch: torch.Tensor,  # (member_count, batch_size, state_dimensionality)  # noqa: E501
+        target_state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
+    ) -> torch.Tensor:  # (batch_size,)
         per_member_deviation_batch = self.state_normalizer.normalize_difference(
             difference_batch=subtract_states(
-                minuend_batch=per_member_end_state_batch,
-                subtrahend_batch=end_state_batch.unsqueeze(dim=0),
+                minuend_batch=per_member_state_batch,
+                subtrahend_batch=target_state_batch.unsqueeze(dim=0),
             )
         )  # (member_count, batch_size, state_dimensionality)
 

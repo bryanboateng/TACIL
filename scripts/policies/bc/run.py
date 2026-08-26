@@ -10,6 +10,8 @@ from wandb import Run
 
 from scripts.data.augmentation.ccil import augmentation as ccil
 from scripts.data.augmentation.ccil.config import CcilConfig
+from scripts.data.augmentation.recovery import augmentation as recovery
+from scripts.data.augmentation.recovery.augmentation import RecoveryConfig
 from scripts.data.augmentation.tacil import augmentation as tacil
 from scripts.data.augmentation.tacil.augmentation import TacilConfig
 from scripts.evaluation.core.condition import ALL_CONDITIONS, VALIDATION_CONDITION
@@ -28,6 +30,7 @@ logger = create_logger()
 Augmentation: TypeAlias = (
     Annotated[TacilConfig, tyro.conf.subcommand(name="tacil")]
     | Annotated[CcilConfig, tyro.conf.subcommand(name="ccil")]
+    | Annotated[RecoveryConfig, tyro.conf.subcommand(name="recovery")]
 )
 Config: TypeAlias = RunConfig[bc_config.Config, Augmentation]
 
@@ -138,6 +141,20 @@ def _create_synthetic_transitions(
             )
             return TransitionBatch(
                 states=tacil_episodes.states, actions=tacil_episodes.actions
+            )
+        case RecoveryConfig() as recovery_configuration:
+            recovery_episodes = recovery.augment(
+                config=recovery_configuration,
+                expert_episodes=expert_episodes,
+                # Behavior cloning trains on single (state, action) pairs, not
+                # windows, so no expert part is needed.
+                expert_part_length=0,
+                seed=seed,
+                device=device,
+                run=run,
+            )
+            return TransitionBatch(
+                states=recovery_episodes.states, actions=recovery_episodes.actions
             )
 
 

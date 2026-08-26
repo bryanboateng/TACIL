@@ -4,10 +4,24 @@ import numpy as np
 import numpy.typing as npt
 import torch
 
-from scripts.data.augmentation.tacil.create_data.backward_rollout import (
-    BackwardTrajectories,
-)
 from scripts.shared.episode_store import EpisodeStore
+
+
+@dataclass(frozen=True)
+class SyntheticTrajectories:
+    """Invented chains, stored flat, one slice per anchor.
+
+    Each chain is in temporal order: its first step is the state farthest
+    from the anchor, its last action leads (per the model) to the anchor.
+    """
+
+    states: torch.Tensor  # (total_step_count, state_dimensionality)
+    actions: torch.Tensor  # (total_step_count, action_dimensionality)
+    step_count_batch: torch.Tensor  # (anchor_count,)
+
+    @property
+    def start_index_batch(self) -> torch.Tensor:  # (anchor_count,)
+        return torch.cumsum(input=self.step_count_batch, dim=0) - self.step_count_batch
 
 
 @dataclass(frozen=True)
@@ -25,13 +39,13 @@ class AugmentationResult:
 @torch.no_grad()
 def create_augmented_episodes(
     *,
-    backward_trajectories: BackwardTrajectories,
+    synthetic_trajectories: SyntheticTrajectories,
     episode_store: EpisodeStore,
     anchor_indices: npt.NDArray[np.int64],  # (anchor_count,)
     expert_part_length: int,
 ) -> AugmentationResult:
     synthetic_part_lengths: npt.NDArray[np.int64] = (
-        backward_trajectories.step_count_batch.cpu().numpy()
+        synthetic_trajectories.step_count_batch.cpu().numpy()
     )  # (anchor_count,)
     accepted_anchor_count = int((synthetic_part_lengths > 0).sum())
     empty_anchor_count = int(synthetic_part_lengths.shape[0]) - accepted_anchor_count
@@ -46,10 +60,10 @@ def create_augmented_episodes(
     augmented_episode_store = _assemble_episodes(
         expert_states=episode_store.states,
         expert_actions=episode_store.actions,
-        synthetic_states=backward_trajectories.predecessor_states.cpu().numpy(),
-        synthetic_actions=backward_trajectories.predecessor_actions.cpu().numpy(),
+        synthetic_states=synthetic_trajectories.states.cpu().numpy(),
+        synthetic_actions=synthetic_trajectories.actions.cpu().numpy(),
         synthetic_part_start_index_batch=(
-            backward_trajectories.start_index_batch.cpu().numpy()
+            synthetic_trajectories.start_index_batch.cpu().numpy()
         ),
         synthetic_part_length_batch=synthetic_part_lengths,
         anchor_index_batch=np.asarray(anchor_indices, dtype=np.int64),
@@ -100,32 +114,23 @@ def _assemble_episodes(
             synthetic_part_start_index + synthetic_part_length,
         )
 
-        # Synthetic prefix in temporal order = predecessors reversed.
-        time_ascending_synthetic_state_trajectory = synthetic_states[
+        synthetic_state_trajectory = synthetic_states[
             synthetic_part_slice
-        ][::-1]  # (synthetic_part_length, state_dimensionality)
-        time_ascending_synthetic_action_trajectory = synthetic_actions[
+        ]  # (synthetic_part_length, state_dimensionality)
+        synthetic_action_trajectory = synthetic_actions[
             synthetic_part_slice
-        ][::-1]  # (synthetic_part_length, action_dimensionality)
+        ]  # (synthetic_part_length, action_dimensionality)
 
         expert_part_slice = slice(anchor_index, anchor_index + expert_part_length)
 
         state_trajectories_per_episode.append(
             np.concatenate(
-                [
-                    time_ascending_synthetic_state_trajectory,
-                    expert_states[expert_part_slice],
-                ],
-                axis=0,
+                [synthetic_state_trajectory, expert_states[expert_part_slice]], axis=0
             )
         )
         action_trajectories_per_episode.append(
             np.concatenate(
-                [
-                    time_ascending_synthetic_action_trajectory,
-                    expert_actions[expert_part_slice],
-                ],
-                axis=0,
+                [synthetic_action_trajectory, expert_actions[expert_part_slice]], axis=0
             )
         )
         episode_lengths.append(int(synthetic_part_length) + expert_part_length)
