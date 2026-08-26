@@ -4,12 +4,11 @@ import numpy as np
 import torch
 from numpy import typing as npt
 
+from scripts.environments.gpi_geometry import GpiGeometry
 from scripts.policies.gpi.config import Config
 from scripts.policies.gpi.demonstrations import Demonstrations
-from scripts.policies.gpi.geometry import convert_actions_to_world_frame
 from scripts.shared.episode_store import EpisodeStore
 from scripts.shared.policy_types import Policy, PolicyFactory
-from scripts.shared.pusht_state import AGENT_POSITION_SLICE
 
 
 @dataclass
@@ -22,9 +21,15 @@ class _EpisodeState:
 
 
 def create_geometric_policy_factory(
-    *, episode_store: EpisodeStore, config: Config, device: torch.device
+    *,
+    episode_store: EpisodeStore,
+    geometry: GpiGeometry,
+    config: Config,
+    device: torch.device,
 ) -> PolicyFactory:
-    demonstrations = Demonstrations(episode_store=episode_store, device=device)
+    demonstrations = Demonstrations(
+        episode_store=episode_store, geometry=geometry, device=device
+    )
 
     def create_policy(*, episode_seeds: list[int]) -> Policy:
         episode_states = [
@@ -46,6 +51,7 @@ def create_geometric_policy_factory(
                         device=device, dtype=torch.float32
                     ),
                     demonstrations=demonstrations,
+                    geometry=geometry,
                     episode_state=episode_states[episode_index],
                     config=config,
                 )
@@ -64,6 +70,7 @@ def _calculate_action(
     *,
     observation: torch.Tensor,
     demonstrations: Demonstrations,
+    geometry: GpiGeometry,
     episode_state: _EpisodeState,
     config: Config,
 ) -> npt.NDArray[np.float32]:  # (action_dimensionality,)
@@ -91,16 +98,28 @@ def _calculate_action(
 
     recorded_observation, recorded_action = demonstrations.read_step(index=step_index)
 
-    agent_target = _calculate_agent_target(
-        recorded_position=recorded_observation[AGENT_POSITION_SLICE],  # (2,)
-        recorded_action=recorded_action,  # (2,)
-        current_position=noisy_observation[AGENT_POSITION_SLICE],  # (2,)
+    state_slice = geometry.agent_position_slice
+    action_slice = geometry.action_position_slice
+
+    # Only the entries that name a position are steered. Any others, such as a
+    # gripper opening, are taken from the recorded step as they are. That is
+    # what the reference does too, at GPI/gpi/policies/state.py:99, where the
+    # whole recorded action is copied and only its first two entries are
+    # overwritten.
+    action = recorded_action.clone()  # (action_dimensionality,), normalized
+    action[action_slice] = _calculate_agent_target(
+        recorded_position=recorded_observation[state_slice],
+        recorded_action=recorded_action[action_slice],
+        current_position=noisy_observation[state_slice],
         progression_weight=config.progression_weight,
         attraction_weight=config.attraction_weight,
-    )  # (2,), normalized
+    )
 
     return _convert_to_world_action(
-        action=agent_target, observation=observation, demonstrations=demonstrations
+        action=action,
+        observation=observation,
+        demonstrations=demonstrations,
+        geometry=geometry,
     )
 
 
@@ -142,25 +161,25 @@ def _take_next_step_index(
 
 def _calculate_agent_target(
     *,
-    recorded_position: torch.Tensor,  # (2,)
-    recorded_action: torch.Tensor,  # (2,)
-    current_position: torch.Tensor,  # (2,)
+    recorded_position: torch.Tensor,  # (agent_position_dimensionality,)
+    recorded_action: torch.Tensor,  # (agent_position_dimensionality,)
+    current_position: torch.Tensor,  # (agent_position_dimensionality,)
     progression_weight: float,
     attraction_weight: float,
-) -> torch.Tensor:  # (2,), normalized
+) -> torch.Tensor:  # (agent_position_dimensionality,), normalized
     # The action is read in the block frame, the two positions in the world
     # frame. Do not "correct" this. It is what the reference does, at
     # GPI/gpi/policies/state.py:99, because its dataset converts only the
     # action (GPI/pusht/datasets.py:68). The paper converts the agent position
     # as well (equations 16 and 17), so the reference diverges from it. The
     # baseline is ported from the code, not from the paper.
-    progression_flow = recorded_action - recorded_position  # (2,)
-    attraction_flow = recorded_position - current_position  # (2,)
+    progression_flow = recorded_action - recorded_position
+    attraction_flow = recorded_position - current_position
     return (
         current_position
         + progression_weight * progression_flow
         + attraction_weight * attraction_flow
-    )  # (2,)
+    )
 
 
 def _convert_to_world_action(
@@ -168,9 +187,10 @@ def _convert_to_world_action(
     action: torch.Tensor,  # (action_dimensionality,)
     observation: torch.Tensor,  # (state_dimensionality,)
     demonstrations: Demonstrations,
+    geometry: GpiGeometry,
 ) -> npt.NDArray[np.float32]:  # (action_dimensionality,)
     return (
-        convert_actions_to_world_frame(
+        geometry.convert_actions_to_world_frame(
             observation_batch=observation.unsqueeze(dim=0),
             action_batch=demonstrations.denormalize_actions(
                 action_batch=action.unsqueeze(dim=0)

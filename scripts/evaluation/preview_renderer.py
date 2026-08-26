@@ -8,14 +8,10 @@ import tyro
 import wandb
 from rich.pretty import pretty_repr
 
-from scripts.evaluation.core.condition import ALL_CONDITIONS
-from scripts.evaluation.core.renderer import RenderSettings
-from scripts.evaluation.core.rollout import create_environment, roll_out_episodes
-from scripts.evaluation.core.video import (
-    FREEZE_SECONDS,
-    get_video_fps,
-    render_episode_surfaces,
-)
+from scripts.environments.conditions import ALL_CONDITIONS
+from scripts.environments.pusht.environment import PushTEnvironment
+from scripts.environments.pusht.video import render_episode_surfaces
+from scripts.evaluation.core.rollout import roll_out_episodes
 from scripts.policies.gpi import config as gpi
 from scripts.policies.gpi.policy import create_geometric_policy_factory
 from scripts.shared.episode_store import read_episode_store
@@ -23,6 +19,9 @@ from scripts.shared.log import create_logger, log_device_info
 from scripts.shared.policy_types import PolicyFactory
 
 RENDER_SIZE = 600
+
+# How long the last frame of an episode is held, matching the recorded videos.
+FREEZE_SECONDS = 2
 
 
 logger = create_logger()
@@ -39,16 +38,16 @@ def _run(*, config: gpi.Config) -> None:
     screen = pygame.display.set_mode(size=(RENDER_SIZE, RENDER_SIZE))
     clock = pygame.time.Clock()
 
-    fps = get_video_fps()
+    push_t_environment = PushTEnvironment()
+    fps = push_t_environment.video_frames_per_second
     policy_factory = _create_policy_factory(config=config)
 
     for condition in itertools.cycle(ALL_CONDITIONS):
         seed = random.randint(a=0, b=2**31 - 1)
         pygame.display.set_caption(title="Preview")
 
-        environment = create_environment(
-            condition=condition,
-            render_settings=RenderSettings(size=RENDER_SIZE, supersample_factor=1),
+        environment = push_t_environment.create_gym_environment(
+            condition=condition, render=True
         )
         try:
             (episode_record,) = roll_out_episodes(
@@ -89,6 +88,7 @@ def _create_policy_factory(config: gpi.Config) -> PolicyFactory:
                 Path(wandb.Api().artifact(name=dataset_artifact).download())
             )
         ),
+        geometry=PushTEnvironment().gpi_geometry,
         config=config,
         device=device,
     )

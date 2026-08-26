@@ -10,7 +10,7 @@ from gymnasium.spaces import Box
 from matplotlib import pyplot as plt
 from pymunk import Body, Vec2d
 
-from scripts.evaluation.core.disturbance import DisturbanceWrapper
+from scripts.environments.pusht.disturbance import DisturbanceWrapper
 
 
 @dataclass(frozen=True)

@@ -3,13 +3,15 @@ name = "imitation-learning-and-data-control-augmentation"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = ">=3.12"
 dependencies = [
     "diffusers>=0.37.1",
     "gym-pusht>=0.1.6",
     "gymnasium>=1.2.3",
+    "h5py>=3.16.0",
     "imageio>=2.37.3",
     "imageio-ffmpeg>=0.6.0",
+    "mani-skill>=3.0.1",
     "matplotlib>=3.10.9",
     "numpy>=2.4.3",
     "opencv-python-headless>=4.13.0.92,<5",

@@ -5,7 +5,8 @@ import tyro
 import wandb
 from rich.pretty import pretty_repr
 
-from scripts.evaluation.core.condition import VALIDATION_CONDITION
+from scripts.environments.conditions import VALIDATION_CONDITION
+from scripts.environments.registry import EnvironmentName
 from scripts.evaluation.evaluate_policy import STAGE_NAME
 from scripts.shared.log import create_logger
 
@@ -156,6 +157,8 @@ class Config:
 
     sweep_method: SearchLabel = "bayes"
 
+    environment: EnvironmentName = EnvironmentName.PUSHT
+
     entity: str = "bryanboateng-team"
 
 
@@ -190,6 +193,7 @@ def _build_sweep_configuration(*, config: Config, project: str) -> dict[str, Any
             "-m",
             pipeline_module,
             f"--wandb-project={project}",
+            f"--environment={config.environment.name}",
             f"--expert-dataset-artifact=datasets/dataset-{config.dataset_percentage}:latest",
             f"--seed={config.seed}",
             # Indexed, not `.get`: a method missing here is a mistake, and a

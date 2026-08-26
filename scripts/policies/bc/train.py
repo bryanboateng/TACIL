@@ -6,7 +6,8 @@ from torch.utils.data import DataLoader
 from tqdm.auto import tqdm
 from wandb import Run
 
-from scripts.evaluation.core.condition import VALIDATION_CONDITION
+from scripts.environments.conditions import VALIDATION_CONDITION
+from scripts.environments.environment import Environment
 from scripts.evaluation.core.scoring import reward_statistics, run_scored_episodes
 from scripts.policies.bc.config import Config
 from scripts.policies.bc.dataset import Dataset
@@ -29,6 +30,7 @@ STEP_METRIC_NAME = f"{STAGE_NAME}/step"
 
 def train_behavior_cloning_policy(
     *,
+    environment: Environment,
     config: Config,
     transitions: TransitionBatch,
     seed: int,
@@ -128,6 +130,7 @@ def train_behavior_cloning_policy(
                 policy_factory=create_behavior_cloning_policy_factory(
                     policy_model=policy_model, device=device
                 ),
+                environment=environment,
                 start_episode_seed=100_000,
                 episode_count=config.validation.episode_count,
                 condition=VALIDATION_CONDITION,

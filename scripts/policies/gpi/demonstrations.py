@@ -1,21 +1,26 @@
 import numpy as np
 import torch
 
-from scripts.policies.gpi.geometry import (
-    calculate_observation_distances,
-    convert_actions_to_block_frame,
-)
+from scripts.environments.gpi_geometry import GpiGeometry
 from scripts.shared.episode_store import EpisodeStore
 from scripts.shared.normalization import MinMaxNormalizer
 
 
 class Demonstrations:
-    def __init__(self, *, episode_store: EpisodeStore, device: torch.device) -> None:
+    def __init__(
+        self,
+        *,
+        episode_store: EpisodeStore,
+        geometry: GpiGeometry,
+        device: torch.device,
+    ) -> None:
+        self._geometry = geometry
+
         observations = torch.from_numpy(
             episode_store.states
         ).float()  # (step_count, observation_dimensionality)
 
-        actions = convert_actions_to_block_frame(
+        actions = geometry.convert_actions_to_object_frame(
             observation_batch=observations,
             action_batch=torch.from_numpy(episode_store.actions).float(),
         )  # (step_count, action_dimensionality)
@@ -73,7 +78,7 @@ class Demonstrations:
                 f"demonstrations hold fewer steps than an episode runs."
             )
 
-        distances = calculate_observation_distances(
+        distances = self._geometry.calculate_observation_distances(
             observation_batch=self._normalized_observations,
             query_observation=query_observation,
         )  # (step_count,)

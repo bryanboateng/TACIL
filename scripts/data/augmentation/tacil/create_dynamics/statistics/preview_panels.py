@@ -12,7 +12,7 @@ from numpy import typing as npt
 from scripts.data.augmentation.tacil.create_dynamics.statistics import plots
 from scripts.shared.log import create_logger
 from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
-from scripts.shared.pusht_state import ARENA_SIZE, BLOCK_ORIENTATION_INDEX
+from scripts.environments.pusht.state_space import ARENA_SIZE, BLOCK_ORIENTATION_INDEX
 
 logger = create_logger()
 

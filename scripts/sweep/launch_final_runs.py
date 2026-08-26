@@ -3,7 +3,8 @@ from dataclasses import dataclass
 import tyro
 import wandb
 
-from scripts.evaluation.core.condition import VALIDATION_CONDITION
+from scripts.environments.conditions import VALIDATION_CONDITION
+from scripts.environments.registry import EnvironmentName
 from scripts.evaluation.evaluate_policy import STAGE_NAME
 from scripts.shared.log import create_logger
 from scripts.sweep.create_sweep import (
@@ -30,6 +31,8 @@ class Config:
 
     project_prefix: str = "2026-08-22"
     final_project: str = "2026-08-24-final"
+    environment: EnvironmentName = EnvironmentName.PUSHT
+
     entity: str = "bryanboateng-team"
 
     top_k: int = 3
@@ -42,9 +45,7 @@ def main() -> None:
     sweep_project = (
         f"{config.project_prefix}-{config.dataset_percentage}-{config.method}"
     )
-    sweep = wandb.Api().sweep(
-        f"{config.entity}/{sweep_project}/{config.sweep_id}"
-    )
+    sweep = wandb.Api().sweep(f"{config.entity}/{sweep_project}/{config.sweep_id}")
 
     ranked = sorted(
         (run for run in sweep.runs if RANKING_METRIC in run.summary),
@@ -72,6 +73,7 @@ def main() -> None:
                 "-m",
                 module,
                 f"--wandb-project={final_project}",
+                f"--environment={config.environment.name}",
                 f"--expert-dataset-artifact=datasets/dataset-{config.dataset_percentage}:latest",
                 f"--seed={seed}",
                 # Top-level option: it must precede the augmentation subcommand,

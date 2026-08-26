@@ -5,7 +5,6 @@ import torch
 from scripts.data.augmentation.tacil.dynamics.dynamics_model_ensemble import (
     DynamicsModelEnsemble,
 )
-from scripts.shared.pusht_state import add_states, subtract_states
 
 
 @dataclass(frozen=True)
@@ -49,8 +48,8 @@ def _run_newton_iterations(
     """Newton's method on the state itself, with residual and step measured in
     the normalized state space.
 
-    The estimate stays an ordinary state, so add_states keeps its
-    orientation inside [0, 2π) from one iteration to the next. Only the residual
+    The estimate stays an ordinary state, so the state space keeps every
+    rotation well formed from one iteration to the next. Only the residual
     and the step are normalized, which is what makes the Jacobian well scaled
     across dimensions that live on very different ranges.
     """
@@ -93,7 +92,7 @@ def _run_newton_iterations(
             B=next_state_gap_batch.unsqueeze(dim=-1),
         ).squeeze(-1)  # (batch_size, state_dimensionality)
 
-        state_estimate_batch = add_states(
+        state_estimate_batch = dynamics_model_ensemble.state_space.add(
             first_addend_batch=state_estimate_batch,
             second_addend_batch=-dynamics_model_ensemble.state_normalizer.denormalize_difference(
                 normalized_difference_batch=normalized_newton_step_batch
@@ -151,7 +150,7 @@ def _compute_next_state_gap(
         action_batch=action_batch,
     )  # (batch_size, state_dimensionality)
     return dynamics_model_ensemble.state_normalizer.normalize_difference(
-        difference_batch=subtract_states(
+        difference_batch=dynamics_model_ensemble.state_space.subtract(
             minuend_batch=predicted_next_state_batch,
             subtrahend_batch=target_next_state_batch,
         )

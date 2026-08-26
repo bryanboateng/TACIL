@@ -5,7 +5,6 @@ from scripts.data.augmentation.tacil.dynamics.dynamics_model_ensemble import (
     DynamicsModelEnsemble,
 )
 from scripts.shared.episode_store import EpisodeStore
-from scripts.shared.pusht_state import subtract_states
 
 
 @torch.no_grad()
@@ -22,7 +21,7 @@ def calculate_median_step_distance(
     # apart they are in space.
     step_distance_batch = torch.linalg.norm(
         dynamics_model_ensemble.state_normalizer.normalize_difference(
-            difference_batch=subtract_states(
+            difference_batch=dynamics_model_ensemble.state_space.subtract(
                 minuend_batch=state_batch[1:], subtrahend_batch=state_batch[:-1]
             )
         ),

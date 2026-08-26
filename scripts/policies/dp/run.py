@@ -8,7 +8,8 @@ from rich.pretty import pretty_repr
 
 from scripts.data.augmentation.tacil import augmentation as tacil
 from scripts.data.augmentation.tacil.augmentation import TacilConfig
-from scripts.evaluation.core.condition import ALL_CONDITIONS, VALIDATION_CONDITION
+from scripts.environments.conditions import ALL_CONDITIONS, VALIDATION_CONDITION
+from scripts.environments.registry import create_environment
 from scripts.evaluation.evaluate_policy import evaluate_policy
 from scripts.policies.dp import config as policy_config
 from scripts.policies.dp.policy import create_diffusion_policy_factory
@@ -34,6 +35,8 @@ def _run(*, config: Config) -> None:
     device = torch.device(device="cuda" if torch.cuda.is_available() else "cpu")
     log_device_info(device=device, logger=logger)
 
+    environment = create_environment(name=config.environment)
+
     with wandb.init(
         project=config.wandb_project,
         job_type="dp",
@@ -55,6 +58,7 @@ def _run(*, config: Config) -> None:
         else:
             augmented_episodes = tacil.augment(
                 config=config.augmentation,
+                state_space=environment.state_space,
                 expert_episodes=expert_episodes,
                 # The policy trains on windows of `prediction` steps. The expert
                 # steps let the last windows run from synthetic states into
@@ -72,6 +76,7 @@ def _run(*, config: Config) -> None:
         logger.info("Stage 2/3: training the diffusion policy.")
         noise_prediction_network = train_diffusion_policy(
             config=config.policy,
+            environment=environment,
             expert_episodes=expert_episodes,
             augmented_episodes=augmented_episodes,
             seed=config.seed,
@@ -89,6 +94,7 @@ def _run(*, config: Config) -> None:
                 device=device,
             ),
             policy_label=f"dp ({run_name})",
+            environment=environment,
             conditions=(
                 list(ALL_CONDITIONS)
                 if config.evaluate_all_conditions

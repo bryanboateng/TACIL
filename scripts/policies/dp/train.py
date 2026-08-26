@@ -8,7 +8,8 @@ from torch import nn as nn
 from tqdm.auto import tqdm
 from wandb import Run
 
-from scripts.evaluation.core.condition import VALIDATION_CONDITION
+from scripts.environments.conditions import VALIDATION_CONDITION
+from scripts.environments.environment import Environment
 from scripts.evaluation.core.scoring import reward_statistics, run_scored_episodes
 from scripts.policies.dp.config import Config
 from scripts.policies.dp.dataset import Dataset
@@ -29,6 +30,7 @@ STEP_METRIC_NAME = f"{STAGE_NAME}/0_step"
 
 def train_diffusion_policy(
     *,
+    environment: Environment,
     config: Config,
     expert_episodes: EpisodeStore,
     augmented_episodes: EpisodeStore | None,
@@ -174,6 +176,7 @@ def train_diffusion_policy(
                             sampler=config.sampler,
                             device=device,
                         ),
+                        environment=environment,
                         start_episode_seed=100_000,
                         episode_count=config.validation.episode_count,
                         condition=VALIDATION_CONDITION,

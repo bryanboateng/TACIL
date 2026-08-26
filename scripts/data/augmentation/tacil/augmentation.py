@@ -11,6 +11,7 @@ from scripts.data.augmentation.tacil.create_dynamics.config import DynamicsConfi
 from scripts.data.augmentation.tacil.create_dynamics.dynamics_model_ensemble_training import (  # noqa: E501
     train_dynamics_model_ensemble,
 )
+from scripts.environments.state_space import StateSpace
 from scripts.shared.episode_store import EpisodeStore
 
 
@@ -23,6 +24,7 @@ class TacilConfig:
 def augment(
     *,
     config: TacilConfig,
+    state_space: StateSpace,
     expert_episodes: EpisodeStore,
     expert_part_length: int,
     seed: int,
@@ -31,6 +33,7 @@ def augment(
 ) -> EpisodeStore:
     dynamics_model_ensemble = train_dynamics_model_ensemble(
         config=config.dynamics,
+        state_space=state_space,
         episode_store=expert_episodes,
         seed=seed,
         device=device,

@@ -3,7 +3,6 @@ import torch
 from scripts.data.augmentation.tacil.dynamics.dynamics_model.dynamics_model import (
     DynamicsModel,
 )
-from scripts.shared.pusht_state import subtract_states
 
 
 def calculate_loss(
@@ -41,7 +40,7 @@ def calculate_loss(
 
     return (
         dynamics_model.state_displacement_normalizer.normalize_difference(
-            difference_batch=subtract_states(
+            difference_batch=dynamics_model.state_space.subtract(
                 minuend_batch=predicted_state_trajectory_batch,
                 subtrahend_batch=target_state_trajectory_batch,
             )

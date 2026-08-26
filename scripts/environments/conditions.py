@@ -3,6 +3,11 @@ from enum import Enum, auto
 
 
 class FloorCondition(Enum):
+    """How well the moved object grips the ground.
+
+    GRIPPY is the setting the demonstrations were recorded under.
+    """
+
     GRIPPY = auto()
     SLIPPERY = auto()
 
@@ -14,6 +19,14 @@ class DisturbanceLevel(Enum):
 
 @dataclass(frozen=True)
 class Condition:
+    """One setting a policy is scored under.
+
+    Every environment offers the same set of settings, so that results carry
+    over from one task to the next. What each setting means in physics is up
+    to the environment: a floor damping in one, a friction coefficient in the
+    next.
+    """
+
     floor_condition: FloorCondition
     disturbance_level: DisturbanceLevel | None
 

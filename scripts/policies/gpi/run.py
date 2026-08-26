@@ -6,7 +6,8 @@ import tyro
 import wandb
 from rich.pretty import pretty_repr
 
-from scripts.evaluation.core.condition import ALL_CONDITIONS, VALIDATION_CONDITION
+from scripts.environments.conditions import ALL_CONDITIONS, VALIDATION_CONDITION
+from scripts.environments.registry import create_environment
 from scripts.evaluation.evaluate_policy import evaluate_policy
 from scripts.policies.gpi import config as gpi_config
 from scripts.policies.gpi.policy import create_geometric_policy_factory
@@ -33,6 +34,8 @@ def _run(*, config: Config) -> None:
     device = torch.device(device="cuda" if torch.cuda.is_available() else "cpu")
     log_device_info(device=device, logger=logger)
 
+    environment = create_environment(name=config.environment)
+
     with wandb.init(
         project=config.wandb_project,
         job_type="gpi",
@@ -50,9 +53,13 @@ def _run(*, config: Config) -> None:
         logger.info("Stage 1/1: evaluating the geometric policy.")
         evaluate_policy(
             policy_factory=create_geometric_policy_factory(
-                episode_store=expert_episodes, config=config.policy, device=device
+                episode_store=expert_episodes,
+                geometry=environment.gpi_geometry,
+                config=config.policy,
+                device=device,
             ),
             policy_label=f"gpi ({run_name})",
+            environment=environment,
             conditions=(
                 list(ALL_CONDITIONS)
                 if config.evaluate_all_conditions

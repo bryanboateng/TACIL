@@ -6,15 +6,10 @@ from gym_pusht.envs import PushTEnv
 from pygame import Surface
 from pygame.font import Font
 
-from scripts.evaluation.core.condition import (
-    Condition,
-    DisturbanceLevel,
-    FloorCondition,
-)
+from scripts.environments.conditions import Condition, DisturbanceLevel, FloorCondition
 from scripts.evaluation.core.rollout import EpisodeRecord
 from scripts.shared.paths import PROJECT_ROOT_DIRECTORY_PATH
 
-FREEZE_SECONDS = 2
 PLAYBACK_SPEED = 3.5
 
 

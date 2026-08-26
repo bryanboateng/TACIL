@@ -3,12 +3,9 @@ from dataclasses import dataclass
 import numpy as np
 import torch
 
-from scripts.evaluation.core.condition import Condition
-from scripts.evaluation.core.rollout import (
-    EpisodeRecord,
-    create_environment,
-    roll_out_episodes,
-)
+from scripts.environments.conditions import Condition
+from scripts.environments.environment import Environment
+from scripts.evaluation.core.rollout import EpisodeRecord, roll_out_episodes
 from scripts.shared.policy_types import PolicyFactory
 
 
@@ -35,13 +32,15 @@ class SuccessStatistics:
 def run_scored_episodes(
     *,
     policy_factory: PolicyFactory,
+    environment: Environment,
     start_episode_seed: int,
     episode_count: int,
     condition: Condition,
 ) -> list[EpisodeRecord]:
     seeds = list(range(start_episode_seed, start_episode_seed + episode_count))
     environments = [
-        create_environment(condition=condition, render_settings=None) for _ in seeds
+        environment.create_gym_environment(condition=condition, render=False)
+        for _ in seeds
     ]
     try:
         return roll_out_episodes(
@@ -51,8 +50,8 @@ def run_scored_episodes(
             render=False,
         )
     finally:
-        for environment in environments:
-            environment.close()
+        for gym_environment in environments:
+            gym_environment.close()
 
 
 def reward_statistics(episode_records: list[EpisodeRecord]) -> RewardStatistics:

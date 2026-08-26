@@ -15,7 +15,6 @@ from scripts.data.augmentation.tacil.create_dynamics.data import (
 from scripts.data.augmentation.tacil.dynamics.dynamics_model_ensemble import (
     DynamicsModelEnsemble,
 )
-from scripts.shared.pusht_state import subtract_states
 
 
 @dataclass(frozen=True)
@@ -101,7 +100,7 @@ def _measure_forward(
         true_next_state_batch = state_windows[:, step_index + 1, :]
         difference_columns.append(
             dynamics_model_ensemble.state_normalizer.normalize_difference(
-                difference_batch=subtract_states(
+                difference_batch=dynamics_model_ensemble.state_space.subtract(
                     minuend_batch=current_state_batch,
                     subtrahend_batch=true_next_state_batch,
                 )
@@ -165,7 +164,7 @@ def _measure_backward(
         batch = state_windows[converged_indices, window_index, :]
         prediction_errors[converged_indices, step_index] = torch.linalg.norm(
             dynamics_model_ensemble.state_normalizer.normalize_difference(
-                difference_batch=subtract_states(
+                difference_batch=dynamics_model_ensemble.state_space.subtract(
                     minuend_batch=predecessor_state_batch, subtrahend_batch=batch
                 )
             ),
