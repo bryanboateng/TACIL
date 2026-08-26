@@ -20,6 +20,12 @@ MethodLabel = Literal[
     "tacil-bc-unbounded",
     "ccil-bc",
     "gpi",
+    # TACIL states, but each synthetic state labelled with GPI's geometric
+    # recovery action instead of the anchor action.
+    "gpil-dp-bounded",
+    "gpil-dp-unbounded",
+    "gpil-bc-bounded",
+    "gpil-bc-unbounded",
 ]
 
 METHOD_MODULES: dict[MethodLabel, str] = {
@@ -29,6 +35,10 @@ METHOD_MODULES: dict[MethodLabel, str] = {
     "tacil-bc-unbounded": "scripts.policies.bc.run",
     "ccil-bc": "scripts.policies.bc.run",
     "gpi": "scripts.policies.gpi.run",
+    "gpil-dp-bounded": "scripts.policies.dp.run",
+    "gpil-dp-unbounded": "scripts.policies.dp.run",
+    "gpil-bc-bounded": "scripts.policies.bc.run",
+    "gpil-bc-unbounded": "scripts.policies.bc.run",
 }
 
 # The unbounded methods pin the bound instead of sweeping it, so that each
@@ -46,6 +56,20 @@ METHOD_FIXED_ARGUMENTS: dict[MethodLabel, list[str]] = {
     # GPI has no augmentation stage, but the field is still part of the run
     # config, and tyro asks for every field.
     "gpi": ["--augmentation=None"],
+    # Same TACIL augmentation, but the synthetic labels come from GPI. The flag
+    # lives under the augmentation subcommand, so it follows augmentation:tacil.
+    "gpil-dp-bounded": ["augmentation:tacil", "--augmentation.data.use-gpi-labels"],
+    "gpil-dp-unbounded": [
+        "augmentation:tacil",
+        "--augmentation.data.use-gpi-labels",
+        _UNBOUNDED_ARGUMENT,
+    ],
+    "gpil-bc-bounded": ["augmentation:tacil", "--augmentation.data.use-gpi-labels"],
+    "gpil-bc-unbounded": [
+        "augmentation:tacil",
+        "--augmentation.data.use-gpi-labels",
+        _UNBOUNDED_ARGUMENT,
+    ],
 }
 
 _TACIL_SHARED_PARAMETERS: dict[str, Any] = {
@@ -116,6 +140,21 @@ _CCIL_SHARED_PARAMETERS: dict[str, Any] = {
     },
 }
 
+# GPI's progression and attraction weights, here applied to label the synthetic
+# states, searched alongside the usual TACIL parameters.
+_GPI_LABEL_PARAMETERS: dict[str, Any] = {
+    "augmentation.data.gpi_progression_weight": {
+        "distribution": "log_uniform_values",
+        "min": 0.1,
+        "max": 10.0,
+    },
+    "augmentation.data.gpi_attraction_weight": {
+        "distribution": "log_uniform_values",
+        "min": 0.1,
+        "max": 10.0,
+    },
+}
+
 METHOD_PARAMETERS: dict[MethodLabel, dict[str, Any]] = {
     "tacil-dp-bounded": _TACIL_BOUNDED_PARAMETERS,
     "tacil-dp-unbounded": _TACIL_SHARED_PARAMETERS,
@@ -143,6 +182,10 @@ METHOD_PARAMETERS: dict[MethodLabel, dict[str, Any]] = {
         },
         "policy.plan_length": {"distribution": "int_uniform", "min": 1, "max": 32},
     },
+    "gpil-dp-bounded": {**_TACIL_BOUNDED_PARAMETERS, **_GPI_LABEL_PARAMETERS},
+    "gpil-dp-unbounded": {**_TACIL_SHARED_PARAMETERS, **_GPI_LABEL_PARAMETERS},
+    "gpil-bc-bounded": {**_TACIL_BOUNDED_PARAMETERS, **_GPI_LABEL_PARAMETERS},
+    "gpil-bc-unbounded": {**_TACIL_SHARED_PARAMETERS, **_GPI_LABEL_PARAMETERS},
 }
 
 

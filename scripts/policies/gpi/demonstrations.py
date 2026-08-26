@@ -7,6 +7,7 @@ from scripts.policies.gpi.geometry import (
 )
 from scripts.shared.episode_store import EpisodeStore
 from scripts.shared.normalization import MinMaxNormalizer
+from scripts.shared.pusht_state import BLOCK_ORIENTATION_INDEX, POSITION_SLICE
 
 
 class Demonstrations:
@@ -92,6 +93,48 @@ class Demonstrations:
         self, *, index: int
     ) -> tuple[torch.Tensor, torch.Tensor]:  # observation, action
         return self._normalized_observations[index], self._normalized_actions[index]
+
+    def find_nearest_step_indices(
+        self,
+        *,
+        query_observation_batch: torch.Tensor,  # (query_count, observation_dimensionality)
+    ) -> torch.Tensor:  # (query_count,)
+        """The nearest recorded step for every query, with no exclusions -- the
+        batched counterpart of `find_nearest_step_index` used to label many
+        synthetic states at once."""
+        demonstration_positions = self._normalized_observations[
+            :, POSITION_SLICE
+        ]  # (step_count, 4)
+        demonstration_angles = self._normalized_observations[
+            :, BLOCK_ORIENTATION_INDEX
+        ]  # (step_count,)
+
+        nearest_indices: list[torch.Tensor] = []
+        chunk_size = 512
+        for start in range(0, query_observation_batch.shape[0], chunk_size):
+            query_chunk = query_observation_batch[start : start + chunk_size]  # (c, D)
+            position_difference = (
+                query_chunk[:, None, POSITION_SLICE] - demonstration_positions[None]
+            )  # (c, step_count, 4)
+            angle_difference = (
+                query_chunk[:, None, BLOCK_ORIENTATION_INDEX]
+                - demonstration_angles[None]
+            ).abs()  # (c, step_count)
+            wrapped_angle_difference = torch.minimum(
+                input=angle_difference, other=2.0 - angle_difference
+            )
+            squared_distance = (position_difference**2).sum(
+                dim=2
+            ) + wrapped_angle_difference**2  # (c, step_count)
+            nearest_indices.append(squared_distance.argmin(dim=1))
+        return torch.cat(tensors=nearest_indices)  # (query_count,)
+
+    def read_steps(
+        self,
+        *,
+        indices: torch.Tensor,  # (query_count,)
+    ) -> tuple[torch.Tensor, torch.Tensor]:  # observations, actions
+        return self._normalized_observations[indices], self._normalized_actions[indices]
 
     def find_plan_end_index(self, *, start_index: int, maximum_length: int) -> int:
         return min(
