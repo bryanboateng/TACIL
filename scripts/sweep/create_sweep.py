@@ -6,7 +6,7 @@ import wandb
 from rich.pretty import pretty_repr
 
 from scripts.environments.conditions import VALIDATION_CONDITION
-from scripts.environments.registry import EnvironmentName
+from scripts.environments.registry import EnvironmentName, dataset_project
 from scripts.evaluation.evaluate_policy import STAGE_NAME
 from scripts.shared.log import create_logger
 
@@ -194,7 +194,8 @@ def _build_sweep_configuration(*, config: Config, project: str) -> dict[str, Any
             pipeline_module,
             f"--wandb-project={project}",
             f"--environment={config.environment.name}",
-            f"--expert-dataset-artifact=datasets/dataset-{config.dataset_percentage}:latest",
+            f"--expert-dataset-artifact={dataset_project(name=config.environment)}"
+            f"/dataset-{config.dataset_percentage}:latest",
             f"--seed={config.seed}",
             # Indexed, not `.get`: a method missing here is a mistake, and a
             # silent empty default hides it until the sweep agent fails.

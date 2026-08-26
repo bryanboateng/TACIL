@@ -4,7 +4,7 @@ import tyro
 import wandb
 
 from scripts.environments.conditions import VALIDATION_CONDITION
-from scripts.environments.registry import EnvironmentName
+from scripts.environments.registry import EnvironmentName, dataset_project
 from scripts.evaluation.evaluate_policy import STAGE_NAME
 from scripts.shared.log import create_logger
 from scripts.sweep.create_sweep import (
@@ -74,7 +74,8 @@ def main() -> None:
                 module,
                 f"--wandb-project={final_project}",
                 f"--environment={config.environment.name}",
-                f"--expert-dataset-artifact=datasets/dataset-{config.dataset_percentage}:latest",
+                f"--expert-dataset-artifact={dataset_project(name=config.environment)}"
+                f"/dataset-{config.dataset_percentage}:latest",
                 f"--seed={seed}",
                 # Top-level option: it must precede the augmentation subcommand,
                 # or tyro reads it as a (missing) option of that subcommand.

@@ -9,6 +9,22 @@ class EnvironmentName(StrEnum):
     PUSH_CUBE = "push-cube"
 
 
+# The wandb project holding an environment's demonstration artifacts. Each
+# environment gets its own, because the artifacts inside a project are told
+# apart by name alone: uploading a second environment under the shared name
+# `dataset-100` would file it as a new version of the first one, and every
+# `:latest` reference would then quietly resolve to the wrong task.
+_DATASET_PROJECT_BY_NAME: dict[EnvironmentName, str] = {
+    EnvironmentName.PUSHT: "datasets",
+    EnvironmentName.ROLL_BALL: "datasets-rollball",
+    EnvironmentName.PUSH_CUBE: "datasets-pushcube",
+}
+
+
+def dataset_project(*, name: EnvironmentName) -> str:
+    return _DATASET_PROJECT_BY_NAME[name]
+
+
 def create_environment(*, name: EnvironmentName) -> Environment:
     # The imports sit inside the function because each one pulls in a whole
     # simulator. A PushT run should not have to load ManiSkill, which needs a
