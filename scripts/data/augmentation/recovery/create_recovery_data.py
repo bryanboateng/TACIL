@@ -104,6 +104,8 @@ def create_recovery_data(
             expert_episode_store=episode_store,
             progression_weight=config.gpi_progression_weight,
             attraction_weight=config.gpi_attraction_weight,
+            plan_length=config.gpi_plan_length,
+            chain_count=len(anchor_indices),
             device=device,
         ),
         action_source=config.action_source,

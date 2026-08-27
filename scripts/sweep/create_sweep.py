@@ -200,6 +200,14 @@ _RECOVERY_SHARED_PARAMETERS: dict[str, Any] = {
 }
 
 _GPI_WEIGHT_PARAMETERS: dict[str, Any] = {
+    # The same range GPI's own sweep searches: its plan length decides how far
+    # it commits to a demonstration before looking for a new step, and that is
+    # part of what the distillation has to copy.
+    "augmentation.data.gpi_plan_length": {
+        "distribution": "int_uniform",
+        "min": 1,
+        "max": 32,
+    },
     "augmentation.data.gpi_progression_weight": {
         "distribution": "log_uniform_values",
         "min": 0.1,

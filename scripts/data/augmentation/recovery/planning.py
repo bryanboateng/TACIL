@@ -62,7 +62,9 @@ def plan_recovery_chains(
     start_state_batch: torch.Tensor,  # (anchor_count, state_dimensionality)
     target_state_batch: torch.Tensor,  # (anchor_count, target_count, state_dimensionality)  # noqa: E501
     action_step_std: torch.Tensor,  # (action_dimensionality,)
-    gpi_action_source: Callable[[torch.Tensor], torch.Tensor],
+    # Called with the active states and which chains they belong to: GPI
+    # carries a plan per chain, so it has to know whose turn it is.
+    gpi_action_source: Callable[[torch.Tensor, torch.Tensor], torch.Tensor],
     action_source: ActionSource,
     candidate_count: int,
     search_iteration_count: int,
@@ -120,7 +122,9 @@ def plan_recovery_chains(
         active_target_batch = target_state_batch[active_indices]
 
         gpi_action_batch = (
-            gpi_action_source(state_batch) if action_source != "search" else None
+            gpi_action_source(state_batch, active_indices)
+            if action_source != "search"
+            else None
         )
         if action_source == "gpi":
             action_batch = gpi_action_batch

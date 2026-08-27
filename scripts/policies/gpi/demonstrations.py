@@ -98,10 +98,14 @@ class Demonstrations:
         self,
         *,
         query_observation_batch: torch.Tensor,  # (query_count, observation_dimensionality)  # noqa: E501
+        excluded_step_mask_batch: torch.Tensor
+        | None = None,  # (query_count, step_count)  # noqa: E501
     ) -> torch.Tensor:  # (query_count,)
-        """The nearest recorded step for every query, with no exclusions -- the
-        batched counterpart of `find_nearest_step_index`, used to read GPI's
-        action for many states at once."""
+        """The nearest recorded step for every query -- the batched counterpart
+        of `find_nearest_step_index`, used to follow GPI for many states at
+        once. Each query may exclude its own steps, which is how GPI keeps
+        moving through a demonstration instead of returning to the step it
+        just used."""
         demonstration_positions = self._normalized_observations[
             :, POSITION_SLICE
         ]  # (step_count, 4)
@@ -126,6 +130,11 @@ class Demonstrations:
             squared_distance = (position_difference**2).sum(
                 dim=2
             ) + wrapped_angle_difference**2  # (chunk_size, step_count)
+            if excluded_step_mask_batch is not None:
+                squared_distance = squared_distance.masked_fill(
+                    mask=excluded_step_mask_batch[start : start + chunk_size],
+                    value=float("inf"),
+                )
             nearest_indices.append(squared_distance.argmin(dim=1))
         return torch.cat(tensors=nearest_indices)  # (query_count,)
 
@@ -135,6 +144,19 @@ class Demonstrations:
         indices: torch.Tensor,  # (query_count,)
     ) -> tuple[torch.Tensor, torch.Tensor]:  # observations, actions
         return self._normalized_observations[indices], self._normalized_actions[indices]
+
+    def find_plan_end_indices(
+        self,
+        *,
+        start_index_batch: torch.Tensor,  # (query_count,)
+        maximum_length: int,
+    ) -> torch.Tensor:  # (query_count,)
+        """Batched `find_plan_end_index`: a plan stops at the end of the
+        demonstration the step belongs to."""
+        return torch.minimum(
+            input=start_index_batch + maximum_length,
+            other=self._end_index_per_step[start_index_batch],
+        )
 
     def find_plan_end_index(self, *, start_index: int, maximum_length: int) -> int:
         return min(

@@ -20,10 +20,13 @@ ActionSource = Literal["gpi", "gpi_refined", "search"]
 class RecoveryDataConfig:
     action_source: ActionSource = "gpi_refined"
 
-    # GPI's two weights, as in its policy: how far to follow the recorded
-    # action, and how hard to pull toward the recorded position.
+    # GPI's own parameters, as in its policy: how far to follow the recorded
+    # action, how hard to pull toward the recorded position, and how many
+    # recorded steps to walk before looking for a new one. The default plan
+    # length is GPI's own default.
     gpi_progression_weight: float = 1.0
     gpi_attraction_weight: float = 1.0
+    gpi_plan_length: int = 8
 
     # Std of the block displacement that is applied to each anchor, as a
     # fraction of each block dimension's range in the expert data. Only the
