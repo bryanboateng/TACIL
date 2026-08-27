@@ -161,28 +161,26 @@ _RECOVERY_SHARED_PARAMETERS: dict[str, Any] = {
         "min": 2,
         "max": 12,
     },
-    # How close to a demonstrated state counts as arrived. It sets both how
-    # many chains succeed and how honest that success is: too loose and the
-    # spliced continuation does not follow from where the chain ended.
-    "augmentation.data.success_tolerance_step_multiple": {
-        "distribution": "log_uniform_values",
-        "min": 0.5,
-        "max": 8.0,
-    },
     # Ceiling on the chain length. It is the depth lever: the model's forward
     # error grows with every step it predicts on its own, so a long chain ends
     # on states the simulator could never produce, and the policy spends its
     # capacity on them. TACIL's depth curve showed the same trade-off.
+    #
+    # It overlaps with the replay error limit below, which measures that same
+    # unreliability directly instead of by step count. Both stay, as they did
+    # in TACIL: the limit passes a chain the members agree on, and this cap
+    # still refuses one they only agree on because they share a blind spot.
+    #
+    # The arrival tolerance and the target count are not searched beside it.
+    # A tolerance of one median expert step is what "back at a demonstrated
+    # state" means rather than a value to tune, and aiming at the 32 nearest
+    # states is about having somewhere to go, not a sensitive quantity. With
+    # roughly 80 runs per sweep, every extra axis thins the search, and these
+    # two would have thinned it without adding a distinct lever.
     "augmentation.data.max_chain_length": {
         "distribution": "int_uniform",
         "min": 2,
         "max": 32,
-    },
-    # How many demonstrated states a chain may aim for.
-    "augmentation.data.target_count": {
-        "distribution": "int_uniform",
-        "min": 4,
-        "max": 64,
     },
     # Same role and range as in the TACIL sweeps: the error is measured with
     # the same replay test, so the scale transfers.
