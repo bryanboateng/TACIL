@@ -161,6 +161,20 @@ _RECOVERY_SHARED_PARAMETERS: dict[str, Any] = {
         "min": 2,
         "max": 12,
     },
+    # How close to a demonstrated state counts as arrived. It sets both how
+    # many chains succeed and how honest that success is: too loose and the
+    # spliced continuation does not follow from where the chain ended.
+    "augmentation.data.success_tolerance_step_multiple": {
+        "distribution": "log_uniform_values",
+        "min": 0.5,
+        "max": 8.0,
+    },
+    # How many demonstrated states a chain may aim for.
+    "augmentation.data.target_count": {
+        "distribution": "int_uniform",
+        "min": 4,
+        "max": 64,
+    },
     # Same role and range as in the TACIL sweeps: the error is measured with
     # the same replay test, so the scale transfers.
     "augmentation.data.replay_error_limit_step_multiple": {

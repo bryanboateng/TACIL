@@ -20,9 +20,24 @@ def log_planning_statistics(
     run.summary[f"{STAGE_NAME}/1_rollout/anchor_count"] = (
         planning_diagnostics.anchor_count
     )
+    # Anchors whose disturbance did not push them off the demonstrations. A
+    # large share means the disturbance is too weak to be worth recovering from.
+    run.summary[f"{STAGE_NAME}/1_rollout/already_on_manifold_count"] = (
+        planning_diagnostics.already_on_manifold_count
+    )
     run.summary[f"{STAGE_NAME}/1_rollout/arrived_count"] = (
         planning_diagnostics.arrived_count
     )
+    # The share of the chains that had somewhere to go and got there. This is
+    # the number that says whether the planner works at all.
+    disturbed_count = (
+        planning_diagnostics.anchor_count
+        - planning_diagnostics.already_on_manifold_count
+    )
+    if disturbed_count > 0:
+        run.summary[f"{STAGE_NAME}/1_rollout/arrival_rate"] = (
+            planning_diagnostics.arrived_count / disturbed_count
+        )
     run.summary[f"{STAGE_NAME}/1_rollout/gave_up_count"] = (
         planning_diagnostics.gave_up_count
     )

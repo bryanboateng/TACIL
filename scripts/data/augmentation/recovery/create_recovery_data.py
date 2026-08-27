@@ -25,7 +25,7 @@ from scripts.data.augmentation.tacil.dynamics.dynamics_model_ensemble import (
     DynamicsModelEnsemble,
 )
 from scripts.shared.episode_store import EpisodeStore
-from scripts.shared.pusht_state import AGENT_POSITION_SLICE, add_states
+from scripts.shared.pusht_state import AGENT_POSITION_SLICE, add_states, subtract_states
 from scripts.shared.seeding import set_seed
 
 
@@ -42,6 +42,8 @@ def create_recovery_data(
 
     device = next(dynamics_model_ensemble.parameters()).device
 
+    # These are both where the disturbances start and what the chains may aim
+    # for: every one of them has a recorded continuation long enough to append.
     anchor_indices = get_anchor_indices(
         episode_end_indices=episode_store.episode_end_indices,
         expert_part_length=expert_part_length,
@@ -75,18 +77,31 @@ def create_recovery_data(
         * disturbance_std,
     )  # (anchor_count, state_dimensionality)
 
+    # Each chain aims for the expert states nearest to where the disturbance
+    # left it, not for the anchor it came from: the goal is the demonstrated
+    # state distribution, and the nearest states are the ones a short recovery
+    # can plausibly reach.
+    target_slot_batch = _find_nearest_state_indices(
+        query_state_batch=start_state_batch,
+        candidate_state_batch=anchor_state_batch,
+        dynamics_model_ensemble=dynamics_model_ensemble,
+        neighbour_count=min(config.target_count, len(anchor_indices)),
+    )  # (anchor_count, target_count)
+
     action_step_std = _compute_range_fraction_std(
         samples=episode_store.actions,
         range_fraction=config.plan_step_range_fraction,
         device=device,
     )  # (action_dimensionality,)
 
-    synthetic_trajectories, planning_diagnostics = plan_recovery_chains(
+    recovery_chains, planning_diagnostics = plan_recovery_chains(
         dynamics_model_ensemble=dynamics_model_ensemble,
         start_state_batch=start_state_batch,
-        anchor_state_batch=anchor_state_batch,
+        target_state_batch=anchor_state_batch[target_slot_batch],
         action_step_std=action_step_std,
         candidate_count=config.candidate_count,
+        search_iteration_count=config.search_iteration_count,
+        elite_fraction=config.elite_fraction,
         plan_horizon=config.plan_horizon,
         max_chain_length=config.max_chain_length,
         success_tolerance=success_tolerance,
@@ -100,20 +115,31 @@ def create_recovery_data(
         run=run,
     )
 
-    if not bool((synthetic_trajectories.step_count_batch > 0).any()):
+    if not bool((recovery_chains.trajectories.step_count_batch > 0).any()):
         run.summary[f"{STAGE_NAME}/1_rollout/empty_anchor_count"] = len(anchor_indices)
         run.summary[f"{STAGE_NAME}/1_rollout/empty_anchor_fraction"] = 1.0
         raise RuntimeError(
-            "No planned recovery chain arrived at its anchor and passed the "
+            "No planned recovery chain reached the demonstrations and passed the "
             "replay check, so this configuration produced no data. Training on "
             "the expert data alone would score the unaugmented baseline under "
             "an augmented run's name, so the run stops here instead."
         )
 
+    # The continuation comes from the state the chain actually reached, which
+    # is generally not the anchor the disturbance started from.
+    reached_anchor_indices = anchor_indices[
+        target_slot_batch[
+            torch.arange(len(anchor_indices), device=device),
+            recovery_chains.reached_target_slot_batch,
+        ]
+        .cpu()
+        .numpy()
+    ]  # (anchor_count,)
+
     augmentation_result = create_augmented_episodes(
-        synthetic_trajectories=synthetic_trajectories,
+        synthetic_trajectories=recovery_chains.trajectories,
         episode_store=episode_store,
-        anchor_indices=anchor_indices,
+        anchor_indices=reached_anchor_indices,
         expert_part_length=expert_part_length,
     )
 
@@ -141,3 +167,30 @@ def _compute_range_fraction_std(
         sample_batch.max(dim=0).values - sample_batch.min(dim=0).values
     )  # (dimensionality,)
     return range_fraction * value_range
+
+
+@torch.no_grad()
+def _find_nearest_state_indices(
+    *,
+    query_state_batch: torch.Tensor,  # (query_count, state_dimensionality)
+    candidate_state_batch: torch.Tensor,  # (candidate_count, state_dimensionality)
+    dynamics_model_ensemble: DynamicsModelEnsemble,
+    neighbour_count: int,
+) -> torch.Tensor:  # (query_count, neighbour_count)
+    nearest_index_batches: list[torch.Tensor] = []
+    chunk_size = 256
+    for start in range(0, query_state_batch.shape[0], chunk_size):
+        query_chunk = query_state_batch[start : start + chunk_size]
+        distance_batch = torch.linalg.norm(
+            dynamics_model_ensemble.state_normalizer.normalize_difference(
+                difference_batch=subtract_states(
+                    minuend_batch=query_chunk.unsqueeze(dim=1),
+                    subtrahend_batch=candidate_state_batch.unsqueeze(dim=0),
+                )
+            ),
+            dim=-1,
+        )  # (chunk_size, candidate_count)
+        nearest_index_batches.append(
+            distance_batch.topk(k=neighbour_count, dim=1, largest=False).indices
+        )
+    return torch.cat(tensors=nearest_index_batches)
