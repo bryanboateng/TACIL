@@ -21,11 +21,13 @@ with each ensemble member alone, and only chains whose replay endpoints all
 land near the reached target are kept.
 """
 
+from collections.abc import Callable
 from dataclasses import dataclass
 
 import torch
 from tqdm import tqdm
 
+from scripts.data.augmentation.recovery.config import ActionSource
 from scripts.data.augmentation.tacil.create_data.episode_assembly import (
     SyntheticTrajectories,
 )
@@ -60,6 +62,8 @@ def plan_recovery_chains(
     start_state_batch: torch.Tensor,  # (anchor_count, state_dimensionality)
     target_state_batch: torch.Tensor,  # (anchor_count, target_count, state_dimensionality)  # noqa: E501
     action_step_std: torch.Tensor,  # (action_dimensionality,)
+    gpi_action_source: Callable[[torch.Tensor], torch.Tensor],
+    action_source: ActionSource,
     candidate_count: int,
     search_iteration_count: int,
     elite_fraction: float,
@@ -115,16 +119,23 @@ def plan_recovery_chains(
         state_batch = mean_state_batch[active_indices]
         active_target_batch = target_state_batch[active_indices]
 
-        action_batch = _plan_next_action(
-            dynamics_model_ensemble=dynamics_model_ensemble,
-            state_batch=state_batch,
-            target_state_batch=active_target_batch,
-            action_step_std=action_step_std,
-            candidate_count=candidate_count,
-            search_iteration_count=search_iteration_count,
-            elite_count=elite_count,
-            plan_horizon=plan_horizon,
-        )  # (active_count, action_dimensionality)
+        gpi_action_batch = (
+            gpi_action_source(state_batch) if action_source != "search" else None
+        )
+        if action_source == "gpi":
+            action_batch = gpi_action_batch
+        else:
+            action_batch = _plan_next_action(
+                dynamics_model_ensemble=dynamics_model_ensemble,
+                state_batch=state_batch,
+                target_state_batch=active_target_batch,
+                action_step_std=action_step_std,
+                prior_action_batch=gpi_action_batch,
+                candidate_count=candidate_count,
+                search_iteration_count=search_iteration_count,
+                elite_count=elite_count,
+                plan_horizon=plan_horizon,
+            )  # (active_count, action_dimensionality)
 
         # Record the pair before stepping: this action is what the policy
         # should output when it sees this state.
@@ -168,10 +179,33 @@ def plan_recovery_chains(
         progress_bar.update(n=1)
     progress_bar.close()
 
-    # Whatever is still active never arrived; those chains teach wandering,
-    # not recovery, so they are dropped whole.
-    gave_up_count = int(active_mask_batch.sum())
-    step_count_batch[active_mask_batch] = 0
+    # Distilling GPI is not planning: the actions are the label we want to
+    # copy, not a proposal that has to prove it works. Requiring arrival would
+    # throw away exactly the states where GPI does something interesting, and
+    # judging its chains by the model's agreement would measure the model, not
+    # GPI. So in that mode every chain is kept and the checks below are only
+    # reported.
+    verify_chains = action_source != "gpi"
+
+    if verify_chains:
+        # Whatever is still active never arrived; those chains teach wandering,
+        # not recovery, so they are dropped whole.
+        gave_up_count = int(active_mask_batch.sum())
+        step_count_batch[active_mask_batch] = 0
+    else:
+        gave_up_count = 0
+        unfinished_indices = active_mask_batch.nonzero().squeeze(dim=1)
+        if unfinished_indices.numel() > 0:
+            _, slot_batch = _distance_to_targets(
+                dynamics_model_ensemble=dynamics_model_ensemble,
+                state_batch=mean_state_batch[unfinished_indices].unsqueeze(dim=1),
+                target_state_batch=target_state_batch[unfinished_indices],
+            )
+            # The run-out is spliced from whichever demonstrated state the
+            # chain ended up nearest to.
+            reached_target_slot_batch[unfinished_indices] = slot_batch.squeeze(dim=1)
+            arrived_mask_batch[unfinished_indices] = True
+            active_mask_batch[unfinished_indices] = False
 
     # The independent check: the planner planned on the ensemble mean, the
     # members replayed the same actions alone. Members that end far from the
@@ -184,7 +218,11 @@ def plan_recovery_chains(
         per_member_state_batch=per_member_state_batch[:, arrived_indices],
         target_state_batch=reached_target_state_batch,
     )  # (arrived_count,)
-    accepted_mask_batch = replay_error_batch <= replay_error_limit
+    accepted_mask_batch = (
+        replay_error_batch <= replay_error_limit
+        if verify_chains
+        else torch.ones_like(input=replay_error_batch, dtype=torch.bool)
+    )
     step_count_batch[arrived_indices[~accepted_mask_batch]] = 0
 
     trajectories = _assemble_trajectories(
@@ -215,6 +253,7 @@ def _plan_next_action(
     state_batch: torch.Tensor,  # (active_count, state_dimensionality)
     target_state_batch: torch.Tensor,  # (active_count, target_count, state_dimensionality)  # noqa: E501
     action_step_std: torch.Tensor,  # (action_dimensionality,)
+    prior_action_batch: torch.Tensor | None,  # (active_count, action_dimensionality)
     candidate_count: int,
     search_iteration_count: int,
     elite_count: int,
@@ -232,6 +271,13 @@ def _plan_next_action(
     step_mean_batch = torch.zeros(
         active_count, plan_horizon, action_dimensionality, device=device
     )
+    if prior_action_batch is not None:
+        # Start the search at GPI's answer: the first step moves to its target
+        # and the rest hold it there, so the sequence the search departs from
+        # is one an expert-shaped rule proposed rather than noise.
+        step_mean_batch[:, 0] = (
+            prior_action_batch - state_batch[:, AGENT_POSITION_SLICE]
+        )
     step_std_batch = action_step_std.expand(
         active_count, plan_horizon, action_dimensionality
     ).clone()
@@ -249,6 +295,11 @@ def _plan_next_action(
             action_dimensionality,
             device=device,
         )
+        # Candidate 0 is the distribution's mean itself, unperturbed. In the
+        # first iteration that is exactly the prior, so a refined chain can
+        # only depart from GPI's action when the model prefers something else.
+        candidate_step_batch[:, 0] = step_mean_batch
+
         candidate_action_batch = state_batch[
             :, None, None, AGENT_POSITION_SLICE
         ] + candidate_step_batch.cumsum(dim=2)

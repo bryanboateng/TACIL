@@ -4,6 +4,7 @@ from numpy import typing as npt
 from wandb import Run
 
 from scripts.data.augmentation.recovery.config import RecoveryDataConfig
+from scripts.data.augmentation.recovery.gpi_actions import GpiActionSource
 from scripts.data.augmentation.recovery.planning import plan_recovery_chains
 from scripts.data.augmentation.recovery.statistics_logging import (
     log_planning_statistics,
@@ -99,6 +100,13 @@ def create_recovery_data(
         start_state_batch=start_state_batch,
         target_state_batch=anchor_state_batch[target_slot_batch],
         action_step_std=action_step_std,
+        gpi_action_source=GpiActionSource(
+            expert_episode_store=episode_store,
+            progression_weight=config.gpi_progression_weight,
+            attraction_weight=config.gpi_attraction_weight,
+            device=device,
+        ),
+        action_source=config.action_source,
         candidate_count=config.candidate_count,
         search_iteration_count=config.search_iteration_count,
         elite_fraction=config.elite_fraction,

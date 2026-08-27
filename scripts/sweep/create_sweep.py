@@ -27,6 +27,11 @@ MethodLabel = Literal[
     "recovery-dp-unbounded",
     "recovery-bc-bounded",
     "recovery-bc-unbounded",
+    # GPI distilled into a policy: its actions, rolled forward through the
+    # dynamics model, as training data. The decisive control -- it says whether
+    # a learned policy can reach GPI's score at all on this data.
+    "distill-dp",
+    "distill-bc",
 ]
 
 METHOD_MODULES: dict[MethodLabel, str] = {
@@ -40,6 +45,8 @@ METHOD_MODULES: dict[MethodLabel, str] = {
     "recovery-dp-unbounded": "scripts.policies.dp.run",
     "recovery-bc-bounded": "scripts.policies.bc.run",
     "recovery-bc-unbounded": "scripts.policies.bc.run",
+    "distill-dp": "scripts.policies.dp.run",
+    "distill-bc": "scripts.policies.bc.run",
 }
 
 # The unbounded methods pin the bound instead of sweeping it, so that each
@@ -61,6 +68,8 @@ METHOD_FIXED_ARGUMENTS: dict[MethodLabel, list[str]] = {
     "recovery-dp-unbounded": ["augmentation:recovery", _UNBOUNDED_ARGUMENT],
     "recovery-bc-bounded": ["augmentation:recovery"],
     "recovery-bc-unbounded": ["augmentation:recovery", _UNBOUNDED_ARGUMENT],
+    "distill-dp": ["augmentation:recovery", "--augmentation.data.action-source=gpi"],
+    "distill-bc": ["augmentation:recovery", "--augmentation.data.action-source=gpi"],
 }
 
 _TACIL_SHARED_PARAMETERS: dict[str, Any] = {
@@ -146,16 +155,13 @@ _RECOVERY_SHARED_PARAMETERS: dict[str, Any] = {
         "min": 0.02,
         "max": 0.5,
     },
-    # Step size of the candidate action walks. Expert actions move a few
-    # thousandths to a few hundredths of the range per step; the span covers
-    # from below that (careful, precise pushes) to far above (fast repositioning).
-    "augmentation.data.plan_step_range_fraction": {
-        "distribution": "log_uniform_values",
-        "min": 0.005,
-        "max": 0.2,
-    },
     # Lookahead of the planner. 2 already beats greedy; 12 is about as deep as
     # a rollout of the one-step model stays worth judging on.
+    #
+    # The candidate step size is not searched next to it any more. Since the
+    # search starts at GPI's action, that number is a correction radius around
+    # an action that is already expert-shaped, not the scale of a search from
+    # nothing, and its default is small on purpose.
     "augmentation.data.plan_horizon": {
         "distribution": "int_uniform",
         "min": 2,
@@ -180,14 +186,29 @@ _RECOVERY_SHARED_PARAMETERS: dict[str, Any] = {
     "augmentation.data.max_chain_length": {
         "distribution": "int_uniform",
         "min": 2,
-        "max": 32,
+        "max": 16,
     },
-    # Same role and range as in the TACIL sweeps: the error is measured with
-    # the same replay test, so the scale transfers.
+    # Same role as in the TACIL sweeps, but the floor is raised. Under one
+    # median expert step the test rejected every chain a run produced, so the
+    # run died with no data: half of 2026-08-27d's runs were lost that way,
+    # and none of them could have scored.
     "augmentation.data.replay_error_limit_step_multiple": {
         "distribution": "log_uniform_values",
-        "min": 0.05,
+        "min": 1.0,
         "max": 120.0,
+    },
+}
+
+_GPI_WEIGHT_PARAMETERS: dict[str, Any] = {
+    "augmentation.data.gpi_progression_weight": {
+        "distribution": "log_uniform_values",
+        "min": 0.1,
+        "max": 10.0,
+    },
+    "augmentation.data.gpi_attraction_weight": {
+        "distribution": "log_uniform_values",
+        "min": 0.1,
+        "max": 10.0,
     },
 }
 
@@ -200,6 +221,34 @@ _RECOVERY_BOUNDED_PARAMETERS: dict[str, Any] = {
         "max": 120.0,
     },
 }
+
+_DISTILLATION_PARAMETERS: dict[str, Any] = {
+    **_GPI_WEIGHT_PARAMETERS,
+    "augmentation.dynamics.window_length": {
+        "distribution": "int_uniform",
+        "min": 1,
+        "max": 15,
+    },
+    "augmentation.dynamics.lipschitz_constant_upper_bound": {
+        "distribution": "log_uniform_values",
+        "min": 1.0,
+        "max": 120.0,
+    },
+    "augmentation.data.disturbance_range_fraction": {
+        "distribution": "log_uniform_values",
+        "min": 0.02,
+        "max": 0.5,
+    },
+    # How many steps GPI is followed through the model. Every step adds model
+    # error, so this trades coverage of GPI's behaviour against how real the
+    # states it is demonstrated on still are.
+    "augmentation.data.max_chain_length": {
+        "distribution": "int_uniform",
+        "min": 1,
+        "max": 16,
+    },
+}
+
 
 METHOD_PARAMETERS: dict[MethodLabel, dict[str, Any]] = {
     "tacil-dp-bounded": _TACIL_BOUNDED_PARAMETERS,
@@ -228,10 +277,14 @@ METHOD_PARAMETERS: dict[MethodLabel, dict[str, Any]] = {
         },
         "policy.plan_length": {"distribution": "int_uniform", "min": 1, "max": 32},
     },
-    "recovery-dp-bounded": _RECOVERY_BOUNDED_PARAMETERS,
-    "recovery-dp-unbounded": _RECOVERY_SHARED_PARAMETERS,
-    "recovery-bc-bounded": _RECOVERY_BOUNDED_PARAMETERS,
-    "recovery-bc-unbounded": _RECOVERY_SHARED_PARAMETERS,
+    "recovery-dp-bounded": {**_RECOVERY_BOUNDED_PARAMETERS, **_GPI_WEIGHT_PARAMETERS},
+    "recovery-dp-unbounded": {**_RECOVERY_SHARED_PARAMETERS, **_GPI_WEIGHT_PARAMETERS},
+    "recovery-bc-bounded": {**_RECOVERY_BOUNDED_PARAMETERS, **_GPI_WEIGHT_PARAMETERS},
+    "recovery-bc-unbounded": {**_RECOVERY_SHARED_PARAMETERS, **_GPI_WEIGHT_PARAMETERS},
+    # No planner, so none of its parameters apply: what shapes the data is how
+    # far the block is shoved, how long GPI is followed, and GPI's own weights.
+    "distill-dp": _DISTILLATION_PARAMETERS,
+    "distill-bc": _DISTILLATION_PARAMETERS,
 }
 
 

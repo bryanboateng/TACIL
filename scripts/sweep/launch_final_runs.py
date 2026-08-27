@@ -42,9 +42,7 @@ def main() -> None:
     sweep_project = (
         f"{config.project_prefix}-{config.dataset_percentage}-{config.method}"
     )
-    sweep = wandb.Api().sweep(
-        f"{config.entity}/{sweep_project}/{config.sweep_id}"
-    )
+    sweep = wandb.Api().sweep(f"{config.entity}/{sweep_project}/{config.sweep_id}")
 
     ranked = sorted(
         (run for run in sweep.runs if RANKING_METRIC in run.summary),

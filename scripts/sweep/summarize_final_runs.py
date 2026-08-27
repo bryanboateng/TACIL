@@ -95,8 +95,14 @@ def main() -> None:
         for condition in ALL_CONDITIONS:
             mean, standard_error, n = _mean_se(groups[group].get(condition.label, []))
             if mean is not None:
-                marker = "  <-- selection" if condition.label == config.selection_condition else ""
-                print(f"    {condition.label:26} {mean:.3f} ± {standard_error:.3f}  (n={n}){marker}")
+                marker = (
+                    "  <-- selection"
+                    if condition.label == config.selection_condition
+                    else ""
+                )
+                print(
+                    f"    {condition.label:26} {mean:.3f} ± {standard_error:.3f}  (n={n}){marker}"
+                )
         print()
 
 
