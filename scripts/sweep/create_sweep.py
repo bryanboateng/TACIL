@@ -169,6 +169,15 @@ _RECOVERY_SHARED_PARAMETERS: dict[str, Any] = {
         "min": 0.5,
         "max": 8.0,
     },
+    # Ceiling on the chain length. It is the depth lever: the model's forward
+    # error grows with every step it predicts on its own, so a long chain ends
+    # on states the simulator could never produce, and the policy spends its
+    # capacity on them. TACIL's depth curve showed the same trade-off.
+    "augmentation.data.max_chain_length": {
+        "distribution": "int_uniform",
+        "min": 2,
+        "max": 32,
+    },
     # How many demonstrated states a chain may aim for.
     "augmentation.data.target_count": {
         "distribution": "int_uniform",
