@@ -32,6 +32,15 @@ MethodLabel = Literal[
     # a learned policy can reach GPI's score at all on this data.
     "distill-dp",
     "distill-bc",
+    # The policy classes on their own. Every other sweep searches augmentation
+    # parameters and leaves the policy on the defaults of its paper, which were
+    # chosen for full datasets. GPI, by contrast, has all three of its
+    # parameters searched, so it has been meeting an untuned opponent. These
+    # sweeps tune the policy at a given data budget, with no augmentation, so
+    # the rest of the comparison can start from a policy that fits the data it
+    # is given.
+    "dp-tuning",
+    "bc-tuning",
 ]
 
 METHOD_MODULES: dict[MethodLabel, str] = {
@@ -47,6 +56,8 @@ METHOD_MODULES: dict[MethodLabel, str] = {
     "recovery-bc-unbounded": "scripts.policies.bc.run",
     "distill-dp": "scripts.policies.dp.run",
     "distill-bc": "scripts.policies.bc.run",
+    "dp-tuning": "scripts.policies.dp.run",
+    "bc-tuning": "scripts.policies.bc.run",
 }
 
 # The unbounded methods pin the bound instead of sweeping it, so that each
@@ -70,6 +81,9 @@ METHOD_FIXED_ARGUMENTS: dict[MethodLabel, list[str]] = {
     "recovery-bc-unbounded": ["augmentation:recovery", _UNBOUNDED_ARGUMENT],
     "distill-dp": ["augmentation:recovery", "--augmentation.data.action-source=gpi"],
     "distill-bc": ["augmentation:recovery", "--augmentation.data.action-source=gpi"],
+    # The subcommand has to come last, so the policy options precede it.
+    "dp-tuning": ["augmentation:none"],
+    "bc-tuning": ["augmentation:none"],
 }
 
 _TACIL_SHARED_PARAMETERS: dict[str, Any] = {
@@ -258,6 +272,41 @@ _DISTILLATION_PARAMETERS: dict[str, Any] = {
 }
 
 
+# Sizes as strings, because a sweep value has to survive the round trip
+# through the command line; tyro reads them back with Python collection syntax.
+# The reference size is the largest here: at 5% of the data it has more
+# parameters than there are transitions to fit them on.
+_DP_TUNING_PARAMETERS: dict[str, Any] = {
+    "policy.hidden_channel_counts": {
+        "values": ["(64,128,256)", "(128,256,512)", "(256,512,1024)"]
+    },
+    "policy.optimization.learning_rate": {
+        "distribution": "log_uniform_values",
+        "min": 1e-5,
+        "max": 3e-3,
+    },
+    # Divisible by the validation interval, which the config requires.
+    "policy.optimization.epoch_count": {"values": [200, 400, 600, 1000]},
+    "policy.optimization.batch_size": {"values": [64, 128, 256]},
+    "policy.optimization.weight_decay": {
+        "distribution": "log_uniform_values",
+        "min": 1e-8,
+        "max": 1e-2,
+    },
+}
+
+_BC_TUNING_PARAMETERS: dict[str, Any] = {
+    "policy.hidden_layer_dimensionality": {"values": [64, 128, 256, 512]},
+    "policy.optimization.learning_rate": {
+        "distribution": "log_uniform_values",
+        "min": 1e-5,
+        "max": 1e-2,
+    },
+    "policy.optimization.epoch_count": {"values": [100, 200, 400, 800]},
+    "policy.optimization.batch_size": {"values": [64, 128, 256, 512]},
+}
+
+
 METHOD_PARAMETERS: dict[MethodLabel, dict[str, Any]] = {
     "tacil-dp-bounded": _TACIL_BOUNDED_PARAMETERS,
     "tacil-dp-unbounded": _TACIL_SHARED_PARAMETERS,
@@ -293,6 +342,8 @@ METHOD_PARAMETERS: dict[MethodLabel, dict[str, Any]] = {
     # far the block is shoved, how long GPI is followed, and GPI's own weights.
     "distill-dp": _DISTILLATION_PARAMETERS,
     "distill-bc": _DISTILLATION_PARAMETERS,
+    "dp-tuning": _DP_TUNING_PARAMETERS,
+    "bc-tuning": _BC_TUNING_PARAMETERS,
 }
 
 
