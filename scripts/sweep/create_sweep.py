@@ -6,6 +6,7 @@ import tyro
 import wandb
 from rich.pretty import pretty_repr
 
+from scripts.data.augmentation.tacil.create_data.chain_error import ChainErrorCriterion
 from scripts.evaluation.core.condition import VALIDATION_CONDITION
 from scripts.evaluation.evaluate_policy import STAGE_NAME
 from scripts.shared.log import create_logger
@@ -74,17 +75,18 @@ _TACIL_SHARED_PARAMETERS: dict[str, Any] = {
         "min": 0.001,
         "max": 0.3,
     },
-    # Ceiling on the replay error: how far the members' replay
-    # endpoints may land from the anchor, in multiples of the median expert
-    # step. Old per-step limits do not transfer, because this error accumulates
-    # over the chain. The anchor points: a first step needs roughly the per-step
+    # Ceiling on the chain error, in multiples of the median expert step.
+    # Which error that is depends on the criterion the sweep was created with,
+    # and the scale is not shared between them: an accumulated error grows with
+    # depth while a per-step one does not. The range below is wide enough to
+    # bracket either, which is why it is not narrowed per criterion. The anchor points: a first step needs roughly the per-step
     # replay error (~0.7 multiples at the accepted-step median), and length 8
     # is estimated between √8 and 8 times that step's error — about 2
     # to 13 multiples — depending on how strongly the members' errors add up.
     # The range brackets that with an order of magnitude on both sides,
     # because the depth curve showed the reward cliff (0.70 at length 8,
     # 0.38 at 14) and the sweep has to see both sides of it.
-    "augmentation.data.replay_error_limit_step_multiple": {
+    "augmentation.data.chain_error_limit_step_multiple": {
         "distribution": "log_uniform_values",
         "min": 0.05,
         "max": 120.0,
@@ -216,6 +218,22 @@ class Config:
 
     seed: int
 
+    # Which stopping rule a TACIL sweep searches under. One sweep per rule
+    # rather than a rule drawn per run: the search would otherwise spend its
+    # budget unevenly across the rules and none of them would be settled.
+    # It lands in the project name, so the sweeps stay apart.
+    chain_error_criterion: ChainErrorCriterion | None = None
+
+    def __post_init__(self) -> None:
+        if self.chain_error_criterion is not None and not self.method.startswith(
+            "tacil"
+        ):
+            raise ValueError(
+                f"A chain error criterion only applies to the TACIL methods, "
+                f"which are the ones that walk a chain; the method is "
+                f"{self.method}."
+            )
+
     sweep_method: SearchLabel = "bayes"
 
     entity: str = "bryanboateng-team"
@@ -226,6 +244,8 @@ def main() -> None:
     logger.info(pretty_repr(config))
 
     project = f"{config.project_prefix}-{config.dataset_percentage}-{config.method}"
+    if config.chain_error_criterion is not None:
+        project += f"-{config.chain_error_criterion.replace('_', '-')}"
 
     sweep_configuration = _build_sweep_configuration(config=config, project=project)
     logger.info(pretty_repr(sweep_configuration))
@@ -297,7 +317,11 @@ def _build_sweep_configuration(*, config: Config, project: str) -> dict[str, Any
     # first, and a sweep over `policy.*` needs it last. Getting this backwards
     # does not fail loudly -- the run dies while parsing, before wandb.init, so
     # it shows up only as a crashed run with nothing logged.
-    fixed_arguments = METHOD_FIXED_ARGUMENTS[config.method]
+    fixed_arguments = list(METHOD_FIXED_ARGUMENTS[config.method])
+    if config.chain_error_criterion is not None:
+        fixed_arguments.append(
+            f"--augmentation.data.chain-error-criterion={config.chain_error_criterion}"
+        )
     swept_arguments = "${args_no_boolean_flags}"
     method_arguments = (
         [swept_arguments, *fixed_arguments]

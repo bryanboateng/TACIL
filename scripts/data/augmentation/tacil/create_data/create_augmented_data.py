@@ -56,8 +56,8 @@ def create_augmented_data(
         episode_store=episode_store, dynamics_model_ensemble=dynamics_model_ensemble
     )
 
-    replay_error_limit = (
-        config.replay_error_limit_step_multiple * median_expert_step_distance
+    chain_error_limit = (
+        config.chain_error_limit_step_multiple * median_expert_step_distance
     )
 
     backward_trajectories, rollout_diagnostics = roll_out_backward(
@@ -69,14 +69,16 @@ def create_augmented_data(
             device=device
         ),
         action_noise_std=torch.as_tensor(action_noise_std).to(device=device),
-        replay_error_limit=replay_error_limit,
+        chain_error_criterion=config.chain_error_criterion,
+        chain_error_limit=chain_error_limit,
         convergence_tolerance=1e-3 * median_expert_step_distance,
     )
 
     log_rollout_statistics(
         rollout_diagnostics=rollout_diagnostics,
         median_expert_step_distance=median_expert_step_distance,
-        replay_error_limit=replay_error_limit,
+        chain_error_criterion=config.chain_error_criterion,
+        chain_error_limit=chain_error_limit,
         run=run,
     )
 
@@ -84,7 +86,7 @@ def create_augmented_data(
         run.summary[f"{STAGE_NAME}/1_rollout/empty_anchor_count"] = len(anchor_indices)
         run.summary[f"{STAGE_NAME}/1_rollout/empty_anchor_fraction"] = 1.0
         raise RuntimeError(
-            "The replay error limit rejected every anchor's first backward step, so "
+            "The chain error limit rejected every anchor's first backward step, so "
             "this configuration produced no labels. Training on the expert data "
             "alone would score the unaugmented baseline under an augmented "
             "run's name, so the run stops here instead."

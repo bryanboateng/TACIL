@@ -77,6 +77,77 @@ class DynamicsModelEnsemble(torch.nn.Module):
 
         return torch.linalg.norm(per_dimension_deviation_batch, dim=-1)  # (batch_size,)
 
+    @torch.no_grad()
+    def prediction_disagreement(
+        self,
+        *,
+        state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
+        action_batch: torch.Tensor,  # (batch_size, action_dimensionality)
+    ) -> torch.Tensor:  # (batch_size,)
+        """How far the members' predictions of one step lie apart.
+
+        Measured the same way as the replay error, but around the members' own
+        mean instead of a target: where the members agree the model has been
+        told what happens here, and where they scatter it is extrapolating.
+        """
+        per_member_state_batch = self._predict_next_state_per_member(
+            state_batch=state_batch, action_batch=action_batch
+        )  # (member_count, batch_size, state_dimensionality)
+        return self.endpoint_deviation(
+            per_member_state_batch=per_member_state_batch,
+            target_state_batch=average_states(state_batch=per_member_state_batch),
+        )
+
+    @torch.no_grad()
+    def local_lipschitz_constants(
+        self,
+        *,
+        state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
+        action_batch: torch.Tensor,  # (batch_size, action_dimensionality)
+    ) -> torch.Tensor:  # (batch_size,)
+        """The members' average local Lipschitz constant: how much the model
+        stretches space right here."""
+        return torch.stack(
+            tensors=[
+                dynamics_model.local_lipschitz_constants(
+                    state_batch=state_batch, action_batch=action_batch
+                )
+                for dynamics_model in self.dynamics_models
+            ],
+            dim=0,
+        ).mean(dim=0)
+
+    @torch.no_grad()
+    def local_transition_lipschitz_constants(
+        self,
+        *,
+        state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
+        action_batch: torch.Tensor,  # (batch_size, action_dimensionality)
+    ) -> torch.Tensor:  # (batch_size,)
+        """Worst member's gain of the full transition map, identity included.
+
+        This stands in for the local sensitivity of the TRUE dynamics, which
+        decides how strongly errors compound when a synthetic prefix is
+        executed forward. Underestimating it silently weakens the error
+        account, while overestimating merely shortens prefixes -- so take the
+        maximum over members rather than the mean.
+        """
+        return (
+            torch.stack(
+                tensors=[
+                    dynamics_model.local_transition_lipschitz_constants(
+                        state_normalizer=self.state_normalizer,
+                        state_batch=state_batch,
+                        action_batch=action_batch,
+                    )
+                    for dynamics_model in self.dynamics_models
+                ],
+                dim=0,
+            )
+            .max(dim=0)
+            .values
+        )
+
     @property
     def dynamics_models(self) -> list[DynamicsModel]:
         dynamics_models: list[DynamicsModel] = []

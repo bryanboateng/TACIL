@@ -4,6 +4,10 @@ from dataclasses import dataclass
 import torch
 from tqdm import tqdm
 
+from scripts.data.augmentation.tacil.create_data.chain_error import (
+    ChainErrorCriterion,
+    ChainErrorTracker,
+)
 from scripts.data.augmentation.tacil.create_data.episode_assembly import (
     SyntheticTrajectories,
 )
@@ -58,7 +62,7 @@ class BackwardTrajectories:
 class RolloutDiagnostics:
     anchor_count: int
     not_converged_count: int
-    final_replay_errors: torch.Tensor  # (accepted_anchor_count,)
+    final_chain_errors: torch.Tensor  # (accepted_anchor_count,)
 
 
 @torch.no_grad()
@@ -68,7 +72,8 @@ def roll_out_backward(
     anchor_state_batch: torch.Tensor,  # (anchor_count, state_dimensionality)
     anchor_action_batch: torch.Tensor,  # (anchor_count, action_dimensionality)
     action_noise_std: torch.Tensor,  # (action_dimensionality,)
-    replay_error_limit: float,
+    chain_error_criterion: ChainErrorCriterion,
+    chain_error_limit: float,
     convergence_tolerance: float,
 ) -> tuple[BackwardTrajectories, RolloutDiagnostics]:
     anchor_count = anchor_state_batch.shape[0]
@@ -76,6 +81,13 @@ def roll_out_backward(
 
     step_count_batch = torch.zeros(anchor_count, dtype=torch.long, device=device)
     not_converged_count = 0
+
+    chain_error_tracker = ChainErrorTracker(
+        criterion=chain_error_criterion,
+        dynamics_model_ensemble=dynamics_model_ensemble,
+        anchor_count=anchor_count,
+        device=device,
+    )
 
     current_state_batch = anchor_state_batch.clone()
     active_trajectory_mask_batch = torch.ones(
@@ -91,7 +103,7 @@ def roll_out_backward(
 
     # Overwritten at every accepted step, so what survives is the last one —
     # the value that came closest to the limit before the chain stopped.
-    final_replay_error_batch = torch.zeros(anchor_count, device=device)
+    final_chain_error_batch = torch.zeros(anchor_count, device=device)
 
     progress_bar = tqdm(desc="backward step", unit="step")
     for depth in itertools.count():
@@ -112,18 +124,20 @@ def roll_out_backward(
             convergence_tolerance=convergence_tolerance,
         )
 
-        replay_error_batch = dynamics_model_ensemble.replay_error(
-            start_state_batch=backward_step.predecessor_state_batch,
-            action_batch_list=[backward_step.predecessor_action_batch]
-            + [
+        chain_error_batch = chain_error_tracker.measure(
+            anchor_indices=active_trajectory_indices,
+            predecessor_state_batch=backward_step.predecessor_state_batch,
+            predecessor_action_batch=backward_step.predecessor_action_batch,
+            successor_state_batch=current_state_batch[active_trajectory_indices],
+            anchor_state_batch=anchor_state_batch[active_trajectory_indices],
+            earlier_action_batches=[
                 chain_action_batch_per_depth[earlier_depth][active_trajectory_indices]
                 for earlier_depth in reversed(range(depth))
             ],
-            end_state_batch=anchor_state_batch[active_trajectory_indices],
         )  # (active_count,)
 
         accepted_mask_batch = backward_step.has_converged_batch & (
-            replay_error_batch <= replay_error_limit
+            chain_error_batch <= chain_error_limit
         )  # (active_count,)
 
         accepted_steps = _AcceptedSteps(
@@ -139,6 +153,14 @@ def roll_out_backward(
         accepted_steps_per_depth.append(accepted_steps)
         step_count_batch[accepted_steps.anchor_indices] = depth + 1
 
+        # Only accepted steps are paid for: a rejected one ends its chain.
+        chain_error_tracker.commit(
+            anchor_indices=accepted_steps.anchor_indices,
+            measured_error_batch=chain_error_batch[accepted_mask_batch],
+            predecessor_state_batch=accepted_steps.predecessor_state_batch,
+            predecessor_action_batch=accepted_steps.predecessor_action_batch,
+        )
+
         current_state_batch[accepted_steps.anchor_indices] = (
             accepted_steps.predecessor_state_batch
         )
@@ -149,7 +171,7 @@ def roll_out_backward(
         )
         chain_action_batch_per_depth.append(chain_action_batch)
 
-        final_replay_error_batch[accepted_steps.anchor_indices] = replay_error_batch[
+        final_chain_error_batch[accepted_steps.anchor_indices] = chain_error_batch[
             accepted_mask_batch
         ]
 
@@ -172,7 +194,7 @@ def roll_out_backward(
     return backward_trajectories, RolloutDiagnostics(
         anchor_count=anchor_count,
         not_converged_count=not_converged_count,
-        final_replay_errors=final_replay_error_batch[step_count_batch > 0],
+        final_chain_errors=final_chain_error_batch[step_count_batch > 0],
     )
 
 

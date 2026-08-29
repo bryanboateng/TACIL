@@ -16,13 +16,15 @@ def log_rollout_statistics(
     *,
     rollout_diagnostics: RolloutDiagnostics,
     median_expert_step_distance: float,
-    replay_error_limit: float,
+    chain_error_criterion: str,
+    chain_error_limit: float,
     run: Run,
 ) -> None:
     run.summary[f"{STAGE_NAME}/1_rollout/median_step_distance"] = (
         median_expert_step_distance
     )
-    run.summary[f"{STAGE_NAME}/1_rollout/replay_error_limit"] = replay_error_limit
+    run.summary[f"{STAGE_NAME}/1_rollout/chain_error_criterion"] = chain_error_criterion
+    run.summary[f"{STAGE_NAME}/1_rollout/chain_error_limit"] = chain_error_limit
     run.summary[f"{STAGE_NAME}/1_rollout/anchor_count"] = (
         rollout_diagnostics.anchor_count
     )
@@ -34,7 +36,7 @@ def log_rollout_statistics(
     # to 1 mean the limit is what ended the walk; a distribution sitting far
     # below 1 means the chains stopped for some other reason.
     limit_shares = (
-        rollout_diagnostics.final_replay_errors.cpu().numpy() / replay_error_limit
+        rollout_diagnostics.final_chain_errors.cpu().numpy() / chain_error_limit
     )
     if limit_shares.size > 0:
         for label, value in summarize_distribution(values=limit_shares).items():
@@ -42,7 +44,7 @@ def log_rollout_statistics(
         run.log(
             data={
                 f"{STAGE_NAME}/2_limit_tightness/plot": distribution_panel(
-                    values=limit_shares, column_name="final replay error / limit"
+                    values=limit_shares, column_name="final chain error / limit"
                 )
             }
         )
