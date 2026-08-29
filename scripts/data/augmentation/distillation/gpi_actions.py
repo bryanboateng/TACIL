@@ -2,8 +2,7 @@
 
 GPI needs no training: for any state it looks up a recorded step and builds an
 action from what was recorded there. That makes it a policy defined
-everywhere, and a strong prior for what a recovery action should look like --
-built out of expert actions, so it moves the way the demonstrations move.
+everywhere, without being trained.
 
 It is not, however, a function of the state alone. Each episode carries a plan
 and a record of which steps it has already spent, and those are what push it

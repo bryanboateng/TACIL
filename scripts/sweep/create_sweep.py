@@ -21,27 +21,10 @@ MethodLabel = Literal[
     "tacil-bc-unbounded",
     "ccil-bc",
     "gpi",
-    # Model-predictive recovery: disturb the block at each anchor, plan the
-    # action chain back with the dynamics ensemble, keep only chains whose
-    # member replay agrees they arrive.
-    "recovery-dp-bounded",
-    "recovery-dp-unbounded",
-    "recovery-bc-bounded",
-    "recovery-bc-unbounded",
     # GPI distilled into a policy: its actions, rolled forward through the
-    # dynamics model, as training data. The decisive control -- it says whether
-    # a learned policy can reach GPI's score at all on this data.
+    # dynamics model, as training data.
     "distill-dp",
     "distill-bc",
-    # The policy classes on their own. Every other sweep searches augmentation
-    # parameters and leaves the policy on the defaults of its paper, which were
-    # chosen for full datasets. GPI, by contrast, has all three of its
-    # parameters searched, so it has been meeting an untuned opponent. These
-    # sweeps tune the policy at a given data budget, with no augmentation, so
-    # the rest of the comparison can start from a policy that fits the data it
-    # is given.
-    "dp-tuning",
-    "bc-tuning",
 ]
 
 METHOD_MODULES: dict[MethodLabel, str] = {
@@ -51,14 +34,8 @@ METHOD_MODULES: dict[MethodLabel, str] = {
     "tacil-bc-unbounded": "scripts.policies.bc.run",
     "ccil-bc": "scripts.policies.bc.run",
     "gpi": "scripts.policies.gpi.run",
-    "recovery-dp-bounded": "scripts.policies.dp.run",
-    "recovery-dp-unbounded": "scripts.policies.dp.run",
-    "recovery-bc-bounded": "scripts.policies.bc.run",
-    "recovery-bc-unbounded": "scripts.policies.bc.run",
     "distill-dp": "scripts.policies.dp.run",
     "distill-bc": "scripts.policies.bc.run",
-    "dp-tuning": "scripts.policies.dp.run",
-    "bc-tuning": "scripts.policies.bc.run",
 }
 
 # The unbounded methods pin the bound instead of sweeping it, so that each
@@ -76,15 +53,8 @@ METHOD_FIXED_ARGUMENTS: dict[MethodLabel, list[str]] = {
     # GPI has no augmentation stage, but the field is still part of the run
     # config, and tyro asks for every field.
     "gpi": ["--augmentation=None"],
-    "recovery-dp-bounded": ["augmentation:recovery"],
-    "recovery-dp-unbounded": ["augmentation:recovery", _UNBOUNDED_ARGUMENT],
-    "recovery-bc-bounded": ["augmentation:recovery"],
-    "recovery-bc-unbounded": ["augmentation:recovery", _UNBOUNDED_ARGUMENT],
-    "distill-dp": ["augmentation:recovery", "--augmentation.data.action-source=gpi"],
-    "distill-bc": ["augmentation:recovery", "--augmentation.data.action-source=gpi"],
-    # The subcommand has to come last, so the policy options precede it.
-    "dp-tuning": ["augmentation:none"],
-    "bc-tuning": ["augmentation:none"],
+    "distill-dp": ["augmentation:distillation"],
+    "distill-bc": ["augmentation:distillation"],
 }
 
 _TACIL_SHARED_PARAMETERS: dict[str, Any] = {
@@ -155,74 +125,9 @@ _CCIL_SHARED_PARAMETERS: dict[str, Any] = {
     },
 }
 
-_RECOVERY_SHARED_PARAMETERS: dict[str, Any] = {
-    "augmentation.dynamics.window_length": {
-        "distribution": "int_uniform",
-        "min": 1,
-        "max": 15,
-    },
-    # How hard the block is shoved before the planner has to bring it back.
-    # The low end is barely more than an expert step; the high end throws the
-    # block across half its travelled range, which is a harder recovery than
-    # the evaluation disturbances create.
-    "augmentation.data.disturbance_range_fraction": {
-        "distribution": "log_uniform_values",
-        "min": 0.02,
-        "max": 0.5,
-    },
-    # Lookahead of the planner. 2 already beats greedy; 12 is about as deep as
-    # a rollout of the one-step model stays worth judging on.
-    #
-    # The candidate step size is not searched next to it any more. Since the
-    # search starts at GPI's action, that number is a correction radius around
-    # an action that is already expert-shaped, not the scale of a search from
-    # nothing, and its default is small on purpose.
-    "augmentation.data.plan_horizon": {
-        "distribution": "int_uniform",
-        "min": 2,
-        "max": 12,
-    },
-    # Ceiling on the chain length. It is the depth lever: the model's forward
-    # error grows with every step it predicts on its own, so a long chain ends
-    # on states the simulator could never produce, and the policy spends its
-    # capacity on them. TACIL's depth curve showed the same trade-off.
-    #
-    # It overlaps with the replay error limit below, which measures that same
-    # unreliability directly instead of by step count. Both stay, as they did
-    # in TACIL: the limit passes a chain the members agree on, and this cap
-    # still refuses one they only agree on because they share a blind spot.
-    #
-    # The arrival tolerance and the target count are not searched beside it.
-    # A tolerance of one median expert step is what "back at a demonstrated
-    # state" means rather than a value to tune, and aiming at the 32 nearest
-    # states is about having somewhere to go, not a sensitive quantity. With
-    # roughly 80 runs per sweep, every extra axis thins the search, and these
-    # two would have thinned it without adding a distinct lever.
-    "augmentation.data.max_chain_length": {
-        "distribution": "int_uniform",
-        "min": 2,
-        "max": 16,
-    },
-    # Same role as in the TACIL sweeps, but the floor is raised. Under one
-    # median expert step the test rejected every chain a run produced, so the
-    # run died with no data: half of 2026-08-27d's runs were lost that way,
-    # and none of them could have scored.
-    "augmentation.data.replay_error_limit_step_multiple": {
-        "distribution": "log_uniform_values",
-        "min": 1.0,
-        "max": 120.0,
-    },
-}
-
-_GPI_WEIGHT_PARAMETERS: dict[str, Any] = {
-    # The same range GPI's own sweep searches: its plan length decides how far
-    # it commits to a demonstration before looking for a new step, and that is
-    # part of what the distillation has to copy.
-    "augmentation.data.gpi_plan_length": {
-        "distribution": "int_uniform",
-        "min": 1,
-        "max": 32,
-    },
+_DISTILLATION_PARAMETERS: dict[str, Any] = {
+    # GPI's own parameters, over the range its own sweep searches: what is
+    # being copied is GPI, so how GPI is configured is part of the search.
     "augmentation.data.gpi_progression_weight": {
         "distribution": "log_uniform_values",
         "min": 0.1,
@@ -233,30 +138,23 @@ _GPI_WEIGHT_PARAMETERS: dict[str, Any] = {
         "min": 0.1,
         "max": 10.0,
     },
-}
-
-_RECOVERY_BOUNDED_PARAMETERS: dict[str, Any] = {
-    **_RECOVERY_SHARED_PARAMETERS,
+    "augmentation.data.gpi_plan_length": {
+        "distribution": "int_uniform",
+        "min": 1,
+        "max": 32,
+    },
+    "augmentation.dynamics.window_length": {
+        "distribution": "int_uniform",
+        "min": 1,
+        "max": 15,
+    },
     # Same reasoning as for the TACIL bound, see _TACIL_BOUNDED_PARAMETERS.
     "augmentation.dynamics.lipschitz_constant_upper_bound": {
         "distribution": "log_uniform_values",
         "min": 1.0,
         "max": 120.0,
     },
-}
-
-_DISTILLATION_PARAMETERS: dict[str, Any] = {
-    **_GPI_WEIGHT_PARAMETERS,
-    "augmentation.dynamics.window_length": {
-        "distribution": "int_uniform",
-        "min": 1,
-        "max": 15,
-    },
-    "augmentation.dynamics.lipschitz_constant_upper_bound": {
-        "distribution": "log_uniform_values",
-        "min": 1.0,
-        "max": 120.0,
-    },
+    # How hard the block is shoved before GPI has to bring it back.
     "augmentation.data.disturbance_range_fraction": {
         "distribution": "log_uniform_values",
         "min": 0.02,
@@ -277,36 +175,6 @@ _DISTILLATION_PARAMETERS: dict[str, Any] = {
 # through the command line; tyro reads them back with Python collection syntax.
 # The reference size is the largest here: at 5% of the data it has more
 # parameters than there are transitions to fit them on.
-_DP_TUNING_PARAMETERS: dict[str, Any] = {
-    "policy.hidden_channel_counts": {
-        "values": ["(64,128,256)", "(128,256,512)", "(256,512,1024)"]
-    },
-    "policy.optimization.learning_rate": {
-        "distribution": "log_uniform_values",
-        "min": 1e-5,
-        "max": 3e-3,
-    },
-    # Divisible by the validation interval, which the config requires.
-    "policy.optimization.epoch_count": {"values": [200, 400, 600, 1000]},
-    "policy.optimization.batch_size": {"values": [64, 128, 256]},
-    "policy.optimization.weight_decay": {
-        "distribution": "log_uniform_values",
-        "min": 1e-8,
-        "max": 1e-2,
-    },
-}
-
-_BC_TUNING_PARAMETERS: dict[str, Any] = {
-    "policy.hidden_layer_dimensionality": {"values": [64, 128, 256, 512]},
-    "policy.optimization.learning_rate": {
-        "distribution": "log_uniform_values",
-        "min": 1e-5,
-        "max": 1e-2,
-    },
-    "policy.optimization.epoch_count": {"values": [100, 200, 400, 800]},
-    "policy.optimization.batch_size": {"values": [64, 128, 256, 512]},
-}
-
 
 METHOD_PARAMETERS: dict[MethodLabel, dict[str, Any]] = {
     "tacil-dp-bounded": _TACIL_BOUNDED_PARAMETERS,
@@ -335,16 +203,8 @@ METHOD_PARAMETERS: dict[MethodLabel, dict[str, Any]] = {
         },
         "policy.plan_length": {"distribution": "int_uniform", "min": 1, "max": 32},
     },
-    "recovery-dp-bounded": {**_RECOVERY_BOUNDED_PARAMETERS, **_GPI_WEIGHT_PARAMETERS},
-    "recovery-dp-unbounded": {**_RECOVERY_SHARED_PARAMETERS, **_GPI_WEIGHT_PARAMETERS},
-    "recovery-bc-bounded": {**_RECOVERY_BOUNDED_PARAMETERS, **_GPI_WEIGHT_PARAMETERS},
-    "recovery-bc-unbounded": {**_RECOVERY_SHARED_PARAMETERS, **_GPI_WEIGHT_PARAMETERS},
-    # No planner, so none of its parameters apply: what shapes the data is how
-    # far the block is shoved, how long GPI is followed, and GPI's own weights.
     "distill-dp": _DISTILLATION_PARAMETERS,
     "distill-bc": _DISTILLATION_PARAMETERS,
-    "dp-tuning": _DP_TUNING_PARAMETERS,
-    "bc-tuning": _BC_TUNING_PARAMETERS,
 }
 
 

@@ -6,8 +6,8 @@ import tyro
 import wandb
 from rich.pretty import pretty_repr
 
-from scripts.data.augmentation.recovery import augmentation as recovery
-from scripts.data.augmentation.recovery.augmentation import RecoveryConfig
+from scripts.data.augmentation.distillation import augmentation as distillation
+from scripts.data.augmentation.distillation.augmentation import DistillationConfig
 from scripts.data.augmentation.tacil import augmentation as tacil
 from scripts.data.augmentation.tacil.augmentation import TacilConfig
 from scripts.evaluation.core.condition import ALL_CONDITIONS, VALIDATION_CONDITION
@@ -24,7 +24,7 @@ logger = create_logger()
 
 Augmentation: TypeAlias = (
     Annotated[TacilConfig, tyro.conf.subcommand(name="tacil")]
-    | Annotated[RecoveryConfig, tyro.conf.subcommand(name="recovery")]
+    | Annotated[DistillationConfig, tyro.conf.subcommand(name="distillation")]
 )
 Config: TypeAlias = RunConfig[policy_config.Config, Augmentation]
 
@@ -74,9 +74,9 @@ def _run(*, config: Config) -> None:
                     device=device,
                     run=run,
                 )
-            case RecoveryConfig() as recovery_configuration:
-                augmented_episodes = recovery.augment(
-                    config=recovery_configuration,
+            case DistillationConfig() as distillation_configuration:
+                augmented_episodes = distillation.augment(
+                    config=distillation_configuration,
                     expert_episodes=expert_episodes,
                     expert_part_length=expert_part_length,
                     seed=config.seed,

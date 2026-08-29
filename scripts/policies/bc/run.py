@@ -10,8 +10,8 @@ from wandb import Run
 
 from scripts.data.augmentation.ccil import augmentation as ccil
 from scripts.data.augmentation.ccil.config import CcilConfig
-from scripts.data.augmentation.recovery import augmentation as recovery
-from scripts.data.augmentation.recovery.augmentation import RecoveryConfig
+from scripts.data.augmentation.distillation import augmentation as distillation
+from scripts.data.augmentation.distillation.augmentation import DistillationConfig
 from scripts.data.augmentation.tacil import augmentation as tacil
 from scripts.data.augmentation.tacil.augmentation import TacilConfig
 from scripts.evaluation.core.condition import ALL_CONDITIONS, VALIDATION_CONDITION
@@ -30,7 +30,7 @@ logger = create_logger()
 Augmentation: TypeAlias = (
     Annotated[TacilConfig, tyro.conf.subcommand(name="tacil")]
     | Annotated[CcilConfig, tyro.conf.subcommand(name="ccil")]
-    | Annotated[RecoveryConfig, tyro.conf.subcommand(name="recovery")]
+    | Annotated[DistillationConfig, tyro.conf.subcommand(name="distillation")]
 )
 Config: TypeAlias = RunConfig[bc_config.Config, Augmentation]
 
@@ -142,9 +142,9 @@ def _create_synthetic_transitions(
             return TransitionBatch(
                 states=tacil_episodes.states, actions=tacil_episodes.actions
             )
-        case RecoveryConfig() as recovery_configuration:
-            recovery_episodes = recovery.augment(
-                config=recovery_configuration,
+        case DistillationConfig() as distillation_configuration:
+            distillation_episodes = distillation.augment(
+                config=distillation_configuration,
                 expert_episodes=expert_episodes,
                 # Behavior cloning trains on single (state, action) pairs, not
                 # windows, so no expert part is needed.
@@ -154,7 +154,8 @@ def _create_synthetic_transitions(
                 run=run,
             )
             return TransitionBatch(
-                states=recovery_episodes.states, actions=recovery_episodes.actions
+                states=distillation_episodes.states,
+                actions=distillation_episodes.actions,
             )
 
 
