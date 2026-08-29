@@ -1,3 +1,4 @@
+import importlib
 from dataclasses import dataclass
 from typing import Any, Literal
 
@@ -369,6 +370,10 @@ def main() -> None:
     sweep_configuration = _build_sweep_configuration(config=config, project=project)
     logger.info(pretty_repr(sweep_configuration))
 
+    _verify_command_parses(
+        sweep_configuration=sweep_configuration, method=config.method
+    )
+
     sweep_id = wandb.sweep(
         sweep=sweep_configuration, entity=config.entity, project=project
     )
@@ -376,8 +381,70 @@ def main() -> None:
     logger.info("Sweep path: %s", f"{config.entity}/{project}/{sweep_id}")
 
 
+def _verify_command_parses(
+    *, sweep_configuration: dict[str, Any], method: MethodLabel
+) -> None:
+    """Parse the command this sweep would run, with one sample value per
+    parameter.
+
+    A wrongly ordered command does not fail loudly: the run dies inside the
+    argument parser, before wandb.init, and all that remains is a crashed run
+    with an empty summary. Two sweeps have already been lost that way, so the
+    command is parsed here, while it can still be fixed.
+    """
+    sample_arguments = [
+        f"--{name}={_sample_value(specification=specification)}"
+        for name, specification in sweep_configuration["parameters"].items()
+    ]
+
+    # The first four entries are the interpreter and the module to run.
+    arguments: list[str] = []
+    for token in sweep_configuration["command"][4:]:
+        if token == "${args_no_boolean_flags}":
+            arguments.extend(sample_arguments)
+        else:
+            arguments.append(token)
+
+    run_module = importlib.import_module(name=METHOD_MODULES[method])
+    try:
+        tyro.cli(
+            f=run_module.Config,
+            args=arguments,
+            config=[tyro.conf.UsePythonSyntaxForLiteralCollections],
+        )
+    except SystemExit as exit_error:
+        raise RuntimeError(
+            f"The command for {method} does not parse, so every run of this "
+            f"sweep would die before it could log anything. Arguments:\n  "
+            + "\n  ".join(arguments)
+        ) from exit_error
+
+
+def _sample_value(*, specification: dict[str, Any]) -> Any:
+    if "values" in specification:
+        return specification["values"][0]
+    return specification["min"]
+
+
 def _build_sweep_configuration(*, config: Config, project: str) -> dict[str, Any]:
     pipeline_module = METHOD_MODULES[config.method]
+    parameters = METHOD_PARAMETERS[config.method]
+
+    # Where the fixed arguments go depends on what is being searched. A
+    # subcommand such as `augmentation:tacil` closes the parent parser: options
+    # of the run itself are only read before it, options of the augmentation
+    # only after it. So a sweep over `augmentation.*` needs the subcommand
+    # first, and a sweep over `policy.*` needs it last. Getting this backwards
+    # does not fail loudly -- the run dies while parsing, before wandb.init, so
+    # it shows up only as a crashed run with nothing logged.
+    fixed_arguments = METHOD_FIXED_ARGUMENTS[config.method]
+    swept_arguments = "${args_no_boolean_flags}"
+    method_arguments = (
+        [swept_arguments, *fixed_arguments]
+        if all(key.startswith("policy.") for key in parameters)
+        else [*fixed_arguments, swept_arguments]
+    )
+
     return {
         "program": pipeline_module.replace(".", "/") + ".py",
         "method": config.sweep_method,
@@ -393,12 +460,9 @@ def _build_sweep_configuration(*, config: Config, project: str) -> dict[str, Any
             f"--wandb-project={project}",
             f"--expert-dataset-artifact=datasets/dataset-{config.dataset_percentage}:latest",
             f"--seed={config.seed}",
-            # Indexed, not `.get`: a method missing here is a mistake, and a
-            # silent empty default hides it until the sweep agent fails.
-            *METHOD_FIXED_ARGUMENTS[config.method],
-            "${args_no_boolean_flags}",
+            *method_arguments,
         ],
-        "parameters": METHOD_PARAMETERS[config.method],
+        "parameters": parameters,
     }
 
 
