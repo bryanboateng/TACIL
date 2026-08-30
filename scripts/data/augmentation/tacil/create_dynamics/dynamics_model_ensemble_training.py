@@ -14,9 +14,9 @@ from scripts.data.augmentation.tacil.create_dynamics.data import (
     extract_transitions,
 )
 from scripts.data.augmentation.tacil.create_dynamics.dynamics_model_training import (
+    MemberTrainingState,
     TrainingContext,
     create_member_training_state,
-    load_best_member_model,
     train_member_for_one_epoch,
 )
 from scripts.data.augmentation.tacil.create_dynamics.statistics.wandb_logging import (
@@ -25,6 +25,9 @@ from scripts.data.augmentation.tacil.create_dynamics.statistics.wandb_logging im
     log_ensemble_statistics,
     log_epoch,
     log_window_counts,
+)
+from scripts.data.augmentation.tacil.dynamics.dynamics_model.dynamics_model import (
+    DynamicsModel,
 )
 from scripts.data.augmentation.tacil.dynamics.dynamics_model_ensemble import (
     DynamicsModelEnsemble,
@@ -123,7 +126,7 @@ def train_dynamics_model_ensemble(
             epoch_index=epoch_index,
             per_member_metrics=[
                 train_member_for_one_epoch(
-                    state=member_training_state,
+                    training_state=member_training_state,
                     epoch_index=epoch_index,
                     context=training_context,
                 )
@@ -185,3 +188,15 @@ def _create_normalizers(
             )
         ).to(device=device),
     )
+
+
+def load_best_member_model(
+    *, member_training_state: MemberTrainingState
+) -> DynamicsModel:
+    if member_training_state.best_checkpoint is None:
+        raise ValueError("No checkpoint was recorded")
+    member_training_state.model.load_state_dict(
+        state_dict=member_training_state.best_checkpoint.state_dict
+    )
+    member_training_state.model.eval()
+    return member_training_state.model

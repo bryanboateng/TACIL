@@ -47,8 +47,6 @@ class MemberTrainingState:
 
     @property
     def ema_dynamics_model(self) -> DynamicsModel:
-        # AveragedModel.module is typed as nn.Module; verify at runtime that it is the
-        # DynamicsModel we wrapped rather than trusting the annotation.
         module = self.ema_model.module
         if not isinstance(module, DynamicsModel):
             raise TypeError(
@@ -104,7 +102,7 @@ def create_member_training_state(
             ),
             use_buffers=False,
         ),
-        shuffle_generator=torch.Generator(device=device).manual_seed(member_seed),
+        shuffle_generator=torch.Generator(device=device).manual_seed(seed=member_seed),
         histogram_sample_generator=np.random.default_rng(seed=member_seed),
         state_windows=state_windows,
         action_windows=action_windows,
@@ -112,90 +110,78 @@ def create_member_training_state(
 
 
 def train_member_for_one_epoch(
-    *, state: MemberTrainingState, epoch_index: int, context: TrainingContext
+    *, training_state: MemberTrainingState, epoch_index: int, context: TrainingContext
 ) -> MemberEpochMetrics:
     batch_size = 2_048
 
-    window_count = state.state_windows.shape[0]
-    steps_per_epoch = max(window_count // batch_size, 1)
+    window_count = training_state.state_windows.shape[0]
+    step_count = max(window_count // batch_size, 1)
 
-    state.model.train()
+    training_state.model.train()
     shuffled_window_indices = torch.randperm(
         n=window_count,
-        generator=state.shuffle_generator,
-        device=state.state_windows.device,
+        generator=training_state.shuffle_generator,
+        device=training_state.state_windows.device,
     )
 
     losses: list[float] = []
     gradient_norms: list[float] = []
 
-    for step_index in range(steps_per_epoch):
+    for step_index in range(step_count):
         batch_window_indices = shuffled_window_indices[
             step_index * batch_size : (step_index + 1) * batch_size
         ]
 
-        state.optimizer.zero_grad()
+        training_state.optimizer.zero_grad()
 
         loss = calculate_loss(
-            dynamics_model=state.model,
-            state_window_batch=state.state_windows[batch_window_indices],
-            action_window_batch=state.action_windows[batch_window_indices],
+            dynamics_model=training_state.model,
+            state_window_batch=training_state.state_windows[batch_window_indices],
+            action_window_batch=training_state.action_windows[batch_window_indices],
         )
         loss.backward()
         losses.append(loss.detach().item())
 
         gradient_norm = torch.nn.utils.clip_grad_norm_(
-            parameters=state.model.parameters(), max_norm=1.0
+            parameters=training_state.model.parameters(), max_norm=1.0
         )
-        state.optimizer.step()
+        training_state.optimizer.step()
         gradient_norms.append(gradient_norm.item())
 
-    state.ema_model.update_parameters(model=state.model)
+    training_state.ema_model.update_parameters(model=training_state.model)
 
     validation_loss = _calculate_validation_loss(
-        dynamics_model=state.ema_dynamics_model,
+        dynamics_model=training_state.ema_dynamics_model,
         state_windows=context.validation_state_windows,
         action_windows=context.validation_action_windows,
         batch_size=batch_size,
     )
 
     if (
-        state.best_checkpoint is None
-        or validation_loss < state.best_checkpoint.validation_loss
+        training_state.best_checkpoint is None
+        or validation_loss < training_state.best_checkpoint.validation_loss
     ):
-        state.best_checkpoint = Checkpoint(
+        training_state.best_checkpoint = Checkpoint(
             validation_loss=validation_loss,
             epoch=epoch_index,
-            state_dict=copy.deepcopy(state.ema_dynamics_model.state_dict()),
+            state_dict=copy.deepcopy(training_state.ema_dynamics_model.state_dict()),
         )
 
     return MemberEpochMetrics(
         training_loss=float(np.mean(a=losses)),
         validation_loss=validation_loss,
         training_local_lipschitz_constants=_sample_local_lipschitz_constants(
-            training_state=state,
+            training_state=training_state,
             transitions=context.training_transitions,
             batch_size=batch_size,
         ),
         validation_local_lipschitz_constants=_sample_local_lipschitz_constants(
-            training_state=state,
+            training_state=training_state,
             transitions=context.validation_transitions,
             batch_size=batch_size,
         ),
         gradient_norm=float(np.max(a=gradient_norms)),
     )
-
-
-def load_best_member_model(
-    *, member_training_state: MemberTrainingState
-) -> DynamicsModel:
-    if member_training_state.best_checkpoint is None:
-        raise ValueError("No checkpoint was recorded")
-    member_training_state.model.load_state_dict(
-        state_dict=member_training_state.best_checkpoint.state_dict
-    )
-    member_training_state.model.eval()
-    return member_training_state.model
 
 
 # ---- Private --------------------------------------------
@@ -213,8 +199,8 @@ def _calculate_validation_loss(
     total_loss = 0.0
 
     dynamics_model.eval()
-    for batch_start in range(0, window_count, batch_size):
-        batch_slice = slice(batch_start, batch_start + batch_size)
+    for batch_start_index in range(0, window_count, batch_size):
+        batch_slice = slice(batch_start_index, batch_start_index + batch_size)
 
         state_window_batch = state_windows[
             batch_slice
@@ -251,8 +237,8 @@ def _sample_local_lipschitz_constants(
 
     local_lipschitz_constant_batches: list[npt.NDArray[np.float32]] = []
 
-    for batch_start in range(0, states.shape[0], batch_size):
-        batch_slice = slice(batch_start, batch_start + batch_size)
+    for batch_start_index in range(0, states.shape[0], batch_size):
+        batch_slice = slice(batch_start_index, batch_start_index + batch_size)
         local_lipschitz_constant_batches.append(
             training_state.ema_dynamics_model.measure_local_lipschitz_constants(
                 state_batch=states[batch_slice], action_batch=actions[batch_slice]
