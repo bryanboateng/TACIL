@@ -42,7 +42,8 @@ the anchor: it asks the model directly whether the finished episode holds up,
 instead of adding up what its steps cost.
 """
 
-from typing import Literal
+from dataclasses import dataclass
+from typing import Literal, TypeAlias
 
 import torch
 
@@ -51,13 +52,32 @@ from scripts.data.augmentation.tacil.dynamics.dynamics_model_ensemble import (
 )
 from scripts.shared.pusht_state import subtract_states
 
-ChainErrorCriterion = Literal[
-    "replay",
-    "summed_uncertainty",
-    "compounded_uncertainty",
-    "summed_label_error_bound",
-    "compounded_label_error_bound",
-]
+ChainErrorCost = Literal["uncertainty", "label_error_bound"]
+ChainErrorAccumulation = Literal["summed", "compounded"]
+
+
+@dataclass(frozen=True)
+class ReplayCriterion:
+    """Judge the finished chain, not its steps: replay it with every member
+    and see how far their endpoints land from the anchor."""
+
+
+@dataclass(frozen=True)
+class AccountCriterion:
+    """Charge every step and keep the running total."""
+
+    cost: ChainErrorCost
+    accumulation: ChainErrorAccumulation
+
+
+ChainErrorCriterion: TypeAlias = ReplayCriterion | AccountCriterion
+
+
+def criterion_label(*, criterion: ChainErrorCriterion) -> str:
+    """A short name for a rule, for logging and for naming a sweep."""
+    if isinstance(criterion, ReplayCriterion):
+        return "replay"
+    return f"{criterion.accumulation}_{criterion.cost}"
 
 
 class ChainErrorTracker:
@@ -92,7 +112,7 @@ class ChainErrorTracker:
         anchor_state_batch: torch.Tensor,  # (active_count, state_dimensionality)
         earlier_action_batches: list[torch.Tensor],  # newest first
     ) -> torch.Tensor:  # (active_count,)
-        if self._criterion == "replay":
+        if isinstance(self._criterion, ReplayCriterion):
             return self._dynamics_model_ensemble.replay_error(
                 start_state_batch=predecessor_state_batch,
                 action_batch_list=[predecessor_action_batch, *earlier_action_batches],
@@ -118,11 +138,11 @@ class ChainErrorTracker:
         predecessor_state_batch: torch.Tensor,  # (accepted_count, state_dimensionality)
         predecessor_action_batch: torch.Tensor,  # (accepted_count, action_dimensionality)  # noqa: E501
     ) -> None:
-        if self._criterion == "replay":
+        if isinstance(self._criterion, ReplayCriterion):
             return
 
         self._spent_batch[anchor_indices] = measured_error_batch
-        if self._criterion.startswith("compounded"):
+        if self._criterion.accumulation == "compounded":
             self._transition_gain_batch[anchor_indices] *= (
                 self._dynamics_model_ensemble.local_transition_lipschitz_constants(
                     state_batch=predecessor_state_batch,
@@ -139,7 +159,7 @@ class ChainErrorTracker:
         predecessor_action_batch: torch.Tensor,
         successor_state_batch: torch.Tensor,
     ) -> torch.Tensor:  # (active_count,)
-        if self._criterion.endswith("uncertainty"):
+        if self._criterion.cost == "uncertainty":
             return self._dynamics_model_ensemble.prediction_disagreement(
                 state_batch=predecessor_state_batch,
                 action_batch=predecessor_action_batch,

@@ -6,7 +6,12 @@ import tyro
 import wandb
 from rich.pretty import pretty_repr
 
-from scripts.data.augmentation.tacil.create_data.chain_error import ChainErrorCriterion
+from scripts.data.augmentation.tacil.create_data.chain_error import (
+    AccountCriterion,
+    ChainErrorAccumulation,
+    ChainErrorCost,
+    criterion_label,
+)
 from scripts.evaluation.core.condition import VALIDATION_CONDITION
 from scripts.evaluation.evaluate_policy import STAGE_NAME
 from scripts.shared.log import create_logger
@@ -218,21 +223,36 @@ class Config:
 
     seed: int
 
-    # Which stopping rule a TACIL sweep searches under. One sweep per rule
-    # rather than a rule drawn per run: the search would otherwise spend its
-    # budget unevenly across the rules and none of them would be settled.
-    # It lands in the project name, so the sweeps stay apart.
-    chain_error_criterion: ChainErrorCriterion | None = None
+    # Which stopping rule a TACIL sweep searches under. Leaving both unset is
+    # the replay rule, which is what TACIL has always done; setting both picks
+    # one rule out of the account grid. One sweep per rule rather than a rule
+    # drawn per run: the search would otherwise spend its budget unevenly
+    # across the rules and none of them would be settled. An account rule lands
+    # in the project name, so the sweeps stay apart.
+    chain_error_cost: ChainErrorCost | None = None
+    chain_error_accumulation: ChainErrorAccumulation | None = None
 
     def __post_init__(self) -> None:
-        if self.chain_error_criterion is not None and not self.method.startswith(
-            "tacil"
-        ):
+        if (self.chain_error_cost is None) != (self.chain_error_accumulation is None):
             raise ValueError(
-                f"A chain error criterion only applies to the TACIL methods, "
-                f"which are the ones that walk a chain; the method is "
-                f"{self.method}."
+                f"An account rule needs both a cost and an accumulation, and "
+                f"the replay rule needs neither, but the cost is "
+                f"{self.chain_error_cost!r} and the accumulation is "
+                f"{self.chain_error_accumulation!r}."
             )
+        if self.chain_error_cost is not None and not self.method.startswith("tacil"):
+            raise ValueError(
+                f"A chain error rule only applies to the TACIL methods, which "
+                f"are the ones that walk a chain; the method is {self.method}."
+            )
+
+    @property
+    def account_criterion(self) -> AccountCriterion | None:
+        if self.chain_error_cost is None or self.chain_error_accumulation is None:
+            return None
+        return AccountCriterion(
+            cost=self.chain_error_cost, accumulation=self.chain_error_accumulation
+        )
 
     sweep_method: SearchLabel = "bayes"
 
@@ -244,8 +264,9 @@ def main() -> None:
     logger.info(pretty_repr(config))
 
     project = f"{config.project_prefix}-{config.dataset_percentage}-{config.method}"
-    if config.chain_error_criterion is not None:
-        project += f"-{config.chain_error_criterion.replace('_', '-')}"
+    account_criterion = config.account_criterion
+    if account_criterion is not None:
+        project += "-" + criterion_label(criterion=account_criterion).replace("_", "-")
 
     sweep_configuration = _build_sweep_configuration(config=config, project=project)
     logger.info(pretty_repr(sweep_configuration))
@@ -318,10 +339,13 @@ def _build_sweep_configuration(*, config: Config, project: str) -> dict[str, Any
     # does not fail loudly -- the run dies while parsing, before wandb.init, so
     # it shows up only as a crashed run with nothing logged.
     fixed_arguments = list(METHOD_FIXED_ARGUMENTS[config.method])
-    if config.chain_error_criterion is not None:
-        fixed_arguments.append(
-            f"--augmentation.data.chain-error-criterion={config.chain_error_criterion}"
-        )
+    account_criterion = config.account_criterion
+    if account_criterion is not None:
+        fixed_arguments += [
+            f"--augmentation.data.chain-error-cost={account_criterion.cost}",
+            "--augmentation.data.chain-error-accumulation="
+            f"{account_criterion.accumulation}",
+        ]
     swept_arguments = "${args_no_boolean_flags}"
     method_arguments = (
         [swept_arguments, *fixed_arguments]
