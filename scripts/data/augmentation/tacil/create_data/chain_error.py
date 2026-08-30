@@ -5,7 +5,7 @@ about, and there is more than one way to say when that stops being true. Every
 rule here comes down to one number per chain, compared against one limit, so
 they can be swapped and compared.
 
-Six of the seven are a choice of two things.
+Four of the five are a choice of two things.
 
 **What a single step costs.** Two ways to put a number on how wrong one
 invented step might be:
@@ -26,13 +26,17 @@ invented step might be:
 **How steps add up.** A cost paid at depth d still has to survive d more
 transitions before the chain reaches its anchor:
 
-    per_step            only the newest step counts; nothing is carried over
     summed              costs are added up as they are
     compounded          costs are added up, and each older cost is stretched by
                         what the transitions since have done to it -- the
                         transition gain, measured on the model
 
-The seventh, `replay`, keeps no account at all. It replays the whole candidate
+A third way, charging only the newest step and forgetting the rest, was
+tried and dropped: both of its variants came last of seven in the 2026-08-30
+comparison. That both lost, whichever cost they charged, is the evidence that
+keeping an account over the chain is what separates this from a one-step gate.
+
+The fifth rule, `replay`, keeps no account at all. It replays the whole candidate
 chain forward with each member and measures how far their endpoints land from
 the anchor: it asks the model directly whether the finished episode holds up,
 instead of adding up what its steps cost.
@@ -49,15 +53,11 @@ from scripts.shared.pusht_state import subtract_states
 
 ChainErrorCriterion = Literal[
     "replay",
-    "per_step_uncertainty",
     "summed_uncertainty",
     "compounded_uncertainty",
-    "per_step_label_error_bound",
     "summed_label_error_bound",
     "compounded_label_error_bound",
 ]
-
-_UNCERTAINTY_SUFFIX = "uncertainty"
 
 
 class ChainErrorTracker:
@@ -104,9 +104,6 @@ class ChainErrorTracker:
             predecessor_action_batch=predecessor_action_batch,
             successor_state_batch=successor_state_batch,
         )
-        if self._criterion.startswith("per_step"):
-            return step_cost_batch
-
         return (
             self._spent_batch[anchor_indices]
             + self._transition_gain_batch[anchor_indices] * step_cost_batch
@@ -121,7 +118,7 @@ class ChainErrorTracker:
         predecessor_state_batch: torch.Tensor,  # (accepted_count, state_dimensionality)
         predecessor_action_batch: torch.Tensor,  # (accepted_count, action_dimensionality)  # noqa: E501
     ) -> None:
-        if self._criterion == "replay" or self._criterion.startswith("per_step"):
+        if self._criterion == "replay":
             return
 
         self._spent_batch[anchor_indices] = measured_error_batch
@@ -142,7 +139,7 @@ class ChainErrorTracker:
         predecessor_action_batch: torch.Tensor,
         successor_state_batch: torch.Tensor,
     ) -> torch.Tensor:  # (active_count,)
-        if self._criterion.endswith(_UNCERTAINTY_SUFFIX):
+        if self._criterion.endswith("uncertainty"):
             return self._dynamics_model_ensemble.prediction_disagreement(
                 state_batch=predecessor_state_batch,
                 action_batch=predecessor_action_batch,
