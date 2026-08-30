@@ -41,8 +41,6 @@ from scripts.shared.normalization import ZScoreNormalizer
 from scripts.shared.pusht_state import subtract_states
 from scripts.shared.seeding import set_seed
 
-logger = create_logger()
-
 
 def train_dynamics_model_ensemble(
     *,
@@ -140,7 +138,7 @@ def train_dynamics_model_ensemble(
     dynamics_model_ensemble = DynamicsModelEnsemble(
         state_normalizer=normalizers.state,
         dynamics_models=[
-            load_best_member_model(member_training_state=member_training_state)
+            _load_best_member_model(member_training_state=member_training_state)
             for member_training_state in member_training_states
         ],
     )
@@ -154,6 +152,9 @@ def train_dynamics_model_ensemble(
     )
 
     return dynamics_model_ensemble
+
+
+# ---- Private --------------------------------------------
 
 
 @dataclass
@@ -190,7 +191,7 @@ def _create_normalizers(
     )
 
 
-def load_best_member_model(
+def _load_best_member_model(
     *, member_training_state: MemberTrainingState
 ) -> DynamicsModel:
     if member_training_state.best_checkpoint is None:
