@@ -1,6 +1,12 @@
 from dataclasses import dataclass
 from typing import Literal
 
+from scripts.shared.config_checks import (
+    check_not_negative,
+    check_positive,
+    check_positive_sizes,
+)
+
 
 @dataclass(frozen=True)
 class HorizonLengthConfig:
@@ -50,11 +56,30 @@ class OptimizationConfig:
     learning_rate_warmup_step_count: int = 500
     ema_power: float = 0.75
 
+    def __post_init__(self) -> None:
+        check_positive(
+            batch_size=self.batch_size,
+            epoch_count=self.epoch_count,
+            learning_rate=self.learning_rate,
+            ema_power=self.ema_power,
+        )
+        # No decay and no warm-up are both fair choices.
+        check_not_negative(
+            weight_decay=self.weight_decay,
+            learning_rate_warmup_step_count=self.learning_rate_warmup_step_count,
+        )
+
 
 @dataclass(frozen=True)
 class ValidationConfig:
     interval_epoch_count: int = 50
     episode_count: int = 50
+
+    def __post_init__(self) -> None:
+        check_positive(
+            interval_epoch_count=self.interval_epoch_count,
+            episode_count=self.episode_count,
+        )
 
 
 @dataclass(frozen=True)
@@ -66,6 +91,8 @@ class Config:
     sampler: Literal["ddim", "ddpm"] = "ddim"
 
     def __post_init__(self) -> None:
+        check_positive_sizes(hidden_channel_counts=self.hidden_channel_counts)
+
         # Every hidden level but the last halves the sequence on the way down
         # and doubles it again on the way up. A prediction horizon must be divisible by that factor.
         # Otherwise, it comes back from the network at another length.
