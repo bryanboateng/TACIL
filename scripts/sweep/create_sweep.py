@@ -282,6 +282,18 @@ def main() -> None:
     logger.info("Sweep path: %s", f"{config.entity}/{project}/{sweep_id}")
 
 
+def _criterion_arguments(*, criterion: AccountCriterion | None) -> list[str]:
+    """The account rule as a subcommand, or nothing at all for the replay rule,
+    which is the default and needs no argument."""
+    if criterion is None:
+        return []
+    return [
+        "augmentation.data.chain-error:account",
+        f"--augmentation.data.chain-error.cost={criterion.cost}",
+        f"--augmentation.data.chain-error.accumulation={criterion.accumulation}",
+    ]
+
+
 def _verify_command_parses(
     *, sweep_configuration: dict[str, Any], method: MethodLabel
 ) -> None:
@@ -331,26 +343,27 @@ def _build_sweep_configuration(*, config: Config, project: str) -> dict[str, Any
     pipeline_module = METHOD_MODULES[config.method]
     parameters = METHOD_PARAMETERS[config.method]
 
-    # Where the fixed arguments go depends on what is being searched. A
-    # subcommand such as `augmentation:tacil` closes the parent parser: options
-    # of the run itself are only read before it, options of the augmentation
-    # only after it. So a sweep over `augmentation.*` needs the subcommand
-    # first, and a sweep over `policy.*` needs it last. Getting this backwards
-    # does not fail loudly -- the run dies while parsing, before wandb.init, so
-    # it shows up only as a crashed run with nothing logged.
-    fixed_arguments = list(METHOD_FIXED_ARGUMENTS[config.method])
-    account_criterion = config.account_criterion
-    if account_criterion is not None:
-        fixed_arguments += [
-            f"--augmentation.data.chain-error-cost={account_criterion.cost}",
-            "--augmentation.data.chain-error-accumulation="
-            f"{account_criterion.accumulation}",
-        ]
+    # Every subcommand closes the parser around it: options of the level it
+    # belongs to are read only before it, its own options only after it. So the
+    # arguments come in three parts, and the order is not a matter of taste --
+    # getting it wrong does not fail loudly, the run dies while parsing, before
+    # wandb.init, and shows up only as a crashed run with nothing logged.
+    #
+    #   leading   `augmentation:tacil`, so the swept `augmentation.*` are read
+    #   swept     what the search draws, all of them options of that level
+    #   trailing  `augmentation.data.chain-error:account` and its own options,
+    #             which must come after everything of the level above
+    #
+    # A sweep over `policy.*` is the exception: those belong to the run itself,
+    # so nothing may precede them.
+    leading_arguments = list(METHOD_FIXED_ARGUMENTS[config.method])
     swept_arguments = "${args_no_boolean_flags}"
+    trailing_arguments = _criterion_arguments(criterion=config.account_criterion)
+
     method_arguments = (
-        [swept_arguments, *fixed_arguments]
+        [swept_arguments, *leading_arguments, *trailing_arguments]
         if all(key.startswith("policy.") for key in parameters)
-        else [*fixed_arguments, swept_arguments]
+        else [*leading_arguments, swept_arguments, *trailing_arguments]
     )
 
     return {

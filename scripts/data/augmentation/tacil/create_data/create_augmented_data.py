@@ -69,7 +69,7 @@ def create_augmented_data(
             device=device
         ),
         action_noise_std=torch.as_tensor(action_noise_std).to(device=device),
-        chain_error_criterion=config.chain_error_criterion,
+        chain_error_criterion=config.chain_error,
         chain_error_limit=chain_error_limit,
         convergence_tolerance=1e-3 * median_expert_step_distance,
     )
@@ -77,7 +77,7 @@ def create_augmented_data(
     log_rollout_statistics(
         rollout_diagnostics=rollout_diagnostics,
         median_expert_step_distance=median_expert_step_distance,
-        chain_error_criterion=config.chain_error_criterion,
+        chain_error_criterion=config.chain_error,
         chain_error_limit=chain_error_limit,
         run=run,
     )
