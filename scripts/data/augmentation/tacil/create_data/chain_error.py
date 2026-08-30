@@ -1,30 +1,41 @@
 """The rules that decide how long a backward chain may grow.
 
 A chain is only worth keeping while the model still knows what it is talking
-about, and there is more than one way to say when that stops being true. All
-of them come down to a number per chain, compared against one limit, so they
-can be swapped and compared.
+about, and there is more than one way to say when that stops being true. Every
+rule here comes down to one number per chain, compared against one limit, so
+they can be swapped and compared.
 
-Four of the five share a shape. Each accepted step contributes an error term,
-and a term contributed at depth d has to survive d more transitions before it
-reaches the anchor, so it is stretched by whatever those transitions do to a
-perturbation:
+Six of the seven are a choice of two things.
 
-    tested = spent + amplification * term
-    spent := tested,  amplification *= transition gain      (once accepted)
+**What a single step costs.** Two ways to put a number on how wrong one
+invented step might be:
 
-The rules differ in what the term measures and whether anything is carried
-over at all:
+    uncertainty         measured -- how far the ensemble members' predictions
+                        of this step lie apart. Where they agree the model has
+                        been told what happens here; where they scatter it is
+                        extrapolating.
+    label_error_bound   proved -- CCIL's Theorem 4.2 bounds the error of a
+                        generated label by the local Lipschitz constant times
+                        the distance the label sits from the expert state, so
+                        this is the model's local steepness times the length
+                        of the step. Simplified: the theorem's bound uses the
+                        constants of both the true and the learned dynamics and
+                        adds the model's training error, while this uses the
+                        learned model's local constant alone.
 
-    per_step_uncertainty            term = ensemble disagreement, nothing kept
-    accumulated_uncertainty         term = ensemble disagreement, gain fixed at 1
-    lipschitz_amplified_uncertainty term = ensemble disagreement, gain measured
-    local_lipschitz_displacement    term = local steepness x step length, gain 1
+**How steps add up.** A cost paid at depth d still has to survive d more
+transitions before the chain reaches its anchor:
 
-The fifth, `replay`, does not accumulate anything. It replays the whole
-candidate chain forward with each member and measures how far their endpoints
-land from the anchor -- it asks the model directly what the finished episode
-claims, instead of adding up what each step cost.
+    per_step            only the newest step counts; nothing is carried over
+    summed              costs are added up as they are
+    compounded          costs are added up, and each older cost is stretched by
+                        what the transitions since have done to it -- the
+                        transition gain, measured on the model
+
+The seventh, `replay`, keeps no account at all. It replays the whole candidate
+chain forward with each member and measures how far their endpoints land from
+the anchor: it asks the model directly whether the finished episode holds up,
+instead of adding up what its steps cost.
 """
 
 from typing import Literal
@@ -39,18 +50,14 @@ from scripts.shared.pusht_state import subtract_states
 ChainErrorCriterion = Literal[
     "replay",
     "per_step_uncertainty",
-    "accumulated_uncertainty",
-    "lipschitz_amplified_uncertainty",
-    "local_lipschitz_displacement",
+    "summed_uncertainty",
+    "compounded_uncertainty",
+    "per_step_label_error_bound",
+    "summed_label_error_bound",
+    "compounded_label_error_bound",
 ]
 
-_UNCERTAINTY_CRITERIA = frozenset(
-    {
-        "per_step_uncertainty",
-        "accumulated_uncertainty",
-        "lipschitz_amplified_uncertainty",
-    }
-)
+_UNCERTAINTY_SUFFIX = "uncertainty"
 
 
 class ChainErrorTracker:
@@ -72,7 +79,7 @@ class ChainErrorTracker:
         self._criterion = criterion
         self._dynamics_model_ensemble = dynamics_model_ensemble
         self._spent_batch = torch.zeros(anchor_count, device=device)
-        self._amplification_batch = torch.ones(anchor_count, device=device)
+        self._transition_gain_batch = torch.ones(anchor_count, device=device)
 
     @torch.no_grad()
     def measure(
@@ -92,17 +99,17 @@ class ChainErrorTracker:
                 end_state_batch=anchor_state_batch,
             )
 
-        term_batch = self._measure_term(
+        step_cost_batch = self._measure_step_cost(
             predecessor_state_batch=predecessor_state_batch,
             predecessor_action_batch=predecessor_action_batch,
             successor_state_batch=successor_state_batch,
         )
-        if self._criterion == "per_step_uncertainty":
-            return term_batch
+        if self._criterion.startswith("per_step"):
+            return step_cost_batch
 
         return (
             self._spent_batch[anchor_indices]
-            + self._amplification_batch[anchor_indices] * term_batch
+            + self._transition_gain_batch[anchor_indices] * step_cost_batch
         )
 
     @torch.no_grad()
@@ -114,12 +121,12 @@ class ChainErrorTracker:
         predecessor_state_batch: torch.Tensor,  # (accepted_count, state_dimensionality)
         predecessor_action_batch: torch.Tensor,  # (accepted_count, action_dimensionality)  # noqa: E501
     ) -> None:
-        if self._criterion in ("replay", "per_step_uncertainty"):
+        if self._criterion == "replay" or self._criterion.startswith("per_step"):
             return
 
         self._spent_batch[anchor_indices] = measured_error_batch
-        if self._criterion == "lipschitz_amplified_uncertainty":
-            self._amplification_batch[anchor_indices] *= (
+        if self._criterion.startswith("compounded"):
+            self._transition_gain_batch[anchor_indices] *= (
                 self._dynamics_model_ensemble.local_transition_lipschitz_constants(
                     state_batch=predecessor_state_batch,
                     action_batch=predecessor_action_batch,
@@ -128,22 +135,19 @@ class ChainErrorTracker:
 
     # ---- Private --------------------------------------------
 
-    def _measure_term(
+    def _measure_step_cost(
         self,
         *,
         predecessor_state_batch: torch.Tensor,
         predecessor_action_batch: torch.Tensor,
         successor_state_batch: torch.Tensor,
     ) -> torch.Tensor:  # (active_count,)
-        if self._criterion in _UNCERTAINTY_CRITERIA:
+        if self._criterion.endswith(_UNCERTAINTY_SUFFIX):
             return self._dynamics_model_ensemble.prediction_disagreement(
                 state_batch=predecessor_state_batch,
                 action_batch=predecessor_action_batch,
             )
 
-        # local_lipschitz_displacement: how steep the model is here, times how
-        # far this step moves. A first-order bound on what the step costs,
-        # measured without ever consulting the members' spread.
         step_length_batch = torch.linalg.norm(
             self._dynamics_model_ensemble.state_normalizer.normalize_difference(
                 difference_batch=subtract_states(
