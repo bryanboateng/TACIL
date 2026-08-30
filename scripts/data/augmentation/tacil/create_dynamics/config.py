@@ -20,8 +20,6 @@ class DynamicsConfig:
             hidden_layer_count=self.hidden_layer_count,
             hidden_layer_dimensionality=self.hidden_layer_dimensionality,
         )
-        # None means the model may bend as it likes. A bound of zero would ask
-        # for a constant network, and the per-layer bound is a root of it.
         if self.lipschitz_constant_upper_bound is not None:
             check_positive(
                 lipschitz_constant_upper_bound=self.lipschitz_constant_upper_bound
