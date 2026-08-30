@@ -10,7 +10,7 @@ from scripts.data.augmentation.tacil.create_data.chain_error import (
 from scripts.data.augmentation.tacil.create_data.episode_assembly import (
     AugmentationResult,
 )
-from scripts.shared.create_distribution_panel import create_distribution_panel
+from scripts.shared.distribution_panel import create_distribution_panel
 from scripts.shared.distribution_summary import summarize_distribution
 
 STAGE_NAME = "2_data"
