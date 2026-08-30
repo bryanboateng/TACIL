@@ -31,7 +31,7 @@ class DynamicsModelEnsemble(torch.nn.Module):
         )
 
     @torch.no_grad()
-    def replay_error(
+    def measure_replay_error(
         self,
         *,
         start_state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
@@ -52,13 +52,13 @@ class DynamicsModelEnsemble(torch.nn.Module):
             dim=0,
         )  # (member_count, batch_size, state_dimensionality)
 
-        return self.endpoint_deviation(
+        return self.measure_endpoint_deviation(
             per_member_state_batch=per_member_end_state_batch,
             target_state_batch=end_state_batch,
         )
 
     @torch.no_grad()
-    def endpoint_deviation(
+    def measure_endpoint_deviation(
         self,
         *,
         per_member_state_batch: torch.Tensor,  # (member_count, batch_size, state_dimensionality)  # noqa: E501
@@ -78,7 +78,7 @@ class DynamicsModelEnsemble(torch.nn.Module):
         return torch.linalg.norm(per_dimension_deviation_batch, dim=-1)  # (batch_size,)
 
     @torch.no_grad()
-    def prediction_disagreement(
+    def measure_prediction_disagreement(
         self,
         *,
         state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
@@ -93,13 +93,13 @@ class DynamicsModelEnsemble(torch.nn.Module):
         per_member_state_batch = self._predict_next_state_per_member(
             state_batch=state_batch, action_batch=action_batch
         )  # (member_count, batch_size, state_dimensionality)
-        return self.endpoint_deviation(
+        return self.measure_endpoint_deviation(
             per_member_state_batch=per_member_state_batch,
             target_state_batch=average_states(state_batch=per_member_state_batch),
         )
 
     @torch.no_grad()
-    def local_lipschitz_constants(
+    def measure_local_lipschitz_constants(
         self,
         *,
         state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
@@ -109,7 +109,7 @@ class DynamicsModelEnsemble(torch.nn.Module):
         stretches space right here."""
         return torch.stack(
             tensors=[
-                dynamics_model.local_lipschitz_constants(
+                dynamics_model.measure_local_lipschitz_constants(
                     state_batch=state_batch, action_batch=action_batch
                 )
                 for dynamics_model in self.dynamics_models
@@ -118,7 +118,7 @@ class DynamicsModelEnsemble(torch.nn.Module):
         ).mean(dim=0)
 
     @torch.no_grad()
-    def local_transition_lipschitz_constants(
+    def measure_local_transition_lipschitz_constants(
         self,
         *,
         state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
@@ -135,7 +135,7 @@ class DynamicsModelEnsemble(torch.nn.Module):
         return (
             torch.stack(
                 tensors=[
-                    dynamics_model.local_transition_lipschitz_constants(
+                    dynamics_model.measure_local_transition_lipschitz_constants(
                         state_normalizer=self.state_normalizer,
                         state_batch=state_batch,
                         action_batch=action_batch,

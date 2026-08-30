@@ -243,7 +243,7 @@ def create_true_dynamics_vs_model_plot(
         locator=plt.MultipleLocator(base=np.pi / 2)
     )
     block_orientation_subplot.yaxis.set_major_formatter(
-        formatter=plt.FuncFormatter(func=_pi_multiple_label)
+        formatter=plt.FuncFormatter(func=_describe_pi_multiple)
     )
     block_orientation_subplot.set_box_aspect(aspect=1.0)
 
@@ -261,7 +261,7 @@ def create_true_dynamics_vs_model_plot(
 # ---- Private --------------------------------------------
 
 
-def _pi_multiple_label(value: float, _position: int) -> str:
+def _describe_pi_multiple(value: float, _position: int) -> str:
     quarter_turns = round(value / (np.pi / 2))
     if quarter_turns == 0:
         return "0"

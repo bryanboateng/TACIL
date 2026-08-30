@@ -22,9 +22,9 @@ from scripts.evaluation.core.scoring import (
     RewardStatistics,
     SuccessStatistics,
     pick_representative_episodes,
-    reward_statistics,
+    compute_reward_statistics,
     run_scored_episodes,
-    success_statistics,
+    compute_success_statistics,
 )
 from scripts.evaluation.core.video import (
     FREEZE_SECONDS,
@@ -63,8 +63,8 @@ def evaluate_policy(
         _write_summary(
             run=run,
             condition=condition,
-            reward=reward_statistics(episode_records),
-            success=success_statistics(episode_records),
+            reward=compute_reward_statistics(episode_records),
+            success=compute_success_statistics(episode_records),
         )
         _log_video(
             policy_label=policy_label,
@@ -203,7 +203,7 @@ def _replay_episode_with_rendering(
 def _create_replay_policy(*, action_sequences: list[list[np.ndarray]]) -> Policy:
     step_indices = [0] * len(action_sequences)
 
-    def policy(*, observations: dict[int, np.ndarray]) -> dict[int, np.ndarray]:
+    def act(*, observations: dict[int, np.ndarray]) -> dict[int, np.ndarray]:
         actions = {}
         for episode_index in observations.keys():
             actions[episode_index] = action_sequences[episode_index][
@@ -212,4 +212,4 @@ def _create_replay_policy(*, action_sequences: list[list[np.ndarray]]) -> Policy
             step_indices[episode_index] += 1
         return actions
 
-    return policy
+    return act

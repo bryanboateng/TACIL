@@ -53,7 +53,7 @@ class DynamicsModel(torch.nn.Module):
             first_addend_batch=state_batch, second_addend_batch=state_displacement_batch
         )  # (batch_size, state_dimensionality)
 
-    def local_lipschitz_constants(
+    def measure_local_lipschitz_constants(
         self, *, state_batch: torch.Tensor, action_batch: torch.Tensor
     ) -> torch.Tensor:  # (batch_size,)
         network_input_batch = _create_normalized_network_input(
@@ -70,7 +70,7 @@ class DynamicsModel(torch.nn.Module):
 
         return torch.linalg.matrix_norm(jacobian_batch, ord=2)  # (batch_size,)
 
-    def local_transition_lipschitz_constants(
+    def measure_local_transition_lipschitz_constants(
         self,
         *,
         state_normalizer: ZScoreNormalizer,
@@ -79,13 +79,13 @@ class DynamicsModel(torch.nn.Module):
     ) -> torch.Tensor:  # (batch_size,)
         """Spectral norm of d(normalized next state) / d(normalized state).
 
-        Unlike local_lipschitz_constants, which measures only the steepness of
+        Unlike measure_local_lipschitz_constants, which measures only the steepness of
         the predicted displacement, this includes the residual identity term:
         it is the gain of the full state-to-state map, the factor by which one
         transition stretches a perturbation of the state it starts from.
         """
 
-        def normalized_next_state(
+        def predict_normalized_next_state(
             normalized_state: torch.Tensor,  # (state_dimensionality,)
             action: torch.Tensor,  # (action_dimensionality,)
         ) -> torch.Tensor:  # (state_dimensionality,)
@@ -100,7 +100,7 @@ class DynamicsModel(torch.nn.Module):
             )  # (state_dimensionality,)
 
         jacobian_batch = torch.vmap(
-            func=torch.func.jacrev(func=normalized_next_state, argnums=0)
+            func=torch.func.jacrev(func=predict_normalized_next_state, argnums=0)
         )(
             state_normalizer.normalize(value_batch=state_batch), action_batch
         )  # (batch_size, state_dimensionality, state_dimensionality)

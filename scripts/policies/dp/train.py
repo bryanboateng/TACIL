@@ -9,7 +9,10 @@ from tqdm.auto import tqdm
 from wandb import Run
 
 from scripts.evaluation.core.condition import VALIDATION_CONDITION
-from scripts.evaluation.core.scoring import reward_statistics, run_scored_episodes
+from scripts.evaluation.core.scoring import (
+    compute_reward_statistics,
+    run_scored_episodes,
+)
 from scripts.policies.dp.config import Config
 from scripts.policies.dp.dataset import Dataset
 from scripts.policies.dp.network import ConditionalUnet1d
@@ -166,7 +169,7 @@ def train_diffusion_policy(
         try:
             ema_state_dict = copy.deepcopy(noise_prediction_network.state_dict())
             with torch.no_grad():
-                validation_reward = reward_statistics(
+                validation_reward = compute_reward_statistics(
                     episode_records=run_scored_episodes(
                         policy_factory=create_diffusion_policy_factory(
                             noise_prediction_network=noise_prediction_network,

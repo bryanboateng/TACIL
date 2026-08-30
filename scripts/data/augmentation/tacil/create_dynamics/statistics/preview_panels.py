@@ -30,25 +30,28 @@ _STATE_DIMENSIONALITY = 5
 def main() -> None:
     rng = np.random.default_rng(seed=_SEED)
 
-    forward_member_trajectories, _, true_trajectory = _fanning_replay(rng=rng)
+    forward_member_trajectories, _, true_trajectory = _draw_fanning_replay(rng=rng)
 
     images = {
         "prediction_error_vs_step_count": plots.create_prediction_error_vs_step_count_plot(
-            forward_prediction_errors_per_step_count=_growing_errors(
+            forward_prediction_errors_per_step_count=_draw_growing_errors(
                 rng=rng, growth_per_step=1.25
             ),
             backward_prediction_errors_per_step_count=_stop_walks_early(
-                prediction_errors=_growing_errors(rng=rng, growth_per_step=1.6), rng=rng
+                prediction_errors=_draw_growing_errors(rng=rng, growth_per_step=1.6),
+                rng=rng,
             ),
         ),
-        "replay_error": plots.create_replay_error_plot(
+        "measure_replay_error": plots.create_replay_error_plot(
             backward_prediction_errors_per_step_count=_stop_walks_early(
-                prediction_errors=_growing_errors(rng=rng, growth_per_step=1.6), rng=rng
+                prediction_errors=_draw_growing_errors(rng=rng, growth_per_step=1.6),
+                rng=rng,
             ),
             # Below the prediction error and growing more slowly, the way an
             # that underestimates its own drift looks.
             backward_replay_errors_per_step_count=_stop_walks_early(
-                prediction_errors=0.2 * _growing_errors(rng=rng, growth_per_step=1.35),
+                prediction_errors=0.2
+                * _draw_growing_errors(rng=rng, growth_per_step=1.35),
                 rng=rng,
             ),
         ),
@@ -67,7 +70,7 @@ def main() -> None:
         logger.info("Wrote %s", image_path)
 
 
-def _growing_errors(
+def _draw_growing_errors(
     *, rng: np.random.Generator, growth_per_step: float
 ) -> npt.NDArray[np.floating]:  # (_WINDOW_COUNT, _CHAIN_DEPTH)
     """Error that compounds with depth, spread over windows by a lognormal
@@ -93,7 +96,7 @@ def _stop_walks_early(
     return np.where(stopped_mask, np.nan, prediction_errors)
 
 
-def _fanning_replay(
+def _draw_fanning_replay(
     *, rng: np.random.Generator
 ) -> tuple[
     npt.NDArray[np.floating],  # (_MEMBER_COUNT, step_count + 1, state_dimensionality)

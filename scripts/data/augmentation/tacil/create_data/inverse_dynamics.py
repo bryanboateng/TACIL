@@ -112,7 +112,7 @@ def _compute_jacobian_of_next_state_gap_wrt_normalized_state(
     target_next_state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
 ) -> torch.Tensor:  # (batch_size, state_dimensionality, state_dimensionality)
 
-    def next_state_gap_for_single_element(
+    def compute_next_state_gap(
         single_normalized_state: torch.Tensor,  # (state_dimensionality,)
         single_action: torch.Tensor,  # (action_dimensionality,)
         single_target_next_state: torch.Tensor,  # (state_dimensionality,)
@@ -128,9 +128,7 @@ def _compute_jacobian_of_next_state_gap_wrt_normalized_state(
             ),  # (1, state_dimensionality)
         ).squeeze(dim=0)  # (state_dimensionality,)
 
-    return torch.vmap(
-        func=torch.func.jacrev(func=next_state_gap_for_single_element, argnums=0)
-    )(
+    return torch.vmap(func=torch.func.jacrev(func=compute_next_state_gap, argnums=0))(
         normalized_state_batch,  # (batch_size, state_dimensionality)
         action_batch,  # (batch_size, action_dimensionality)
         target_next_state_batch,  # (batch_size, state_dimensionality)

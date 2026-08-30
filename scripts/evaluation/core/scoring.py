@@ -55,7 +55,7 @@ def run_scored_episodes(
             environment.close()
 
 
-def reward_statistics(episode_records: list[EpisodeRecord]) -> RewardStatistics:
+def compute_reward_statistics(episode_records: list[EpisodeRecord]) -> RewardStatistics:
     rewards = np.array([record.reward for record in episode_records])
     episode_count = int(rewards.shape[0])
     if episode_count == 0:
@@ -77,7 +77,9 @@ def reward_statistics(episode_records: list[EpisodeRecord]) -> RewardStatistics:
     )
 
 
-def success_statistics(episode_records: list[EpisodeRecord]) -> SuccessStatistics:
+def compute_success_statistics(
+    episode_records: list[EpisodeRecord],
+) -> SuccessStatistics:
     if not episode_records:
         return SuccessStatistics(rate=0.0, standard_error=float("nan"))
 

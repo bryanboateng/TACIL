@@ -254,7 +254,7 @@ def _sample_local_lipschitz_constants(
     for batch_start in range(0, states.shape[0], batch_size):
         batch_slice = slice(batch_start, batch_start + batch_size)
         local_lipschitz_constant_batches.append(
-            training_state.ema_dynamics_model.local_lipschitz_constants(
+            training_state.ema_dynamics_model.measure_local_lipschitz_constants(
                 state_batch=states[batch_slice], action_batch=actions[batch_slice]
             )
             .cpu()

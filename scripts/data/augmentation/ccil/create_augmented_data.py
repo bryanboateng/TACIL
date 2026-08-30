@@ -4,7 +4,7 @@ from wandb import Run
 
 from scripts.data.augmentation.ccil.config import CcilConfig
 from scripts.data.augmentation.ccil.world_model import WorldModel, fit_world_model
-from scripts.shared.distribution_panel import distribution_panel
+from scripts.shared.create_distribution_panel import create_distribution_panel
 from scripts.shared.distribution_summary import summarize_distribution
 from scripts.shared.episode_store import EpisodeStore
 from scripts.shared.log import create_logger
@@ -31,7 +31,7 @@ def create_ccil_augmented_data(
 ) -> TransitionBatch:
     set_seed(seed=seed)
 
-    states, actions, next_states = _transitions(episode_store=expert_episodes)
+    states, actions, next_states = _extract_transitions(episode_store=expert_episodes)
     state_batch = torch.from_numpy(states).to(device=device)
     action_batch = torch.from_numpy(actions).to(device=device)
     next_state_batch = torch.from_numpy(next_states).to(device=device)
@@ -93,7 +93,7 @@ def create_ccil_augmented_data(
         run.summary[f"{STAGE_NAME}/2_label_distances/{label}"] = value
     run.log(
         data={
-            f"{STAGE_NAME}/2_label_distances/plot": distribution_panel(
+            f"{STAGE_NAME}/2_label_distances/plot": create_distribution_panel(
                 values=label_distances, column_name="label distance"
             )
         }
@@ -116,7 +116,7 @@ def _define_epoch_metrics(*, run: Run) -> None:
 # ---- Private --------------------------------------------
 
 
-def _transitions(
+def _extract_transitions(
     *, episode_store: EpisodeStore
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     last_timestep_indices = episode_store.episode_end_indices - 1

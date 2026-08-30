@@ -65,7 +65,7 @@ def create_behavior_cloning_policy_factory(
     def create_policy(*, episode_seeds: list[int]) -> Policy:
         del episode_seeds  # seeds unused: Behavior Cloning is deterministic
 
-        def policy(*, observations: dict[int, np.ndarray]) -> dict[int, np.ndarray]:
+        def act(*, observations: dict[int, np.ndarray]) -> dict[int, np.ndarray]:
             observation_batch = torch.from_numpy(
                 np.stack(arrays=list(observations.values()))
             ).to(
@@ -81,7 +81,7 @@ def create_behavior_cloning_policy_factory(
 
             return dict(zip(observations, action_batch, strict=True))
 
-        return policy
+        return act
 
     return create_policy
 

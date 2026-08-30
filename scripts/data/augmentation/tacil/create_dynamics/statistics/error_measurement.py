@@ -172,7 +172,7 @@ def _measure_backward(
             dim=-1,
         )
         replay_errors[converged_indices, step_index] = (
-            dynamics_model_ensemble.replay_error(
+            dynamics_model_ensemble.measure_replay_error(
                 start_state_batch=predecessor_state_batch,
                 action_batch_list=[
                     action_windows[converged_indices, replayed_window_index, :]

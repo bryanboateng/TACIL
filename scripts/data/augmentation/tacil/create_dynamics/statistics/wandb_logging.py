@@ -196,7 +196,7 @@ def log_ensemble_statistics(
                     ),
                 )
             ),
-            **_replay_panels(
+            **_create_replay_panels(
                 dynamics_model_ensemble=dynamics_model_ensemble,
                 validation_episodes=validation_episodes,
             ),
@@ -207,7 +207,7 @@ def log_ensemble_statistics(
 # ---- Private --------------------------------------------
 
 
-def _replay_panels(
+def _create_replay_panels(
     *,
     dynamics_model_ensemble: DynamicsModelEnsemble,
     validation_episodes: list[TransitionSet],

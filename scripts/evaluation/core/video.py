@@ -50,7 +50,7 @@ def render_episode_surfaces(
         annotated_surface = _convert_frame_to_surface(frame=frame).copy()
 
         _add_text_to_surface(
-            text=f"{policy_label}\n{_condition_label(condition=condition)}",
+            text=f"{policy_label}\n{_describe_condition(condition=condition)}",
             placement=_Placement.TOP_LEFT,
             surface=annotated_surface,
             font=font,
@@ -112,7 +112,7 @@ def _create_font(*, render_size: int) -> pygame.font.Font:
     )
 
 
-def _condition_label(*, condition: Condition) -> str:
+def _describe_condition(*, condition: Condition) -> str:
     if condition.disturbance_level is None:
         disturbance_label = "none"
     else:

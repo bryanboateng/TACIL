@@ -129,7 +129,7 @@ def create_diffusion_policy_factory(
                     ]
                 )
 
-        def policy(*, observations: dict[int, np.ndarray]) -> dict[int, np.ndarray]:
+        def act(*, observations: dict[int, np.ndarray]) -> dict[int, np.ndarray]:
             for episode_index, observation in observations.items():
                 observation_deque = episode_states[episode_index].observation_deque
                 observation_deque.append(observation)
@@ -153,6 +153,6 @@ def create_diffusion_policy_factory(
                 for episode_index in observations.keys()
             }
 
-        return policy
+        return act
 
     return create_policy

@@ -70,7 +70,7 @@ def _run(*, config: gpi.Config) -> None:
         # Play the episode, then hold on the final frame, matching the recorded freeze.
         freeze = [surfaces[-1]] * (fps * FREEZE_SECONDS)
         for surface in [*surfaces, *freeze]:
-            if _quit_requested():
+            if _is_quit_requested():
                 pygame.quit()
                 return
             screen.blit(surface, (0, 0))
@@ -94,7 +94,7 @@ def _create_policy_factory(config: gpi.Config) -> PolicyFactory:
     )
 
 
-def _quit_requested() -> bool:
+def _is_quit_requested() -> bool:
     return any(event.type == pygame.QUIT for event in pygame.event.get())
 
 

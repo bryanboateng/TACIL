@@ -10,7 +10,7 @@ from scripts.data.augmentation.tacil.create_data.chain_error import (
     AccountCriterion,
     ChainErrorAccumulation,
     ChainErrorCost,
-    criterion_label,
+    describe_criterion,
 )
 from scripts.evaluation.core.condition import VALIDATION_CONDITION
 from scripts.evaluation.evaluate_policy import STAGE_NAME
@@ -266,7 +266,9 @@ def main() -> None:
     project = f"{config.project_prefix}-{config.dataset_percentage}-{config.method}"
     account_criterion = config.account_criterion
     if account_criterion is not None:
-        project += "-" + criterion_label(criterion=account_criterion).replace("_", "-")
+        project += "-" + describe_criterion(criterion=account_criterion).replace(
+            "_", "-"
+        )
 
     sweep_configuration = _build_sweep_configuration(config=config, project=project)
     logger.info(pretty_repr(sweep_configuration))
@@ -282,7 +284,7 @@ def main() -> None:
     logger.info("Sweep path: %s", f"{config.entity}/{project}/{sweep_id}")
 
 
-def _criterion_arguments(*, criterion: AccountCriterion | None) -> list[str]:
+def _build_criterion_arguments(*, criterion: AccountCriterion | None) -> list[str]:
     """The account rule as a subcommand, or nothing at all for the replay rule,
     which is the default and needs no argument."""
     if criterion is None:
@@ -358,7 +360,7 @@ def _build_sweep_configuration(*, config: Config, project: str) -> dict[str, Any
     # so nothing may precede them.
     leading_arguments = list(METHOD_FIXED_ARGUMENTS[config.method])
     swept_arguments = "${args_no_boolean_flags}"
-    trailing_arguments = _criterion_arguments(criterion=config.account_criterion)
+    trailing_arguments = _build_criterion_arguments(criterion=config.account_criterion)
 
     method_arguments = (
         [swept_arguments, *leading_arguments, *trailing_arguments]

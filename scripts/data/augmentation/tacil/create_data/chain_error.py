@@ -73,7 +73,7 @@ class AccountCriterion:
 ChainErrorCriterion: TypeAlias = ReplayCriterion | AccountCriterion
 
 
-def criterion_label(*, criterion: ChainErrorCriterion) -> str:
+def describe_criterion(*, criterion: ChainErrorCriterion) -> str:
     """A short name for a rule, for logging and for naming a sweep."""
     if isinstance(criterion, ReplayCriterion):
         return "replay"
@@ -113,7 +113,7 @@ class ChainErrorTracker:
         earlier_action_batches: list[torch.Tensor],  # newest first
     ) -> torch.Tensor:  # (active_count,)
         if isinstance(self._criterion, ReplayCriterion):
-            return self._dynamics_model_ensemble.replay_error(
+            return self._dynamics_model_ensemble.measure_replay_error(
                 start_state_batch=predecessor_state_batch,
                 action_batch_list=[predecessor_action_batch, *earlier_action_batches],
                 end_state_batch=anchor_state_batch,
@@ -144,7 +144,7 @@ class ChainErrorTracker:
         self._spent_batch[anchor_indices] = measured_error_batch
         if self._criterion.accumulation == "compounded":
             self._transition_gain_batch[anchor_indices] *= (
-                self._dynamics_model_ensemble.local_transition_lipschitz_constants(
+                self._dynamics_model_ensemble.measure_local_transition_lipschitz_constants(
                     state_batch=predecessor_state_batch,
                     action_batch=predecessor_action_batch,
                 )
@@ -160,7 +160,7 @@ class ChainErrorTracker:
         successor_state_batch: torch.Tensor,
     ) -> torch.Tensor:  # (active_count,)
         if self._criterion.cost == "uncertainty":
-            return self._dynamics_model_ensemble.prediction_disagreement(
+            return self._dynamics_model_ensemble.measure_prediction_disagreement(
                 state_batch=predecessor_state_batch,
                 action_batch=predecessor_action_batch,
             )
@@ -175,7 +175,7 @@ class ChainErrorTracker:
             dim=-1,
         )  # (active_count,)
         return (
-            self._dynamics_model_ensemble.local_lipschitz_constants(
+            self._dynamics_model_ensemble.measure_local_lipschitz_constants(
                 state_batch=predecessor_state_batch,
                 action_batch=predecessor_action_batch,
             )

@@ -7,7 +7,10 @@ from tqdm.auto import tqdm
 from wandb import Run
 
 from scripts.evaluation.core.condition import VALIDATION_CONDITION
-from scripts.evaluation.core.scoring import reward_statistics, run_scored_episodes
+from scripts.evaluation.core.scoring import (
+    compute_reward_statistics,
+    run_scored_episodes,
+)
 from scripts.policies.bc.config import Config
 from scripts.policies.bc.dataset import Dataset
 from scripts.policies.bc.policy import (
@@ -123,7 +126,7 @@ def train_behavior_cloning_policy(
         if (epoch_index + 1) % config.validation.interval_epoch_count != 0:
             continue
 
-        validation_reward = reward_statistics(
+        validation_reward = compute_reward_statistics(
             episode_records=run_scored_episodes(
                 policy_factory=create_behavior_cloning_policy_factory(
                     policy_model=policy_model, device=device
