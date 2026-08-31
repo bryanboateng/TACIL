@@ -102,7 +102,9 @@ def create_member_training_state(
             ),
             use_buffers=False,
         ),
-        shuffle_generator=torch.Generator(device=device).manual_seed(seed=member_seed),
+        # Positional: Generator.manual_seed is a C binding and takes no
+        # keyword arguments.
+        shuffle_generator=torch.Generator(device=device).manual_seed(member_seed),
         histogram_sample_generator=np.random.default_rng(seed=member_seed),
         state_windows=state_windows,
         action_windows=action_windows,

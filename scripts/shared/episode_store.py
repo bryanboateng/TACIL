@@ -15,6 +15,28 @@ class EpisodeStore:
     episode_end_indices: npt.NDArray[np.int64]  # (episode_count,)
 
 
+def concatenate_episode_stores(*, episode_stores: list[EpisodeStore]) -> EpisodeStore:
+    """Lays several stores end to end, keeping every episode boundary.
+
+    The stores are flat concatenations of episodes, so the second store's end
+    indices have to be shifted past the first store's transitions.
+    """
+    if not episode_stores:
+        raise ValueError("Nothing to concatenate: the list of stores is empty.")
+
+    end_index_batches: list[npt.NDArray[np.int64]] = []
+    offset = 0
+    for episode_store in episode_stores:
+        end_index_batches.append(episode_store.episode_end_indices + offset)
+        offset += int(episode_store.states.shape[0])
+
+    return EpisodeStore(
+        states=np.concatenate([store.states for store in episode_stores], axis=0),
+        actions=np.concatenate([store.actions for store in episode_stores], axis=0),
+        episode_end_indices=np.concatenate(end_index_batches),
+    )
+
+
 def download_episode_store(*, artifact_name: str, run: Run) -> EpisodeStore:
     return read_episode_store(
         episode_file_path=Path(

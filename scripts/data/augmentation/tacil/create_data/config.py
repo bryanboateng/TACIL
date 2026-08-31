@@ -3,6 +3,10 @@ from typing import Annotated, TypeAlias
 
 import tyro
 
+from scripts.data.augmentation.tacil.create_data.anchor_selection import (
+    AllAnchors,
+    PolicyVisitedAnchors,
+)
 from scripts.data.augmentation.tacil.create_data.chain_error import (
     AccountCriterion,
     ReplayCriterion,
@@ -14,6 +18,11 @@ from scripts.shared.config_checks import check_not_negative, check_positive
 ChainErrorArgument: TypeAlias = (
     Annotated[ReplayCriterion, tyro.conf.subcommand(name="replay")]
     | Annotated[AccountCriterion, tyro.conf.subcommand(name="account")]
+)
+
+AnchorSelectionArgument: TypeAlias = (
+    Annotated[AllAnchors, tyro.conf.subcommand(name="all")]
+    | Annotated[PolicyVisitedAnchors, tyro.conf.subcommand(name="policy-visited")]
 )
 
 
@@ -31,10 +40,16 @@ class DataConfig:
     # `chain_error`. Replaying the finished chain is what TACIL has always
     # done, so it is the default and needs no argument.
     #
-    # A subcommand closes the parser around it: every option above has to be
-    # given BEFORE `augmentation.data.chain-error:...` on the command line, or
-    # it will not be recognised. `create_sweep` places it last for that reason.
+    # A subcommand closes the parser around it: every plain option has to be
+    # given BEFORE the first `...:...` token on the command line, or it will
+    # not be recognised, and several subcommands have to be given in the order
+    # their fields are declared. `create_sweep` places them last for that
+    # reason.
     chain_error: ChainErrorArgument = field(default_factory=ReplayCriterion)
+
+    # Which recorded steps the chains grow backward from. Anchoring on every
+    # step is what TACIL has always done, so it is the default.
+    anchor_selection: AnchorSelectionArgument = field(default_factory=AllAnchors)
 
     def __post_init__(self) -> None:
         # Zero noise is a fair choice: it makes every chain follow the anchor

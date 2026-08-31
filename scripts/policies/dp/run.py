@@ -8,6 +8,9 @@ from rich.pretty import pretty_repr
 
 from scripts.data.augmentation.distillation import augmentation as distillation
 from scripts.data.augmentation.distillation.augmentation import DistillationConfig
+from scripts.data.augmentation.mirror import augmentation as mirror
+from scripts.data.augmentation.stitching import augmentation as stitching
+from scripts.data.augmentation.stitching.augmentation import StitchingConfig
 from scripts.data.augmentation.tacil import augmentation as tacil
 from scripts.data.augmentation.tacil.augmentation import TacilConfig
 from scripts.evaluation.core.condition import ALL_CONDITIONS, VALIDATION_CONDITION
@@ -24,6 +27,7 @@ logger = create_logger()
 
 Augmentation: TypeAlias = (
     Annotated[TacilConfig, tyro.conf.subcommand(name="tacil")]
+    | Annotated[StitchingConfig, tyro.conf.subcommand(name="stitching")]
     | Annotated[DistillationConfig, tyro.conf.subcommand(name="distillation")]
 )
 Config: TypeAlias = RunConfig[policy_config.Config, Augmentation]
@@ -52,6 +56,11 @@ def _run(*, config: Config) -> None:
         expert_episodes = download_episode_store(
             artifact_name=config.expert_dataset_artifact, run=run
         )
+        if config.mirror_expert_data:
+            logger.info("Mirroring the expert data about the goal's axis.")
+            expert_episodes = mirror.expand_by_reflection(
+                expert_episodes=expert_episodes, run=run
+            )
 
         logger.info("Stage 1/3: creating the augmented episodes.")
         # The policy trains on windows of `prediction` steps. The expert
@@ -70,6 +79,16 @@ def _run(*, config: Config) -> None:
                     config=tacil_configuration,
                     expert_episodes=expert_episodes,
                     expert_part_length=expert_part_length,
+                    seed=config.seed,
+                    device=device,
+                    run=run,
+                )
+            case StitchingConfig() as stitching_configuration:
+                # No expert part: a stitched episode already ends inside a
+                # recorded one, so there is nothing to append.
+                augmented_episodes = stitching.augment(
+                    config=stitching_configuration,
+                    expert_episodes=expert_episodes,
                     seed=config.seed,
                     device=device,
                     run=run,

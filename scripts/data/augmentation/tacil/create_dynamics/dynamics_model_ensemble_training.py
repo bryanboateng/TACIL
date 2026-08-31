@@ -36,7 +36,6 @@ from scripts.data.augmentation.tacil.dynamics.network_input import (
     create_raw_network_input,
 )
 from scripts.shared.episode_store import EpisodeStore
-from scripts.shared.log import create_logger
 from scripts.shared.normalization import ZScoreNormalizer
 from scripts.shared.pusht_state import subtract_states
 from scripts.shared.seeding import set_seed

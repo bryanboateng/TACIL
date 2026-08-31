@@ -21,7 +21,6 @@ class Config:
     wandb_project: str
 
     percentage: int
-    seed: int
 
     def __post_init__(self):
         if not 1 <= self.percentage <= 99:
@@ -29,14 +28,12 @@ class Config:
 
 
 def main():
-    config = tyro.cli(f=Config, config=[tyro.conf.UsePythonSyntaxForLiteralCollections])
+    config = tyro.cli(f=Config)
     logger.info(pretty_repr(config))
     _run(config=config)
 
 
 def _run(*, config: Config):
-    rng = np.random.default_rng(seed=config.seed)
-
     with wandb.init(
         project=config.wandb_project,
         job_type="dataset-subsampling",
@@ -48,7 +45,7 @@ def _run(*, config: Config):
         )
 
         subsampled_episode_store = _subsample_episodes(
-            episode_store=expert_episode_store, percentage=config.percentage, rng=rng
+            episode_store=expert_episode_store, percentage=config.percentage
         )
 
         _log_dataset_statistics(
@@ -65,13 +62,13 @@ def _run(*, config: Config):
 
 
 def _subsample_episodes(
-    *, episode_store: EpisodeStore, percentage: int, rng: np.random.Generator
+    *, episode_store: EpisodeStore, percentage: int
 ) -> EpisodeStore:
 
     episode_count = len(episode_store.episode_end_indices)
 
     selected_episode_indices = np.sort(
-        a=rng.choice(
+        a=np.random.default_rng(seed=42).choice(
             a=episode_count, size=episode_count * percentage // 100, replace=False
         )
     )  # (selected_episode_count,)

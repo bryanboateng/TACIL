@@ -6,6 +6,12 @@ import tyro
 import wandb
 from rich.pretty import pretty_repr
 
+from scripts.data.augmentation.tacil.create_data.anchor_selection import (
+    AllAnchors,
+    AnchorSelection,
+    PolicyVisitedAnchors,
+    describe_selection,
+)
 from scripts.data.augmentation.tacil.create_data.chain_error import (
     AccountCriterion,
     ChainErrorAccumulation,
@@ -31,7 +37,15 @@ MethodLabel = Literal[
     # dynamics model, as training data.
     "distill-dp",
     "distill-bc",
+    # New episodes made by leaving one demonstration for another, which is
+    # what GPI does at inference time.
+    "stitch-dp",
+    "stitch-bc",
 ]
+
+# The mirror strategy has no sweep: the reflection is exact and has no free
+# parameters, so there is nothing for a search to draw. Run it once per data
+# budget instead.
 
 METHOD_MODULES: dict[MethodLabel, str] = {
     "tacil-dp-bounded": "scripts.policies.dp.run",
@@ -42,6 +56,8 @@ METHOD_MODULES: dict[MethodLabel, str] = {
     "gpi": "scripts.policies.gpi.run",
     "distill-dp": "scripts.policies.dp.run",
     "distill-bc": "scripts.policies.bc.run",
+    "stitch-dp": "scripts.policies.dp.run",
+    "stitch-bc": "scripts.policies.bc.run",
 }
 
 # The unbounded methods pin the bound instead of sweeping it, so that each
@@ -61,6 +77,8 @@ METHOD_FIXED_ARGUMENTS: dict[MethodLabel, list[str]] = {
     "gpi": ["--augmentation=None"],
     "distill-dp": ["augmentation:distillation"],
     "distill-bc": ["augmentation:distillation"],
+    "stitch-dp": ["augmentation:stitching"],
+    "stitch-bc": ["augmentation:stitching"],
 }
 
 _TACIL_SHARED_PARAMETERS: dict[str, Any] = {
@@ -178,6 +196,43 @@ _DISTILLATION_PARAMETERS: dict[str, Any] = {
 }
 
 
+_STITCHING_PARAMETERS: dict[str, Any] = {
+    "augmentation.dynamics.window_length": {
+        "distribution": "int_uniform",
+        "min": 1,
+        "max": 15,
+    },
+    # Same reasoning as for the TACIL bound, see _TACIL_BOUNDED_PARAMETERS.
+    "augmentation.dynamics.lipschitz_constant_upper_bound": {
+        "distribution": "log_uniform_values",
+        "min": 1.0,
+        "max": 120.0,
+    },
+    # How close two steps have to be before the pair is worth testing. Below
+    # one median step the search finds only near-duplicates, and far above it
+    # the error limit is what decides anyway.
+    "augmentation.data.junction_radius_step_multiple": {
+        "distribution": "log_uniform_values",
+        "min": 0.5,
+        "max": 20.0,
+    },
+    # The junction is one modelled step, so its error lives on the same scale
+    # as a single replay error rather than an accumulated one. That is why the
+    # range stops far below the TACIL chain error limit.
+    "augmentation.data.junction_error_limit_step_multiple": {
+        "distribution": "log_uniform_values",
+        "min": 0.05,
+        "max": 8.0,
+    },
+    # How much stitched data to keep, relative to the recorded set.
+    "augmentation.data.transition_budget_multiple": {
+        "distribution": "log_uniform_values",
+        "min": 0.1,
+        "max": 8.0,
+    },
+}
+
+
 # Sizes as strings, because a sweep value has to survive the round trip
 # through the command line; tyro reads them back with Python collection syntax.
 # The reference size is the largest here: at 5% of the data it has more
@@ -212,6 +267,8 @@ METHOD_PARAMETERS: dict[MethodLabel, dict[str, Any]] = {
     },
     "distill-dp": _DISTILLATION_PARAMETERS,
     "distill-bc": _DISTILLATION_PARAMETERS,
+    "stitch-dp": _STITCHING_PARAMETERS,
+    "stitch-bc": _STITCHING_PARAMETERS,
 }
 
 
@@ -232,6 +289,19 @@ class Config:
     chain_error_cost: ChainErrorCost | None = None
     chain_error_accumulation: ChainErrorAccumulation | None = None
 
+    # Where the chains are grown from. Anchoring on every recorded step is what
+    # TACIL has always done; `policy_visited` keeps only the steps nearest to
+    # where a probe policy drifts. One sweep per choice, for the same reason
+    # the criterion gets one: a search that draws it per run settles neither.
+    # The selection's own parameters stay at their defaults, because a
+    # subcommand's options cannot be swept alongside the level above it.
+    anchor_selection: Literal["all", "policy_visited"] = "all"
+
+    # Mirror the expert data before the augmentation stage. Exact and free of
+    # parameters, so it is a per-sweep choice rather than something the search
+    # draws: with it on, every run of the sweep sees twice the recorded data.
+    mirror_expert_data: bool = False
+
     def __post_init__(self) -> None:
         if (self.chain_error_cost is None) != (self.chain_error_accumulation is None):
             raise ValueError(
@@ -245,6 +315,12 @@ class Config:
                 f"A chain error rule only applies to the TACIL methods, which "
                 f"are the ones that walk a chain; the method is {self.method}."
             )
+        if self.anchor_selection != "all" and not self.method.startswith("tacil"):
+            raise ValueError(
+                f"An anchor selection only applies to the TACIL methods, which "
+                f"are the ones that grow chains from anchors; the method is "
+                f"{self.method}."
+            )
 
     @property
     def account_criterion(self) -> AccountCriterion | None:
@@ -253,6 +329,12 @@ class Config:
         return AccountCriterion(
             cost=self.chain_error_cost, accumulation=self.chain_error_accumulation
         )
+
+    @property
+    def anchor_selection_value(self) -> AnchorSelection:
+        if self.anchor_selection == "all":
+            return AllAnchors()
+        return PolicyVisitedAnchors()
 
     sweep_method: SearchLabel = "bayes"
 
@@ -269,6 +351,10 @@ def main() -> None:
         project += "-" + describe_criterion(criterion=account_criterion).replace(
             "_", "-"
         )
+    if config.anchor_selection != "all":
+        project += "-" + config.anchor_selection.replace("_", "-") + "-anchors"
+    if config.mirror_expert_data:
+        project += "-mirrored"
 
     sweep_configuration = _build_sweep_configuration(config=config, project=project)
     logger.info(pretty_repr(sweep_configuration))
@@ -293,6 +379,20 @@ def _build_criterion_arguments(*, criterion: AccountCriterion | None) -> list[st
         "augmentation.data.chain-error:account",
         f"--augmentation.data.chain-error.cost={criterion.cost}",
         f"--augmentation.data.chain-error.accumulation={criterion.accumulation}",
+    ]
+
+
+def _build_anchor_selection_arguments(*, selection: AnchorSelection) -> list[str]:
+    """Nothing at all for `AllAnchors`, which is the default.
+
+    Subcommands are read in the order their fields are declared, and
+    `anchor_selection` comes after `chain_error` in `DataConfig`, so these
+    arguments belong after the criterion's.
+    """
+    if isinstance(selection, AllAnchors):
+        return []
+    return [
+        f"augmentation.data.anchor-selection:{describe_selection(selection=selection).replace('_', '-')}"
     ]
 
 
@@ -358,9 +458,17 @@ def _build_sweep_configuration(*, config: Config, project: str) -> dict[str, Any
     #
     # A sweep over `policy.*` is the exception: those belong to the run itself,
     # so nothing may precede them.
-    leading_arguments = list(METHOD_FIXED_ARGUMENTS[config.method])
+    # The flag belongs to the run itself, so it goes before the augmentation
+    # subcommand. A boolean is never drawn by the search, which is why it is a
+    # fixed argument rather than a parameter.
+    leading_arguments = [
+        *(["--mirror-expert-data"] if config.mirror_expert_data else []),
+        *METHOD_FIXED_ARGUMENTS[config.method],
+    ]
     swept_arguments = "${args_no_boolean_flags}"
-    trailing_arguments = _build_criterion_arguments(criterion=config.account_criterion)
+    trailing_arguments = _build_criterion_arguments(
+        criterion=config.account_criterion
+    ) + _build_anchor_selection_arguments(selection=config.anchor_selection_value)
 
     method_arguments = (
         [swept_arguments, *leading_arguments, *trailing_arguments]

@@ -12,6 +12,9 @@ from scripts.data.augmentation.ccil import augmentation as ccil
 from scripts.data.augmentation.ccil.config import CcilConfig
 from scripts.data.augmentation.distillation import augmentation as distillation
 from scripts.data.augmentation.distillation.augmentation import DistillationConfig
+from scripts.data.augmentation.mirror import augmentation as mirror
+from scripts.data.augmentation.stitching import augmentation as stitching
+from scripts.data.augmentation.stitching.augmentation import StitchingConfig
 from scripts.data.augmentation.tacil import augmentation as tacil
 from scripts.data.augmentation.tacil.augmentation import TacilConfig
 from scripts.evaluation.core.condition import ALL_CONDITIONS, VALIDATION_CONDITION
@@ -29,6 +32,7 @@ logger = create_logger()
 
 Augmentation: TypeAlias = (
     Annotated[TacilConfig, tyro.conf.subcommand(name="tacil")]
+    | Annotated[StitchingConfig, tyro.conf.subcommand(name="stitching")]
     | Annotated[CcilConfig, tyro.conf.subcommand(name="ccil")]
     | Annotated[DistillationConfig, tyro.conf.subcommand(name="distillation")]
 )
@@ -58,6 +62,11 @@ def _run(*, config: Config) -> None:
         expert_episodes = download_episode_store(
             artifact_name=config.expert_dataset_artifact, run=run
         )
+        if config.mirror_expert_data:
+            logger.info("Mirroring the expert data about the goal's axis.")
+            expert_episodes = mirror.expand_by_reflection(
+                expert_episodes=expert_episodes, run=run
+            )
 
         logger.info("Stage 1/3: building the training transitions.")
         expert_transitions = TransitionBatch(
@@ -141,6 +150,17 @@ def _create_synthetic_transitions(
             )
             return TransitionBatch(
                 states=tacil_episodes.states, actions=tacil_episodes.actions
+            )
+        case StitchingConfig() as stitching_configuration:
+            stitched_episodes = stitching.augment(
+                config=stitching_configuration,
+                expert_episodes=expert_episodes,
+                seed=seed,
+                device=device,
+                run=run,
+            )
+            return TransitionBatch(
+                states=stitched_episodes.states, actions=stitched_episodes.actions
             )
         case DistillationConfig() as distillation_configuration:
             distillation_episodes = distillation.augment(
