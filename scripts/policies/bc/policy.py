@@ -64,7 +64,9 @@ def create_behavior_cloning_policy_factory(
                     .numpy()
                 )  # (episode_count, action_dimensionality)
 
-            return dict(zip(observations_by_episode_index, action_batch, strict=True))
+            return dict(
+                zip(observations_by_episode_index.keys(), action_batch, strict=True)
+            )
 
         return create_actions
 
