@@ -48,13 +48,7 @@ def _run(*, config: Config) -> None:
         )
 
         logger.info("Stage 1/3: creating the augmented episodes.")
-        # The policy trains on windows of `prediction` steps. The expert
-        # steps let the last windows run from synthetic states into
-        # recorded ones, which is what teaches the policy how to get back
-        # on track. One step fewer than a full window keeps every window
-        # starting on a synthetic state. More would add windows that hold
-        # expert steps only, and those just repeat data the policy already has.
-        expert_part_length = config.policy.horizon_lengths.prediction - 1
+
         match config.augmentation:
             case None:
                 augmented_episodes = None
@@ -63,7 +57,23 @@ def _run(*, config: Config) -> None:
                 augmented_episodes = tacil.augment(
                     config=tacil_configuration,
                     expert_episodes=expert_episodes,
-                    expert_part_length=expert_part_length,
+                    # The policy trains on windows of `prediction` steps. The
+                    # expert steps let the last windows run from synthetic
+                    # states into recorded ones, which is what teaches the
+                    # policy how to get back on track.
+                    #
+                    #     step        0 1 2 3 4 5 6 7
+                    #     synthetic   s s s
+                    #     expert            e e e e e     prediction - 1
+                    #     window 0    w w w w w w
+                    #     window 1      w w w w w w
+                    #     window 2        w w w w w w
+                    #
+                    # One step fewer than a full window keeps every window
+                    # starting on a synthetic state. More would add windows
+                    # that hold expert steps only, and those just repeat data
+                    # the policy already has.
+                    expert_part_length=config.policy.horizon_lengths.prediction - 1,
                     seed=config.seed,
                     device=device,
                     run=run,

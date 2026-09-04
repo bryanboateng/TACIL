@@ -56,16 +56,19 @@ _TACIL_SHARED_PARAMETERS: dict[str, Any] = {
         "max": 0.3,
     },
     # Ceiling on the chain error, in multiples of the median expert step.
-    # Which error that is depends on the criterion the sweep was created with,
-    # and the scale is not shared between them: an accumulated error grows with
-    # depth while a per-step one does not. The range below is wide enough to
-    # bracket either, which is why it is not narrowed per criterion. The anchor points: a first step needs roughly the per-step
-    # replay error (~0.7 multiples at the accepted-step median), and length 8
-    # is estimated between √8 and 8 times that step's error — about 2
-    # to 13 multiples — depending on how strongly the members' errors add up.
-    # The range brackets that with an order of magnitude on both sides,
-    # because the depth curve showed the reward cliff (0.70 at length 8,
-    # 0.38 at 14) and the sweep has to see both sides of it.
+    # Which error that is depends on the criterion the sweep was created with.
+    # The scale is not shared between them: an accumulated error grows with
+    # depth, a per-step one does not. The range below is wide enough to bracket
+    # either, which is why it is not narrowed per criterion.
+    #
+    # The anchor points. A first step needs roughly the per-step replay error,
+    # ~0.7 multiples at the accepted-step median. Length 8 is estimated between
+    # √8 and 8 times that step's error, so about 2 to 13 multiples. Which end
+    # it lands on depends on how strongly the members' errors add up.
+    #
+    # The range brackets that with an order of magnitude on both sides. The
+    # depth curve showed a reward cliff (0.70 at length 8, 0.38 at 14), and the
+    # sweep has to see both sides of it.
     "augmentation.data.chain_error_limit_step_multiple": {
         "distribution": "log_uniform_values",
         "min": 0.05,
@@ -73,17 +76,20 @@ _TACIL_SHARED_PARAMETERS: dict[str, Any] = {
     },
 }
 
-# A range rather than a list of values: a values list is categorical, so the
-# search would treat every bound as unrelated to the next and would have to try
-# each one before it knows anything. Log scale, because the bound acts on the
-# model by its order of magnitude. The ends are the ends of the list that
-# 2026-08-12 stepped through, 1 to 100, and the floor is not free: below it the
-# network that predicts the state displacement becomes near constant, so every
-# ensemble member learns the same function, they never disagree, and an
-# replay error near zero passes any limit. The first four runs of 2026-08-16
-# showed it — the three with a bound under 1 walked all 6177 anchors into the
-# run-up cap and cost about thirteen hours each, while the fourth, at 56, ended
-# its chains after six steps.
+# A range rather than a list of values. A values list is categorical, so the
+# search treats every bound as unrelated to the next. It would have to try each
+# one before it knows anything. Log scale, because the bound acts on the model
+# by its order of magnitude.
+#
+# The ends are the ends of the list that 2026-08-12 stepped through, 1 to 100.
+# The floor is not free. Below it the network that predicts the state
+# displacement becomes near constant. Every ensemble member then learns the
+# same function, they never disagree, and a replay error near zero passes any
+# limit.
+#
+# The first four runs of 2026-08-16 showed it. The three with a bound under 1
+# walked all 6177 anchors into the run-up cap, at about thirteen hours each.
+# The fourth, at 56, ended its chains after six steps.
 _TACIL_BOUNDED_PARAMETERS: dict[str, Any] = {
     **_TACIL_SHARED_PARAMETERS,
     "augmentation.dynamics.lipschitz_constant_upper_bound": {
