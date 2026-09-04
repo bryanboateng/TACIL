@@ -11,7 +11,11 @@ from pygame import Surface
 from tqdm import tqdm
 from wandb import Run
 
-from scripts.evaluation.core.condition import Condition
+from scripts.evaluation.core.condition import (
+    ALL_CONDITIONS,
+    VALIDATION_CONDITION,
+    Condition,
+)
 from scripts.evaluation.core.renderer import RenderSettings
 from scripts.evaluation.core.rollout import (
     EpisodeRecord,
@@ -44,13 +48,16 @@ def evaluate_policy(
     *,
     policy_factory: PolicyFactory,
     policy_label: str,
-    conditions: list[Condition],
+    evaluate_all_conditions: bool,
     seed: int,
     run: Run,
 ) -> None:
     start_episode_seed = 2_000_000 + seed * 10_000
     run.summary[f"{STAGE_NAME}/start_episode_seed"] = start_episode_seed
 
+    conditions = (
+        list(ALL_CONDITIONS) if evaluate_all_conditions else [VALIDATION_CONDITION]
+    )
     for condition in conditions:
         logger.info("Scoring the policy in %s.", condition.label)
         episode_records = run_scored_episodes(

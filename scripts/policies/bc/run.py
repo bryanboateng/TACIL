@@ -12,7 +12,6 @@ from scripts.data.augmentation.ccil import augmentation as ccil
 from scripts.data.augmentation.ccil.config import CcilConfig
 from scripts.data.augmentation.tacil import augmentation as tacil
 from scripts.data.augmentation.tacil.augmentation import TacilConfig
-from scripts.evaluation.core.condition import ALL_CONDITIONS, VALIDATION_CONDITION
 from scripts.evaluation.evaluate_policy import evaluate_policy
 from scripts.policies.bc import config as bc_config
 from scripts.policies.bc.policy import create_behavior_cloning_policy_factory
@@ -97,11 +96,7 @@ def _run(*, config: Config) -> None:
                 policy_model=policy_model, device=device
             ),
             policy_label=f"bc ({run_name})",
-            conditions=(
-                list(ALL_CONDITIONS)
-                if config.evaluate_all_conditions
-                else [VALIDATION_CONDITION]
-            ),
+            evaluate_all_conditions=config.evaluate_all_conditions,
             seed=config.seed,
             run=run,
         )

@@ -6,7 +6,6 @@ import tyro
 import wandb
 from rich.pretty import pretty_repr
 
-from scripts.evaluation.core.condition import ALL_CONDITIONS, VALIDATION_CONDITION
 from scripts.evaluation.evaluate_policy import evaluate_policy
 from scripts.policies.gpi import config as gpi_config
 from scripts.policies.gpi.policy import create_geometric_policy_factory
@@ -53,11 +52,7 @@ def _run(*, config: Config) -> None:
                 episode_store=expert_episodes, config=config.policy, device=device
             ),
             policy_label=f"gpi ({run_name})",
-            conditions=(
-                list(ALL_CONDITIONS)
-                if config.evaluate_all_conditions
-                else [VALIDATION_CONDITION]
-            ),
+            evaluate_all_conditions=config.evaluate_all_conditions,
             seed=config.seed,
             run=run,
         )
