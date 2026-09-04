@@ -12,11 +12,9 @@ class RunConfig[PolicyConfigT, AugmentationT]:
     policy: PolicyConfigT
     augmentation: AugmentationT | None
 
-    evaluate_all_conditions: bool = False
+    evaluate_all_conditions: bool
 
     def __post_init__(self) -> None:
-        # An empty name reaches wandb as a project of its own, or asks for an
-        # artifact that cannot exist, and only fails once the run is under way.
         for name, value in (
             ("wandb_project", self.wandb_project),
             ("expert_dataset_artifact", self.expert_dataset_artifact),
