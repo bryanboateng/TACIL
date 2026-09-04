@@ -3,10 +3,6 @@ from wandb import Run
 from scripts.data.augmentation.tacil.create_data.backward_rollout import (
     RolloutDiagnostics,
 )
-from scripts.data.augmentation.tacil.create_data.chain_error import (
-    ChainErrorCriterion,
-    describe_criterion,
-)
 from scripts.data.augmentation.tacil.create_data.episode_assembly import (
     AugmentationResult,
 )
@@ -21,15 +17,11 @@ def log_rollout_statistics(
     *,
     rollout_diagnostics: RolloutDiagnostics,
     median_expert_step_distance: float,
-    chain_error_criterion: ChainErrorCriterion,
     chain_error_limit: float,
     run: Run,
 ) -> None:
     run.summary[f"{STAGE_NAME}/1_rollout/median_step_distance"] = (
         median_expert_step_distance
-    )
-    run.summary[f"{STAGE_NAME}/1_rollout/chain_error_criterion"] = describe_criterion(
-        criterion=chain_error_criterion
     )
     run.summary[f"{STAGE_NAME}/1_rollout/chain_error_limit"] = chain_error_limit
     run.summary[f"{STAGE_NAME}/1_rollout/anchor_count"] = (

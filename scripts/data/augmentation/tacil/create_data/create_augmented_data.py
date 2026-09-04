@@ -77,7 +77,6 @@ def create_augmented_data(
     log_rollout_statistics(
         rollout_diagnostics=rollout_diagnostics,
         median_expert_step_distance=median_expert_step_distance,
-        chain_error_criterion=config.chain_error,
         chain_error_limit=chain_error_limit,
         run=run,
     )

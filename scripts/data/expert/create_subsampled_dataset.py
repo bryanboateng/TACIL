@@ -124,24 +124,20 @@ def _log_dataset_statistics(
     expert_episode_count = len(expert_episode_store.episode_end_indices)
     expert_transition_count = len(expert_episode_store.states)
 
-    run.summary["source_dataset"] = {
-        "episode_count": expert_episode_count,
-        "transition_count": expert_transition_count,
-    }
+    run.summary["source_dataset/episode_count"] = expert_episode_count
+    run.summary["source_dataset/transition_count"] = expert_transition_count
 
     selected_episode_count = len(subsampled_episode_store.episode_end_indices)
     selected_transition_count = len(subsampled_episode_store.states)
 
-    run.summary["subsampled_dataset"] = {
-        "episodes": {
-            "count": selected_episode_count,
-            "fraction_of_source": selected_episode_count / expert_episode_count,
-        },
-        "transitions": {
-            "count": selected_transition_count,
-            "fraction_of_source": (selected_transition_count / expert_transition_count),
-        },
-    }
+    run.summary["subsampled_dataset/episode_count"] = selected_episode_count
+    run.summary["subsampled_dataset/episode_fraction_of_source"] = (
+        selected_episode_count / expert_episode_count
+    )
+    run.summary["subsampled_dataset/transition_count"] = selected_transition_count
+    run.summary["subsampled_dataset/transition_fraction_of_source"] = (
+        selected_transition_count / expert_transition_count
+    )
 
 
 def _upload_episode_store(

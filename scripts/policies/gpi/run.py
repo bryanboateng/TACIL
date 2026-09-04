@@ -10,6 +10,7 @@ from scripts.evaluation.evaluate_policy import evaluate_policy
 from scripts.policies.gpi import config as gpi_config
 from scripts.policies.gpi.policy import create_geometric_policy_factory
 from scripts.policies.shared.run_config import RunConfig
+from scripts.shared import stage_names
 from scripts.shared.episode_store import download_episode_store
 from scripts.shared.log import create_logger, log_device_info
 from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
@@ -44,6 +45,10 @@ def _run(*, config: Config) -> None:
 
         expert_episodes = download_episode_store(
             artifact_name=config.expert_dataset_artifact, run=run
+        )
+
+        run.summary[f"{stage_names.POLICY}/transition_count"] = len(
+            expert_episodes.states
         )
 
         logger.info("Stage 1/1: evaluating the geometric policy.")

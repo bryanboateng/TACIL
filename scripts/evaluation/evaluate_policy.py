@@ -54,7 +54,6 @@ def evaluate_policy(
     run: Run,
 ) -> None:
     start_episode_seed = 2_000_000 + seed * 10_000
-    run.summary[f"{STAGE_NAME}/start_episode_seed"] = start_episode_seed
 
     conditions = (
         list(ALL_CONDITIONS) if evaluate_all_conditions else [VALIDATION_CONDITION]
