@@ -1,10 +1,5 @@
 from wandb import Run
 
-from scripts.data.augmentation.tacil.create_data.anchor_selection import (
-    AnchorSelection,
-    AnchorSelectionDiagnostics,
-    describe_selection,
-)
 from scripts.data.augmentation.tacil.create_data.backward_rollout import (
     RolloutDiagnostics,
 )
@@ -19,29 +14,6 @@ from scripts.shared.distribution_panel import create_distribution_panel
 from scripts.shared.distribution_summary import summarize_distribution
 
 STAGE_NAME = "2_data"
-
-
-def log_anchor_selection_statistics(
-    *, selection: AnchorSelection, diagnostics: AnchorSelectionDiagnostics, run: Run
-) -> None:
-    run.summary[f"{STAGE_NAME}/0_anchors/selection"] = describe_selection(
-        selection=selection
-    )
-    run.summary[f"{STAGE_NAME}/0_anchors/eligible_count"] = diagnostics.eligible_count
-    run.summary[f"{STAGE_NAME}/0_anchors/selected_count"] = diagnostics.selected_count
-
-    probe = diagnostics.probe
-    if probe is None:
-        return
-
-    run.summary[f"{STAGE_NAME}/0_anchors/probe_start_count"] = probe.start_count
-    run.summary[f"{STAGE_NAME}/0_anchors/probe_step_count"] = probe.step_count
-    run.summary[f"{STAGE_NAME}/0_anchors/probe_final_training_loss"] = (
-        probe.final_training_loss
-    )
-    # Near zero would mean the probe stands still, and then the anchors it
-    # points at are just the anchors it started from.
-    run.summary[f"{STAGE_NAME}/0_anchors/probe_median_drift"] = probe.median_drift
 
 
 def log_rollout_statistics(

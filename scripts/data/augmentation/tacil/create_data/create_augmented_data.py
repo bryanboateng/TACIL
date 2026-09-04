@@ -4,7 +4,7 @@ from numpy import typing as npt
 from wandb import Run
 
 from scripts.data.augmentation.tacil.create_data.anchor_selection import (
-    select_anchor_indices,
+    get_anchor_indices,
 )
 from scripts.data.augmentation.tacil.create_data.backward_rollout import (
     roll_out_backward,
@@ -15,7 +15,6 @@ from scripts.data.augmentation.tacil.create_data.episode_assembly import (
 )
 from scripts.data.augmentation.tacil.create_data.statistics_logging import (
     STAGE_NAME,
-    log_anchor_selection_statistics,
     log_dataset_statistics,
     log_rollout_statistics,
 )
@@ -42,19 +41,10 @@ def create_augmented_data(
 
     device = next(dynamics_model_ensemble.parameters()).device
 
-    anchor_indices, anchor_selection_diagnostics = select_anchor_indices(
-        selection=config.anchor_selection,
-        episode_store=episode_store,
-        dynamics_model_ensemble=dynamics_model_ensemble,
+    anchor_indices = get_anchor_indices(
+        episode_end_indices=episode_store.episode_end_indices,
         expert_part_length=expert_part_length,
-        seed=seed,
     )  # (anchor_count,)
-
-    log_anchor_selection_statistics(
-        selection=config.anchor_selection,
-        diagnostics=anchor_selection_diagnostics,
-        run=run,
-    )
 
     action_noise_std = _compute_noise_std(
         samples=episode_store.actions,

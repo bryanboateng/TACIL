@@ -12,14 +12,6 @@ class RunConfig[PolicyConfigT, AugmentationT]:
     policy: PolicyConfigT
     augmentation: AugmentationT | None
 
-    # Mirror the expert data about the goal's axis of symmetry before anything
-    # else happens. This is a stage, not a strategy: the reflection is exact,
-    # so what comes out is expert data, and whatever augmentation follows sees
-    # twice as much of it -- twice the transitions to fit the dynamics model
-    # on, twice the anchors to grow chains from, twice the episodes to stitch
-    # between. On its own, with no augmentation, it is the mirror strategy.
-    mirror_expert_data: bool = False
-
     evaluate_all_conditions: bool = False
 
     def __post_init__(self) -> None:
