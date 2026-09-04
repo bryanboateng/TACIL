@@ -19,23 +19,17 @@ class HorizonLengthConfig:
                     f"The {name} horizon is {length}, but must be at least 1."
                 )
 
-        # A prediction is aligned with the observation history, so step 0 belongs to
-        # the oldest observation and is never run. The current step has index
-        # `observation - 1`, and everything executed after it has to fit inside the
-        # prediction horizon.
-
-        #     step         0 1 2 3 4 5 6 7 8 9 A B C D E F
-        #     observation  o o                                  2 recorded frames
-        #     prediction   a a a a a a a a a a a a a a a a     16 predicted actions
-        #     executed       x x x x x x x x                    8 actions to run
-        #                    ^ current step
-
-        executed_end = self.observation - 1 + self.execution
-        if executed_end > self.prediction:
+        executed_end_position = self.observation - 1 + self.execution
+        if executed_end_position > self.prediction:
+            #     step         0 1 2 3 4 5 6 7 8 9 A B C D E F
+            #     observation  o o                                  2 recorded frames
+            #     prediction   a a a a a a a a a a a a a a a a     16 predicted actions
+            #     executed       x x x x x x x x                    8 actions to run
+            #                    ^ current step, at index observation - 1
             raise ValueError(
                 f"An observation horizon of {self.observation} and an execution "
                 f"horizon of {self.execution} need a prediction horizon of at "
-                f"least {executed_end}, but it is {self.prediction}. The policy "
+                f"least {executed_end_position}, but it is {self.prediction}. The policy "
                 f"would run out of predicted actions before its execution "
                 f"horizon is over."
             )
@@ -59,7 +53,7 @@ class OptimizationConfig:
         ):
             if value <= 0:
                 raise ValueError(f"{name} must be positive, but it is {value}.")
-        # No decay and no warm-up are both fair choices.
+
         for name, value in (
             ("weight_decay", self.weight_decay),
             ("learning_rate_warmup_step_count", self.learning_rate_warmup_step_count),
@@ -102,9 +96,10 @@ class Config:
                     f"{index} is {count}."
                 )
 
-        # Every hidden level but the last halves the sequence on the way down
-        # and doubles it again on the way up. A prediction horizon must be divisible by that factor.
-        # Otherwise, it comes back from the network at another length.
+        # The network is a U-Net: every level but the last halves the action
+        # sequence on the way down, then doubles it back on the way up.
+        # So the prediction horizon has to divide by two as many times
+        # as there are halving levels.
         shrink_factor = 2 ** (len(self.hidden_channel_counts) - 1)
         if self.horizon_lengths.prediction % shrink_factor != 0:
             raise ValueError(
@@ -114,9 +109,6 @@ class Config:
                 f"sequence."
             )
 
-        # Validation should cover the final training epoch. Otherwise, if the
-        # validation interval does not divide the epoch count, the final
-        # training epochs are never evaluated.
         if self.optimization.epoch_count % self.validation.interval_epoch_count != 0:
             raise ValueError(
                 f"An epoch count of {self.optimization.epoch_count} must be "
