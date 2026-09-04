@@ -9,10 +9,7 @@ _DDIM_INFERENCE_TIMESTEP_COUNT = 8
 
 def create_forward_noise_scheduler() -> DDPMScheduler:
     """The schedule that adds noise to the actions during training.
-
-    DDIM and DDPM differ only in how they remove noise again, so there is no
-    sampler to pick here. The DDPM class is simply the one that carries
-    `add_noise`.
+    Both DDPM and DDIM samplers add noise identically, so the choice of DDPM here is arbitrary.
     """
     return _create_ddpm_scheduler()
 
