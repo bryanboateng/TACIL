@@ -26,27 +26,13 @@ class BehaviorCloningPolicyModel(torch.nn.Module):
         self.observation_normalizer = observation_normalizer
         self.action_normalizer = action_normalizer
 
-    def normalize_observation(
-        self,
-        *,
-        observation_batch: torch.Tensor,  # (batch_size, observation_dimensionality)
-    ) -> torch.Tensor:  # (batch_size, observation_dimensionality)
-        return self.observation_normalizer.normalize(value_batch=observation_batch)
-
-    def normalize_action(
-        self,
-        *,
-        action_batch: torch.Tensor,  # (batch_size, action_dimensionality)
-    ) -> torch.Tensor:  # (batch_size, action_dimensionality)
-        return self.action_normalizer.normalize(value_batch=action_batch)
-
     def predict_action(
         self,
         *,
         observation_batch: torch.Tensor,  # (batch_size, observation_dimensionality)
     ) -> torch.Tensor:  # (batch_size, action_dimensionality)
         normalized_action_batch = self.network(
-            self.normalize_observation(observation_batch=observation_batch)
+            self.observation_normalizer.normalize(value_batch=observation_batch)
         )  # (batch_size, action_dimensionality)
 
         return self.action_normalizer.denormalize(
@@ -62,9 +48,11 @@ def create_behavior_cloning_policy_factory(
     def create_policy(*, episode_seeds: list[int]) -> Policy:
         del episode_seeds  # seeds unused: Behavior Cloning is deterministic
 
-        def act(*, observations: dict[int, np.ndarray]) -> dict[int, np.ndarray]:
+        def create_actions(
+            *, observations_by_episode_index: dict[int, np.ndarray]
+        ) -> dict[int, np.ndarray]:
             observation_batch = torch.from_numpy(
-                np.stack(arrays=list(observations.values()))
+                np.stack(arrays=list(observations_by_episode_index.values()))
             ).to(
                 device=device, dtype=torch.float32
             )  # (episode_count, observation_dimensionality)
@@ -76,9 +64,9 @@ def create_behavior_cloning_policy_factory(
                     .numpy()
                 )  # (episode_count, action_dimensionality)
 
-            return dict(zip(observations, action_batch, strict=True))
+            return dict(zip(observations_by_episode_index, action_batch, strict=True))
 
-        return act
+        return create_actions
 
     return create_policy
 

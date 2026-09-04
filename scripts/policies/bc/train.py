@@ -94,10 +94,12 @@ def train_behavior_cloning_policy(
             )  # (batch_size, action_dimensionality)
 
             loss = loss_function(
-                input=policy_model.normalize_action(
-                    action_batch=predicted_action_batch
+                input=policy_model.action_normalizer.normalize(
+                    value_batch=predicted_action_batch
                 ),
-                target=policy_model.normalize_action(action_batch=action_batch),
+                target=policy_model.action_normalizer.normalize(
+                    value_batch=action_batch
+                ),
             )
 
             loss.backward()

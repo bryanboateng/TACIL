@@ -129,8 +129,10 @@ def create_diffusion_policy_factory(
                     ]
                 )
 
-        def act(*, observations: dict[int, np.ndarray]) -> dict[int, np.ndarray]:
-            for episode_index, observation in observations.items():
+        def act(
+            *, observations_by_episode_index: dict[int, np.ndarray]
+        ) -> dict[int, np.ndarray]:
+            for episode_index, observation in observations_by_episode_index.items():
                 observation_deque = episode_states[episode_index].observation_deque
                 observation_deque.append(observation)
                 # Pad on first call so we always condition on
@@ -141,7 +143,7 @@ def create_diffusion_policy_factory(
             # Re-plan only for the episodes whose previous action horizon is exhausted.
             exhausted_episode_indices = [
                 episode_index
-                for episode_index in observations.keys()
+                for episode_index in observations_by_episode_index.keys()
                 if len(episode_states[episode_index].action_queue) == 0
             ]
             if len(exhausted_episode_indices) > 0:
@@ -150,7 +152,7 @@ def create_diffusion_policy_factory(
 
             return {
                 episode_index: episode_states[episode_index].action_queue.popleft()
-                for episode_index in observations.keys()
+                for episode_index in observations_by_episode_index.keys()
             }
 
         return act

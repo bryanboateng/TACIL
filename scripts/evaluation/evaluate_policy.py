@@ -203,9 +203,11 @@ def _replay_episode_with_rendering(
 def _create_replay_policy(*, action_sequences: list[list[np.ndarray]]) -> Policy:
     step_indices = [0] * len(action_sequences)
 
-    def act(*, observations: dict[int, np.ndarray]) -> dict[int, np.ndarray]:
+    def act(
+        *, observations_by_episode_index: dict[int, np.ndarray]
+    ) -> dict[int, np.ndarray]:
         actions = {}
-        for episode_index in observations.keys():
+        for episode_index in observations_by_episode_index.keys():
             actions[episode_index] = action_sequences[episode_index][
                 step_indices[episode_index]
             ]

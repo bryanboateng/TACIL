@@ -113,8 +113,8 @@ def roll_out_episodes(
         while len(running_episode_indices) > 0:
             progress.update()
             progress.set_postfix(running=len(running_episode_indices), refresh=False)
-            actions_by_episode = policy(
-                observations={
+            actions_by_episode_index = policy(
+                observations_by_episode_index={
                     episode_index: episode_runs[episode_index].observation
                     for episode_index in running_episode_indices
                 }
@@ -123,7 +123,7 @@ def roll_out_episodes(
             still_running_episode_indices: list[int] = []
             for episode_index in running_episode_indices:
                 episode_run = episode_runs[episode_index]
-                action = actions_by_episode[episode_index]
+                action = actions_by_episode_index[episode_index]
 
                 observation, step_reward, terminated, truncated, _ = (
                     episode_run.environment.step(action=action)
