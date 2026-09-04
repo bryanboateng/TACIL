@@ -19,7 +19,6 @@ logger = create_logger()
 @dataclass
 class Config:
     wandb_project: str
-
     percentage: int
 
     def __post_init__(self):
@@ -45,7 +44,7 @@ def _run(*, config: Config):
         )
 
         subsampled_episode_store = _subsample_episodes(
-            episode_store=expert_episode_store, percentage=config.percentage
+            episode_store=expert_episode_store, fraction=config.percentage / 100
         )
 
         _log_dataset_statistics(
@@ -62,14 +61,14 @@ def _run(*, config: Config):
 
 
 def _subsample_episodes(
-    *, episode_store: EpisodeStore, percentage: int
+    *, episode_store: EpisodeStore, fraction: float
 ) -> EpisodeStore:
 
     episode_count = len(episode_store.episode_end_indices)
 
     selected_episode_indices = np.sort(
         a=np.random.default_rng(seed=42).choice(
-            a=episode_count, size=episode_count * percentage // 100, replace=False
+            a=episode_count, size=round(episode_count * fraction), replace=False
         )
     )  # (selected_episode_count,)
 
@@ -81,13 +80,15 @@ def _subsample_episodes(
     )  # (episode_count,)
 
     selected_transition_indices_list = []
-
     subsampled_episode_end_indices = []
-
     cumulative_transition_count = 0
 
     for selected_episode_index in selected_episode_indices:
-        selected_episode_index: int
+        if not isinstance(selected_episode_index, int):
+            raise TypeError(
+                f"Expected int, got {type(selected_episode_index).__name__}"
+            )
+
         start_index: int = episode_start_indices[selected_episode_index]
         end_index: int = episode_store.episode_end_indices[selected_episode_index]
 
@@ -125,7 +126,7 @@ def _log_dataset_statistics(
 
     run.summary["source_dataset"] = {
         "episode_count": expert_episode_count,
-        "transitions_count": expert_transition_count,
+        "transition_count": expert_transition_count,
     }
 
     selected_episode_count = len(subsampled_episode_store.episode_end_indices)
