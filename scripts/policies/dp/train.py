@@ -81,7 +81,7 @@ def train_diffusion_policy(
     optimizer = torch.optim.AdamW(
         params=noise_prediction_network.parameters(),
         lr=config.optimization.learning_rate,
-        # The reference uses 0.95 for the first moment, not Adam's usual 0.9.
+        # The original Diffusion Policy code uses 0.95 for the first moment, not Adam's usual 0.9.
         betas=(0.95, 0.999),
         weight_decay=config.optimization.weight_decay,
     )
@@ -214,12 +214,6 @@ def train_diffusion_policy(
     if best_checkpoint is None:
         raise ValueError("No checkpoint was recorded")
 
-    logger.info(
-        "Selected best epoch %d (validation max reward %.4f).",
-        best_checkpoint.epoch,
-        best_checkpoint.validation_reward_mean,
-    )
-
     run.summary[f"{STAGE_NAME}/3_best_checkpoint/epoch"] = best_checkpoint.epoch
     run.summary[f"{STAGE_NAME}/3_best_checkpoint/validation_reward_mean"] = (
         best_checkpoint.validation_reward_mean
@@ -230,6 +224,9 @@ def train_diffusion_policy(
 
     noise_prediction_network.load_state_dict(best_checkpoint.state_dict)
     return noise_prediction_network
+
+
+# ---- Private --------------------------------------------
 
 
 def _define_step_metrics(*, run: Run) -> None:
@@ -247,10 +244,12 @@ def _compute_denoising_loss(
     device: torch.device,
 ) -> torch.Tensor:
     observations, actions = training_batch
-    # observations: (batch_size, observation_horizon_length, observation_dimensionality)
-    # actions: (batch_size, prediction_horizon_length, action_dimensionality)
-    observations = observations.to(device=device)
-    actions = actions.to(device=device)
+    observations = observations.to(
+        device=device
+    )  # (batch_size, observation_horizon_length, observation_dimensionality)
+    actions = actions.to(
+        device=device
+    )  # (batch_size, prediction_horizon_length, action_dimensionality)
 
     batch_size = observations.shape[0]
 
