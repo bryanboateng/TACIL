@@ -6,5 +6,5 @@ from numpy import typing as npt
 
 @dataclass
 class StateActionPairs:
-    states: npt.NDArray[np.float32]  # (transition_count, state_dimensionality)
-    actions: npt.NDArray[np.float32]  # (transition_count, action_dimensionality)
+    states: npt.NDArray[np.float32]  # (pair_count, state_dimensionality)
+    actions: npt.NDArray[np.float32]  # (pair_count, action_dimensionality)

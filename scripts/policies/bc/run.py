@@ -76,14 +76,14 @@ def _run(*, config: Config) -> None:
                         synthetic_state_action_pairs.states,
                     ],
                     axis=0,
-                ),  # (transition_count, state_dimensionality)
+                ),  # (pair_count, state_dimensionality)
                 actions=np.concatenate(
                     [
                         expert_state_action_pairs.actions,
                         synthetic_state_action_pairs.actions,
                     ],
                     axis=0,
-                ),  # (transition_count, action_dimensionality)
+                ),  # (pair_count, action_dimensionality)
             )
 
         logger.info("Stage 1/3: done.")
