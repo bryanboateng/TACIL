@@ -1,12 +1,6 @@
 from dataclasses import dataclass
 from typing import Literal
 
-from scripts.shared.config_checks import (
-    check_not_negative,
-    check_positive,
-    check_positive_sizes,
-)
-
 
 @dataclass(frozen=True)
 class HorizonLengthConfig:
@@ -57,17 +51,21 @@ class OptimizationConfig:
     ema_power: float = 0.75
 
     def __post_init__(self) -> None:
-        check_positive(
-            batch_size=self.batch_size,
-            epoch_count=self.epoch_count,
-            learning_rate=self.learning_rate,
-            ema_power=self.ema_power,
-        )
+        for name, value in (
+            ("batch_size", self.batch_size),
+            ("epoch_count", self.epoch_count),
+            ("learning_rate", self.learning_rate),
+            ("ema_power", self.ema_power),
+        ):
+            if value <= 0:
+                raise ValueError(f"{name} must be positive, but it is {value}.")
         # No decay and no warm-up are both fair choices.
-        check_not_negative(
-            weight_decay=self.weight_decay,
-            learning_rate_warmup_step_count=self.learning_rate_warmup_step_count,
-        )
+        for name, value in (
+            ("weight_decay", self.weight_decay),
+            ("learning_rate_warmup_step_count", self.learning_rate_warmup_step_count),
+        ):
+            if value < 0:
+                raise ValueError(f"{name} must not be negative, but it is {value}.")
 
 
 @dataclass(frozen=True)
@@ -76,10 +74,12 @@ class ValidationConfig:
     episode_count: int = 50
 
     def __post_init__(self) -> None:
-        check_positive(
-            interval_epoch_count=self.interval_epoch_count,
-            episode_count=self.episode_count,
-        )
+        for name, value in (
+            ("interval_epoch_count", self.interval_epoch_count),
+            ("episode_count", self.episode_count),
+        ):
+            if value <= 0:
+                raise ValueError(f"{name} must be positive, but it is {value}.")
 
 
 @dataclass(frozen=True)
@@ -91,7 +91,16 @@ class Config:
     sampler: Literal["ddim", "ddpm"] = "ddim"
 
     def __post_init__(self) -> None:
-        check_positive_sizes(hidden_channel_counts=self.hidden_channel_counts)
+        if len(self.hidden_channel_counts) == 0:
+            raise ValueError(
+                "hidden_channel_counts must name at least one size, but it is empty."
+            )
+        for index, count in enumerate(self.hidden_channel_counts):
+            if count <= 0:
+                raise ValueError(
+                    f"hidden_channel_counts must hold positive sizes, but entry "
+                    f"{index} is {count}."
+                )
 
         # Every hidden level but the last halves the sequence on the way down
         # and doubles it again on the way up. A prediction horizon must be divisible by that factor.

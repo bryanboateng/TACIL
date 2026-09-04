@@ -11,7 +11,6 @@ from scripts.data.augmentation.tacil.create_data.chain_error import (
     AccountCriterion,
     ReplayCriterion,
 )
-from scripts.shared.config_checks import check_not_negative, check_positive
 
 # The two kinds of rule, as subcommands. The domain types stay free of tyro;
 # only this alias, which exists to be parsed, knows about the command line.
@@ -54,9 +53,15 @@ class DataConfig:
     def __post_init__(self) -> None:
         # Zero noise is a fair choice: it makes every chain follow the anchor
         # action exactly.
-        check_not_negative(action_noise_range_fraction=self.action_noise_range_fraction)
+        if self.action_noise_range_fraction < 0:
+            raise ValueError(
+                f"action_noise_range_fraction must not be negative, but it is "
+                f"{self.action_noise_range_fraction}."
+            )
         # A limit of zero would reject every step, and the run would stop with
         # no labels at all.
-        check_positive(
-            chain_error_limit_step_multiple=self.chain_error_limit_step_multiple
-        )
+        if self.chain_error_limit_step_multiple <= 0:
+            raise ValueError(
+                f"chain_error_limit_step_multiple must be positive, but it is "
+                f"{self.chain_error_limit_step_multiple}."
+            )

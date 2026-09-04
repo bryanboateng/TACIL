@@ -1,7 +1,5 @@
 from dataclasses import dataclass
 
-from scripts.shared.config_checks import check_not_empty
-
 
 @dataclass(frozen=True)
 class RunConfig[PolicyConfigT, AugmentationT]:
@@ -27,7 +25,9 @@ class RunConfig[PolicyConfigT, AugmentationT]:
     def __post_init__(self) -> None:
         # An empty name reaches wandb as a project of its own, or asks for an
         # artifact that cannot exist, and only fails once the run is under way.
-        check_not_empty(
-            wandb_project=self.wandb_project,
-            expert_dataset_artifact=self.expert_dataset_artifact,
-        )
+        for name, value in (
+            ("wandb_project", self.wandb_project),
+            ("expert_dataset_artifact", self.expert_dataset_artifact),
+        ):
+            if not value.strip():
+                raise ValueError(f"{name} must not be empty.")

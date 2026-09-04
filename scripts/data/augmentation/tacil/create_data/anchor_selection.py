@@ -21,7 +21,6 @@ from scripts.data.augmentation.tacil.create_data.policy_probe import (
 from scripts.data.augmentation.tacil.dynamics.dynamics_model_ensemble import (
     DynamicsModelEnsemble,
 )
-from scripts.shared.config_checks import check_positive, check_share
 from scripts.shared.episode_store import EpisodeStore
 from scripts.shared.pusht_state import AGENT_POSITION_SLICE, add_states, subtract_states
 from scripts.shared.transition_batch import TransitionBatch
@@ -56,13 +55,18 @@ class PolicyVisitedAnchors:
     probe_epoch_count: int = 50
 
     def __post_init__(self) -> None:
-        check_share(keep_share=self.keep_share)
-        check_positive(
-            keep_share=self.keep_share,
-            rollout_length=self.rollout_length,
-            disturbance_range_fraction=self.disturbance_range_fraction,
-            probe_epoch_count=self.probe_epoch_count,
-        )
+        if not 0.0 <= self.keep_share <= 1.0:
+            raise ValueError(
+                f"keep_share must be between 0 and 1, but it is {self.keep_share}."
+            )
+        for name, value in (
+            ("keep_share", self.keep_share),
+            ("rollout_length", self.rollout_length),
+            ("disturbance_range_fraction", self.disturbance_range_fraction),
+            ("probe_epoch_count", self.probe_epoch_count),
+        ):
+            if value <= 0:
+                raise ValueError(f"{name} must be positive, but it is {value}.")
 
 
 AnchorSelection: TypeAlias = AllAnchors | PolicyVisitedAnchors

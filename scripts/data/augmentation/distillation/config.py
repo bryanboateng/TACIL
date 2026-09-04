@@ -1,7 +1,5 @@
 from dataclasses import dataclass
 
-from scripts.shared.config_checks import check_positive
-
 
 @dataclass(frozen=True)
 class DistillationDataConfig:
@@ -31,17 +29,20 @@ class DistillationDataConfig:
     on_manifold_tolerance_step_multiple: float = 1.0
 
     def __post_init__(self) -> None:
-        check_positive(
+        for name, value in (
             # Both weights scale a pull; at zero GPI would stand still, and
             # below zero it would move away from what it is following.
-            gpi_progression_weight=self.gpi_progression_weight,
-            gpi_attraction_weight=self.gpi_attraction_weight,
-            gpi_plan_length=self.gpi_plan_length,
+            ("gpi_progression_weight", self.gpi_progression_weight),
+            ("gpi_attraction_weight", self.gpi_attraction_weight),
+            ("gpi_plan_length", self.gpi_plan_length),
             # Without a disturbance every state starts on the demonstrations,
             # so no chain would be followed and nothing would be learned.
-            disturbance_range_fraction=self.disturbance_range_fraction,
-            max_chain_length=self.max_chain_length,
-            on_manifold_tolerance_step_multiple=(
-                self.on_manifold_tolerance_step_multiple
+            ("disturbance_range_fraction", self.disturbance_range_fraction),
+            ("max_chain_length", self.max_chain_length),
+            (
+                "on_manifold_tolerance_step_multiple",
+                self.on_manifold_tolerance_step_multiple,
             ),
-        )
+        ):
+            if value <= 0:
+                raise ValueError(f"{name} must be positive, but it is {value}.")

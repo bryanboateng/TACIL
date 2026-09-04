@@ -1,7 +1,5 @@
 from dataclasses import dataclass
 
-from scripts.shared.config_checks import check_positive
-
 
 @dataclass(frozen=True)
 class DynamicsConfig:
@@ -13,14 +11,20 @@ class DynamicsConfig:
     hidden_layer_dimensionality: int = 256
 
     def __post_init__(self) -> None:
-        check_positive(
-            window_length=self.window_length,
-            ensemble_size=self.ensemble_size,
-            epoch_count=self.epoch_count,
-            hidden_layer_count=self.hidden_layer_count,
-            hidden_layer_dimensionality=self.hidden_layer_dimensionality,
-        )
-        if self.lipschitz_constant_upper_bound is not None:
-            check_positive(
-                lipschitz_constant_upper_bound=self.lipschitz_constant_upper_bound
+        for name, value in (
+            ("window_length", self.window_length),
+            ("ensemble_size", self.ensemble_size),
+            ("epoch_count", self.epoch_count),
+            ("hidden_layer_count", self.hidden_layer_count),
+            ("hidden_layer_dimensionality", self.hidden_layer_dimensionality),
+        ):
+            if value <= 0:
+                raise ValueError(f"{name} must be positive, but it is {value}.")
+        if (
+            self.lipschitz_constant_upper_bound is not None
+            and self.lipschitz_constant_upper_bound <= 0
+        ):
+            raise ValueError(
+                f"lipschitz_constant_upper_bound must be positive, but it is "
+                f"{self.lipschitz_constant_upper_bound}."
             )

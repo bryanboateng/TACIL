@@ -1,7 +1,5 @@
 from dataclasses import dataclass
 
-from scripts.shared.config_checks import check_positive
-
 
 @dataclass(frozen=True)
 class StitchingDataConfig:
@@ -22,13 +20,16 @@ class StitchingDataConfig:
     transition_budget_multiple: float = 1.0
 
     def __post_init__(self) -> None:
-        check_positive(
-            junction_radius_step_multiple=self.junction_radius_step_multiple,
-            junction_error_limit_step_multiple=(
-                self.junction_error_limit_step_multiple
+        for name, value in (
+            ("junction_radius_step_multiple", self.junction_radius_step_multiple),
+            (
+                "junction_error_limit_step_multiple",
+                self.junction_error_limit_step_multiple,
             ),
-            transition_budget_multiple=self.transition_budget_multiple,
-        )
+            ("transition_budget_multiple", self.transition_budget_multiple),
+        ):
+            if value <= 0:
+                raise ValueError(f"{name} must be positive, but it is {value}.")
         if self.junction_error_limit_step_multiple > self.junction_radius_step_multiple:
             raise ValueError(
                 f"The junction error limit "
