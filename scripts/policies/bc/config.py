@@ -48,6 +48,6 @@ class Config:
             raise ValueError(
                 f"An epoch count of {self.optimization.epoch_count} must be "
                 f"divisible by the validation interval of "
-                f"{self.validation.interval_epoch_count}; otherwise the final "
-                f"training epochs would not be validated."
+                f"{self.validation.interval_epoch_count}."
+                f"Otherwise the final training epochs would not be validated."
             )
