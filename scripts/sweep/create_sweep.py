@@ -20,24 +20,13 @@ logger = create_logger()
 
 SearchLabel = Literal["bayes", "random"]
 
-MethodLabel = Literal[
-    "tacil-dp-bounded",
-    "tacil-bc-bounded",
-    "ccil-bc",
-    "gpi",
-    # GPI distilled into a policy: its actions, rolled forward through the
-    # dynamics model, as training data.
-    "distill-dp",
-    "distill-bc",
-]
+MethodLabel = Literal["tacil-dp-bounded", "tacil-bc-bounded", "ccil-bc", "gpi"]
 
 METHOD_MODULES: dict[MethodLabel, str] = {
     "tacil-dp-bounded": "scripts.policies.dp.run",
     "tacil-bc-bounded": "scripts.policies.bc.run",
     "ccil-bc": "scripts.policies.bc.run",
     "gpi": "scripts.policies.gpi.run",
-    "distill-dp": "scripts.policies.dp.run",
-    "distill-bc": "scripts.policies.bc.run",
 }
 
 METHOD_FIXED_ARGUMENTS: dict[MethodLabel, list[str]] = {
@@ -47,8 +36,6 @@ METHOD_FIXED_ARGUMENTS: dict[MethodLabel, list[str]] = {
     # GPI has no augmentation stage, but the field is still part of the run
     # config, and tyro asks for every field.
     "gpi": ["--augmentation=None"],
-    "distill-dp": ["augmentation:distillation"],
-    "distill-bc": ["augmentation:distillation"],
 }
 
 _TACIL_SHARED_PARAMETERS: dict[str, Any] = {
@@ -120,52 +107,6 @@ _CCIL_SHARED_PARAMETERS: dict[str, Any] = {
     },
 }
 
-_DISTILLATION_PARAMETERS: dict[str, Any] = {
-    # GPI's own parameters, over the range its own sweep searches: what is
-    # being copied is GPI, so how GPI is configured is part of the search.
-    "augmentation.data.gpi_progression_weight": {
-        "distribution": "log_uniform_values",
-        "min": 0.1,
-        "max": 10.0,
-    },
-    "augmentation.data.gpi_attraction_weight": {
-        "distribution": "log_uniform_values",
-        "min": 0.1,
-        "max": 10.0,
-    },
-    "augmentation.data.gpi_plan_length": {
-        "distribution": "int_uniform",
-        "min": 1,
-        "max": 32,
-    },
-    "augmentation.dynamics.window_length": {
-        "distribution": "int_uniform",
-        "min": 1,
-        "max": 15,
-    },
-    # Same reasoning as for the TACIL bound, see _TACIL_BOUNDED_PARAMETERS.
-    "augmentation.dynamics.lipschitz_constant_upper_bound": {
-        "distribution": "log_uniform_values",
-        "min": 1.0,
-        "max": 120.0,
-    },
-    # How hard the block is shoved before GPI has to bring it back.
-    "augmentation.data.disturbance_range_fraction": {
-        "distribution": "log_uniform_values",
-        "min": 0.02,
-        "max": 0.5,
-    },
-    # How many steps GPI is followed through the model. Every step adds model
-    # error, so this trades coverage of GPI's behaviour against how real the
-    # states it is demonstrated on still are.
-    "augmentation.data.max_chain_length": {
-        "distribution": "int_uniform",
-        "min": 1,
-        "max": 16,
-    },
-}
-
-
 # Sizes as strings, because a sweep value has to survive the round trip
 # through the command line; tyro reads them back with Python collection syntax.
 # The reference size is the largest here: at 5% of the data it has more
@@ -196,8 +137,6 @@ METHOD_PARAMETERS: dict[MethodLabel, dict[str, Any]] = {
         },
         "policy.plan_length": {"distribution": "int_uniform", "min": 1, "max": 32},
     },
-    "distill-dp": _DISTILLATION_PARAMETERS,
-    "distill-bc": _DISTILLATION_PARAMETERS,
 }
 
 

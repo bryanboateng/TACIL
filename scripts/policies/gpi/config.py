@@ -8,8 +8,7 @@ class ObservationNoiseConfig:
     minimum_std: float = 0.001
 
     def __post_init__(self) -> None:
-        # Zero noise is a fair choice, and is what the distillation reads GPI
-        # with; a negative spread is not a spread.
+        # Zero noise is a fair choice; a negative spread is not a spread.
         for name, value in (
             ("initial_std", self.initial_std),
             ("minimum_std", self.minimum_std),
