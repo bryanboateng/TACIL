@@ -17,9 +17,6 @@ class ConditionalUnet1d(torch.nn.Module):
     ) -> None:
         super().__init__()
 
-        # The network denoises action sequences, so its channels are the action
-        # components. Kept as an attribute because the policy needs the width to
-        # draw the starting noise, and the network is the only thing it holds.
         self.action_dimensionality = action_dimensionality
 
         kernel_size = 5
@@ -120,7 +117,7 @@ class ConditionalUnet1d(torch.nn.Module):
         noisy_sample_batch: torch.Tensor,  # (batch_size, prediction_horizon_length, action_dimensionality)
         diffusion_timestep: torch.Tensor,  # (batch_size,) or scalar
         condition_batch: torch.Tensor,  # (batch_size, condition_dimensionality)
-    ) -> torch.Tensor:  # (batch_size, prediction_horizon_length, action_dimensionality)
+    ) -> torch.Tensor:
         noisy_sample_batch = noisy_sample_batch.moveaxis(
             source=-1, destination=-2
         )  # (batch_size, action_dimensionality, prediction_horizon_length)
@@ -198,9 +195,7 @@ class _DownsampleLevel(torch.nn.Module):
         *,
         input_batch: torch.Tensor,  # (batch_size, input_channel_count, sequence_length)
         condition_batch: torch.Tensor,  # (batch_size, condition_dimensionality)
-    ) -> tuple[
-        torch.Tensor, torch.Tensor
-    ]:  # (batch_size, output_channel_count, sequence_length // 2), (batch_size, output_channel_count, sequence_length)
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         hidden_state_batch = self._first_residual_block(
             input_batch=input_batch, condition_batch=condition_batch
         )  # (batch_size, output_channel_count, sequence_length)
@@ -228,9 +223,7 @@ class _UpsampleLevel(torch.nn.Module):
         apply_upsample: bool,
     ) -> None:
         super().__init__()
-        # The first residual block sees input_channel_count * 2 because the skip
-        # connection (same channel count as the incoming hidden state) is
-        # concatenated along the channel dimension before this block runs.
+
         self._first_residual_block = ConditionalResidualBlock1d(
             input_channel_count=input_channel_count * 2,
             output_channel_count=output_channel_count,
@@ -255,7 +248,7 @@ class _UpsampleLevel(torch.nn.Module):
         input_batch: torch.Tensor,  # (batch_size, input_channel_count, sequence_length)
         skip_connection_batch: torch.Tensor,  # (batch_size, input_channel_count, sequence_length)
         condition_batch: torch.Tensor,  # (batch_size, condition_dimensionality)
-    ) -> torch.Tensor:  # (batch_size, output_channel_count, sequence_length * 2)
+    ) -> torch.Tensor:
         hidden_state_batch = torch.cat(
             tensors=(input_batch, skip_connection_batch), dim=1
         )  # (batch_size, input_channel_count * 2, sequence_length)
@@ -288,7 +281,7 @@ class SinusoidalPositionalEmbedding(torch.nn.Module):
     def forward(
         self,
         input_batch: torch.Tensor,  # (batch_size,)
-    ) -> torch.Tensor:  # (batch_size, dimensionality)
+    ) -> torch.Tensor:
         half_dimensionality = self._dimensionality // 2
         log_frequency_spacing = math.log(10000) / (half_dimensionality - 1)
         frequencies = torch.exp(
@@ -326,7 +319,7 @@ class ConditionalResidualBlock1d(torch.nn.Module):
             kernel_size=kernel_size,
         )
 
-        # FiLM (https://arxiv.org/abs/1709.07871): per-channel scale and bias.
+        # FiLM (https://arxiv.org/abs/1709.07871)
         self._feature_modulation_encoder = torch.nn.Sequential(
             torch.nn.Mish(),
             torch.nn.Linear(
@@ -350,7 +343,7 @@ class ConditionalResidualBlock1d(torch.nn.Module):
         *,
         input_batch: torch.Tensor,  # (batch_size, input_channel_count, sequence_length)
         condition_batch: torch.Tensor,  # (batch_size, condition_dimensionality)
-    ) -> torch.Tensor:  # (batch_size, output_channel_count, sequence_length)
+    ) -> torch.Tensor:
         hidden_state_batch = self._first_convolution_block(
             input_batch=input_batch
         )  # (batch_size, output_channel_count, sequence_length)
