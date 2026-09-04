@@ -37,7 +37,7 @@ def create_geometric_policy_factory(
             for episode_seed in episode_seeds
         ]
 
-        def act(
+        def create_actions(
             *, observations_by_episode_index: dict[int, npt.NDArray[np.float32]]
         ) -> dict[int, npt.NDArray[np.float32]]:
             return {
@@ -52,7 +52,7 @@ def create_geometric_policy_factory(
                 for episode_index, observation in observations_by_episode_index.items()
             }
 
-        return act
+        return create_actions
 
     return create_policy
 

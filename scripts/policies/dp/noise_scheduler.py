@@ -14,7 +14,9 @@ def create_forward_noise_scheduler() -> DDPMScheduler:
     return _create_ddpm_scheduler()
 
 
-def create_sampler(*, name: Literal["ddim", "ddpm"]) -> DDIMScheduler | DDPMScheduler:
+def create_noise_scheduler(
+    *, name: Literal["ddim", "ddpm"]
+) -> DDIMScheduler | DDPMScheduler:
     match name:
         case "ddim":
             return _create_ddim_scheduler()

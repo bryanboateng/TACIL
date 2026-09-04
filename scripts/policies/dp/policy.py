@@ -7,25 +7,18 @@ import torch
 
 from scripts.policies.dp.config import HorizonLengthConfig
 from scripts.policies.dp.network import ConditionalUnet1d
-from scripts.policies.dp.noise_scheduler import create_sampler
+from scripts.policies.dp.noise_scheduler import create_noise_scheduler
 from scripts.shared.policy_types import Policy, PolicyFactory
-
-
-@dataclass(frozen=True)
-class _EpisodeState:
-    noise_generator: torch.Generator
-    observation_deque: collections.deque
-    action_queue: collections.deque
 
 
 def create_diffusion_policy_factory(
     *,
     noise_prediction_network: ConditionalUnet1d,
     horizon_lengths: HorizonLengthConfig,
-    sampler: Literal["ddim", "ddpm"],
+    noise_scheduler_name: Literal["ddim", "ddpm"],
     device: torch.device,
 ) -> PolicyFactory:
-    noise_scheduler = create_sampler(name=sampler)
+    noise_scheduler = create_noise_scheduler(name=noise_scheduler_name)
 
     noise_prediction_network.eval()
 
@@ -79,7 +72,7 @@ def create_diffusion_policy_factory(
             )  # (planned_episode_count, prediction_horizon_length, action_dimensionality)
 
             for diffusion_timestep in noise_scheduler.timesteps:
-                # The network reports the noise at the scale it was drawn, not
+                # The network predicts the noise at the scale it was drawn, not
                 # the smaller amount that is present at this timestep.
                 predicted_noise_batch = noise_prediction_network(
                     noisy_sample_batch=noisy_action_sequence_batch,
@@ -90,6 +83,7 @@ def create_diffusion_policy_factory(
                 # The scheduler recovers the clean sequence implied by the
                 # prediction, then puts back the noise that belongs to the next
                 # lower timestep.
+                #
                 # One noise_generator per episode, so the whole batch is stepped at
                 # once and each episode still draws its own noise.
                 # `step`'s signature allows only a single noise_generator but the `randn_tensor`
@@ -129,7 +123,7 @@ def create_diffusion_policy_factory(
                     ]
                 )
 
-        def act(
+        def create_actions(
             *, observations_by_episode_index: dict[int, np.ndarray]
         ) -> dict[int, np.ndarray]:
             for episode_index, observation in observations_by_episode_index.items():
@@ -155,6 +149,16 @@ def create_diffusion_policy_factory(
                 for episode_index in observations_by_episode_index.keys()
             }
 
-        return act
+        return create_actions
 
     return create_policy
+
+
+# ---- Private --------------------------------------------
+
+
+@dataclass(frozen=True)
+class _EpisodeState:
+    noise_generator: torch.Generator
+    observation_deque: collections.deque
+    action_queue: collections.deque

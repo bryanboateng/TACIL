@@ -86,7 +86,7 @@ def _run(*, config: Config) -> None:
             policy_factory=create_diffusion_policy_factory(
                 noise_prediction_network=noise_prediction_network,
                 horizon_lengths=config.policy.horizon_lengths,
-                sampler=config.policy.sampler,
+                noise_scheduler_name=config.policy.sampler,
                 device=device,
             ),
             policy_label=f"dp ({run_name})",

@@ -179,7 +179,7 @@ def train_diffusion_policy(
                         policy_factory=create_diffusion_policy_factory(
                             noise_prediction_network=noise_prediction_network,
                             horizon_lengths=config.horizon_lengths,
-                            sampler=config.sampler,
+                            noise_scheduler_name=config.sampler,
                             device=device,
                         ),
                         start_episode_seed=100_000,
