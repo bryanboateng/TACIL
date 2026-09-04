@@ -3,7 +3,6 @@ from pathlib import Path
 
 import numpy as np
 import pygame
-import torch
 import wandb
 from gymnasium import Env
 from imageio import v2 as imageio
@@ -25,10 +24,10 @@ from scripts.evaluation.core.rollout import (
 from scripts.evaluation.core.scoring import (
     RewardStatistics,
     SuccessStatistics,
-    pick_representative_episodes,
     compute_reward_statistics,
-    run_scored_episodes,
     compute_success_statistics,
+    pick_representative_episodes,
+    run_scored_episodes,
 )
 from scripts.evaluation.core.video import (
     FREEZE_SECONDS,
@@ -70,8 +69,8 @@ def evaluate_policy(
         _write_summary(
             run=run,
             condition=condition,
-            reward=compute_reward_statistics(episode_records),
-            success=compute_success_statistics(episode_records),
+            reward=compute_reward_statistics(episode_records=episode_records),
+            success=compute_success_statistics(episode_records=episode_records),
         )
         _log_video(
             policy_label=policy_label,
@@ -81,6 +80,9 @@ def evaluate_policy(
             ),
             run=run,
         )
+
+
+# ---- Private --------------------------------------------
 
 
 def _write_summary(
@@ -102,7 +104,6 @@ def _write_summary(
     run.summary[f"{STAGE_NAME}/{condition.label}/episode_count"] = reward.episode_count
 
 
-@torch.no_grad()
 def _log_video(
     *,
     policy_label: str,
@@ -210,15 +211,25 @@ def _replay_episode_with_rendering(
 def _create_replay_policy(*, action_sequences: list[list[np.ndarray]]) -> Policy:
     step_indices = [0] * len(action_sequences)
 
-    def act(
+    def create_action(
         *, observations_by_episode_index: dict[int, np.ndarray]
     ) -> dict[int, np.ndarray]:
         actions = {}
         for episode_index in observations_by_episode_index.keys():
-            actions[episode_index] = action_sequences[episode_index][
-                step_indices[episode_index]
-            ]
+            action_sequence = action_sequences[episode_index]
+            step_index = step_indices[episode_index]
+            # An episode ends when the environment says so, not when the
+            # recorded actions run out. A replay that outlives its recording
+            # has already diverged, and would otherwise fail here with a bare
+            # IndexError instead of the check the caller makes afterwards.
+            if step_index >= len(action_sequence):
+                raise RuntimeError(
+                    f"The replay is still running after all "
+                    f"{len(action_sequence)} recorded actions, so it did not "
+                    f"reproduce the episode."
+                )
+            actions[episode_index] = action_sequence[step_index]
             step_indices[episode_index] += 1
         return actions
 
-    return act
+    return create_action
