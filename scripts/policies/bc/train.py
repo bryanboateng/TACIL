@@ -22,7 +22,7 @@ from scripts.shared import stage_names
 from scripts.shared.log import create_logger
 from scripts.shared.normalization import MinMaxNormalizer, ZScoreNormalizer
 from scripts.shared.seeding import set_seed
-from scripts.shared.transition_batch import TransitionBatch
+from scripts.shared.state_action_pairs import StateActionPairs
 
 logger = create_logger()
 
@@ -38,7 +38,7 @@ VALIDATION_SECTION = f"{STAGE_NAME}/2_validation"
 def train_behavior_cloning_policy(
     *,
     config: Config,
-    transitions: TransitionBatch,
+    state_action_pairs: StateActionPairs,
     seed: int,
     device: torch.device,
     run: Run,
@@ -48,9 +48,9 @@ def train_behavior_cloning_policy(
 
     loss_function = torch.nn.MSELoss()
 
-    run.summary[f"{STAGE_NAME}/transition_count"] = len(transitions.states)
+    run.summary[f"{STAGE_NAME}/transition_count"] = len(state_action_pairs.states)
 
-    dataset = Dataset(transitions=transitions)
+    dataset = Dataset(state_action_pairs=state_action_pairs)
 
     data_loader = DataLoader(
         dataset=dataset,
@@ -60,8 +60,8 @@ def train_behavior_cloning_policy(
     )
 
     model = BehaviorCloningPolicyModel(
-        observation_dimensionality=transitions.states.shape[1],
-        action_dimensionality=transitions.actions.shape[1],
+        observation_dimensionality=state_action_pairs.states.shape[1],
+        action_dimensionality=state_action_pairs.actions.shape[1],
         hidden_layer_dimensionality=config.hidden_layer_dimensionality,
         observation_normalizer=ZScoreNormalizer(
             value_batch=dataset.states.to(device=device)

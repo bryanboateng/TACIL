@@ -20,7 +20,7 @@ from scripts.policies.shared.run_config import RunConfig
 from scripts.shared.episode_store import EpisodeStore, download_episode_store
 from scripts.shared.log import create_logger, log_device_info
 from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
-from scripts.shared.transition_batch import TransitionBatch
+from scripts.shared.state_action_pairs import StateActionPairs
 
 logger = create_logger()
 
@@ -55,26 +55,34 @@ def _run(*, config: Config) -> None:
             artifact_name=config.expert_dataset_artifact, run=run
         )
 
-        logger.info("Stage 1/3: building the training transitions.")
-        expert_transitions = TransitionBatch(
+        logger.info("Stage 1/3: building the training data.")
+        expert_state_action_pairs = StateActionPairs(
             states=expert_episodes.states, actions=expert_episodes.actions
         )
         if config.augmentation is None:
-            transitions = expert_transitions
+            state_action_pairs = expert_state_action_pairs
         else:
-            synthetic_transitions = _create_synthetic_transitions(
+            synthetic_state_action_pairs = _create_synthetic_state_action_pairs(
                 augmentation_config=config.augmentation,
                 expert_episodes=expert_episodes,
                 seed=config.seed,
                 device=device,
                 run=run,
             )
-            transitions = TransitionBatch(
+            state_action_pairs = StateActionPairs(
                 states=np.concatenate(
-                    [expert_transitions.states, synthetic_transitions.states], axis=0
+                    [
+                        expert_state_action_pairs.states,
+                        synthetic_state_action_pairs.states,
+                    ],
+                    axis=0,
                 ),  # (transition_count, state_dimensionality)
                 actions=np.concatenate(
-                    [expert_transitions.actions, synthetic_transitions.actions], axis=0
+                    [
+                        expert_state_action_pairs.actions,
+                        synthetic_state_action_pairs.actions,
+                    ],
+                    axis=0,
                 ),  # (transition_count, action_dimensionality)
             )
 
@@ -83,7 +91,7 @@ def _run(*, config: Config) -> None:
         logger.info("Stage 2/3: training the behavior-cloning policy.")
         policy_model = train_behavior_cloning_policy(
             config=config.policy,
-            transitions=transitions,
+            state_action_pairs=state_action_pairs,
             seed=config.seed,
             device=device,
             run=run,
@@ -103,14 +111,14 @@ def _run(*, config: Config) -> None:
         logger.info("Stage 3/3: done.")
 
 
-def _create_synthetic_transitions(
+def _create_synthetic_state_action_pairs(
     *,
     augmentation_config: Augmentation,
     expert_episodes: EpisodeStore,
     seed: int,
     device: torch.device,
     run: Run,
-) -> TransitionBatch:
+) -> StateActionPairs:
     match augmentation_config:
         case CcilConfig() as ccil_configuration:
             return ccil.augment(
@@ -131,7 +139,7 @@ def _create_synthetic_transitions(
                 device=device,
                 run=run,
             )
-            return TransitionBatch(
+            return StateActionPairs(
                 states=tacil_episodes.states, actions=tacil_episodes.actions
             )
 

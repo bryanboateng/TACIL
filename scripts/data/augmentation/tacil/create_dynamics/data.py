@@ -7,34 +7,34 @@ from scripts.shared.episode_store import EpisodeStore
 
 
 @dataclass
-class TransitionSet:
-    states: npt.NDArray[np.float32]  # (episode_length, state_dimensionality)
-    actions: npt.NDArray[np.float32]  # (episode_length, action_dimensionality)
-    next_states: npt.NDArray[np.float32]  # (episode_length, state_dimensionality)
+class TransitionTriples:
+    states: npt.NDArray[np.float32]  # (transition_count, state_dimensionality)
+    actions: npt.NDArray[np.float32]  # (transition_count, action_dimensionality)
+    next_states: npt.NDArray[np.float32]  # (transition_count, state_dimensionality)
 
 
-def extract_transitions(*, episode_store: EpisodeStore) -> list[TransitionSet]:
+def extract_transitions(*, episode_store: EpisodeStore) -> list[TransitionTriples]:
 
     episode_start_indices = np.concatenate(
         [[0], episode_store.episode_end_indices[:-1]]
     )  # (episode_count,)
 
-    episodes: list[TransitionSet] = []
+    episodes: list[TransitionTriples] = []
     for episode_start_index, episode_end_index in zip(
         episode_start_indices, episode_store.episode_end_indices
     ):
         episode_states = episode_store.states[
             episode_start_index:episode_end_index
-        ]  # (episode_length, state_dimensionality)
+        ]  # (transition_count, state_dimensionality)
 
         episode_actions = episode_store.actions[
             episode_start_index:episode_end_index
-        ]  # (episode_length, action_dimensionality)
+        ]  # (transition_count, action_dimensionality)
 
         # Drop the last timestep to form (s_t, a_t, s_{t+1}) triples,
         # since the terminal state has no corresponding action.
         episodes.append(
-            TransitionSet(
+            TransitionTriples(
                 states=episode_states[
                     :-1
                 ],  # (episode_length - 1, state_dimensionality)
@@ -50,8 +50,8 @@ def extract_transitions(*, episode_store: EpisodeStore) -> list[TransitionSet]:
     return episodes
 
 
-def concatenate_episodes(*, episodes: list[TransitionSet]) -> TransitionSet:
-    return TransitionSet(
+def concatenate_episodes(*, episodes: list[TransitionTriples]) -> TransitionTriples:
+    return TransitionTriples(
         states=np.concatenate([episode.states for episode in episodes], axis=0),
         actions=np.concatenate([episode.actions for episode in episodes], axis=0),
         next_states=np.concatenate(
@@ -61,7 +61,7 @@ def concatenate_episodes(*, episodes: list[TransitionSet]) -> TransitionSet:
 
 
 def build_windows(
-    *, episodes: list[TransitionSet], window_length: int
+    *, episodes: list[TransitionTriples], window_length: int
 ) -> tuple[
     npt.NDArray[
         np.float32

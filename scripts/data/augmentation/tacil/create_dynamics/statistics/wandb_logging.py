@@ -6,7 +6,7 @@ from wandb import Run
 from scripts.data.augmentation.tacil.create_data.step_distance import (
     calculate_median_step_distance,
 )
-from scripts.data.augmentation.tacil.create_dynamics.data import TransitionSet
+from scripts.data.augmentation.tacil.create_dynamics.data import TransitionTriples
 from scripts.data.augmentation.tacil.create_dynamics.dynamics_model_training import (
     MemberEpochMetrics,
     MemberTrainingState,
@@ -121,7 +121,7 @@ def log_window_counts(
 def log_ensemble_statistics(
     *,
     dynamics_model_ensemble: DynamicsModelEnsemble,
-    validation_episodes: list[TransitionSet],
+    validation_episodes: list[TransitionTriples],
     episode_store: EpisodeStore,
     run: Run,
 ) -> None:
@@ -219,7 +219,7 @@ def log_ensemble_statistics(
 def _create_replay_panels(
     *,
     dynamics_model_ensemble: DynamicsModelEnsemble,
-    validation_episodes: list[TransitionSet],
+    validation_episodes: list[TransitionTriples],
 ) -> dict[str, wandb.Image]:
     device = next(dynamics_model_ensemble.parameters()).device
 

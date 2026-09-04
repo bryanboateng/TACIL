@@ -1,16 +1,16 @@
 import torch
 
-from scripts.shared.transition_batch import TransitionBatch
+from scripts.shared.state_action_pairs import StateActionPairs
 
 
 class Dataset(torch.utils.data.Dataset[tuple[torch.Tensor, torch.Tensor]]):
-    def __init__(self, *, transitions: TransitionBatch) -> None:
+    def __init__(self, *, state_action_pairs: StateActionPairs) -> None:
         self.states = torch.from_numpy(
-            transitions.states
+            state_action_pairs.states
         ).float()  # (transition_count, state_dimensionality)
 
         self.actions = torch.from_numpy(
-            transitions.actions
+            state_action_pairs.actions
         ).float()  # (transition_count, action_dimensionality)
 
     def __len__(self) -> int:

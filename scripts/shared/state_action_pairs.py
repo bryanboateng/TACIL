@@ -5,6 +5,6 @@ from numpy import typing as npt
 
 
 @dataclass
-class TransitionBatch:
+class StateActionPairs:
     states: npt.NDArray[np.float32]  # (transition_count, state_dimensionality)
     actions: npt.NDArray[np.float32]  # (transition_count, action_dimensionality)

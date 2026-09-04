@@ -9,7 +9,7 @@ from scripts.data.augmentation.tacil.create_data.inverse_dynamics import (
     solve_inverse_dynamics,
 )
 from scripts.data.augmentation.tacil.create_dynamics.data import (
-    TransitionSet,
+    TransitionTriples,
     build_windows,
 )
 from scripts.data.augmentation.tacil.dynamics.dynamics_model_ensemble import (
@@ -28,7 +28,7 @@ class ErrorMeasurements:
 def measure_errors(
     *,
     dynamics_model_ensemble: DynamicsModelEnsemble,
-    validation_episodes: list[TransitionSet],
+    validation_episodes: list[TransitionTriples],
     convergence_tolerance: float,
 ) -> ErrorMeasurements:
     device = next(dynamics_model_ensemble.parameters()).device
@@ -60,7 +60,7 @@ def measure_errors(
 
 
 def _draw_windows(
-    *, validation_episodes: list[TransitionSet]
+    *, validation_episodes: list[TransitionTriples]
 ) -> tuple[
     npt.NDArray[np.float32],  # (window_count, window_length + 1, state_dimensionality)
     npt.NDArray[np.float32],  # (window_count, window_length, action_dimensionality)

@@ -8,7 +8,7 @@ from wandb import Run
 
 from scripts.data.augmentation.tacil.create_dynamics.config import DynamicsConfig
 from scripts.data.augmentation.tacil.create_dynamics.data import (
-    TransitionSet,
+    TransitionTriples,
     build_windows,
     concatenate_episodes,
     extract_transitions,
@@ -164,7 +164,7 @@ class _Normalizers:
 
 
 def _create_normalizers(
-    *, transitions: TransitionSet, device: torch.device
+    *, transitions: TransitionTriples, device: torch.device
 ) -> _Normalizers:
     state_batch = torch.from_numpy(transitions.states).to(
         device=device

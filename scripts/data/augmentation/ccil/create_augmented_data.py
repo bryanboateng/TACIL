@@ -10,7 +10,7 @@ from scripts.shared import stage_names
 from scripts.shared.episode_store import EpisodeStore
 from scripts.shared.log import create_logger
 from scripts.shared.seeding import set_seed
-from scripts.shared.transition_batch import TransitionBatch
+from scripts.shared.state_action_pairs import StateActionPairs
 
 logger = create_logger()
 
@@ -31,7 +31,7 @@ def create_ccil_augmented_data(
     seed: int,
     device: torch.device,
     run: Run,
-) -> TransitionBatch:
+) -> StateActionPairs:
     set_seed(seed=seed)
 
     states, actions, next_states = _extract_transitions(episode_store=expert_episodes)
@@ -104,7 +104,9 @@ def create_ccil_augmented_data(
     run.summary[f"{STAGE_NAME}/3_dataset/synthetic_transition_count"] = int(
         accepted_states.shape[0]
     )
-    return TransitionBatch(states=accepted_states, actions=label_actions[accepted_mask])
+    return StateActionPairs(
+        states=accepted_states, actions=label_actions[accepted_mask]
+    )
 
 
 def _define_epoch_metrics(*, run: Run) -> None:

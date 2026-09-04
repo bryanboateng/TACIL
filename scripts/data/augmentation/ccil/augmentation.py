@@ -6,7 +6,7 @@ from scripts.data.augmentation.ccil.create_augmented_data import (
     create_ccil_augmented_data,
 )
 from scripts.shared.episode_store import EpisodeStore
-from scripts.shared.transition_batch import TransitionBatch
+from scripts.shared.state_action_pairs import StateActionPairs
 
 
 def augment(
@@ -16,7 +16,7 @@ def augment(
     seed: int,
     device: torch.device,
     run: Run,
-) -> TransitionBatch:
+) -> StateActionPairs:
     return create_ccil_augmented_data(
         config=config,
         expert_episodes=expert_episodes,
