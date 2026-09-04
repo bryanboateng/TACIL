@@ -59,9 +59,7 @@ def train_behavior_cloning_policy(
         pin_memory=device.type == "cuda",
     )
 
-    # The transitions state their own widths, so the environment's layout never
-    # has to be named here.
-    policy_model = BehaviorCloningPolicyModel(
+    model = BehaviorCloningPolicyModel(
         observation_dimensionality=transitions.states.shape[1],
         action_dimensionality=transitions.actions.shape[1],
         hidden_layer_dimensionality=config.hidden_layer_dimensionality,
@@ -73,9 +71,7 @@ def train_behavior_cloning_policy(
         ),
     ).to(device=device)
 
-    optimizer = Adam(
-        params=policy_model.parameters(), lr=config.optimization.learning_rate
-    )
+    optimizer = Adam(params=model.parameters(), lr=config.optimization.learning_rate)
 
     best_checkpoint: Checkpoint | None = None
     global_step = 0
@@ -83,27 +79,27 @@ def train_behavior_cloning_policy(
     for epoch_index in tqdm(
         iterable=range(config.optimization.epoch_count), desc="Epoch", unit="epoch"
     ):
-        policy_model.train()
-        for observation_batch, action_batch in data_loader:
+        model.train()
+        for observation_batch, target_action_batch in data_loader:
             observation_batch = observation_batch.to(
                 device=device
             )  # (batch_size, observation_dimensionality)
-            action_batch = action_batch.to(
+            target_action_batch = target_action_batch.to(
                 device=device
             )  # (batch_size, action_dimensionality)
 
             optimizer.zero_grad()
 
-            predicted_action_batch = policy_model.predict_action(
+            predicted_action_batch = model.predict_action(
                 observation_batch=observation_batch
             )  # (batch_size, action_dimensionality)
 
             loss = loss_function(
-                input=policy_model.action_normalizer.normalize(
+                input=model.action_normalizer.normalize(
                     value_batch=predicted_action_batch
                 ),
-                target=policy_model.action_normalizer.normalize(
-                    value_batch=action_batch
+                target=model.action_normalizer.normalize(
+                    value_batch=target_action_batch
                 ),
             )
 
@@ -113,7 +109,7 @@ def train_behavior_cloning_policy(
                 input=torch.stack(
                     tensors=[
                         parameter.grad.norm()
-                        for parameter in policy_model.parameters()
+                        for parameter in model.parameters()
                         if parameter.grad is not None
                     ]
                 )
@@ -136,7 +132,7 @@ def train_behavior_cloning_policy(
         validation_reward = compute_reward_statistics(
             episode_records=run_scored_episodes(
                 policy_factory=create_behavior_cloning_policy_factory(
-                    policy_model=policy_model, device=device
+                    policy_model=model, device=device
                 ),
                 start_episode_seed=100_000,
                 episode_count=config.validation.episode_count,
@@ -160,13 +156,12 @@ def train_behavior_cloning_policy(
                 validation_reward_mean=validation_reward.mean,
                 validation_reward_std=validation_reward.std,
                 epoch=epoch_index,
-                state_dict=copy.deepcopy(policy_model.state_dict()),
+                state_dict=copy.deepcopy(model.state_dict()),
             )
 
     if best_checkpoint is None:
         raise ValueError("No checkpoint was recorded")
 
-    run.summary[f"{STAGE_NAME}/completed_step_count"] = global_step
     run.summary[f"{STAGE_NAME}/3_best_checkpoint/epoch"] = best_checkpoint.epoch
     run.summary[f"{STAGE_NAME}/3_best_checkpoint/validation_reward_mean"] = (
         best_checkpoint.validation_reward_mean
@@ -175,8 +170,8 @@ def train_behavior_cloning_policy(
         best_checkpoint.validation_reward_std
     )
 
-    policy_model.load_state_dict(state_dict=best_checkpoint.state_dict)
-    return policy_model
+    model.load_state_dict(state_dict=best_checkpoint.state_dict)
+    return model
 
 
 def _define_step_metrics(*, run: Run) -> None:

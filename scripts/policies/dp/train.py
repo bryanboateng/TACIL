@@ -220,7 +220,6 @@ def train_diffusion_policy(
         best_checkpoint.validation_reward_mean,
     )
 
-    run.summary[f"{STAGE_NAME}/completed_step_count"] = global_step
     run.summary[f"{STAGE_NAME}/3_best_checkpoint/epoch"] = best_checkpoint.epoch
     run.summary[f"{STAGE_NAME}/3_best_checkpoint/validation_reward_mean"] = (
         best_checkpoint.validation_reward_mean
