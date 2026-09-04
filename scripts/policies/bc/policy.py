@@ -6,9 +6,6 @@ from scripts.shared.policy_types import Policy, PolicyFactory
 
 
 class BehaviorCloningPolicyModel(torch.nn.Module):
-    observation_normalizer: ZScoreNormalizer
-    action_normalizer: MinMaxNormalizer
-
     def __init__(
         self,
         *,

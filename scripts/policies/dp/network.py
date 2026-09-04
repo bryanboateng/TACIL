@@ -6,9 +6,6 @@ from scripts.shared.normalization import MinMaxNormalizer
 
 
 class ConditionalUnet1d(torch.nn.Module):
-    observation_normalizer: MinMaxNormalizer
-    action_normalizer: MinMaxNormalizer
-
     def __init__(
         self,
         *,
