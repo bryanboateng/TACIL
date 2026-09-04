@@ -18,23 +18,26 @@ from scripts.data.augmentation.tacil.create_dynamics.statistics.error_measuremen
 from scripts.data.augmentation.tacil.dynamics.dynamics_model_ensemble import (
     DynamicsModelEnsemble,
 )
+from scripts.shared import stage_names
 from scripts.shared.distribution_summary import summarize_distribution
 from scripts.shared.episode_store import EpisodeStore
 from scripts.shared.log import create_logger
 
 logger = create_logger()
 
-STAGE_NAME = "1_dynamics"
+STAGE_NAME = stage_names.DYNAMICS
 
 EPOCH_METRIC_NAME = f"{STAGE_NAME}/0_epoch"
+
+LOSS_SECTION = f"{STAGE_NAME}/1_loss"
+GRADIENT_NORM_SECTION = f"{STAGE_NAME}/2_gradient_norm"
+LIPSCHITZ_SECTION = f"{STAGE_NAME}/7_lipschitz"
 
 
 def define_epoch_metrics(*, run: Run) -> None:
     run.define_metric(name=EPOCH_METRIC_NAME)
-    for metric_pattern in ("1_loss/*", "2_gradient_norm/*", "7_lipschitz/*"):
-        run.define_metric(
-            name=f"{STAGE_NAME}/{metric_pattern}", step_metric=EPOCH_METRIC_NAME
-        )
+    for section in (LOSS_SECTION, GRADIENT_NORM_SECTION, LIPSCHITZ_SECTION):
+        run.define_metric(name=f"{section}/*", step_metric=EPOCH_METRIC_NAME)
 
 
 def log_epoch(
@@ -43,18 +46,24 @@ def log_epoch(
     logged_metrics: dict[str, float | wandb.Histogram] = {
         EPOCH_METRIC_NAME: epoch_index
     }
-    for name, member_values in (
-        ("1_loss/training", [metrics.training_loss for metrics in per_member_metrics]),
+    for prefix, member_values in (
         (
-            "1_loss/validation",
+            f"{LOSS_SECTION}/training",
+            [metrics.training_loss for metrics in per_member_metrics],
+        ),
+        (
+            f"{LOSS_SECTION}/validation",
             [metrics.validation_loss for metrics in per_member_metrics],
         ),
-        ("2_gradient_norm", [metrics.gradient_norm for metrics in per_member_metrics]),
+        (
+            GRADIENT_NORM_SECTION,
+            [metrics.gradient_norm for metrics in per_member_metrics],
+        ),
     ):
         for label, value in summarize_distribution(
             values=np.asarray(member_values, dtype=np.float64)
         ).items():
-            logged_metrics[f"{STAGE_NAME}/{name}/{label}"] = value
+            logged_metrics[f"{prefix}/{label}"] = value
 
     for split, member_split_lipschitz in (
         (
@@ -72,7 +81,7 @@ def log_epoch(
             ],
         ),
     ):
-        logged_metrics[f"{STAGE_NAME}/7_lipschitz/{split}"] = wandb.Histogram(
+        logged_metrics[f"{LIPSCHITZ_SECTION}/{split}"] = wandb.Histogram(
             sequence=np.concatenate(member_split_lipschitz).tolist()
         )
 

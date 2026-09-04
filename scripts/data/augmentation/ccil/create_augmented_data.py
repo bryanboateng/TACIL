@@ -6,6 +6,7 @@ from scripts.data.augmentation.ccil.config import CcilConfig
 from scripts.data.augmentation.ccil.world_model import WorldModel, fit_world_model
 from scripts.shared.distribution_panel import create_distribution_panel
 from scripts.shared.distribution_summary import summarize_distribution
+from scripts.shared import stage_names
 from scripts.shared.episode_store import EpisodeStore
 from scripts.shared.log import create_logger
 from scripts.shared.seeding import set_seed
@@ -13,10 +14,12 @@ from scripts.shared.transition_batch import TransitionBatch
 
 logger = create_logger()
 
-STAGE_NAME = "2_data"
-DYNAMICS_STAGE_NAME = "1_dynamics"
+STAGE_NAME = stage_names.DATA
+DYNAMICS_STAGE_NAME = stage_names.DYNAMICS
 
 EPOCH_METRIC_NAME = f"{DYNAMICS_STAGE_NAME}/0_epoch"
+
+LOSS_SECTION = f"{DYNAMICS_STAGE_NAME}/1_loss"
 
 _BATCH_SIZE = 4_096
 
@@ -55,11 +58,9 @@ def create_ccil_augmented_data(
     for epoch_index, losses in enumerate(iterable=epoch_losses):
         run.log(
             data={
-                f"{DYNAMICS_STAGE_NAME}/1_loss/total": losses.total,
-                f"{DYNAMICS_STAGE_NAME}/1_loss/mse": losses.mse,
-                f"{DYNAMICS_STAGE_NAME}/1_loss/lipschitz_penalty": (
-                    losses.lipschitz_penalty
-                ),
+                f"{LOSS_SECTION}/total": losses.total,
+                f"{LOSS_SECTION}/mse": losses.mse,
+                f"{LOSS_SECTION}/lipschitz_penalty": losses.lipschitz_penalty,
                 EPOCH_METRIC_NAME: epoch_index,
             }
         )
@@ -108,9 +109,7 @@ def create_ccil_augmented_data(
 
 def _define_epoch_metrics(*, run: Run) -> None:
     run.define_metric(name=EPOCH_METRIC_NAME)
-    run.define_metric(
-        name=f"{DYNAMICS_STAGE_NAME}/1_loss/*", step_metric=EPOCH_METRIC_NAME
-    )
+    run.define_metric(name=f"{LOSS_SECTION}/*", step_metric=EPOCH_METRIC_NAME)
 
 
 # ---- Private --------------------------------------------

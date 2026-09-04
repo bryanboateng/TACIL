@@ -18,6 +18,7 @@ from scripts.policies.bc.policy import (
     create_behavior_cloning_policy_factory,
 )
 from scripts.policies.shared.checkpoint import Checkpoint
+from scripts.shared import stage_names
 from scripts.shared.log import create_logger
 from scripts.shared.normalization import MinMaxNormalizer, ZScoreNormalizer
 from scripts.shared.seeding import set_seed
@@ -25,9 +26,13 @@ from scripts.shared.transition_batch import TransitionBatch
 
 logger = create_logger()
 
-STAGE_NAME = "3_policy"
+STAGE_NAME = stage_names.POLICY
 
-STEP_METRIC_NAME = f"{STAGE_NAME}/step"
+STEP_METRIC_NAME = f"{STAGE_NAME}/0_step"
+EPOCH_METRIC_NAME = f"{STAGE_NAME}/0_epoch"
+
+TRAINING_SECTION = f"{STAGE_NAME}/1_training"
+VALIDATION_SECTION = f"{STAGE_NAME}/2_validation"
 
 
 def train_behavior_cloning_policy(
@@ -118,8 +123,8 @@ def train_behavior_cloning_policy(
 
             run.log(
                 data={
-                    f"{STAGE_NAME}/1_training/loss": loss.item(),
-                    f"{STAGE_NAME}/1_training/gradient_norm": gradient_norm.item(),
+                    f"{TRAINING_SECTION}/loss": loss.item(),
+                    f"{TRAINING_SECTION}/gradient_norm": gradient_norm.item(),
                     STEP_METRIC_NAME: global_step,
                 }
             )
@@ -140,9 +145,9 @@ def train_behavior_cloning_policy(
         )
         run.log(
             data={
-                f"{STAGE_NAME}/2_validation/reward_mean": validation_reward.mean,
-                f"{STAGE_NAME}/2_validation/reward_std": validation_reward.std,
-                f"{STAGE_NAME}/epoch": epoch_index,
+                f"{VALIDATION_SECTION}/reward_mean": validation_reward.mean,
+                f"{VALIDATION_SECTION}/reward_std": validation_reward.std,
+                EPOCH_METRIC_NAME: epoch_index,
                 STEP_METRIC_NAME: global_step,
             }
         )
@@ -176,7 +181,5 @@ def train_behavior_cloning_policy(
 
 def _define_step_metrics(*, run: Run) -> None:
     run.define_metric(name=STEP_METRIC_NAME)
-    for metric_pattern in ("epoch", "1_training/*", "2_validation/*"):
-        run.define_metric(
-            name=f"{STAGE_NAME}/{metric_pattern}", step_metric=STEP_METRIC_NAME
-        )
+    for name in (EPOCH_METRIC_NAME, f"{TRAINING_SECTION}/*", f"{VALIDATION_SECTION}/*"):
+        run.define_metric(name=name, step_metric=STEP_METRIC_NAME)

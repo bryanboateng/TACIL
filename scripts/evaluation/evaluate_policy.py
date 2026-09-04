@@ -35,13 +35,14 @@ from scripts.evaluation.core.video import (
     get_video_fps,
     render_episode_surfaces,
 )
+from scripts.shared import stage_names
 from scripts.shared.log import create_logger
 from scripts.shared.policy_types import Policy, PolicyFactory
 
 logger = create_logger()
 
 
-STAGE_NAME = "4_evaluation"
+STAGE_NAME = stage_names.EVALUATION
 
 
 def evaluate_policy(
