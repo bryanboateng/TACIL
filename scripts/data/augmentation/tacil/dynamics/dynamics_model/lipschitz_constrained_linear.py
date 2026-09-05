@@ -7,7 +7,7 @@ class LipschitzConstrainedLinear(torch.nn.Module):
         *,
         input_dimensionality: int,
         output_dimensionality: int,
-        lipschitz_constant_upper_bound: float,
+        lipschitz_limit: float,
     ):
         super().__init__()
         self._linear = torch.nn.Linear(
@@ -17,8 +17,7 @@ class LipschitzConstrainedLinear(torch.nn.Module):
             module=self._linear,
             tensor_name="weight",
             parametrization=_SpectralNormBound(
-                weight=self._linear.weight,
-                lipschitz_constant_upper_bound=lipschitz_constant_upper_bound,
+                weight=self._linear.weight, lipschitz_limit=lipschitz_limit
             ),
         )
 
@@ -36,10 +35,10 @@ class _SpectralNormBound(torch.nn.Module):
     left_singular_vector: torch.Tensor  # (output_dimensionality,)
     right_singular_vector: torch.Tensor  # (input_dimensionality,)
 
-    def __init__(self, *, weight: torch.Tensor, lipschitz_constant_upper_bound: float):
+    def __init__(self, *, weight: torch.Tensor, lipschitz_limit: float):
         super().__init__()
         output_dimensionality, input_dimensionality = weight.shape
-        self._lipschitz_constant_upper_bound = lipschitz_constant_upper_bound
+        self._lipschitz_constant_upper_bound = lipschitz_limit
         self.register_buffer(
             name="left_singular_vector",
             tensor=torch.nn.functional.normalize(

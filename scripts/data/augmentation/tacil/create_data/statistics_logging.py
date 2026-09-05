@@ -17,14 +17,12 @@ STAGE_NAME = stage_names.DATA
 def log_rollout_statistics(
     *,
     rollout_diagnostics: RolloutDiagnostics,
-    median_expert_step_distance: float,
-    chain_error_limit: float,
+    expert_step_distance: float,
+    error_limit: float,
     run: Run,
 ) -> None:
-    run.summary[f"{STAGE_NAME}/1_rollout/median_step_distance"] = (
-        median_expert_step_distance
-    )
-    run.summary[f"{STAGE_NAME}/1_rollout/chain_error_limit"] = chain_error_limit
+    run.summary[f"{STAGE_NAME}/1_rollout/median_step_distance"] = expert_step_distance
+    run.summary[f"{STAGE_NAME}/1_rollout/error_limit"] = error_limit
     run.summary[f"{STAGE_NAME}/1_rollout/anchor_count"] = (
         rollout_diagnostics.anchor_count
     )
@@ -32,19 +30,17 @@ def log_rollout_statistics(
         rollout_diagnostics.not_converged_count
     )
 
-    # Each chain's last accepted value, as a share of the limit. Values close
+    # Each trajectory's last accepted value, as a share of the limit. Values close
     # to 1 mean the limit is what ended the walk; a distribution sitting far
-    # below 1 means the chains stopped for some other reason.
-    limit_shares = (
-        rollout_diagnostics.final_chain_errors.cpu().numpy() / chain_error_limit
-    )
+    # below 1 means the trajectories stopped for some other reason.
+    limit_shares = rollout_diagnostics.final_errors.cpu().numpy() / error_limit
     if limit_shares.size > 0:
         for label, value in summarize_distribution(values=limit_shares).items():
             run.summary[f"{STAGE_NAME}/2_limit_tightness/{label}"] = value
         run.log(
             data={
                 f"{STAGE_NAME}/2_limit_tightness/plot": create_distribution_panel(
-                    values=limit_shares, column_name="final chain error / limit"
+                    values=limit_shares, column_name="final trajectory error / limit"
                 )
             }
         )
@@ -58,7 +54,7 @@ def log_dataset_statistics(
     distances_to_recorded_states: torch.Tensor,  # (invented_count,)
     run: Run,
 ) -> None:
-    synthetic_part_lengths = augmentation_result.synthetic_part_lengths
+    trajectory_lengths = augmentation_result.trajectory_lengths
     counts = augmentation_result.counts
 
     # An empty anchor is one whose very first backward step was rejected, so
@@ -70,7 +66,7 @@ def log_dataset_statistics(
         counts.empty / anchor_count
     )
 
-    for label, value in summarize_distribution(values=synthetic_part_lengths).items():
+    for label, value in summarize_distribution(values=trajectory_lengths).items():
         run.summary[f"{STAGE_NAME}/4_synthetic_length/{label}"] = value
 
     # The three kinds of transition the policy trains on, counted so that they
@@ -80,7 +76,7 @@ def log_dataset_statistics(
     # see them twice: once in the recorded episodes, and once as the run-out
     # copied behind each anchor so that a synthetic prefix leads back into
     # recorded behaviour.
-    invented_count = int(synthetic_part_lengths.sum())
+    invented_count = int(trajectory_lengths.sum())
     run_out_count = (
         int(augmentation_result.episode_store.states.shape[0]) - invented_count
     )
@@ -116,7 +112,7 @@ def log_dataset_statistics(
     run.log(
         data={
             f"{STAGE_NAME}/4_synthetic_length/plot": create_distribution_panel(
-                values=synthetic_part_lengths, column_name="synthetic part length"
+                values=trajectory_lengths, column_name="synthetic part length"
             ),
             f"{STAGE_NAME}/6_novelty/plot": create_distribution_panel(
                 values=novelty_batch,

@@ -44,12 +44,12 @@ _TACIL_SHARED_PARAMETERS: dict[str, Any] = {
     # 2026-08-16 sweep spend 93% of its runs where none had ever scored, which
     # is why it found nothing. This range puts half the draws below 0.017 and
     # still reaches far above every noise level that ever worked.
-    "augmentation.data.action_noise_range_fraction": {
+    "augmentation.data.action_noise": {
         "distribution": "log_uniform_values",
         "min": 0.001,
         "max": 0.3,
     },
-    # Ceiling on the chain error, in multiples of the median expert step.
+    # Ceiling on the trajectory error, in multiples of the median expert step.
     # Which error that is depends on the criterion the sweep was created with.
     # The scale is not shared between them: an accumulated error grows with
     # depth, a per-step one does not. The range below is wide enough to bracket
@@ -63,7 +63,7 @@ _TACIL_SHARED_PARAMETERS: dict[str, Any] = {
     # The range brackets that with an order of magnitude on both sides. The
     # depth curve showed a reward cliff (0.70 at length 8, 0.38 at 14), and the
     # sweep has to see both sides of it.
-    "augmentation.data.chain_error_limit_step_multiple": {
+    "augmentation.data.error_limit_in_steps": {
         "distribution": "log_uniform_values",
         "min": 0.05,
         "max": 120.0,
@@ -84,10 +84,10 @@ _TACIL_SHARED_PARAMETERS: dict[str, Any] = {
 #
 # The first four runs of 2026-08-16 showed it. The three with a bound under 1
 # walked all 6177 anchors into the run-up cap, at about thirteen hours each.
-# The fourth, at 56, ended its chains after six steps.
+# The fourth, at 56, ended its trajectories after six steps.
 _TACIL_BOUNDED_PARAMETERS: dict[str, Any] = {
     **_TACIL_SHARED_PARAMETERS,
-    "augmentation.dynamics.lipschitz_constant_upper_bound": {
+    "augmentation.dynamics.lipschitz_limit": {
         "distribution": "log_uniform_values",
         "min": 1.0,
         "max": 120.0,
@@ -165,8 +165,8 @@ class Config:
     def __post_init__(self) -> None:
         if self.use_replay_criterion and not self.method.startswith("tacil"):
             raise ValueError(
-                f"A chain error rule only applies to the TACIL methods, which "
-                f"are the ones that walk a chain; the method is {self.method}."
+                f"A trajectory error rule only applies to the TACIL methods, which "
+                f"are the ones that walk a trajectory; the method is {self.method}."
             )
 
     sweep_method: SearchLabel = "bayes"
@@ -257,10 +257,14 @@ def _build_sweep_configuration(*, config: Config, project: str) -> dict[str, Any
         f"--evaluate-all-conditions={config.evaluate_all_conditions}",
         *METHOD_FIXED_ARGUMENTS[config.method],
         # An option of the augmentation level, so it belongs after the
-        # subcommand that opens that level.
+        # subcommand that opens that level. It has no default, so it is always
+        # given rather than only when it differs.
         *(
-            ["--augmentation.data.chain-error=replay"]
-            if config.use_replay_criterion
+            [
+                "--augmentation.data.stopping-rule="
+                + ("replay" if config.use_replay_criterion else "account")
+            ]
+            if config.method.startswith("tacil")
             else []
         ),
     ]

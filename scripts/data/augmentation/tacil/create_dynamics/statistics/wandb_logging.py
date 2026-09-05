@@ -4,7 +4,7 @@ import wandb
 from wandb import Run
 
 from scripts.data.augmentation.tacil.create_data.state_distance import (
-    calculate_median_step_distance,
+    measure_step_distance,
 )
 from scripts.data.augmentation.tacil.create_dynamics.data import TransitionTriples
 from scripts.data.augmentation.tacil.create_dynamics.dynamics_model_training import (
@@ -127,13 +127,13 @@ def log_ensemble_statistics(
 ) -> None:
     summary_step_counts = (1, 2, 3, 5, 10, 20)
 
-    median_expert_step_distance = calculate_median_step_distance(
+    expert_step_distance = measure_step_distance(
         episode_store=episode_store, dynamics_model_ensemble=dynamics_model_ensemble
     )
     error_measurements = measure_errors(
         dynamics_model_ensemble=dynamics_model_ensemble,
         validation_episodes=validation_episodes,
-        convergence_tolerance=1e-3 * median_expert_step_distance,
+        convergence_tolerance=1e-3 * expert_step_distance,
     )
 
     backward_replay_errors_per_step_count = (

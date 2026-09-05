@@ -4,7 +4,7 @@ from dataclasses import dataclass
 import torch
 from tqdm import tqdm
 
-from scripts.data.augmentation.tacil.create_data.config import ChainErrorCriterion
+from scripts.data.augmentation.tacil.create_data.config import StoppingRule
 from scripts.data.augmentation.tacil.create_data.episode_assembly import (
     SyntheticTrajectories,
 )
@@ -18,40 +18,45 @@ from scripts.data.augmentation.tacil.dynamics.dynamics_model_ensemble import (
 
 @dataclass(frozen=True)
 class BackwardTrajectories:
-    predecessor_states: torch.Tensor  # (total_step_count, state_dimensionality)
-    predecessor_actions: torch.Tensor  # (total_step_count, action_dimensionality)
-    step_count_batch: torch.Tensor  # (anchor_count,)
+    predecessor_states: torch.Tensor  # (total_trajectory_length, state_dimensionality)
+    predecessor_actions: (
+        torch.Tensor
+    )  # (total_trajectory_length, action_dimensionality)
+    trajectory_length_batch: torch.Tensor  # (anchor_count,)
 
     @property
     def start_index_batch(self) -> torch.Tensor:  # (anchor_count,)
-        return torch.cumsum(input=self.step_count_batch, dim=0) - self.step_count_batch
+        return (
+            torch.cumsum(input=self.trajectory_length_batch, dim=0)
+            - self.trajectory_length_batch
+        )
 
     def to_temporal_order(self) -> SyntheticTrajectories:
-        """Reverse each chain: the walk found predecessors anchor-first, but a
+        """Reverse each trajectory: the walk found predecessors anchor-first, but a
         training episode runs the other way, toward the anchor."""
-        step_count_batch = self.step_count_batch
+        trajectory_length_batch = self.trajectory_length_batch
         start_index_batch = self.start_index_batch
-        device = step_count_batch.device
+        device = trajectory_length_batch.device
 
-        chain_index_per_step = torch.repeat_interleave(
-            input=torch.arange(len(step_count_batch), device=device),
-            repeats=step_count_batch,
-        )  # (total_step_count,)
-        position_in_chain = (
-            torch.arange(len(chain_index_per_step), device=device)
-            - start_index_batch[chain_index_per_step]
-        )  # (total_step_count,)
+        trajectory_index_per_step = torch.repeat_interleave(
+            input=torch.arange(len(trajectory_length_batch), device=device),
+            repeats=trajectory_length_batch,
+        )  # (total_trajectory_length,)
+        position_in_trajectory = (
+            torch.arange(len(trajectory_index_per_step), device=device)
+            - start_index_batch[trajectory_index_per_step]
+        )  # (total_trajectory_length,)
         source_index = (
-            start_index_batch[chain_index_per_step]
-            + step_count_batch[chain_index_per_step]
+            start_index_batch[trajectory_index_per_step]
+            + trajectory_length_batch[trajectory_index_per_step]
             - 1
-            - position_in_chain
-        )  # (total_step_count,)
+            - position_in_trajectory
+        )  # (total_trajectory_length,)
 
         return SyntheticTrajectories(
             states=self.predecessor_states[source_index],
             actions=self.predecessor_actions[source_index],
-            step_count_batch=step_count_batch,
+            trajectory_length_batch=trajectory_length_batch,
         )
 
 
@@ -59,7 +64,7 @@ class BackwardTrajectories:
 class RolloutDiagnostics:
     anchor_count: int
     not_converged_count: int
-    final_chain_errors: torch.Tensor  # (accepted_anchor_count,)
+    final_errors: torch.Tensor  # (accepted_anchor_count,)
 
 
 @torch.no_grad()
@@ -69,18 +74,18 @@ def roll_out_backward(
     anchor_state_batch: torch.Tensor,  # (anchor_count, state_dimensionality)
     anchor_action_batch: torch.Tensor,  # (anchor_count, action_dimensionality)
     action_noise_std: torch.Tensor,  # (action_dimensionality,)
-    chain_error_criterion: ChainErrorCriterion,
-    chain_error_limit: float,
+    stopping_rule: StoppingRule,
+    error_limit: float,
     convergence_tolerance: float,
 ) -> tuple[BackwardTrajectories, RolloutDiagnostics]:
     anchor_count = anchor_state_batch.shape[0]
     device = anchor_state_batch.device
 
-    step_count_batch = torch.zeros(anchor_count, dtype=torch.long, device=device)
+    trajectory_length_batch = torch.zeros(anchor_count, dtype=torch.long, device=device)
     not_converged_count = 0
 
-    # What the accepted steps of each chain have cost so far. Only the account
-    # rule keeps one; replay reads the whole chain afresh every time.
+    # What the accepted steps of each trajectory have cost so far. Only the account
+    # rule keeps one; replay reads the whole trajectory afresh every time.
     spent_batch = torch.zeros(anchor_count, device=device)
 
     current_state_batch = anchor_state_batch.clone()
@@ -91,13 +96,13 @@ def roll_out_backward(
     # Every test replays the whole prefix, so the accepted actions are
     # kept. Element d holds the action accepted at depth d + 1; anchors that
     # stopped earlier keep zeros there, which are never read.
-    chain_action_batch_per_depth: list[torch.Tensor] = []
+    trajectory_action_batch_per_depth: list[torch.Tensor] = []
 
     accepted_steps_per_depth: list[_AcceptedSteps] = []
 
     # Overwritten at every accepted step, so what survives is the last one —
-    # the value that came closest to the limit before the chain stopped.
-    final_chain_error_batch = torch.zeros(anchor_count, device=device)
+    # the value that came closest to the limit before the trajectory stopped.
+    final_error_batch = torch.zeros(anchor_count, device=device)
 
     progress_bar = tqdm(desc="backward step", unit="step")
     for depth in itertools.count():
@@ -118,16 +123,16 @@ def roll_out_backward(
             convergence_tolerance=convergence_tolerance,
         )
 
-        # The two rules ask different things of the chain, which is why they
+        # The two rules ask different things of the trajectory, which is why they
         # part here: replaying needs the whole action sequence back to the
         # anchor, while the account only ever looks at the newest step.
-        if chain_error_criterion == "replay":
-            chain_error_batch = dynamics_model_ensemble.measure_replay_error(
+        if stopping_rule == "replay":
+            error_batch = dynamics_model_ensemble.measure_replay_error(
                 start_state_batch=backward_step.predecessor_state_batch,
                 action_batch_list=[
                     backward_step.predecessor_action_batch,
                     *(
-                        chain_action_batch_per_depth[earlier_depth][
+                        trajectory_action_batch_per_depth[earlier_depth][
                             active_trajectory_indices
                         ]
                         for earlier_depth in reversed(range(depth))
@@ -136,7 +141,7 @@ def roll_out_backward(
                 end_state_batch=anchor_state_batch[active_trajectory_indices],
             )  # (active_count,)
         else:
-            chain_error_batch = spent_batch[
+            error_batch = spent_batch[
                 active_trajectory_indices
             ] + dynamics_model_ensemble.measure_prediction_disagreement(
                 state_batch=backward_step.predecessor_state_batch,
@@ -144,7 +149,7 @@ def roll_out_backward(
             )  # (active_count,)
 
         accepted_mask_batch = backward_step.has_converged_batch & (
-            chain_error_batch <= chain_error_limit
+            error_batch <= error_limit
         )  # (active_count,)
 
         accepted_steps = _AcceptedSteps(
@@ -158,25 +163,23 @@ def roll_out_backward(
         )
 
         accepted_steps_per_depth.append(accepted_steps)
-        step_count_batch[accepted_steps.anchor_indices] = depth + 1
+        trajectory_length_batch[accepted_steps.anchor_indices] = depth + 1
 
-        # Only accepted steps are paid for: a rejected one ends its chain, so
+        # Only accepted steps are paid for: a rejected one ends its trajectory, so
         # what it would have cost is never charged.
-        spent_batch[accepted_steps.anchor_indices] = chain_error_batch[
-            accepted_mask_batch
-        ]
+        spent_batch[accepted_steps.anchor_indices] = error_batch[accepted_mask_batch]
 
         current_state_batch[accepted_steps.anchor_indices] = (
             accepted_steps.predecessor_state_batch
         )
 
-        chain_action_batch = torch.zeros_like(input=anchor_action_batch)
-        chain_action_batch[accepted_steps.anchor_indices] = (
+        trajectory_action_batch = torch.zeros_like(input=anchor_action_batch)
+        trajectory_action_batch[accepted_steps.anchor_indices] = (
             accepted_steps.predecessor_action_batch
         )
-        chain_action_batch_per_depth.append(chain_action_batch)
+        trajectory_action_batch_per_depth.append(trajectory_action_batch)
 
-        final_chain_error_batch[accepted_steps.anchor_indices] = chain_error_batch[
+        final_error_batch[accepted_steps.anchor_indices] = error_batch[
             accepted_mask_batch
         ]
 
@@ -192,14 +195,14 @@ def roll_out_backward(
 
     backward_trajectories = _assemble_trajectories(
         accepted_steps_per_depth=accepted_steps_per_depth,
-        step_count_batch=step_count_batch,
+        trajectory_length_batch=trajectory_length_batch,
         state_dimensionality=anchor_state_batch.shape[1],
         action_dimensionality=anchor_action_batch.shape[1],
     )
     return backward_trajectories, RolloutDiagnostics(
         anchor_count=anchor_count,
         not_converged_count=not_converged_count,
-        final_chain_errors=final_chain_error_batch[step_count_batch > 0],
+        final_errors=final_error_batch[trajectory_length_batch > 0],
     )
 
 
@@ -250,22 +253,22 @@ def _compute_backward_step(
 def _assemble_trajectories(
     *,
     accepted_steps_per_depth: list[_AcceptedSteps],
-    step_count_batch: torch.Tensor,  # (anchor_count,)
+    trajectory_length_batch: torch.Tensor,  # (anchor_count,)
     state_dimensionality: int,
     action_dimensionality: int,
 ) -> BackwardTrajectories:
-    device = step_count_batch.device
+    device = trajectory_length_batch.device
 
-    total_step_count = int(step_count_batch.sum().item())
+    total_trajectory_length = int(trajectory_length_batch.sum().item())
     predecessor_states = torch.empty(
-        total_step_count, state_dimensionality, device=device
+        total_trajectory_length, state_dimensionality, device=device
     )
     predecessor_actions = torch.empty(
-        total_step_count, action_dimensionality, device=device
+        total_trajectory_length, action_dimensionality, device=device
     )
 
     anchor_start_index_batch = (
-        torch.cumsum(input=step_count_batch, dim=0) - step_count_batch
+        torch.cumsum(input=trajectory_length_batch, dim=0) - trajectory_length_batch
     )  # (anchor_count,)
 
     for depth, accepted_steps in enumerate(iterable=accepted_steps_per_depth):
@@ -290,5 +293,5 @@ def _assemble_trajectories(
     return BackwardTrajectories(
         predecessor_states=predecessor_states,
         predecessor_actions=predecessor_actions,
-        step_count_batch=step_count_batch,
+        trajectory_length_batch=trajectory_length_batch,
     )

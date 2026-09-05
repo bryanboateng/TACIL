@@ -57,7 +57,7 @@ def iterate_distances_to_recorded_states(
 
 
 @torch.no_grad()
-def calculate_median_step_distance(
+def measure_step_distance(
     *, episode_store: EpisodeStore, dynamics_model_ensemble: DynamicsModelEnsemble
 ) -> float:
     device = next(dynamics_model_ensemble.parameters()).device

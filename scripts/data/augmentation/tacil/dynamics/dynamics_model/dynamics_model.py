@@ -17,7 +17,7 @@ class DynamicsModel(torch.nn.Module):
         *,
         hidden_layer_count: int,
         hidden_layer_dimensionality: int,
-        lipschitz_constant_upper_bound: float | None,
+        lipschitz_limit: float | None,
         input_normalizer: ZScoreNormalizer,
         state_displacement_normalizer: ZScoreNormalizer,
     ):
@@ -31,7 +31,7 @@ class DynamicsModel(torch.nn.Module):
             output_dimensionality=STATE_DIMENSIONALITY,
             hidden_layer_count=hidden_layer_count,
             hidden_layer_dimensionality=hidden_layer_dimensionality,
-            lipschitz_constant_upper_bound=lipschitz_constant_upper_bound,
+            lipschitz_limit=lipschitz_limit,
         )
 
     def predict_next_state(
@@ -84,7 +84,7 @@ def _create_network(
     output_dimensionality: int,
     hidden_layer_count: int,
     hidden_layer_dimensionality: int,
-    lipschitz_constant_upper_bound: float | None,
+    lipschitz_limit: float | None,
 ) -> torch.nn.Sequential:
 
     layer_dimensionalities = (
@@ -94,12 +94,11 @@ def _create_network(
     )
     linear_layer_count = len(layer_dimensionalities) - 1
 
-    lipschitz_constant_upper_bound_per_layer = (
+    lipschitz_limit_per_layer = (
         None
-        if lipschitz_constant_upper_bound is None
+        if lipschitz_limit is None
         else _calculate_lipschitz_constant_upper_bound_per_layer(
-            lipschitz_constant_upper_bound=lipschitz_constant_upper_bound,
-            linear_layer_count=linear_layer_count,
+            lipschitz_limit=lipschitz_limit, linear_layer_count=linear_layer_count
         )
     )
 
@@ -109,7 +108,7 @@ def _create_network(
             _create_linear_layer(
                 input_dimensionality=layer_dimensionalities[layer_index],
                 output_dimensionality=layer_dimensionalities[layer_index + 1],
-                lipschitz_constant_upper_bound_per_layer=lipschitz_constant_upper_bound_per_layer,
+                lipschitz_limit_per_layer=lipschitz_limit_per_layer,
             )
         )
         if layer_index != linear_layer_count - 1:
@@ -119,7 +118,7 @@ def _create_network(
 
 
 def _calculate_lipschitz_constant_upper_bound_per_layer(
-    *, lipschitz_constant_upper_bound: float, linear_layer_count: int
+    *, lipschitz_limit: float, linear_layer_count: int
 ) -> float | None:
     activation_count = linear_layer_count - 1
 
@@ -129,18 +128,18 @@ def _calculate_lipschitz_constant_upper_bound_per_layer(
     # where c is the norm we assign to each linear layer.
     # We solve this for c, which is what this function returns.
 
-    return (
-        lipschitz_constant_upper_bound / (_SILU_LIPSCHITZ_CONSTANT**activation_count)
-    ) ** (1.0 / linear_layer_count)
+    return (lipschitz_limit / (_SILU_LIPSCHITZ_CONSTANT**activation_count)) ** (
+        1.0 / linear_layer_count
+    )
 
 
 def _create_linear_layer(
     *,
     input_dimensionality: int,
     output_dimensionality: int,
-    lipschitz_constant_upper_bound_per_layer: float | None,
+    lipschitz_limit_per_layer: float | None,
 ) -> torch.nn.Module:
-    if lipschitz_constant_upper_bound_per_layer is None:
+    if lipschitz_limit_per_layer is None:
         return torch.nn.Linear(
             in_features=input_dimensionality, out_features=output_dimensionality
         )
@@ -148,7 +147,7 @@ def _create_linear_layer(
         return LipschitzConstrainedLinear(
             input_dimensionality=input_dimensionality,
             output_dimensionality=output_dimensionality,
-            lipschitz_constant_upper_bound=lipschitz_constant_upper_bound_per_layer,
+            lipschitz_limit=lipschitz_limit_per_layer,
         )
 
 

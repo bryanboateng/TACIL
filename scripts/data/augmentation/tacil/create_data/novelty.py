@@ -1,13 +1,13 @@
 """How much of the augmented set is ground the recorded set does not cover.
 
 Counting invented transitions says how many were made, never whether they are
-worth making. A chain that stays on the demonstration it came from produces
+worth making. A trajectory that stays on the demonstration it came from produces
 states the policy already has, under labels it already has, and teaches it
-nothing; a chain that leaves the demonstration is the only kind that can teach
+nothing; a trajectory that leaves the demonstration is the only kind that can teach
 recovery. The difference is a distance, so it can simply be measured.
 
 Distances are reported in multiples of the median expert step, which is the
-same yardstick the chain error limit uses. Below one, a synthetic state sits
+same yardstick the trajectory error limit uses. Below one, a synthetic state sits
 closer to a recorded state than two recorded states sit to each other, and the
 augmentation is a copy of the data with extra steps.
 """

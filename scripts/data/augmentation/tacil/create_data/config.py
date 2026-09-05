@@ -1,24 +1,23 @@
 from dataclasses import dataclass
 from typing import Literal, TypeAlias
 
-ChainErrorCriterion: TypeAlias = Literal["account", "replay"]
+StoppingRule: TypeAlias = Literal["account", "replay"]
 
 
 @dataclass(frozen=True)
 class DataConfig:
-    chain_error: ChainErrorCriterion
-    action_noise_range_fraction: float
-    chain_error_limit_step_multiple: float
+    action_noise: float
+    stopping_rule: StoppingRule
+    error_limit_in_steps: float
 
     def __post_init__(self) -> None:
-        if self.action_noise_range_fraction < 0:
+        if self.action_noise < 0:
             raise ValueError(
-                f"action_noise_range_fraction must not be negative, but it is "
-                f"{self.action_noise_range_fraction}."
+                f"action_noise must not be negative, but it is {self.action_noise}."
             )
 
-        if self.chain_error_limit_step_multiple <= 0:
+        if self.error_limit_in_steps <= 0:
             raise ValueError(
-                f"chain_error_limit_step_multiple must be positive, but it is "
-                f"{self.chain_error_limit_step_multiple}."
+                f"error_limit_in_steps must be positive, but it is "
+                f"{self.error_limit_in_steps}."
             )

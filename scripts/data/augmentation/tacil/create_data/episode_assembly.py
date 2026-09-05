@@ -9,19 +9,22 @@ from scripts.shared.episode_store import EpisodeStore
 
 @dataclass(frozen=True)
 class SyntheticTrajectories:
-    """Invented chains, stored flat, one slice per anchor.
+    """Invented trajectories, stored flat, one slice per anchor.
 
-    Each chain is in temporal order: its first step is the state farthest
+    Each trajectory is in temporal order: its first step is the state farthest
     from the anchor, its last action leads (per the model) to the anchor.
     """
 
-    states: torch.Tensor  # (total_step_count, state_dimensionality)
-    actions: torch.Tensor  # (total_step_count, action_dimensionality)
-    step_count_batch: torch.Tensor  # (anchor_count,)
+    states: torch.Tensor  # (total_trajectory_length, state_dimensionality)
+    actions: torch.Tensor  # (total_trajectory_length, action_dimensionality)
+    trajectory_length_batch: torch.Tensor  # (anchor_count,)
 
     @property
     def start_index_batch(self) -> torch.Tensor:  # (anchor_count,)
-        return torch.cumsum(input=self.step_count_batch, dim=0) - self.step_count_batch
+        return (
+            torch.cumsum(input=self.trajectory_length_batch, dim=0)
+            - self.trajectory_length_batch
+        )
 
 
 @dataclass(frozen=True)
@@ -32,7 +35,7 @@ class AugmentationResult:
         accepted: int
 
     episode_store: EpisodeStore
-    synthetic_part_lengths: npt.NDArray[np.int64]  # (accepted_count,)
+    trajectory_lengths: npt.NDArray[np.int64]  # (accepted_count,)
     counts: OutcomeCounts
 
 
@@ -44,11 +47,11 @@ def create_augmented_episodes(
     anchor_indices: npt.NDArray[np.int64],  # (anchor_count,)
     expert_part_length: int,
 ) -> AugmentationResult:
-    synthetic_part_lengths: npt.NDArray[np.int64] = (
-        synthetic_trajectories.step_count_batch.cpu().numpy()
+    trajectory_length_batch: npt.NDArray[np.int64] = (
+        synthetic_trajectories.trajectory_length_batch.cpu().numpy()
     )  # (anchor_count,)
-    accepted_anchor_count = int((synthetic_part_lengths > 0).sum())
-    empty_anchor_count = int(synthetic_part_lengths.shape[0]) - accepted_anchor_count
+    accepted_anchor_count = int((trajectory_length_batch > 0).sum())
+    empty_anchor_count = int(trajectory_length_batch.shape[0]) - accepted_anchor_count
     if accepted_anchor_count == 0:
         # A precondition, not a user-facing error: the caller already stops on
         # an empty rollout and reports it. Reaching this means the caller
@@ -66,7 +69,7 @@ def create_augmented_episodes(
 
     return AugmentationResult(
         episode_store=augmented_episode_store,
-        synthetic_part_lengths=synthetic_part_lengths[synthetic_part_lengths > 0],
+        trajectory_lengths=trajectory_length_batch[trajectory_length_batch > 0],
         counts=AugmentationResult.OutcomeCounts(
             empty=empty_anchor_count, accepted=accepted_anchor_count
         ),
@@ -87,32 +90,31 @@ def _assemble_episodes(
     synthetic_part_start_index_batch = (
         synthetic_trajectories.start_index_batch.cpu().numpy()
     )  # (anchor_count,)
-    synthetic_part_length_batch = (
-        synthetic_trajectories.step_count_batch.cpu().numpy()
+    trajectory_length_batch = (
+        synthetic_trajectories.trajectory_length_batch.cpu().numpy()
     )  # (anchor_count,)
 
-    accepted_anchor_mask = synthetic_part_length_batch > 0  # (anchor_count,)
+    accepted_anchor_mask = trajectory_length_batch > 0  # (anchor_count,)
 
     state_trajectories_per_episode: list[np.ndarray] = []
     action_trajectories_per_episode: list[np.ndarray] = []
     episode_lengths: list[int] = []
 
-    for synthetic_part_length, synthetic_part_start_index, anchor_index in zip(
-        synthetic_part_length_batch[accepted_anchor_mask],
+    for trajectory_length, synthetic_part_start_index, anchor_index in zip(
+        trajectory_length_batch[accepted_anchor_mask],
         synthetic_part_start_index_batch[accepted_anchor_mask],
         anchor_index_batch[accepted_anchor_mask],
     ):
         synthetic_part_slice = slice(
-            synthetic_part_start_index,
-            synthetic_part_start_index + synthetic_part_length,
+            synthetic_part_start_index, synthetic_part_start_index + trajectory_length
         )
 
         synthetic_state_trajectory = synthetic_states[
             synthetic_part_slice
-        ]  # (synthetic_part_length, state_dimensionality)
+        ]  # (trajectory_length, state_dimensionality)
         synthetic_action_trajectory = synthetic_actions[
             synthetic_part_slice
-        ]  # (synthetic_part_length, action_dimensionality)
+        ]  # (trajectory_length, action_dimensionality)
 
         expert_part_slice = slice(anchor_index, anchor_index + expert_part_length)
 
@@ -126,7 +128,7 @@ def _assemble_episodes(
                 [synthetic_action_trajectory, expert_actions[expert_part_slice]], axis=0
             )
         )
-        episode_lengths.append(int(synthetic_part_length) + expert_part_length)
+        episode_lengths.append(int(trajectory_length) + expert_part_length)
 
     return EpisodeStore(
         states=np.concatenate(

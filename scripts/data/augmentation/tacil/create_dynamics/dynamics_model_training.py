@@ -85,7 +85,7 @@ def create_member_training_state(
     dynamics_model = DynamicsModel(
         hidden_layer_count=config.hidden_layer_count,
         hidden_layer_dimensionality=config.hidden_layer_dimensionality,
-        lipschitz_constant_upper_bound=config.lipschitz_constant_upper_bound,
+        lipschitz_limit=config.lipschitz_limit,
         input_normalizer=network_input_normalizer,
         state_displacement_normalizer=state_displacement_normalizer,
     ).to(device=device)
