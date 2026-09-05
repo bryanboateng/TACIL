@@ -156,7 +156,7 @@ METHOD_PARAMETERS: dict[MethodLabel, dict[str, Any]] = {
             "min": 0.1,
             "max": 10.0,
         },
-        "policy.plan_length": {"distribution": "int_uniform", "min": 1, "max": 32},
+        "policy.plan_length": {"distribution": "int_uniform", "min": 2, "max": 32},
     },
 }
 

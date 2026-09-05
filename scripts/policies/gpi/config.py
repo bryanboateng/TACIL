@@ -41,13 +41,13 @@ class Config:
     attraction_weight: float = 1.0
 
     def __post_init__(self) -> None:
-        # A plan of zero steps would never advance through a demonstration.
-        # The weights scale a pull each: at zero the policy stands still, below
-        # zero it moves away from what it is following.
+        if self.plan_length < 2:
+            raise ValueError(
+                f"plan_length must be at least 2, but it is {self.plan_length}."
+            )
         for name, value in (
-            ("plan_length", self.plan_length),
             ("progression_weight", self.progression_weight),
             ("attraction_weight", self.attraction_weight),
         ):
-            if value <= 0:
-                raise ValueError(f"{name} must be positive, but it is {value}.")
+            if value < 0:
+                raise ValueError(f"{name} must not be negative, but it is {value}.")

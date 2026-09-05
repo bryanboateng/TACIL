@@ -107,6 +107,9 @@ def _calculate_action(
 def _add_observation_noise(
     *, observation: torch.Tensor, noise_std: float, noise_generator: torch.Generator
 ) -> torch.Tensor:
+    if noise_std <= 0.0:
+        return observation
+
     noise = (
         torch.randn(
             size=observation.shape, generator=noise_generator, device=observation.device
