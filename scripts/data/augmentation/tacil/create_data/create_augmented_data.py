@@ -16,6 +16,9 @@ from scripts.data.augmentation.tacil.create_data.config import DataConfig
 from scripts.data.augmentation.tacil.create_data.episode_assembly import (
     create_augmented_episodes,
 )
+from scripts.data.augmentation.tacil.create_data.novelty import (
+    measure_distances_to_recorded_states,
+)
 from scripts.data.augmentation.tacil.create_data.statistics_logging import (
     STAGE_NAME,
     log_dataset_statistics,
@@ -126,6 +129,17 @@ def create_augmented_data(
         augmentation_result=augmentation_result,
         source_episode_count=len(episode_store.episode_end_indices),
         source_transition_count=len(episode_store.states),
+        # Only the invented states are asked about: the expert run-out spliced
+        # behind each chain is recorded data and its distance is zero by
+        # construction.
+        distances_to_recorded_states=measure_distances_to_recorded_states(
+            synthetic_state_batch=backward_trajectories.predecessor_states,
+            recorded_state_batch=torch.as_tensor(data=episode_store.states).to(
+                device=device
+            ),
+            dynamics_model_ensemble=dynamics_model_ensemble,
+        )
+        / median_expert_step_distance,
         run=run,
     )
 

@@ -1,3 +1,4 @@
+import torch
 from wandb import Run
 
 from scripts.data.augmentation.tacil.create_data.backward_rollout import (
@@ -54,6 +55,7 @@ def log_dataset_statistics(
     augmentation_result: AugmentationResult,
     source_episode_count: int,
     source_transition_count: int,
+    distances_to_recorded_states: torch.Tensor,  # (invented_count,)
     run: Run,
 ) -> None:
     synthetic_part_lengths = augmentation_result.synthetic_part_lengths
@@ -99,10 +101,26 @@ def log_dataset_statistics(
         source_episode_count + counts.accepted
     )
 
+    # How far the invented states lie from the nearest recorded one, in
+    # multiples of the median expert step. This is what says whether the
+    # augmentation covered new ground or retraced the demonstrations: under one
+    # a synthetic state is nearer to a recorded state than two recorded states
+    # are to each other, so the policy has seen it already.
+    novelty_batch = distances_to_recorded_states.cpu().numpy()
+    for label, value in summarize_distribution(values=novelty_batch).items():
+        run.summary[f"{STAGE_NAME}/6_novelty/{label}"] = value
+    run.summary[f"{STAGE_NAME}/6_novelty/share_within_one_step"] = float(
+        (novelty_batch < 1.0).mean()
+    )
+
     run.log(
         data={
             f"{STAGE_NAME}/4_synthetic_length/plot": create_distribution_panel(
                 values=synthetic_part_lengths, column_name="synthetic part length"
-            )
+            ),
+            f"{STAGE_NAME}/6_novelty/plot": create_distribution_panel(
+                values=novelty_batch,
+                column_name="distance to nearest recorded state, in steps",
+            ),
         }
     )
