@@ -1,38 +1,31 @@
 import torch
 
-from scripts.shared.pusht_state import (
-    BLOCK_ORIENTATION_INDEX,
-    BLOCK_POSITION_SLICE,
-    POSITION_SLICE,
-)
+from scripts.shared.pusht_state import BLOCK_ORIENTATION_INDEX, POSITION_SLICE
 
 
-def convert_actions_to_block_frame(
+def convert_position_to_block_frame(
     *,
-    observation_batch: torch.Tensor,  # (batch_size, state_dimensionality)
-    action_batch: torch.Tensor,  # (batch_size, 2)
+    block_position_batch: torch.Tensor,  # (batch_size, 2)
+    block_angle_batch: torch.Tensor,  # (batch_size,)
+    position_batch: torch.Tensor,  # (batch_size, 2)
 ) -> torch.Tensor:  # (batch_size, 2)
-    block_position_batch = observation_batch[:, BLOCK_POSITION_SLICE]  # (batch_size, 2)
-    block_angle_batch = observation_batch[:, BLOCK_ORIENTATION_INDEX]  # (batch_size,)
-
     return _rotate(
-        vector_batch=action_batch - block_position_batch, angle_batch=-block_angle_batch
+        vector_batch=position_batch - block_position_batch,
+        angle_batch=-block_angle_batch,
     )  # (batch_size, 2)
 
 
-def convert_actions_to_world_frame(
+def convert_position_to_world_frame(
     *,
-    observation_batch: torch.Tensor,  # (batch_size, observation_dimensionality)
-    action_batch: torch.Tensor,  # (batch_size, 2)
+    block_position_batch: torch.Tensor,  # (batch_size, 2)
+    block_angle_batch: torch.Tensor,  # (batch_size,)
+    position_batch: torch.Tensor,  # (batch_size, 2)
 ) -> torch.Tensor:  # (batch_size, 2)
-    block_position_batch = observation_batch[:, BLOCK_POSITION_SLICE]  # (batch_size, 2)
-    block_angle_batch = observation_batch[:, BLOCK_ORIENTATION_INDEX]  # (batch_size,)
-
-    rotated_action_batch = _rotate(
-        vector_batch=action_batch, angle_batch=block_angle_batch
+    rotated_position_batch = _rotate(
+        vector_batch=position_batch, angle_batch=block_angle_batch
     )  # (batch_size, 2)
 
-    return rotated_action_batch + block_position_batch  # (batch_size, 2)
+    return rotated_position_batch + block_position_batch  # (batch_size, 2)
 
 
 def calculate_observation_distances(
@@ -40,7 +33,6 @@ def calculate_observation_distances(
     observation_batch: torch.Tensor,  # (batch_size, state_dimensionality)
     query_observation: torch.Tensor,  # (state_dimensionality,)
 ) -> torch.Tensor:  # (batch_size,)
-    """Euclidean distance over the four positions plus the wrapped angle."""
     position_difference_batch = (
         observation_batch[:, POSITION_SLICE] - query_observation[POSITION_SLICE]
     )  # (step_count, 4)
@@ -70,12 +62,12 @@ def _rotate(
     angle_batch: torch.Tensor,  # (batch_size,)
 ) -> torch.Tensor:  # (batch_size, 2)
     return torch.matmul(
-        input=_create_rotations(angle_batch=angle_batch),
+        input=_create_rotation_matrix(angle_batch=angle_batch),
         other=vector_batch.unsqueeze(dim=-1),
     ).squeeze(dim=-1)
 
 
-def _create_rotations(
+def _create_rotation_matrix(
     *,
     angle_batch: torch.Tensor,  # (batch_size,)
 ) -> torch.Tensor:  # (batch_size, 2, 2)

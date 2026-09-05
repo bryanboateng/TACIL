@@ -3,10 +3,11 @@ import torch
 
 from scripts.policies.gpi.geometry import (
     calculate_observation_distances,
-    convert_actions_to_block_frame,
+    convert_position_to_block_frame,
 )
 from scripts.shared.episode_store import EpisodeStore
 from scripts.shared.normalization import MinMaxNormalizer
+from scripts.shared.pusht_state import BLOCK_ORIENTATION_INDEX, BLOCK_POSITION_SLICE
 
 
 class Demonstrations:
@@ -15,9 +16,10 @@ class Demonstrations:
             episode_store.states
         ).float()  # (step_count, observation_dimensionality)
 
-        actions = convert_actions_to_block_frame(
-            observation_batch=observations,
-            action_batch=torch.from_numpy(episode_store.actions).float(),
+        actions = convert_position_to_block_frame(
+            block_position_batch=observations[:, BLOCK_POSITION_SLICE],
+            block_angle_batch=observations[:, BLOCK_ORIENTATION_INDEX],
+            position_batch=torch.from_numpy(episode_store.actions).float(),
         )  # (step_count, action_dimensionality)
 
         self._observation_normalizer = MinMaxNormalizer(value_batch=observations).to(
