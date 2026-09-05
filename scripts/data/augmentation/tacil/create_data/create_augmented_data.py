@@ -9,6 +9,9 @@ from scripts.data.augmentation.tacil.create_data.anchor_selection import (
 from scripts.data.augmentation.tacil.create_data.backward_rollout import (
     roll_out_backward,
 )
+from scripts.data.augmentation.tacil.create_data.branch_actions import (
+    build_branch_actions,
+)
 from scripts.data.augmentation.tacil.create_data.config import DataConfig
 from scripts.data.augmentation.tacil.create_data.episode_assembly import (
     create_augmented_episodes,
@@ -60,15 +63,34 @@ def create_augmented_data(
         config.chain_error_limit_step_multiple * median_expert_step_distance
     )
 
+    # Branching happens here rather than inside the rollout: an anchor that is
+    # left in `branch_count` directions is `branch_count` anchors that happen
+    # to share a state and an expert run-out. The rollout, the error account
+    # and the splicing all stay unaware of it.
+    branch_action_batch = build_branch_actions(
+        action_source=config.action_source,
+        branch_count=config.branch_count,
+        episode_store=episode_store,
+        anchor_indices=anchor_indices,
+        dynamics_model_ensemble=dynamics_model_ensemble,
+        device=device,
+    )  # (anchor_count, branch_count, action_dimensionality)
+
+    branched_anchor_indices = np.repeat(
+        a=anchor_indices, repeats=config.branch_count
+    )  # (anchor_count * branch_count,)
+
     backward_trajectories, rollout_diagnostics = roll_out_backward(
         dynamics_model_ensemble=dynamics_model_ensemble,
-        anchor_state_batch=torch.as_tensor(episode_store.states[anchor_indices]).to(
-            device=device
-        ),
-        anchor_action_batch=torch.as_tensor(episode_store.actions[anchor_indices]).to(
-            device=device
+        anchor_state_batch=torch.as_tensor(
+            episode_store.states[branched_anchor_indices]
+        ).to(device=device),
+        anchor_action_batch=branch_action_batch.reshape(
+            -1, branch_action_batch.shape[-1]
         ),
         action_noise_std=torch.as_tensor(action_noise_std).to(device=device),
+        action_candidate_count=config.action_candidate_count,
+        action_choice=config.action_choice,
         chain_error_criterion=config.chain_error,
         chain_error_limit=chain_error_limit,
         convergence_tolerance=1e-3 * median_expert_step_distance,
@@ -82,7 +104,9 @@ def create_augmented_data(
     )
 
     if not bool((backward_trajectories.step_count_batch > 0).any()):
-        run.summary[f"{STAGE_NAME}/1_rollout/empty_anchor_count"] = len(anchor_indices)
+        run.summary[f"{STAGE_NAME}/1_rollout/empty_anchor_count"] = len(
+            branched_anchor_indices
+        )
         run.summary[f"{STAGE_NAME}/1_rollout/empty_anchor_fraction"] = 1.0
         raise RuntimeError(
             "The chain error limit rejected every anchor's first backward step, so "
@@ -94,7 +118,7 @@ def create_augmented_data(
     augmentation_result = create_augmented_episodes(
         synthetic_trajectories=backward_trajectories.to_temporal_order(),
         episode_store=episode_store,
-        anchor_indices=anchor_indices,
+        anchor_indices=branched_anchor_indices,
         expert_part_length=expert_part_length,
     )
 
