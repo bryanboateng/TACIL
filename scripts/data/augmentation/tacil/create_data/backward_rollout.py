@@ -8,7 +8,6 @@ from scripts.data.augmentation.tacil.create_data.chain_error import (
     ChainErrorCriterion,
     ChainErrorTracker,
 )
-from scripts.data.augmentation.tacil.create_data.config import ActionChoice
 from scripts.data.augmentation.tacil.create_data.episode_assembly import (
     SyntheticTrajectories,
 )
@@ -18,7 +17,6 @@ from scripts.data.augmentation.tacil.create_data.inverse_dynamics import (
 from scripts.data.augmentation.tacil.dynamics.dynamics_model_ensemble import (
     DynamicsModelEnsemble,
 )
-from scripts.shared.pusht_state import subtract_states
 
 
 @dataclass(frozen=True)
@@ -74,8 +72,6 @@ def roll_out_backward(
     anchor_state_batch: torch.Tensor,  # (anchor_count, state_dimensionality)
     anchor_action_batch: torch.Tensor,  # (anchor_count, action_dimensionality)
     action_noise_std: torch.Tensor,  # (action_dimensionality,)
-    action_candidate_count: int,
-    action_choice: ActionChoice,
     chain_error_criterion: ChainErrorCriterion,
     chain_error_limit: float,
     convergence_tolerance: float,
@@ -125,8 +121,6 @@ def roll_out_backward(
             state_batch=current_state_batch[active_trajectory_indices],
             action_batch=anchor_action_batch[active_trajectory_indices],
             action_noise_std=action_noise_std,
-            candidate_count=action_candidate_count,
-            action_choice=action_choice,
             convergence_tolerance=convergence_tolerance,
         )
 
@@ -227,81 +221,6 @@ def _compute_backward_step(
     state_batch: torch.Tensor,  # (active_count, state_dimensionality)
     action_batch: torch.Tensor,  # (active_count, action_dimensionality)
     action_noise_std: torch.Tensor,  # (action_dimensionality,)
-    candidate_count: int,
-    action_choice: ActionChoice,
-    convergence_tolerance: float,
-) -> _BackwardStep:
-    """One backward step, from the best of `candidate_count` drawn actions.
-
-    The candidates are solved one after another rather than as one wide batch:
-    the inverse dynamics is the memory-hungry part of the rollout, so this
-    costs `candidate_count` times the time and no extra memory.
-    """
-    best_step = _draw_backward_step(
-        dynamics_model_ensemble=dynamics_model_ensemble,
-        state_batch=state_batch,
-        action_batch=action_batch,
-        action_noise_std=action_noise_std,
-        convergence_tolerance=convergence_tolerance,
-    )
-    if candidate_count == 1 or action_choice == "random":
-        return best_step
-
-    best_score_batch = _score_candidate(
-        dynamics_model_ensemble=dynamics_model_ensemble,
-        step=best_step,
-        successor_state_batch=state_batch,
-        action_choice=action_choice,
-    )  # (active_count,)
-
-    for _ in range(candidate_count - 1):
-        candidate_step = _draw_backward_step(
-            dynamics_model_ensemble=dynamics_model_ensemble,
-            state_batch=state_batch,
-            action_batch=action_batch,
-            action_noise_std=action_noise_std,
-            convergence_tolerance=convergence_tolerance,
-        )
-        candidate_score_batch = _score_candidate(
-            dynamics_model_ensemble=dynamics_model_ensemble,
-            step=candidate_step,
-            successor_state_batch=state_batch,
-            action_choice=action_choice,
-        )  # (active_count,)
-
-        # Lower is better for both choices: `_score_candidate` already flips
-        # the sign of the one that wants a large value.
-        is_better_batch = candidate_score_batch < best_score_batch  # (active_count,)
-        best_step = _BackwardStep(
-            predecessor_state_batch=torch.where(
-                condition=is_better_batch.unsqueeze(dim=1),
-                input=candidate_step.predecessor_state_batch,
-                other=best_step.predecessor_state_batch,
-            ),
-            predecessor_action_batch=torch.where(
-                condition=is_better_batch.unsqueeze(dim=1),
-                input=candidate_step.predecessor_action_batch,
-                other=best_step.predecessor_action_batch,
-            ),
-            has_converged_batch=torch.where(
-                condition=is_better_batch,
-                input=candidate_step.has_converged_batch,
-                other=best_step.has_converged_batch,
-            ),
-        )
-        best_score_batch = torch.minimum(
-            input=candidate_score_batch, other=best_score_batch
-        )
-
-    return best_step
-
-
-def _draw_backward_step(
-    *,
-    dynamics_model_ensemble: DynamicsModelEnsemble,
-    state_batch: torch.Tensor,  # (active_count, state_dimensionality)
-    action_batch: torch.Tensor,  # (active_count, action_dimensionality)
-    action_noise_std: torch.Tensor,  # (action_dimensionality,)
     convergence_tolerance: float,
 ) -> _BackwardStep:
     noisy_action_batch = action_batch + torch.normal(
@@ -320,44 +239,6 @@ def _draw_backward_step(
         predecessor_state_batch=inverse_dynamics_solution.state_batch,
         predecessor_action_batch=noisy_action_batch,
         has_converged_batch=inverse_dynamics_solution.converged_batch,
-    )
-
-
-@torch.no_grad()
-def _score_candidate(
-    *,
-    dynamics_model_ensemble: DynamicsModelEnsemble,
-    step: _BackwardStep,
-    successor_state_batch: torch.Tensor,  # (active_count, state_dimensionality)
-    action_choice: ActionChoice,
-) -> torch.Tensor:  # (active_count,)
-    """What a candidate is worth, smaller being better.
-
-    A candidate the inverse dynamics could not solve is worth nothing at all,
-    so it scores infinity and loses to any candidate that converged. If none
-    of them converged the chain ends here, which is what would have happened
-    with a single draw too.
-    """
-    if action_choice == "certain":
-        score_batch = dynamics_model_ensemble.measure_prediction_disagreement(
-            state_batch=step.predecessor_state_batch,
-            action_batch=step.predecessor_action_batch,
-        )  # (active_count,)
-    else:
-        # Negated, so that the furthest predecessor is the smallest score and
-        # the caller can keep comparing with `<`.
-        score_batch = -torch.linalg.norm(
-            dynamics_model_ensemble.state_normalizer.normalize_difference(
-                difference_batch=subtract_states(
-                    minuend_batch=successor_state_batch,
-                    subtrahend_batch=step.predecessor_state_batch,
-                )
-            ),
-            dim=-1,
-        )  # (active_count,)
-
-    return torch.where(
-        condition=step.has_converged_batch, input=score_batch, other=torch.inf
     )
 
 

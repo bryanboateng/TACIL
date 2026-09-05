@@ -76,20 +76,6 @@ _TACIL_SHARED_PARAMETERS: dict[str, Any] = {
     },
 }
 
-# How many chains leave each anchor and where their starting actions come
-# from. One branch from the anchor's own action is TACIL as it has always
-# been, and it is in the list so that the comparison sits inside one sweep
-# rather than across two. Categorical: these are unrelated settings, and
-# sixteen branches is not "four times as good" as four.
-#
-# At one branch the two sources agree, so those draws are the same experiment
-# twice, which leaves the baseline the best sampled cell of the six.
-_BRANCHING_PARAMETERS: dict[str, Any] = {
-    "augmentation.data.branch_count": {"values": [1, 4, 16]},
-    "augmentation.data.action_source": {
-        "values": ["anchor_noise", "neighbour_actions"]
-    },
-}
 
 # A range rather than a list of values. A values list is categorical, so the
 # search treats every bound as unrelated to the next. It would have to try each
@@ -179,13 +165,6 @@ class Config:
     chain_error_cost: ChainErrorCost | None = None
     chain_error_accumulation: ChainErrorAccumulation | None = None
 
-    # Search over how many chains leave each anchor and where their actions
-    # come from, on top of the method's own parameters. Off by default: the
-    # method grows one chain per anchor, so a sweep that searched this would
-    # not be searching the method. On, it is the ablation that asks whether a
-    # cone of chains beats a single thread.
-    search_branching: bool = False
-
     # Score every run on all six conditions instead of the validation one
     # alone. The search still ranks on the validation condition -- a search
     # needs one number -- but the others are then on record, so the same sweep
@@ -205,11 +184,6 @@ class Config:
             raise ValueError(
                 f"A chain error rule only applies to the TACIL methods, which "
                 f"are the ones that walk a chain; the method is {self.method}."
-            )
-        if self.search_branching and not self.method.startswith("tacil"):
-            raise ValueError(
-                f"Only the TACIL methods grow chains from anchors; the method "
-                f"is {self.method}."
             )
 
     @property
@@ -235,9 +209,6 @@ def main() -> None:
         project += "-" + describe_criterion(criterion=account_criterion).replace(
             "_", "-"
         )
-
-    if config.search_branching:
-        project += "-branching"
 
     sweep_configuration = _build_sweep_configuration(config=config, project=project)
     logger.info(pretty_repr(sweep_configuration))
@@ -313,8 +284,6 @@ def _sample_value(*, specification: dict[str, Any]) -> Any:
 def _build_sweep_configuration(*, config: Config, project: str) -> dict[str, Any]:
     pipeline_module = METHOD_MODULES[config.method]
     parameters = METHOD_PARAMETERS[config.method]
-    if config.search_branching:
-        parameters = {**parameters, **_BRANCHING_PARAMETERS}
 
     # Every subcommand closes the parser around it: options of the level it
     # belongs to are read only before it, its own options only after it. So the
