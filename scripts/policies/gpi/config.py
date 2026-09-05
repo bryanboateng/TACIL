@@ -8,28 +8,27 @@ class ObservationNoiseConfig:
     minimum_std: float = 0.001
 
     def __post_init__(self) -> None:
-        # Zero noise is a fair choice; a negative spread is not a spread.
         for name, value in (
             ("initial_std", self.initial_std),
             ("minimum_std", self.minimum_std),
         ):
             if value < 0:
                 raise ValueError(f"{name} must not be negative, but it is {value}.")
-        # The noise decays toward the floor, so a rate above one would let it
-        # grow instead, and the floor has to lie under the starting point.
+
         if self.decay_rate <= 0:
             raise ValueError(
                 f"decay_rate must be positive, but it is {self.decay_rate}."
             )
+
         if self.decay_rate > 1.0:
             raise ValueError(
-                f"decay_rate must be at most 1, but it is {self.decay_rate}; "
-                f"above that the noise grows instead of decaying."
+                f"decay_rate must be at most 1, but it is {self.decay_rate}."
             )
+
         if self.minimum_std > self.initial_std:
             raise ValueError(
                 f"minimum_std ({self.minimum_std}) must not exceed initial_std "
-                f"({self.initial_std}), or the noise starts below its floor."
+                f"({self.initial_std})."
             )
 
 
@@ -45,6 +44,7 @@ class Config:
             raise ValueError(
                 f"plan_length must be at least 2, but it is {self.plan_length}."
             )
+
         for name, value in (
             ("progression_weight", self.progression_weight),
             ("attraction_weight", self.attraction_weight),
