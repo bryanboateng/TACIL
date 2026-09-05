@@ -33,18 +33,16 @@ import numpy as np
 import numpy.typing as npt
 import torch
 
+from scripts.data.augmentation.tacil.create_data.state_distance import (
+    COMPARISON_CHUNK_SIZE,
+    iterate_distances_to_recorded_states,
+)
 from scripts.data.augmentation.tacil.dynamics.dynamics_model_ensemble import (
     DynamicsModelEnsemble,
 )
 from scripts.shared.episode_store import EpisodeStore
-from scripts.shared.pusht_state import subtract_states
 
 ActionSource: TypeAlias = Literal["anchor_noise", "neighbour_actions"]
-
-# States compared per chunk. The distance to every recorded state is measured
-# at once, so the widest tensor holds chunk x recorded x state, and this keeps
-# that inside a few hundred megabytes on the largest budget.
-NEIGHBOUR_CHUNK_SIZE = 256
 
 
 def build_branch_actions(
@@ -128,32 +126,20 @@ def _find_nearest_recorded_states(
     """The nearest recorded states outside the query's own episode, nearest
     first.
 
-    Distances are measured in the normalized state space, which is what makes
-    a displacement of the block comparable to a displacement of the agent.
     """
     neighbour_index_chunks: list[torch.Tensor] = []
 
-    for chunk_start in range(0, query_state_batch.shape[0], NEIGHBOUR_CHUNK_SIZE):
-        chunk_state_batch = query_state_batch[
-            chunk_start : chunk_start + NEIGHBOUR_CHUNK_SIZE
-        ]  # (chunk_size, state_dimensionality)
-
-        distance_batch = torch.linalg.norm(
-            dynamics_model_ensemble.state_normalizer.normalize_difference(
-                difference_batch=subtract_states(
-                    minuend_batch=chunk_state_batch.unsqueeze(dim=1),
-                    subtrahend_batch=recorded_state_batch.unsqueeze(dim=0),
-                )
-            ),
-            dim=-1,
-        )  # (chunk_size, recorded_count)
-
+    for chunk_start, distance_batch in iterate_distances_to_recorded_states(
+        query_state_batch=query_state_batch,
+        recorded_state_batch=recorded_state_batch,
+        dynamics_model_ensemble=dynamics_model_ensemble,
+    ):
         # The anchor's own episode is put out of reach rather than dropped, so
         # the row keeps its shape and `topk` can still take the nearest ones.
         distance_batch = distance_batch.masked_fill(
             mask=recorded_episode_index_batch.unsqueeze(dim=0)
             == query_episode_index_batch[
-                chunk_start : chunk_start + NEIGHBOUR_CHUNK_SIZE
+                chunk_start : chunk_start + COMPARISON_CHUNK_SIZE
             ].unsqueeze(dim=1),
             value=torch.inf,
         )

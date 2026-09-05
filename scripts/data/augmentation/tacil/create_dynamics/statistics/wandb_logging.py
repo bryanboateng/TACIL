@@ -3,7 +3,7 @@ import torch
 import wandb
 from wandb import Run
 
-from scripts.data.augmentation.tacil.create_data.step_distance import (
+from scripts.data.augmentation.tacil.create_data.state_distance import (
     calculate_median_step_distance,
 )
 from scripts.data.augmentation.tacil.create_dynamics.data import TransitionTriples

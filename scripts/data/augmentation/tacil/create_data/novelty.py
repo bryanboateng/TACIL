@@ -14,14 +14,12 @@ augmentation is a copy of the data with extra steps.
 
 import torch
 
+from scripts.data.augmentation.tacil.create_data.state_distance import (
+    iterate_distances_to_recorded_states,
+)
 from scripts.data.augmentation.tacil.dynamics.dynamics_model_ensemble import (
     DynamicsModelEnsemble,
 )
-from scripts.shared.pusht_state import subtract_states
-
-# Synthetic states compared per chunk, so that the widest tensor holds
-# chunk x recorded x state.
-NOVELTY_CHUNK_SIZE = 256
 
 
 @torch.no_grad()
@@ -32,23 +30,13 @@ def measure_distances_to_recorded_states(
     dynamics_model_ensemble: DynamicsModelEnsemble,
 ) -> torch.Tensor:  # (synthetic_count,)
     """For each synthetic state, the distance to the nearest recorded one."""
-    nearest_distance_chunks: list[torch.Tensor] = []
-
-    for chunk_start in range(0, synthetic_state_batch.shape[0], NOVELTY_CHUNK_SIZE):
-        chunk_state_batch = synthetic_state_batch[
-            chunk_start : chunk_start + NOVELTY_CHUNK_SIZE
-        ]  # (chunk_size, state_dimensionality)
-
-        distance_batch = torch.linalg.norm(
-            dynamics_model_ensemble.state_normalizer.normalize_difference(
-                difference_batch=subtract_states(
-                    minuend_batch=chunk_state_batch.unsqueeze(dim=1),
-                    subtrahend_batch=recorded_state_batch.unsqueeze(dim=0),
-                )
-            ),
-            dim=-1,
-        )  # (chunk_size, recorded_count)
-
-        nearest_distance_chunks.append(distance_batch.min(dim=1).values)
-
-    return torch.cat(tensors=nearest_distance_chunks)
+    return torch.cat(
+        tensors=[
+            distance_batch.min(dim=1).values
+            for _, distance_batch in iterate_distances_to_recorded_states(
+                query_state_batch=synthetic_state_batch,
+                recorded_state_batch=recorded_state_batch,
+                dynamics_model_ensemble=dynamics_model_ensemble,
+            )
+        ]
+    )

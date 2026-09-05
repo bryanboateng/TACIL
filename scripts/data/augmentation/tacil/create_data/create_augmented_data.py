@@ -24,7 +24,7 @@ from scripts.data.augmentation.tacil.create_data.statistics_logging import (
     log_dataset_statistics,
     log_rollout_statistics,
 )
-from scripts.data.augmentation.tacil.create_data.step_distance import (
+from scripts.data.augmentation.tacil.create_data.state_distance import (
     calculate_median_step_distance,
 )
 from scripts.data.augmentation.tacil.dynamics.dynamics_model_ensemble import (
