@@ -36,17 +36,12 @@ class Demonstrations:
             value_batch=actions.to(device=device)
         )  # (step_count, action_dimensionality)
 
-        # Where the demonstration each step belongs to ends.
-        self._end_index_per_step = torch.from_numpy(
+        self._episode_end_index_per_step = torch.from_numpy(
             np.repeat(
                 a=episode_store.episode_end_indices,
                 repeats=np.diff(a=episode_store.episode_end_indices, prepend=0),
             )
         ).to(device=device)  # (step_count,)
-
-    @property
-    def step_count(self) -> int:
-        return len(self._normalized_observations)
 
     def normalize_observation(
         self,
@@ -55,7 +50,7 @@ class Demonstrations:
     ) -> torch.Tensor:  # (batch_size, observation_dimensionality)
         return self._observation_normalizer.normalize(value_batch=observation_batch)
 
-    def denormalize_actions(
+    def denormalize_action(
         self,
         *,
         action_batch: torch.Tensor,  # (batch_size, action_dimensionality)
@@ -68,11 +63,10 @@ class Demonstrations:
         query_observation: torch.Tensor,  # (observation_dimensionality,)
         excluded_step_indices: set[int],
     ) -> int:
-        if len(excluded_step_indices) >= self.step_count:
+        if len(excluded_step_indices) >= len(self._normalized_observations):
             raise RuntimeError(
-                f"One episode has used up all {self.step_count} recorded steps, "
-                f"so no demonstration is left for it to follow. The "
-                f"demonstrations hold fewer steps than an episode runs."
+                "One episode has used up all recorded steps, "
+                "so no demonstration is left for it to follow."
             )
 
         distances = calculate_observation_distances(
@@ -95,7 +89,5 @@ class Demonstrations:
     ) -> tuple[torch.Tensor, torch.Tensor]:  # observation, action
         return self._normalized_observations[index], self._normalized_actions[index]
 
-    def count_steps_to_walk(self, *, start_index: int, steps_per_search: int) -> int:
-        return min(
-            steps_per_search, int(self._end_index_per_step[start_index]) - start_index
-        )
+    def get_remaining_steps_in_episode(self, *, step_index: int) -> int:
+        return int(self._episode_end_index_per_step[step_index]) - step_index

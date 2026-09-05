@@ -113,7 +113,7 @@ def _calculate_action(
         convert_position_to_world_frame(
             block_position_batch=observation[BLOCK_POSITION_SLICE].unsqueeze(dim=0),
             block_angle_batch=observation[BLOCK_ORIENTATION_INDEX].unsqueeze(dim=0),
-            position_batch=demonstrations.denormalize_actions(
+            position_batch=demonstrations.denormalize_action(
                 action_batch=normalized_agent_target_position.unsqueeze(dim=0)
             ),
         )
@@ -152,8 +152,9 @@ def _consume_next_step_index(
             excluded_step_indices=episode_state.used_step_indices,
         )
         episode_state.next_step_index = start_index
-        episode_state.remaining_step_count = demonstrations.count_steps_to_walk(
-            start_index=start_index, steps_per_search=steps_per_search
+        episode_state.remaining_step_count = min(
+            steps_per_search,
+            demonstrations.get_remaining_steps_in_episode(step_index=start_index),
         )
 
     step_index = episode_state.next_step_index
