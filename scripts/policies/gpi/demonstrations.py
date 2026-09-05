@@ -95,7 +95,7 @@ class Demonstrations:
     ) -> tuple[torch.Tensor, torch.Tensor]:  # observation, action
         return self._normalized_observations[index], self._normalized_actions[index]
 
-    def find_plan_end_index(self, *, start_index: int, maximum_length: int) -> int:
+    def count_steps_to_walk(self, *, start_index: int, steps_per_search: int) -> int:
         return min(
-            start_index + maximum_length, int(self._end_index_per_step[start_index])
+            steps_per_search, int(self._end_index_per_step[start_index]) - start_index
         )

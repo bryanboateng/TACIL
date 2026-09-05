@@ -35,14 +35,15 @@ class ObservationNoiseConfig:
 @dataclass(frozen=True)
 class Config:
     observation_noise: ObservationNoiseConfig
-    plan_length: int = 8
+    steps_per_search: int = 8
     progression_weight: float = 1.0
     attraction_weight: float = 1.0
 
     def __post_init__(self) -> None:
-        if self.plan_length < 2:
+        if self.steps_per_search < 2:
             raise ValueError(
-                f"plan_length must be at least 2, but it is {self.plan_length}."
+                f"steps_per_search must be at least 2, but it is "
+                f"{self.steps_per_search}."
             )
 
         for name, value in (
