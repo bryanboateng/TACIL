@@ -1,9 +1,3 @@
-"""Which recorded steps a backward chain is grown from.
-
-Every step that has a long enough run-out behind it. A step nearer the end of
-its episode than that cannot be spliced onto one, so it is not eligible.
-"""
-
 import numpy as np
 import numpy.typing as npt
 
