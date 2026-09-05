@@ -6,12 +6,6 @@ import tyro
 import wandb
 from rich.pretty import pretty_repr
 
-from scripts.data.augmentation.tacil.create_data.chain_error import (
-    AccountCriterion,
-    ChainErrorAccumulation,
-    ChainErrorCost,
-    describe_criterion,
-)
 from scripts.evaluation.core.condition import VALIDATION_CONDITION
 from scripts.evaluation.evaluate_policy import STAGE_NAME
 from scripts.shared.log import create_logger
@@ -155,15 +149,11 @@ class Config:
 
     seed: int
 
-    # Which stopping rule a TACIL sweep searches under. Leaving both unset is
-    # the method's own rule, the summed ensemble uncertainty; setting both
-    # picks a different one, which is how the rules were compared. One sweep
-    # per rule rather than a rule drawn per run: the search would otherwise
-    # spend its budget unevenly across the rules and none of them would be
-    # settled. A rule other than the default lands in the project name, so the
-    # sweeps stay apart.
-    chain_error_cost: ChainErrorCost | None = None
-    chain_error_accumulation: ChainErrorAccumulation | None = None
+    # Search under the replay rule instead of the method's own account rule.
+    # One sweep per rule rather than a rule drawn per run: the search would
+    # otherwise spend its budget unevenly across the two and settle neither.
+    # The replay rule lands in the project name, so the sweeps stay apart.
+    use_replay_criterion: bool = False
 
     # Score every run on all six conditions instead of the validation one
     # alone. The search still ranks on the validation condition -- a search
@@ -173,26 +163,11 @@ class Config:
     evaluate_all_conditions: bool = False
 
     def __post_init__(self) -> None:
-        if (self.chain_error_cost is None) != (self.chain_error_accumulation is None):
-            raise ValueError(
-                f"An account rule needs both a cost and an accumulation, and "
-                f"the replay rule needs neither, but the cost is "
-                f"{self.chain_error_cost!r} and the accumulation is "
-                f"{self.chain_error_accumulation!r}."
-            )
-        if self.chain_error_cost is not None and not self.method.startswith("tacil"):
+        if self.use_replay_criterion and not self.method.startswith("tacil"):
             raise ValueError(
                 f"A chain error rule only applies to the TACIL methods, which "
                 f"are the ones that walk a chain; the method is {self.method}."
             )
-
-    @property
-    def account_criterion(self) -> AccountCriterion | None:
-        if self.chain_error_cost is None or self.chain_error_accumulation is None:
-            return None
-        return AccountCriterion(
-            cost=self.chain_error_cost, accumulation=self.chain_error_accumulation
-        )
 
     sweep_method: SearchLabel = "bayes"
 
@@ -204,11 +179,8 @@ def main() -> None:
     logger.info(pretty_repr(config))
 
     project = f"{config.project_prefix}-{config.dataset_percentage}-{config.method}"
-    account_criterion = config.account_criterion
-    if account_criterion is not None:
-        project += "-" + describe_criterion(criterion=account_criterion).replace(
-            "_", "-"
-        )
+    if config.use_replay_criterion:
+        project += "-replay"
 
     sweep_configuration = _build_sweep_configuration(config=config, project=project)
     logger.info(pretty_repr(sweep_configuration))
@@ -222,18 +194,6 @@ def main() -> None:
     )
 
     logger.info("Sweep path: %s", f"{config.entity}/{project}/{sweep_id}")
-
-
-def _build_criterion_arguments(*, criterion: AccountCriterion | None) -> list[str]:
-    """The rule as a subcommand, or nothing at all for the method's own rule,
-    which is the default and needs no argument."""
-    if criterion is None:
-        return []
-    return [
-        "augmentation.data.chain-error:account",
-        f"--augmentation.data.chain-error.cost={criterion.cost}",
-        f"--augmentation.data.chain-error.accumulation={criterion.accumulation}",
-    ]
 
 
 def _verify_command_parses(
@@ -285,33 +245,31 @@ def _build_sweep_configuration(*, config: Config, project: str) -> dict[str, Any
     pipeline_module = METHOD_MODULES[config.method]
     parameters = METHOD_PARAMETERS[config.method]
 
-    # Every subcommand closes the parser around it: options of the level it
-    # belongs to are read only before it, its own options only after it. So the
-    # arguments come in three parts, and the order is not a matter of taste --
-    # getting it wrong does not fail loudly, the run dies while parsing, before
+    # A subcommand closes the parser around it: options of the level it belongs
+    # to are read only before it, its own options only after it. Getting this
+    # order wrong does not fail loudly -- the run dies while parsing, before
     # wandb.init, and shows up only as a crashed run with nothing logged.
     #
-    #   leading   `augmentation:tacil`, so the swept `augmentation.*` are read
-    #   swept     what the search draws, all of them options of that level
-    #   trailing  `augmentation.data.chain-error:account` and its own options,
-    #             which must come after everything of the level above
-    #
-    # A sweep over `policy.*` is the exception: those belong to the run itself,
-    # so nothing may precede them.
-    # A run-level flag, so it goes before the augmentation subcommand. A
-    # boolean is never drawn by the search, which is why it is fixed here
-    # rather than being a parameter.
+    # So `augmentation:tacil` comes first and the swept `augmentation.*` after
+    # it. A sweep over `policy.*` is the exception: those belong to the run
+    # itself, so nothing may precede them.
     leading_arguments = [
         f"--evaluate-all-conditions={config.evaluate_all_conditions}",
         *METHOD_FIXED_ARGUMENTS[config.method],
+        # An option of the augmentation level, so it belongs after the
+        # subcommand that opens that level.
+        *(
+            ["--augmentation.data.chain-error=replay"]
+            if config.use_replay_criterion
+            else []
+        ),
     ]
     swept_arguments = "${args_no_boolean_flags}"
-    trailing_arguments = _build_criterion_arguments(criterion=config.account_criterion)
 
     method_arguments = (
-        [swept_arguments, *leading_arguments, *trailing_arguments]
+        [swept_arguments, *leading_arguments]
         if all(key.startswith("policy.") for key in parameters)
-        else [*leading_arguments, swept_arguments, *trailing_arguments]
+        else [*leading_arguments, swept_arguments]
     )
 
     return {
