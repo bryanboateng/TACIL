@@ -249,7 +249,6 @@ def _create_replay_panels(
     return replay_panels
 
 
-@torch.no_grad()
 def _roll_out_members_forward(
     *,
     dynamics_model_ensemble: DynamicsModelEnsemble,

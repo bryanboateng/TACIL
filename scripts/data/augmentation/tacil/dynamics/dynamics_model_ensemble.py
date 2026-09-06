@@ -34,7 +34,6 @@ class DynamicsModelEnsemble(torch.nn.Module):
             )
         )
 
-    @torch.no_grad()
     def calculate_replay_error(
         self,
         *,
@@ -61,7 +60,6 @@ class DynamicsModelEnsemble(torch.nn.Module):
             target_state_batch=end_state_batch,
         )
 
-    @torch.no_grad()
     def calculate_endpoint_deviation(
         self,
         *,
@@ -81,7 +79,6 @@ class DynamicsModelEnsemble(torch.nn.Module):
 
         return torch.linalg.norm(per_dimension_deviation_batch, dim=-1)  # (batch_size,)
 
-    @torch.no_grad()
     def calculate_prediction_disagreement(
         self,
         *,
@@ -102,7 +99,6 @@ class DynamicsModelEnsemble(torch.nn.Module):
             target_state_batch=average_states(state_batch=per_member_state_batch),
         )
 
-    @torch.no_grad()
     def calculate_local_lipschitz_constants(
         self,
         *,

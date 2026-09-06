@@ -14,7 +14,6 @@ class InverseDynamicsSolution:
     converged_batch: torch.Tensor  # (batch_size,)
 
 
-@torch.no_grad()
 def solve_inverse_dynamics(
     *,
     dynamics_model_ensemble: DynamicsModelEnsemble,

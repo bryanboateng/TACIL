@@ -3,6 +3,7 @@ from pathlib import Path
 
 import numpy as np
 import pygame
+import torch
 import wandb
 from gymnasium import Env
 from imageio import v2 as imageio
@@ -50,15 +51,17 @@ def evaluate_policy(
     start_episode_seed = 2_000_000 + seed * 10_000
 
     reward_means: list[float] = []
-    for condition, episode_records in run_scored_episodes_per_condition(
-        policy_factory=policy_factory,
-        start_episode_seed=start_episode_seed,
-        episode_count_per_condition=100,
-    ):
-        logger.info("Scored the policy in %s.", condition.label)
+    with torch.no_grad():
+        scored_episodes_per_condition = run_scored_episodes_per_condition(
+            policy_factory=policy_factory,
+            start_episode_seed=start_episode_seed,
+            episode_count_per_condition=100,
+        )
+        for condition, episode_records in scored_episodes_per_condition:
+            logger.info("Scored the policy in %s.", condition.label)
 
-        reward = calculate_reward_statistics(episode_records=episode_records)
-        reward_means.append(reward.mean)
+            reward = calculate_reward_statistics(episode_records=episode_records)
+            reward_means.append(reward.mean)
 
         _write_summary(
             run=run,
@@ -190,12 +193,13 @@ def _convert_surface_to_frame(*, surface: Surface) -> np.ndarray:
 def _replay_episode_with_rendering(
     *, episode_record: EpisodeRecord, environment: Env
 ) -> EpisodeRecord:
-    (replayed_record,) = roll_out_episodes(
-        environments=[environment],
-        seeds=[episode_record.seed],
-        policy=_create_replay_policy(action_sequences=[episode_record.actions]),
-        render=True,
-    )
+    with torch.no_grad():
+        (replayed_record,) = roll_out_episodes(
+            environments=[environment],
+            seeds=[episode_record.seed],
+            policy=_create_replay_policy(action_sequences=[episode_record.actions]),
+            render=True,
+        )
 
     if not np.array_equal(
         a1=replayed_record.final_observation, a2=episode_record.final_observation

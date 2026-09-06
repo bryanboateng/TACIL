@@ -2,7 +2,6 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 
 import numpy as np
-import torch
 
 from scripts.evaluation.core.condition import ALL_CONDITIONS, Condition
 from scripts.evaluation.core.rollout import (
@@ -32,7 +31,6 @@ class SuccessStatistics:
     standard_error: float
 
 
-@torch.no_grad()
 def run_scored_episodes_per_condition(
     *,
     policy_factory: PolicyFactory,
@@ -94,7 +92,6 @@ def _run_scored_episodes(
             environment.close()
 
 
-@torch.no_grad()
 def calculate_reward_statistics(
     *, episode_records: list[EpisodeRecord]
 ) -> RewardStatistics:

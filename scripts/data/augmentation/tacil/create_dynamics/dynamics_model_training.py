@@ -152,12 +152,13 @@ def train_member_for_one_epoch(
 
     training_state.ema_model.update_parameters(model=training_state.model)
 
-    validation_loss = _calculate_validation_loss(
-        dynamics_model=training_state.ema_dynamics_model,
-        state_windows=context.validation_state_windows,
-        action_windows=context.validation_action_windows,
-        batch_size=batch_size,
-    )
+    with torch.no_grad():
+        validation_loss = _calculate_validation_loss(
+            dynamics_model=training_state.ema_dynamics_model,
+            state_windows=context.validation_state_windows,
+            action_windows=context.validation_action_windows,
+            batch_size=batch_size,
+        )
 
     if (
         training_state.best_checkpoint is None
@@ -169,19 +170,23 @@ def train_member_for_one_epoch(
             state_dict=copy.deepcopy(training_state.ema_dynamics_model.state_dict()),
         )
 
-    return MemberEpochMetrics(
-        training_loss=float(np.mean(a=losses)),
-        validation_loss=validation_loss,
-        training_local_lipschitz_constants=_sample_local_lipschitz_constants(
+    with torch.no_grad():
+        training_local_lipschitz_constants = _sample_local_lipschitz_constants(
             training_state=training_state,
             transitions=context.training_transitions,
             batch_size=batch_size,
-        ),
-        validation_local_lipschitz_constants=_sample_local_lipschitz_constants(
+        )
+        validation_local_lipschitz_constants = _sample_local_lipschitz_constants(
             training_state=training_state,
             transitions=context.validation_transitions,
             batch_size=batch_size,
-        ),
+        )
+
+    return MemberEpochMetrics(
+        training_loss=float(np.mean(a=losses)),
+        validation_loss=validation_loss,
+        training_local_lipschitz_constants=training_local_lipschitz_constants,
+        validation_local_lipschitz_constants=validation_local_lipschitz_constants,
         gradient_norm=float(np.max(a=gradient_norms)),
     )
 
@@ -189,7 +194,6 @@ def train_member_for_one_epoch(
 # ---- Private --------------------------------------------
 
 
-@torch.no_grad()
 def _calculate_validation_loss(
     *,
     dynamics_model: DynamicsModel,
@@ -221,7 +225,6 @@ def _calculate_validation_loss(
     return total_loss / window_count
 
 
-@torch.no_grad()
 def _sample_local_lipschitz_constants(
     *,
     training_state: MemberTrainingState,

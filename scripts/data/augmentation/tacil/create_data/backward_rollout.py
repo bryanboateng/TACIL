@@ -26,7 +26,6 @@ class RolloutDiagnostics:
     not_converged_count: int
 
 
-@torch.no_grad()
 def roll_out_backward(
     *,
     dynamics_model_ensemble: DynamicsModelEnsemble,

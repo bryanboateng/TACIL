@@ -3,7 +3,6 @@ from dataclasses import dataclass, field
 import gym_pusht  # noqa: F401
 import gymnasium
 import numpy as np
-import torch
 from gymnasium import Env
 from tqdm import tqdm
 
@@ -90,7 +89,6 @@ def create_environment(
     return environment
 
 
-@torch.no_grad()
 def roll_out_episodes(
     *, environments: list[Env], seeds: list[int], policy: Policy, render: bool
 ) -> list[EpisodeRecord]:

@@ -59,7 +59,6 @@ def calculate_distances_within_expert_states(
 # ---- Private --------------------------------------------
 
 
-@torch.no_grad()
 def _calculate_distances(
     *,
     query_state_batch: torch.Tensor,  # (query_count, state_dimensionality)

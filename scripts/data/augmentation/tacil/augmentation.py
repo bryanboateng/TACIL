@@ -37,11 +37,12 @@ def augment(
         run=run,
     )
 
-    return create_augmented_data(
-        config=config.data,
-        episode_store=expert_episodes,
-        dynamics_model_ensemble=dynamics_model_ensemble,
-        expert_part_length=expert_part_length,
-        seed=seed,
-        run=run,
-    )
+    with torch.no_grad():
+        return create_augmented_data(
+            config=config.data,
+            episode_store=expert_episodes,
+            dynamics_model_ensemble=dynamics_model_ensemble,
+            expert_part_length=expert_part_length,
+            seed=seed,
+            run=run,
+        )

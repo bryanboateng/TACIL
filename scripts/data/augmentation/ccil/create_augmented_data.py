@@ -65,13 +65,14 @@ def create_ccil_augmented_data(
             }
         )
 
-    label_states, label_actions, label_distances = _generate_labels(
-        world_model=world_model,
-        state_batch=state_batch,
-        action_batch=action_batch,
-        next_state_batch=next_state_batch,
-        config=config,
-    )
+    with torch.no_grad():
+        label_states, label_actions, label_distances = _generate_labels(
+            world_model=world_model,
+            state_batch=state_batch,
+            action_batch=action_batch,
+            next_state_batch=next_state_batch,
+            config=config,
+        )
 
     distance_threshold = float(
         np.quantile(a=label_distances, q=config.labels.rejection_quantile)
@@ -132,7 +133,6 @@ def _extract_transitions(
     )
 
 
-@torch.no_grad()
 def _generate_labels(
     *,
     world_model: WorldModel,

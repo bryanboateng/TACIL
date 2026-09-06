@@ -2,7 +2,6 @@ from dataclasses import dataclass
 
 import numpy as np
 import numpy.typing as npt
-import torch
 
 from scripts.data.augmentation.tacil.create_data.backward_rollout import (
     SyntheticTrajectories,
@@ -22,7 +21,6 @@ class AugmentationResult:
     counts: OutcomeCounts
 
 
-@torch.no_grad()
 def create_augmented_episodes(
     *,
     synthetic_trajectories: SyntheticTrajectories,

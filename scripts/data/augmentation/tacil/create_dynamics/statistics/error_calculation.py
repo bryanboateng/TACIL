@@ -83,7 +83,6 @@ def _draw_windows(
     return state_windows[window_indices], action_windows[window_indices]
 
 
-@torch.no_grad()
 def _calculate_forward(
     *,
     dynamics_model_ensemble: DynamicsModelEnsemble,
@@ -111,7 +110,6 @@ def _calculate_forward(
     return torch.stack(tensors=distance_columns, dim=1)
 
 
-@torch.no_grad()
 def _calculate_backward(
     *,
     dynamics_model_ensemble: DynamicsModelEnsemble,

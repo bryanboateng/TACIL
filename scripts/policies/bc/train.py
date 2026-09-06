@@ -130,15 +130,16 @@ def train_behavior_cloning_policy(
         if (epoch_index + 1) % config.validation.interval_epoch_count != 0:
             continue
 
-        validation_reward = calculate_reward_statistics(
-            episode_records=run_scored_episodes_over_conditions(
-                policy_factory=create_behavior_cloning_policy_factory(
-                    policy_model=model, device=device
-                ),
-                start_episode_seed=100_000,
-                episode_count_per_condition=config.validation.episode_count_per_condition,
+        with torch.no_grad():
+            validation_reward = calculate_reward_statistics(
+                episode_records=run_scored_episodes_over_conditions(
+                    policy_factory=create_behavior_cloning_policy_factory(
+                        policy_model=model, device=device
+                    ),
+                    start_episode_seed=100_000,
+                    episode_count_per_condition=config.validation.episode_count_per_condition,
+                )
             )
-        )
         run.log(
             data={
                 f"{VALIDATION_SECTION}/1_reward_mean": validation_reward.mean,

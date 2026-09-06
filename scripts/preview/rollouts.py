@@ -51,12 +51,13 @@ def _run(*, config: gpi.Config) -> None:
             render_settings=RenderSettings(size=RENDER_SIZE, supersample_factor=1),
         )
         try:
-            (episode_record,) = roll_out_episodes(
-                environments=[environment],
-                seeds=[seed],
-                policy=policy_factory(episode_seeds=[seed]),
-                render=True,
-            )
+            with torch.no_grad():
+                (episode_record,) = roll_out_episodes(
+                    environments=[environment],
+                    seeds=[seed],
+                    policy=policy_factory(episode_seeds=[seed]),
+                    render=True,
+                )
         finally:
             environment.close()
 

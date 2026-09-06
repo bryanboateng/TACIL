@@ -143,12 +143,13 @@ def train_dynamics_model_ensemble(
     )
     dynamics_model_ensemble.eval()
 
-    log_ensemble_statistics(
-        dynamics_model_ensemble=dynamics_model_ensemble,
-        validation_episodes=validation_episodes,
-        episode_store=episode_store,
-        run=run,
-    )
+    with torch.no_grad():
+        log_ensemble_statistics(
+            dynamics_model_ensemble=dynamics_model_ensemble,
+            validation_episodes=validation_episodes,
+            episode_store=episode_store,
+            run=run,
+        )
 
     return dynamics_model_ensemble
 

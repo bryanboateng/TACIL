@@ -64,7 +64,6 @@ class WorldModel(torch.nn.Module):
         self.register_buffer("residual_scale", torch.ones(state_dimensionality))
         self.register_buffer("residual_mask", torch.ones(state_dimensionality))
 
-    @torch.no_grad()
     def initialize_transformations(
         self,
         *,
@@ -125,11 +124,12 @@ def fit_world_model(
     action_batch: torch.Tensor,  # (transition_count, action_dimensionality)
     next_state_batch: torch.Tensor,  # (transition_count, state_dimensionality)
 ) -> list[EpochLosses]:
-    world_model.initialize_transformations(
-        state_batch=state_batch,
-        action_batch=action_batch,
-        next_state_batch=next_state_batch,
-    )
+    with torch.no_grad():
+        world_model.initialize_transformations(
+            state_batch=state_batch,
+            action_batch=action_batch,
+            next_state_batch=next_state_batch,
+        )
 
     normalized_residual_targets = (
         next_state_batch - state_batch - world_model.residual_shift

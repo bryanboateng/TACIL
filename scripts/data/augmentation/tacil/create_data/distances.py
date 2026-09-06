@@ -27,7 +27,6 @@ def calculate_state_distances(
     )
 
 
-@torch.no_grad()
 def calculate_median_state_step_distance(
     *, episode_store: EpisodeStore, dynamics_model_ensemble: DynamicsModelEnsemble
 ) -> float:
@@ -48,7 +47,6 @@ def calculate_median_state_step_distance(
     )
 
 
-@torch.no_grad()
 def calculate_median_action_step_distance(*, episode_store: EpisodeStore) -> float:
     """How much the expert changes its action from one step to the next. This
     is the scale a label difference is read against: a synthetic
