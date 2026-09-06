@@ -28,10 +28,10 @@ def calculate_state_distances(
 
 
 @torch.no_grad()
-def calculate_state_step_distance(
+def calculate_median_state_step_distance(
     *, episode_store: EpisodeStore, dynamics_model_ensemble: DynamicsModelEnsemble
 ) -> float:
-    """How far the state moves in one expert step, at the median."""
+    """How far the state moves in one expert step."""
     device = next(dynamics_model_ensemble.parameters()).device
 
     state_batch = torch.as_tensor(data=episode_store.states).to(
@@ -49,9 +49,9 @@ def calculate_state_step_distance(
 
 
 @torch.no_grad()
-def calculate_action_step_distance(*, episode_store: EpisodeStore) -> float:
-    """How much the expert changes its action from one step to the next, at the
-    median. This is the scale a label difference is read against: an invented
+def calculate_median_action_step_distance(*, episode_store: EpisodeStore) -> float:
+    """How much the expert changes its action from one step to the next. This
+    is the scale a label difference is read against: a synthetic
     action that differs by less than this differs by less than the expert's own
     labels do between neighbouring states."""
     action_batch = torch.as_tensor(

@@ -18,12 +18,13 @@ from scripts.data.augmentation.tacil.create_data.nearest_expert_state import (
     calculate_distances_within_expert_states,
 )
 from scripts.data.augmentation.tacil.create_data.distances import (
-    calculate_action_step_distance,
-    calculate_state_step_distance,
+    calculate_median_action_step_distance,
+    calculate_median_state_step_distance,
 )
 from scripts.data.augmentation.tacil.create_data.statistics_logging import (
     STAGE_NAME,
     log_dataset_statistics,
+    log_median_expert_step_distances,
     log_rollout_statistics,
 )
 from scripts.data.augmentation.tacil.dynamics.dynamics_model_ensemble import (
@@ -56,11 +57,19 @@ def create_augmented_data(
     )  # (action_dimensionality,)
 
     #  We use the median (rather than the mean) because it's robust to outliers.
-    expert_step_distance = calculate_state_step_distance(
+    median_expert_state_step_distance = calculate_median_state_step_distance(
         episode_store=episode_store, dynamics_model_ensemble=dynamics_model_ensemble
     )
+    median_expert_action_step_distance = calculate_median_action_step_distance(
+        episode_store=episode_store
+    )
+    log_median_expert_step_distances(
+        median_expert_state_step_distance=median_expert_state_step_distance,
+        median_expert_action_step_distance=median_expert_action_step_distance,
+        run=run,
+    )
 
-    error_limit = config.error_limit_in_steps * expert_step_distance
+    error_limit = config.error_limit_in_steps * median_expert_state_step_distance
 
     synthetic_trajectories, rollout_diagnostics = roll_out_backward(
         dynamics_model_ensemble=dynamics_model_ensemble,
@@ -73,21 +82,18 @@ def create_augmented_data(
         action_noise_std=torch.as_tensor(action_noise_std).to(device=device),
         stopping_rule=config.stopping_rule,
         error_limit=error_limit,
-        convergence_tolerance=1e-3 * expert_step_distance,
+        convergence_tolerance=1e-3 * median_expert_state_step_distance,
     )
 
     log_rollout_statistics(
-        rollout_diagnostics=rollout_diagnostics,
-        expert_step_distance=expert_step_distance,
-        error_limit=error_limit,
-        run=run,
+        rollout_diagnostics=rollout_diagnostics, error_limit=error_limit, run=run
     )
 
     if not bool((synthetic_trajectories.trajectory_lengths > 0).any()):
-        run.summary[f"{STAGE_NAME}/1_rollout/5_empty_anchor_count"] = len(
+        run.summary[f"{STAGE_NAME}/2_rollout/4_empty_anchor_count"] = len(
             anchor_indices
         )
-        run.summary[f"{STAGE_NAME}/1_rollout/6_empty_anchor_fraction"] = 1.0
+        run.summary[f"{STAGE_NAME}/2_rollout/5_empty_anchor_fraction"] = 1.0
         raise RuntimeError(
             "The trajectory error limit rejected every anchor's first backward step, so "
             "this configuration produced no labels. Training on the expert data "
@@ -113,7 +119,7 @@ def create_augmented_data(
         augmentation_result=augmentation_result,
         source_episode_count=len(episode_store.episode_end_indices),
         source_transition_count=len(episode_store.states),
-        # Only the invented steps are asked about: the expert run-out spliced
+        # Only the synthetic steps are asked about: the expert run-out spliced
         # behind each trajectory is expert data and its distance is zero by
         # construction.
         synthetic_distances=calculate_distances_to_nearest_expert_state(
@@ -130,10 +136,8 @@ def create_augmented_data(
             expert_action_batch=expert_action_batch,
             dynamics_model_ensemble=dynamics_model_ensemble,
         ),
-        expert_state_step_distance=expert_step_distance,
-        expert_action_step_distance=calculate_action_step_distance(
-            episode_store=episode_store
-        ),
+        median_expert_state_step_distance=median_expert_state_step_distance,
+        median_expert_action_step_distance=median_expert_action_step_distance,
         run=run,
     )
 

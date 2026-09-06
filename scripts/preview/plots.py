@@ -2,7 +2,7 @@
 training a model first.
 
 The numbers are shaped like the real ones — errors that grow with depth,
-backward walks that stop early, an ensemble that fans out, invented steps
+backward walks that stop early, an ensemble that fans out, synthetic steps
 that sit further from the data than expert ones — but nothing here is
 measured.
 """
@@ -82,7 +82,7 @@ def main() -> None:
 
 
 def _draw_nearest_expert_state(*, rng: np.random.Generator) -> wandb.Image:
-    """Expert steps sit close together and their labels agree; invented ones
+    """Expert steps sit close together and their labels agree; synthetic ones
     reach further out, and the further they reach the more the label drifts."""
     expert_state_distances = rng.lognormal(mean=0.0, sigma=0.4, size=_POINT_COUNT)
     synthetic_state_distances = rng.lognormal(mean=0.7, sigma=0.7, size=_POINT_COUNT)

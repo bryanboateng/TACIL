@@ -24,7 +24,6 @@ class SyntheticTrajectories:
 class RolloutDiagnostics:
     anchor_count: int
     not_converged_count: int
-    final_errors: torch.Tensor  # (accepted_anchor_count,)
 
 
 @torch.no_grad()
@@ -50,7 +49,6 @@ def roll_out_backward(
         anchor_action_batch=anchor_action_batch,
     )
 
-    final_error_batch = torch.zeros(anchor_count, device=device)
     accepted_steps_per_depth: list[_AcceptedSteps] = []
 
     active_trajectory_indices = torch.arange(
@@ -96,10 +94,6 @@ def roll_out_backward(
         accepted_steps_per_depth.append(accepted_steps)
         error_meter.record(accepted_steps=accepted_steps)
 
-        final_error_batch[accepted_steps.trajectory_indices] = (
-            accepted_steps.error_batch
-        )
-
         active_trajectory_indices = accepted_steps.trajectory_indices
         current_state_batch = accepted_steps.predecessor_state_batch
 
@@ -110,9 +104,7 @@ def roll_out_backward(
         accepted_steps_per_depth=accepted_steps_per_depth, anchor_count=anchor_count
     )
     return synthetic_trajectories, RolloutDiagnostics(
-        anchor_count=anchor_count,
-        not_converged_count=not_converged_count,
-        final_errors=final_error_batch[synthetic_trajectories.trajectory_lengths > 0],
+        anchor_count=anchor_count, not_converged_count=not_converged_count
     )
 
 
