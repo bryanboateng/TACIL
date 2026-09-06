@@ -121,7 +121,7 @@ def _calculate_lipschitz_limit_per_layer(
 ) -> float:
     activation_count = linear_layer_count - 1
 
-    # We want the whole network's Lipschitz constant to be at most the target bound.
+    # We want the whole network's Lipschitz constant to be at most the target limit.
     # Since Lipschitz constants multiply through a composition, the total is
     # at most c^linear_layer_count * _SILU_LIPSCHITZ_CONSTANT^activation_count,
     # where c is the norm we assign to each linear layer.
