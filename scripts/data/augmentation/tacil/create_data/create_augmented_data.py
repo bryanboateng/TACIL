@@ -13,8 +13,8 @@ from scripts.data.augmentation.tacil.create_data.config import DataConfig
 from scripts.data.augmentation.tacil.create_data.episode_assembly import (
     create_augmented_episodes,
 )
-from scripts.data.augmentation.tacil.create_data.novelty import (
-    measure_distances_to_recorded_states,
+from scripts.data.augmentation.tacil.create_data.nearest_recorded_state import (
+    measure_distances_to_nearest_recorded_state,
 )
 from scripts.data.augmentation.tacil.create_data.state_distance import (
     measure_step_distance,
@@ -98,21 +98,39 @@ def create_augmented_data(
         expert_part_length=expert_part_length,
     )
 
+    recorded_state_batch = torch.as_tensor(data=episode_store.states).to(
+        device=device
+    )  # (recorded_count, state_dimensionality)
+    recorded_action_batch = torch.as_tensor(data=episode_store.actions).to(
+        device=device
+    )  # (recorded_count, action_dimensionality)
+
     log_dataset_statistics(
         augmentation_result=augmentation_result,
         source_episode_count=len(episode_store.episode_end_indices),
         source_transition_count=len(episode_store.states),
-        # Only the invented states are asked about: the expert run-out spliced
+        # Only the invented steps are asked about: the expert run-out spliced
         # behind each trajectory is recorded data and its distance is zero by
         # construction.
-        distances_to_recorded_states=measure_distances_to_recorded_states(
-            synthetic_state_batch=synthetic_trajectories.states,
-            recorded_state_batch=torch.as_tensor(data=episode_store.states).to(
-                device=device
-            ),
+        synthetic_distances=measure_distances_to_nearest_recorded_state(
+            query_state_batch=synthetic_trajectories.states,
+            query_action_batch=synthetic_trajectories.actions,
+            recorded_state_batch=recorded_state_batch,
+            recorded_action_batch=recorded_action_batch,
             dynamics_model_ensemble=dynamics_model_ensemble,
-        )
-        / expert_step_distance,
+            queries_are_the_recorded_states=False,
+        ),
+        # The same measurement inside the recorded data, which is what says
+        # whether the numbers above are unusual.
+        recorded_distances=measure_distances_to_nearest_recorded_state(
+            query_state_batch=recorded_state_batch,
+            query_action_batch=recorded_action_batch,
+            recorded_state_batch=recorded_state_batch,
+            recorded_action_batch=recorded_action_batch,
+            dynamics_model_ensemble=dynamics_model_ensemble,
+            queries_are_the_recorded_states=True,
+        ),
+        expert_step_distance=expert_step_distance,
         run=run,
     )
 

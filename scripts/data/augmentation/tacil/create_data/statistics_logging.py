@@ -1,4 +1,3 @@
-import torch
 from wandb import Run
 
 from scripts.data.augmentation.tacil.create_data.backward_rollout import (
@@ -6,6 +5,12 @@ from scripts.data.augmentation.tacil.create_data.backward_rollout import (
 )
 from scripts.data.augmentation.tacil.create_data.episode_assembly import (
     AugmentationResult,
+)
+from scripts.data.augmentation.tacil.create_data.nearest_recorded_state import (
+    NearestRecordedStateDistances,
+)
+from scripts.data.augmentation.tacil.create_data.nearest_recorded_state_panel import (
+    create_nearest_recorded_state_panel,
 )
 from scripts.shared import stage_names
 from scripts.shared.distribution_panel import create_distribution_panel
@@ -51,7 +56,9 @@ def log_dataset_statistics(
     augmentation_result: AugmentationResult,
     source_episode_count: int,
     source_transition_count: int,
-    distances_to_recorded_states: torch.Tensor,  # (invented_count,)
+    synthetic_distances: NearestRecordedStateDistances,
+    recorded_distances: NearestRecordedStateDistances,
+    expert_step_distance: float,
     run: Run,
 ) -> None:
     trajectory_lengths = augmentation_result.trajectory_lengths
@@ -97,23 +104,49 @@ def log_dataset_statistics(
         source_episode_count + counts.accepted
     )
 
-    # How far the invented states lie from the nearest recorded one, in
-    # multiples of the median expert step. This is what says whether the
-    # augmentation covered new ground or retraced the demonstrations: under one
-    # a synthetic state is nearer to a recorded state than two recorded states
-    # are to each other, so the policy has seen it already.
-    novelty_batch = distances_to_recorded_states.cpu().numpy()
-    for label, value in summarize_distribution(values=novelty_batch).items():
-        run.summary[f"{STAGE_NAME}/6_novelty/{label}"] = value
+    synthetic_state_distances = (
+        synthetic_distances.state_distances.cpu().numpy() / expert_step_distance
+    )
+    recorded_state_distances = (
+        recorded_distances.state_distances.cpu().numpy() / expert_step_distance
+    )
+    synthetic_action_distances = synthetic_distances.action_distances.cpu().numpy()
+    recorded_action_distances = recorded_distances.action_distances.cpu().numpy()
+
+    for quantity, values_per_group in (
+        (
+            "state_distance",
+            (
+                ("synthetic", synthetic_state_distances),
+                ("recorded", recorded_state_distances),
+            ),
+        ),
+        (
+            "action_distance",
+            (
+                ("synthetic", synthetic_action_distances),
+                ("recorded", recorded_action_distances),
+            ),
+        ),
+    ):
+        for group, values in values_per_group:
+            for label, value in summarize_distribution(values=values).items():
+                run.summary[
+                    f"{STAGE_NAME}/6_nearest_recorded_state/{quantity}/{group}/{label}"
+                ] = value
 
     run.log(
         data={
             f"{STAGE_NAME}/4_synthetic_length/plot": create_distribution_panel(
                 values=trajectory_lengths, column_name="synthetic part length"
             ),
-            f"{STAGE_NAME}/6_novelty/plot": create_distribution_panel(
-                values=novelty_batch,
-                column_name="distance to nearest recorded state, in steps",
+            f"{STAGE_NAME}/6_nearest_recorded_state/plot": (
+                create_nearest_recorded_state_panel(
+                    synthetic_state_distances=synthetic_state_distances,
+                    synthetic_action_distances=synthetic_action_distances,
+                    recorded_state_distances=recorded_state_distances,
+                    recorded_action_distances=recorded_action_distances,
+                )
             ),
         }
     )
