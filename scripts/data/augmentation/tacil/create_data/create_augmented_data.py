@@ -60,7 +60,7 @@ def create_augmented_data(
 
     error_limit = config.error_limit_in_steps * expert_step_distance
 
-    backward_trajectories, rollout_diagnostics = roll_out_backward(
+    synthetic_trajectories, rollout_diagnostics = roll_out_backward(
         dynamics_model_ensemble=dynamics_model_ensemble,
         anchor_state_batch=torch.as_tensor(episode_store.states[anchor_indices]).to(
             device=device
@@ -81,7 +81,7 @@ def create_augmented_data(
         run=run,
     )
 
-    if not bool((backward_trajectories.trajectory_length_batch > 0).any()):
+    if not bool((synthetic_trajectories.trajectory_length_batch > 0).any()):
         run.summary[f"{STAGE_NAME}/1_rollout/empty_anchor_count"] = len(anchor_indices)
         run.summary[f"{STAGE_NAME}/1_rollout/empty_anchor_fraction"] = 1.0
         raise RuntimeError(
@@ -92,7 +92,7 @@ def create_augmented_data(
         )
 
     augmentation_result = create_augmented_episodes(
-        synthetic_trajectories=backward_trajectories.to_temporal_order(),
+        synthetic_trajectories=synthetic_trajectories,
         episode_store=episode_store,
         anchor_indices=anchor_indices,
         expert_part_length=expert_part_length,
@@ -106,7 +106,7 @@ def create_augmented_data(
         # behind each trajectory is recorded data and its distance is zero by
         # construction.
         distances_to_recorded_states=measure_distances_to_recorded_states(
-            synthetic_state_batch=backward_trajectories.predecessor_states,
+            synthetic_state_batch=synthetic_trajectories.states,
             recorded_state_batch=torch.as_tensor(data=episode_store.states).to(
                 device=device
             ),

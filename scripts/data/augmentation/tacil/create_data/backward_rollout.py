@@ -17,50 +17,6 @@ from scripts.data.augmentation.tacil.dynamics.dynamics_model_ensemble import (
 
 
 @dataclass(frozen=True)
-class BackwardTrajectories:
-    predecessor_states: torch.Tensor  # (total_trajectory_length, state_dimensionality)
-    predecessor_actions: (
-        torch.Tensor
-    )  # (total_trajectory_length, action_dimensionality)
-    trajectory_length_batch: torch.Tensor  # (anchor_count,)
-
-    @property
-    def start_index_batch(self) -> torch.Tensor:  # (anchor_count,)
-        return (
-            torch.cumsum(input=self.trajectory_length_batch, dim=0)
-            - self.trajectory_length_batch
-        )
-
-    def to_temporal_order(self) -> SyntheticTrajectories:
-        """Reverse each trajectory: the walk found predecessors anchor-first, but a
-        training episode runs the other way, toward the anchor."""
-        trajectory_length_batch = self.trajectory_length_batch
-        start_index_batch = self.start_index_batch
-        device = trajectory_length_batch.device
-
-        trajectory_index_per_step = torch.repeat_interleave(
-            input=torch.arange(len(trajectory_length_batch), device=device),
-            repeats=trajectory_length_batch,
-        )  # (total_trajectory_length,)
-        position_in_trajectory = (
-            torch.arange(len(trajectory_index_per_step), device=device)
-            - start_index_batch[trajectory_index_per_step]
-        )  # (total_trajectory_length,)
-        source_index = (
-            start_index_batch[trajectory_index_per_step]
-            + trajectory_length_batch[trajectory_index_per_step]
-            - 1
-            - position_in_trajectory
-        )  # (total_trajectory_length,)
-
-        return SyntheticTrajectories(
-            states=self.predecessor_states[source_index],
-            actions=self.predecessor_actions[source_index],
-            trajectory_length_batch=trajectory_length_batch,
-        )
-
-
-@dataclass(frozen=True)
 class RolloutDiagnostics:
     anchor_count: int
     not_converged_count: int
@@ -77,7 +33,7 @@ def roll_out_backward(
     stopping_rule: StoppingRule,
     error_limit: float,
     convergence_tolerance: float,
-) -> tuple[BackwardTrajectories, RolloutDiagnostics]:
+) -> tuple[SyntheticTrajectories, RolloutDiagnostics]:
     anchor_count = anchor_state_batch.shape[0]
     device = anchor_state_batch.device
 
@@ -193,13 +149,13 @@ def roll_out_backward(
         progress_bar.update(n=1)
     progress_bar.close()
 
-    backward_trajectories = _assemble_trajectories(
+    synthetic_trajectories = _assemble_trajectories(
         accepted_steps_per_depth=accepted_steps_per_depth,
         trajectory_length_batch=trajectory_length_batch,
         state_dimensionality=anchor_state_batch.shape[1],
         action_dimensionality=anchor_action_batch.shape[1],
     )
-    return backward_trajectories, RolloutDiagnostics(
+    return synthetic_trajectories, RolloutDiagnostics(
         anchor_count=anchor_count,
         not_converged_count=not_converged_count,
         final_errors=final_error_batch[trajectory_length_batch > 0],
@@ -256,24 +212,26 @@ def _assemble_trajectories(
     trajectory_length_batch: torch.Tensor,  # (anchor_count,)
     state_dimensionality: int,
     action_dimensionality: int,
-) -> BackwardTrajectories:
+) -> SyntheticTrajectories:
     device = trajectory_length_batch.device
 
     total_trajectory_length = int(trajectory_length_batch.sum().item())
-    predecessor_states = torch.empty(
-        total_trajectory_length, state_dimensionality, device=device
-    )
-    predecessor_actions = torch.empty(
-        total_trajectory_length, action_dimensionality, device=device
-    )
+    states = torch.empty(total_trajectory_length, state_dimensionality, device=device)
+    actions = torch.empty(total_trajectory_length, action_dimensionality, device=device)
 
     anchor_start_index_batch = (
         torch.cumsum(input=trajectory_length_batch, dim=0) - trajectory_length_batch
     )  # (anchor_count,)
 
     for depth, accepted_steps in enumerate(iterable=accepted_steps_per_depth):
+        # The walk found predecessors anchor-first, but a training episode runs the
+        # other way, toward the anchor. So the step at depth d lands at the end of
+        # its slice, and the deepest one, found last, becomes the episode's start.
         write_index_batch = (
-            anchor_start_index_batch[accepted_steps.anchor_indices] + depth
+            anchor_start_index_batch[accepted_steps.anchor_indices]
+            + trajectory_length_batch[accepted_steps.anchor_indices]
+            - 1
+            - depth
         )
         if not (
             write_index_batch.shape[0]
@@ -287,11 +245,9 @@ def _assemble_trajectories(
                 f"{accepted_steps.predecessor_action_batch.shape[0]} actions"
             )
 
-        predecessor_states[write_index_batch] = accepted_steps.predecessor_state_batch
-        predecessor_actions[write_index_batch] = accepted_steps.predecessor_action_batch
+        states[write_index_batch] = accepted_steps.predecessor_state_batch
+        actions[write_index_batch] = accepted_steps.predecessor_action_batch
 
-    return BackwardTrajectories(
-        predecessor_states=predecessor_states,
-        predecessor_actions=predecessor_actions,
-        trajectory_length_batch=trajectory_length_batch,
+    return SyntheticTrajectories(
+        states=states, actions=actions, trajectory_length_batch=trajectory_length_batch
     )
