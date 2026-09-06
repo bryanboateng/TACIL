@@ -10,11 +10,7 @@ from pygame import Surface
 from tqdm import tqdm
 from wandb import Run
 
-from scripts.evaluation.core.condition import (
-    ALL_CONDITIONS,
-    VALIDATION_CONDITION,
-    Condition,
-)
+from scripts.evaluation.core.condition import Condition
 from scripts.evaluation.core.renderer import RenderSettings
 from scripts.evaluation.core.rollout import (
     EpisodeRecord,
@@ -26,8 +22,8 @@ from scripts.evaluation.core.scoring import (
     SuccessStatistics,
     compute_reward_statistics,
     compute_success_statistics,
+    iterate_scored_episodes,
     pick_representative_episodes,
-    run_scored_episodes,
 )
 from scripts.evaluation.core.video import (
     FREEZE_SECONDS,
@@ -43,33 +39,31 @@ logger = create_logger()
 
 STAGE_NAME = stage_names.EVALUATION
 
+# Stands beside the condition labels, so a sweep can rank on every condition at
+# once instead of picking one it was then tuned for.
+ALL_CONDITIONS_LABEL = "all_conditions"
+
 
 def evaluate_policy(
-    *,
-    policy_factory: PolicyFactory,
-    policy_label: str,
-    evaluate_all_conditions: bool,
-    seed: int,
-    run: Run,
+    *, policy_factory: PolicyFactory, policy_label: str, seed: int, run: Run
 ) -> None:
     start_episode_seed = 2_000_000 + seed * 10_000
 
-    conditions = (
-        list(ALL_CONDITIONS) if evaluate_all_conditions else [VALIDATION_CONDITION]
-    )
-    for condition in conditions:
-        logger.info("Scoring the policy in %s.", condition.label)
-        episode_records = run_scored_episodes(
-            policy_factory=policy_factory,
-            start_episode_seed=start_episode_seed,
-            episode_count=100,
-            condition=condition,
-        )
+    reward_means: list[float] = []
+    for condition, episode_records in iterate_scored_episodes(
+        policy_factory=policy_factory,
+        start_episode_seed=start_episode_seed,
+        episode_count_per_condition=100,
+    ):
+        logger.info("Scored the policy in %s.", condition.label)
+
+        reward = compute_reward_statistics(episode_records=episode_records)
+        reward_means.append(reward.mean)
 
         _write_summary(
             run=run,
             condition=condition,
-            reward=compute_reward_statistics(episode_records=episode_records),
+            reward=reward,
             success=compute_success_statistics(episode_records=episode_records),
         )
         _log_video(
@@ -80,6 +74,10 @@ def evaluate_policy(
             ),
             run=run,
         )
+
+    run.summary[f"{STAGE_NAME}/{ALL_CONDITIONS_LABEL}/reward_mean"] = sum(
+        reward_means
+    ) / len(reward_means)
 
 
 # ---- Private --------------------------------------------

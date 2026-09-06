@@ -104,7 +104,6 @@ def _run(*, config: Config) -> None:
                 policy_model=policy_model, device=device
             ),
             policy_label=f"bc ({run_name})",
-            evaluate_all_conditions=config.evaluate_all_conditions,
             seed=config.seed,
             run=run,
         )

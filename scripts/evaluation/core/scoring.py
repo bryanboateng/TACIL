@@ -1,9 +1,10 @@
+from collections.abc import Iterator
 from dataclasses import dataclass
 
 import numpy as np
 import torch
 
-from scripts.evaluation.core.condition import Condition
+from scripts.evaluation.core.condition import ALL_CONDITIONS, Condition
 from scripts.evaluation.core.rollout import (
     EpisodeRecord,
     create_environment,
@@ -32,7 +33,25 @@ class SuccessStatistics:
 
 
 @torch.no_grad()
-def run_scored_episodes(
+def iterate_scored_episodes(
+    *,
+    policy_factory: PolicyFactory,
+    start_episode_seed: int,
+    episode_count_per_condition: int,
+) -> Iterator[tuple[Condition, list[EpisodeRecord]]]:
+    for condition in ALL_CONDITIONS:
+        yield (
+            condition,
+            _run_scored_episodes(
+                policy_factory=policy_factory,
+                start_episode_seed=start_episode_seed,
+                episode_count=episode_count_per_condition,
+                condition=condition,
+            ),
+        )
+
+
+def _run_scored_episodes(
     *,
     policy_factory: PolicyFactory,
     start_episode_seed: int,
@@ -55,6 +74,7 @@ def run_scored_episodes(
             environment.close()
 
 
+@torch.no_grad()
 def compute_reward_statistics(
     *, episode_records: list[EpisodeRecord]
 ) -> RewardStatistics:

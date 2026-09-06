@@ -6,10 +6,9 @@ from torch.utils.data import DataLoader
 from tqdm.auto import tqdm
 from wandb import Run
 
-from scripts.evaluation.core.condition import VALIDATION_CONDITION
 from scripts.evaluation.core.scoring import (
     compute_reward_statistics,
-    run_scored_episodes,
+    iterate_scored_episodes,
 )
 from scripts.policies.bc.config import Config
 from scripts.policies.bc.dataset import Dataset
@@ -130,14 +129,17 @@ def train_behavior_cloning_policy(
             continue
 
         validation_reward = compute_reward_statistics(
-            episode_records=run_scored_episodes(
-                policy_factory=create_behavior_cloning_policy_factory(
-                    policy_model=model, device=device
-                ),
-                start_episode_seed=100_000,
-                episode_count=config.validation.episode_count,
-                condition=VALIDATION_CONDITION,
-            )
+            episode_records=[
+                episode_record
+                for _, episode_records in iterate_scored_episodes(
+                    policy_factory=create_behavior_cloning_policy_factory(
+                        policy_model=model, device=device
+                    ),
+                    start_episode_seed=100_000,
+                    episode_count_per_condition=config.validation.episode_count_per_condition,
+                )
+                for episode_record in episode_records
+            ]
         )
         run.log(
             data={

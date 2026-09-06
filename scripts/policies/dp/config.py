@@ -65,12 +65,12 @@ class OptimizationConfig:
 @dataclass(frozen=True)
 class ValidationConfig:
     interval_epoch_count: int = 50
-    episode_count: int = 50
+    episode_count_per_condition: int = 8
 
     def __post_init__(self) -> None:
         for name, value in (
             ("interval_epoch_count", self.interval_epoch_count),
-            ("episode_count", self.episode_count),
+            ("episode_count_per_condition", self.episode_count_per_condition),
         ):
             if value <= 0:
                 raise ValueError(f"{name} must be positive, but it is {value}.")

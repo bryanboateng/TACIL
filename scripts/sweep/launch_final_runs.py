@@ -3,7 +3,7 @@ from dataclasses import dataclass
 import tyro
 import wandb
 
-from scripts.evaluation.core.condition import VALIDATION_CONDITION
+from scripts.evaluation.evaluate_policy import ALL_CONDITIONS_LABEL
 from scripts.evaluation.evaluate_policy import STAGE_NAME
 from scripts.shared.log import create_logger
 from scripts.sweep.create_sweep import (
@@ -15,10 +15,7 @@ from scripts.sweep.create_sweep import (
 
 logger = create_logger()
 
-# The sweep evaluates one condition only, so that is the score the search
-# optimised and the score we rank the finished runs by. The final runs then
-# re-run the winners on every condition (see `--evaluate-all-conditions`).
-RANKING_METRIC = f"{STAGE_NAME}/{VALIDATION_CONDITION.label}/reward_mean"
+RANKING_METRIC = f"{STAGE_NAME}/{ALL_CONDITIONS_LABEL}/reward_mean"
 
 
 @dataclass(frozen=True)
@@ -74,7 +71,6 @@ def main() -> None:
                 f"--seed={seed}",
                 # Top-level option: it must precede the augmentation subcommand,
                 # or tyro reads it as a (missing) option of that subcommand.
-                "--evaluate-all-conditions",
                 *METHOD_FIXED_ARGUMENTS[config.method],
                 *swept_arguments,
             ]

@@ -100,7 +100,6 @@ def _run(*, config: Config) -> None:
                 device=device,
             ),
             policy_label=f"dp ({run_name})",
-            evaluate_all_conditions=config.evaluate_all_conditions,
             seed=config.seed,
             run=run,
         )

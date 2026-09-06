@@ -6,7 +6,7 @@ import tyro
 import wandb
 from rich.pretty import pretty_repr
 
-from scripts.evaluation.core.condition import VALIDATION_CONDITION
+from scripts.evaluation.evaluate_policy import ALL_CONDITIONS_LABEL
 from scripts.evaluation.evaluate_policy import STAGE_NAME
 from scripts.shared.log import create_logger
 
@@ -155,13 +155,6 @@ class Config:
     # The replay rule lands in the project name, so the sweeps stay apart.
     use_replay_criterion: bool = False
 
-    # Score every run on all six conditions instead of the validation one
-    # alone. The search still ranks on the validation condition -- a search
-    # needs one number -- but the others are then on record, so the same sweep
-    # can be re-read afterwards under any of them. Six evaluations instead of
-    # one, which is cheap next to training a policy but not free.
-    evaluate_all_conditions: bool = False
-
     def __post_init__(self) -> None:
         if self.use_replay_criterion and not self.method.startswith("tacil"):
             raise ValueError(
@@ -254,7 +247,6 @@ def _build_sweep_configuration(*, config: Config, project: str) -> dict[str, Any
     # it. A sweep over `policy.*` is the exception: those belong to the run
     # itself, so nothing may precede them.
     leading_arguments = [
-        f"--evaluate-all-conditions={config.evaluate_all_conditions}",
         *METHOD_FIXED_ARGUMENTS[config.method],
         # An option of the augmentation level, so it belongs after the
         # subcommand that opens that level. It has no default, so it is always
@@ -280,7 +272,7 @@ def _build_sweep_configuration(*, config: Config, project: str) -> dict[str, Any
         "program": pipeline_module.replace(".", "/") + ".py",
         "method": config.sweep_method,
         "metric": {
-            "name": f"{STAGE_NAME}/{VALIDATION_CONDITION.label}/reward_mean",
+            "name": f"{STAGE_NAME}/{ALL_CONDITIONS_LABEL}/reward_mean",
             "goal": "maximize",
         },
         "command": [

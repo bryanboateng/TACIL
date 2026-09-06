@@ -35,7 +35,3 @@ ALL_CONDITIONS: tuple[Condition, ...] = tuple(
     for floor_condition in FloorCondition
     for disturbance_level in (None, DisturbanceLevel.LOW, DisturbanceLevel.HIGH)
 )
-
-VALIDATION_CONDITION = Condition(
-    floor_condition=FloorCondition.GRIPPY, disturbance_level=DisturbanceLevel.LOW
-)

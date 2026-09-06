@@ -30,23 +30,29 @@ def create_augmented_episodes(
     anchor_indices: npt.NDArray[np.int64],  # (anchor_count,)
     expert_part_length: int,
 ) -> AugmentationResult:
+    synthetic_states = synthetic_trajectories.states.cpu().numpy()
+    synthetic_actions = synthetic_trajectories.actions.cpu().numpy()
     trajectory_lengths: npt.NDArray[np.int64] = (
         synthetic_trajectories.trajectory_lengths.cpu().numpy()
     )  # (anchor_count,)
-    accepted_anchor_count = int((trajectory_lengths > 0).sum())
+
+    accepted_anchor_mask = trajectory_lengths > 0  # (anchor_count,)
+    accepted_anchor_count = int(accepted_anchor_mask.sum())
     if accepted_anchor_count == 0:
         raise RuntimeError("Can't create augmented episodes. No anchor was accepted.")
 
     augmented_episodes = _assemble_episodes(
         expert_episodes=expert_episodes,
-        synthetic_trajectories=synthetic_trajectories,
-        anchor_index_batch=np.asarray(anchor_indices, dtype=np.int64),
+        synthetic_states=synthetic_states,
+        synthetic_actions=synthetic_actions,
+        trajectory_lengths=trajectory_lengths,
+        anchor_indices=np.asarray(anchor_indices, dtype=np.int64),
         expert_part_length=expert_part_length,
     )
 
     return AugmentationResult(
         episode_store=augmented_episodes,
-        trajectory_lengths=trajectory_lengths[trajectory_lengths > 0],
+        trajectory_lengths=trajectory_lengths[accepted_anchor_mask],
         counts=AugmentationResult.OutcomeCounts(
             empty=int(trajectory_lengths.shape[0]) - accepted_anchor_count,
             accepted=accepted_anchor_count,
@@ -60,37 +66,27 @@ def create_augmented_episodes(
 def _assemble_episodes(
     *,
     expert_episodes: EpisodeStore,
-    synthetic_trajectories: SyntheticTrajectories,
-    anchor_index_batch: npt.NDArray[np.int64],  # (anchor_count,)
+    synthetic_states: npt.NDArray[np.float32],  # (synthetic_step_count, state_dim)
+    synthetic_actions: npt.NDArray[np.float32],  # (synthetic_step_count, action_dim)
+    trajectory_lengths: npt.NDArray[np.int64],  # (anchor_count,)
+    anchor_indices: npt.NDArray[np.int64],  # (anchor_count,)
     expert_part_length: int,
 ) -> EpisodeStore:
-    synthetic_states = synthetic_trajectories.states.cpu().numpy()
-    synthetic_actions = synthetic_trajectories.actions.cpu().numpy()
-
-    a = (
-        torch.cumsum(input=synthetic_trajectories.trajectory_lengths, dim=0)
-        - synthetic_trajectories.trajectory_lengths
-    )
-    synthetic_part_start_index_batch = a.cpu().numpy()  # (anchor_count,)
-
-    trajectory_length_batch = (
-        synthetic_trajectories.trajectory_lengths.cpu().numpy()
+    start_indices = (
+        np.cumsum(trajectory_lengths) - trajectory_lengths
     )  # (anchor_count,)
-
-    accepted_anchor_mask = trajectory_length_batch > 0  # (anchor_count,)
+    accepted_anchor_mask = trajectory_lengths > 0  # (anchor_count,)
 
     state_trajectories_per_episode: list[np.ndarray] = []
     action_trajectories_per_episode: list[np.ndarray] = []
     episode_lengths: list[int] = []
 
-    for trajectory_length, synthetic_part_start_index, anchor_index in zip(
-        trajectory_length_batch[accepted_anchor_mask],
-        synthetic_part_start_index_batch[accepted_anchor_mask],
-        anchor_index_batch[accepted_anchor_mask],
+    for trajectory_length, start_index, anchor_index in zip(
+        trajectory_lengths[accepted_anchor_mask],
+        start_indices[accepted_anchor_mask],
+        anchor_indices[accepted_anchor_mask],
     ):
-        synthetic_part_slice = slice(
-            synthetic_part_start_index, synthetic_part_start_index + trajectory_length
-        )
+        synthetic_part_slice = slice(start_index, start_index + trajectory_length)
 
         synthetic_state_trajectory = synthetic_states[
             synthetic_part_slice

@@ -4,7 +4,8 @@ from dataclasses import dataclass
 
 import tyro
 
-from scripts.evaluation.core.condition import ALL_CONDITIONS, VALIDATION_CONDITION
+from scripts.evaluation.core.condition import ALL_CONDITIONS
+from scripts.evaluation.evaluate_policy import ALL_CONDITIONS_LABEL
 from scripts.evaluation.evaluate_policy import STAGE_NAME
 from scripts.sweep.create_sweep import METHOD_PARAMETERS
 
@@ -15,8 +16,8 @@ import wandb
 class Config:
     project: str = "2026-08-24-final"
     entity: str = "bryanboateng-team"
-    # The condition whose mean picks the winning config per method.
-    selection_condition: str = VALIDATION_CONDITION.label
+    # What picks the winning config per method.
+    selection_condition: str = ALL_CONDITIONS_LABEL
 
 
 def _get_param(config: dict, dotted: str):
