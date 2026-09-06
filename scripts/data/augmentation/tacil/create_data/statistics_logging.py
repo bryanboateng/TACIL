@@ -105,9 +105,6 @@ def log_dataset_statistics(
     novelty_batch = distances_to_recorded_states.cpu().numpy()
     for label, value in summarize_distribution(values=novelty_batch).items():
         run.summary[f"{STAGE_NAME}/6_novelty/{label}"] = value
-    run.summary[f"{STAGE_NAME}/6_novelty/share_within_one_step"] = float(
-        (novelty_batch < 1.0).mean()
-    )
 
     run.log(
         data={

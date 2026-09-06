@@ -5,15 +5,19 @@ import torch
 from tqdm import tqdm
 
 from scripts.data.augmentation.tacil.create_data.config import StoppingRule
-from scripts.data.augmentation.tacil.create_data.episode_assembly import (
-    SyntheticTrajectories,
-)
 from scripts.data.augmentation.tacil.create_data.inverse_dynamics import (
     solve_inverse_dynamics,
 )
 from scripts.data.augmentation.tacil.dynamics.dynamics_model_ensemble import (
     DynamicsModelEnsemble,
 )
+
+
+@dataclass(frozen=True)
+class SyntheticTrajectories:
+    states: torch.Tensor  # (synthetic_step_count, state_dimensionality)
+    actions: torch.Tensor  # (synthetic_step_count, action_dimensionality)
+    trajectory_lengths: torch.Tensor  # (trajectory_count,)
 
 
 @dataclass(frozen=True)
@@ -108,9 +112,7 @@ def roll_out_backward(
     return synthetic_trajectories, RolloutDiagnostics(
         anchor_count=anchor_count,
         not_converged_count=not_converged_count,
-        final_errors=final_error_batch[
-            synthetic_trajectories.trajectory_length_batch > 0
-        ],
+        final_errors=final_error_batch[synthetic_trajectories.trajectory_lengths > 0],
     )
 
 
@@ -289,7 +291,7 @@ def _assemble_trajectories(
                 steps.predecessor_action_batch for steps in accepted_steps_deepest_first
             ]
         )[order],
-        trajectory_length_batch=torch.bincount(
+        trajectory_lengths=torch.bincount(
             input=trajectory_index_per_step, minlength=anchor_count
         ),
     )

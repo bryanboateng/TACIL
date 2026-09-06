@@ -16,13 +16,13 @@ from scripts.data.augmentation.tacil.create_data.episode_assembly import (
 from scripts.data.augmentation.tacil.create_data.novelty import (
     measure_distances_to_recorded_states,
 )
+from scripts.data.augmentation.tacil.create_data.state_distance import (
+    measure_step_distance,
+)
 from scripts.data.augmentation.tacil.create_data.statistics_logging import (
     STAGE_NAME,
     log_dataset_statistics,
     log_rollout_statistics,
-)
-from scripts.data.augmentation.tacil.create_data.state_distance import (
-    measure_step_distance,
 )
 from scripts.data.augmentation.tacil.dynamics.dynamics_model_ensemble import (
     DynamicsModelEnsemble,
@@ -81,7 +81,7 @@ def create_augmented_data(
         run=run,
     )
 
-    if not bool((synthetic_trajectories.trajectory_length_batch > 0).any()):
+    if not bool((synthetic_trajectories.trajectory_lengths > 0).any()):
         run.summary[f"{STAGE_NAME}/1_rollout/empty_anchor_count"] = len(anchor_indices)
         run.summary[f"{STAGE_NAME}/1_rollout/empty_anchor_fraction"] = 1.0
         raise RuntimeError(
@@ -93,7 +93,7 @@ def create_augmented_data(
 
     augmentation_result = create_augmented_episodes(
         synthetic_trajectories=synthetic_trajectories,
-        episode_store=episode_store,
+        expert_episodes=episode_store,
         anchor_indices=anchor_indices,
         expert_part_length=expert_part_length,
     )
