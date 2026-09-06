@@ -16,7 +16,7 @@ from scripts.data.augmentation.tacil.dynamics.dynamics_model_ensemble import (
     DynamicsModelEnsemble,
 )
 from scripts.data.augmentation.tacil.dynamics.state_distance import (
-    calculate_state_distances,
+    calculate_normalized_state_distance,
 )
 
 
@@ -100,9 +100,9 @@ def _calculate_forward(
             action_batch=action_windows[:, step_index, :],
         )
         distance_columns.append(
-            calculate_state_distances(
-                minuend_batch=current_state_batch,
-                subtrahend_batch=state_windows[:, step_index + 1, :],
+            calculate_normalized_state_distance(
+                state_batch=current_state_batch,
+                other_state_batch=state_windows[:, step_index + 1, :],
                 state_normalizer=dynamics_model_ensemble.state_normalizer,
             )
         )
@@ -155,10 +155,12 @@ def _calculate_backward(
             converged_mask_batch
         ]
 
-        prediction_errors[window_indices, walk_step_index] = calculate_state_distances(
-            minuend_batch=current_state_batch,
-            subtrahend_batch=state_windows[window_indices, window_step_index, :],
-            state_normalizer=dynamics_model_ensemble.state_normalizer,
+        prediction_errors[window_indices, walk_step_index] = (
+            calculate_normalized_state_distance(
+                state_batch=current_state_batch,
+                other_state_batch=state_windows[window_indices, window_step_index, :],
+                state_normalizer=dynamics_model_ensemble.state_normalizer,
+            )
         )
         replay_errors[window_indices, walk_step_index] = (
             dynamics_model_ensemble.calculate_replay_error(

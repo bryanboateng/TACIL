@@ -6,7 +6,7 @@ from scripts.data.augmentation.tacil.dynamics.dynamics_model_ensemble import (
     DynamicsModelEnsemble,
 )
 from scripts.data.augmentation.tacil.dynamics.state_distance import (
-    calculate_state_distances,
+    calculate_normalized_state_distance,
 )
 from scripts.shared.episode_store import EpisodeStore
 
@@ -21,9 +21,9 @@ def calculate_median_state_step_distance(
     )  # (total_timestep_count, state_dimensionality)
 
     return _median_over_steps(
-        distance_batch=calculate_state_distances(
-            minuend_batch=state_batch[1:],
-            subtrahend_batch=state_batch[:-1],
+        distance_batch=calculate_normalized_state_distance(
+            state_batch=state_batch[1:],
+            other_state_batch=state_batch[:-1],
             state_normalizer=dynamics_model_ensemble.state_normalizer,
         ),
         episode_end_indices=episode_store.episode_end_indices,

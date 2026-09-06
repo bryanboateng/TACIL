@@ -6,7 +6,7 @@ from scripts.data.augmentation.tacil.dynamics.dynamics_model_ensemble import (
     DynamicsModelEnsemble,
 )
 from scripts.data.augmentation.tacil.dynamics.state_distance import (
-    calculate_state_distances,
+    calculate_normalized_state_distance,
 )
 
 # How many queries states are handled at a time.
@@ -73,9 +73,9 @@ def _calculate_distances(
 
     for chunk_start in range(0, query_state_batch.shape[0], _COMPARISON_CHUNK_SIZE):
         chunk_slice = slice(chunk_start, chunk_start + _COMPARISON_CHUNK_SIZE)
-        distance_batch = calculate_state_distances(
-            minuend_batch=query_state_batch[chunk_slice].unsqueeze(dim=1),
-            subtrahend_batch=expert_state_batch.unsqueeze(dim=0),
+        distance_batch = calculate_normalized_state_distance(
+            state_batch=query_state_batch[chunk_slice].unsqueeze(dim=1),
+            other_state_batch=expert_state_batch.unsqueeze(dim=0),
             state_normalizer=dynamics_model_ensemble.state_normalizer,
         )  # (chunk_size, expert_count)
         if exclude_self_as_neighbour:

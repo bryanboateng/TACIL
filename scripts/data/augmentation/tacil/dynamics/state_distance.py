@@ -6,13 +6,10 @@ from scripts.shared.pusht_state import subtract_states
 
 def calculate_normalized_state_difference(
     *,
-    minuend_batch: torch.Tensor,  # (..., state_dimensionality)
-    subtrahend_batch: torch.Tensor,  # (..., state_dimensionality)
+    minuend_batch: torch.Tensor,  # (batch_size, state_dimensionality)
+    subtrahend_batch: torch.Tensor,  # (batch_size, state_dimensionality)
     state_normalizer: ZScoreNormalizer,
-) -> torch.Tensor:  # (..., state_dimensionality)
-    """How two states differ, in the normalized state space. That space is what
-    makes a displacement of the block comparable to one of the agent, and the
-    angle wraps rather than running away."""
+) -> torch.Tensor:  # (batch_size, state_dimensionality)
     return state_normalizer.normalize_difference(
         difference_batch=subtract_states(
             minuend_batch=minuend_batch, subtrahend_batch=subtrahend_batch
@@ -20,16 +17,16 @@ def calculate_normalized_state_difference(
     )
 
 
-def calculate_state_distances(
+def calculate_normalized_state_distance(
     *,
-    minuend_batch: torch.Tensor,  # (..., state_dimensionality)
-    subtrahend_batch: torch.Tensor,  # (..., state_dimensionality)
+    state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
+    other_state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
     state_normalizer: ZScoreNormalizer,
-) -> torch.Tensor:  # (...,)
+) -> torch.Tensor:  # (batch_size,)
     return torch.linalg.norm(
         calculate_normalized_state_difference(
-            minuend_batch=minuend_batch,
-            subtrahend_batch=subtrahend_batch,
+            minuend_batch=state_batch,
+            subtrahend_batch=other_state_batch,
             state_normalizer=state_normalizer,
         ),
         dim=-1,
