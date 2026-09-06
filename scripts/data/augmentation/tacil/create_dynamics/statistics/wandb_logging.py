@@ -1,5 +1,6 @@
 import numpy as np
 import torch
+from numpy import typing as npt
 import wandb
 from wandb import Run
 
@@ -32,6 +33,8 @@ EPOCH_METRIC_NAME = f"{STAGE_NAME}/0_epoch"
 LOSS_SECTION = f"{STAGE_NAME}/1_loss"
 GRADIENT_NORM_SECTION = f"{STAGE_NAME}/2_gradient_norm"
 LIPSCHITZ_SECTION = f"{STAGE_NAME}/7_lipschitz"
+
+SUMMARY_STEP_COUNTS = (1, 2, 3, 5, 10, 20)
 
 
 def define_epoch_metrics(*, run: Run) -> None:
@@ -125,8 +128,6 @@ def log_ensemble_statistics(
     episode_store: EpisodeStore,
     run: Run,
 ) -> None:
-    summary_step_counts = (1, 2, 3, 5, 10, 20)
-
     expert_step_distance = measure_step_distance(
         episode_store=episode_store, dynamics_model_ensemble=dynamics_model_ensemble
     )
@@ -139,22 +140,11 @@ def log_ensemble_statistics(
     backward_replay_errors_per_step_count = (
         error_measurements.backward_replay_errors.cpu().numpy()
     )  # (window_count, step_count)
-    for step_count in summary_step_counts:
-        if step_count > backward_replay_errors_per_step_count.shape[1]:
-            continue
-        replay_errors_at_step_count = backward_replay_errors_per_step_count[
-            :, step_count - 1
-        ]
-        # A walk that stopped earlier than this has nothing to contribute.
-        replay_errors_at_step_count = replay_errors_at_step_count[
-            np.isfinite(replay_errors_at_step_count)
-        ]
-        if replay_errors_at_step_count.size == 0:
-            continue
-        for label, value in summarize_distribution(
-            values=replay_errors_at_step_count
-        ).items():
-            run.summary[f"{STAGE_NAME}/6_replay_error/{step_count:02d}/{label}"] = value
+    _log_errors_per_step_count(
+        errors_per_step_count=backward_replay_errors_per_step_count,
+        key_prefix=f"{STAGE_NAME}/6_replay_error",
+        run=run,
+    )
 
     run.summary[
         f"{STAGE_NAME}/5_error_over_step_count/backward/complete_walk_fraction"
@@ -168,23 +158,11 @@ def log_ensemble_statistics(
         ("backward", error_measurements.backward_prediction_errors),
         ("forward", error_measurements.forward_prediction_errors),
     ):
-        for step_count in summary_step_counts:
-            if step_count > prediction_errors.shape[1]:
-                continue
-            errors_at_step_count = prediction_errors[:, step_count - 1].cpu().numpy()
-            # A walk that stopped earlier than this has no error to contribute.
-            errors_at_step_count = errors_at_step_count[
-                np.isfinite(errors_at_step_count)
-            ]
-            if errors_at_step_count.size == 0:
-                continue
-            for label, value in summarize_distribution(
-                values=errors_at_step_count
-            ).items():
-                run.summary[
-                    f"{STAGE_NAME}/5_error_over_step_count/"
-                    f"{direction_name}/{step_count:02d}/{label}"
-                ] = value
+        _log_errors_per_step_count(
+            errors_per_step_count=prediction_errors.cpu().numpy(),
+            key_prefix=f"{STAGE_NAME}/5_error_over_step_count/{direction_name}",
+            run=run,
+        )
     run.log(
         data={
             f"{STAGE_NAME}/5_error_over_step_count/plot": plots.create_prediction_error_vs_step_count_plot(
@@ -214,6 +192,26 @@ def log_ensemble_statistics(
 
 
 # ---- Private --------------------------------------------
+
+
+def _log_errors_per_step_count(
+    *,
+    errors_per_step_count: npt.NDArray[np.float32],  # (window_count, step_count)
+    key_prefix: str,
+    run: Run,
+) -> None:
+    for step_count in SUMMARY_STEP_COUNTS:
+        if step_count > errors_per_step_count.shape[1]:
+            continue
+
+        # A walk that stopped earlier than this has no error to contribute.
+        errors = errors_per_step_count[:, step_count - 1]
+        errors = errors[np.isfinite(errors)]
+        if errors.size == 0:
+            continue
+
+        for label, value in summarize_distribution(values=errors).items():
+            run.summary[f"{key_prefix}/{step_count:02d}/{label}"] = value
 
 
 def _create_replay_panels(

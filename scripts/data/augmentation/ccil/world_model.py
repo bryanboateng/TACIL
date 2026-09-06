@@ -98,9 +98,10 @@ class WorldModel(torch.nn.Module):
             ],
             dim=-1,
         )
-        for layer in self._layers[:-1]:
-            features = torch.relu(layer(features))
-        return self._layers[-1](features)
+        *hidden_layers, output_layer = self._layers
+        for hidden_layer in hidden_layers:
+            features = torch.relu(hidden_layer(features))
+        return output_layer(features)
 
     def predict_residual(
         self,

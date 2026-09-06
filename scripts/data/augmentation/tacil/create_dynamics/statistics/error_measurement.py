@@ -8,6 +8,9 @@ from tqdm import tqdm
 from scripts.data.augmentation.tacil.create_data.inverse_dynamics import (
     solve_inverse_dynamics,
 )
+from scripts.data.augmentation.tacil.create_data.state_distance import (
+    calculate_state_distances,
+)
 from scripts.data.augmentation.tacil.create_dynamics.data import (
     TransitionTriples,
     build_windows,
@@ -15,7 +18,6 @@ from scripts.data.augmentation.tacil.create_dynamics.data import (
 from scripts.data.augmentation.tacil.dynamics.dynamics_model_ensemble import (
     DynamicsModelEnsemble,
 )
-from scripts.shared.pusht_state import subtract_states
 
 
 @dataclass(frozen=True)
@@ -91,24 +93,22 @@ def _measure_forward(
     step_count = action_windows.shape[1]
 
     current_state_batch = state_windows[:, 0, :]
-    difference_columns: list[torch.Tensor] = []
+    distance_columns: list[torch.Tensor] = []
 
     for step_index in range(step_count):
-        action_batch = action_windows[:, step_index, :]
         current_state_batch = dynamics_model_ensemble.predict_next_state(
-            state_batch=current_state_batch, action_batch=action_batch
+            state_batch=current_state_batch,
+            action_batch=action_windows[:, step_index, :],
         )
-        true_next_state_batch = state_windows[:, step_index + 1, :]
-        difference_columns.append(
-            dynamics_model_ensemble.state_normalizer.normalize_difference(
-                difference_batch=subtract_states(
-                    minuend_batch=current_state_batch,
-                    subtrahend_batch=true_next_state_batch,
-                )
+        distance_columns.append(
+            calculate_state_distances(
+                minuend_batch=current_state_batch,
+                subtrahend_batch=state_windows[:, step_index + 1, :],
+                dynamics_model_ensemble=dynamics_model_ensemble,
             )
         )
 
-    return torch.linalg.norm(torch.stack(tensors=difference_columns, dim=1), dim=-1)
+    return torch.stack(tensors=distance_columns, dim=1)
 
 
 @torch.no_grad()
@@ -125,63 +125,52 @@ def _measure_backward(
     window_count, step_count, _ = action_windows.shape
     device = state_windows.device
 
-    current_state_batch = state_windows[:, -1, :].clone()
-    active_mask_batch = torch.ones(window_count, dtype=torch.bool, device=device)
-
     prediction_errors = torch.full(
         size=(window_count, step_count), fill_value=float("nan"), device=device
     )
     replay_errors = torch.full_like(input=prediction_errors, fill_value=float("nan"))
 
-    for step_index in tqdm(
+    window_indices = torch.arange(window_count, device=device)  # (active_count,)
+    current_state_batch = state_windows[:, -1, :]
+
+    for walk_step_index in tqdm(
         iterable=range(step_count), desc="walking windows backward", unit="step"
     ):
-        active_indices = active_mask_batch.nonzero().squeeze(dim=1)
-        if active_indices.numel() == 0:
+        if window_indices.numel() == 0:
             break
 
-        window_index = step_count - 1 - step_index
-        action_batch = action_windows[active_indices, window_index, :]
-        successor_state_batch = current_state_batch[active_indices]
+        window_step_index = step_count - 1 - walk_step_index
 
         inverse_dynamics_solution = solve_inverse_dynamics(
             dynamics_model_ensemble=dynamics_model_ensemble,
-            initial_state_estimate_batch=successor_state_batch,
-            action_batch=action_batch,
-            target_next_state_batch=successor_state_batch,
+            initial_state_estimate_batch=current_state_batch,
+            action_batch=action_windows[window_indices, window_step_index, :],
+            target_next_state_batch=current_state_batch,
             convergence_tolerance=convergence_tolerance,
         )
 
-        converged_mask_batch = inverse_dynamics_solution.converged_batch
-        active_mask_batch[active_indices[~converged_mask_batch]] = False
-        converged_indices = active_indices[converged_mask_batch]
-        if converged_indices.numel() == 0:
-            break
-
-        predecessor_state_batch = inverse_dynamics_solution.state_batch[
+        converged_mask_batch = (
+            inverse_dynamics_solution.converged_batch
+        )  # (active_count,)
+        window_indices = window_indices[converged_mask_batch]
+        current_state_batch = inverse_dynamics_solution.state_batch[
             converged_mask_batch
         ]
 
-        batch = state_windows[converged_indices, window_index, :]
-        prediction_errors[converged_indices, step_index] = torch.linalg.norm(
-            dynamics_model_ensemble.state_normalizer.normalize_difference(
-                difference_batch=subtract_states(
-                    minuend_batch=predecessor_state_batch, subtrahend_batch=batch
-                )
-            ),
-            dim=-1,
+        prediction_errors[window_indices, walk_step_index] = calculate_state_distances(
+            minuend_batch=current_state_batch,
+            subtrahend_batch=state_windows[window_indices, window_step_index, :],
+            dynamics_model_ensemble=dynamics_model_ensemble,
         )
-        replay_errors[converged_indices, step_index] = (
+        replay_errors[window_indices, walk_step_index] = (
             dynamics_model_ensemble.measure_replay_error(
-                start_state_batch=predecessor_state_batch,
+                start_state_batch=current_state_batch,
                 action_batch_list=[
-                    action_windows[converged_indices, replayed_window_index, :]
-                    for replayed_window_index in range(window_index, step_count)
+                    action_windows[window_indices, replayed_step_index, :]
+                    for replayed_step_index in range(window_step_index, step_count)
                 ],
-                end_state_batch=state_windows[converged_indices, -1, :],
+                end_state_batch=state_windows[window_indices, -1, :],
             )
         )
-
-        current_state_batch[converged_indices] = predecessor_state_batch
 
     return prediction_errors, replay_errors

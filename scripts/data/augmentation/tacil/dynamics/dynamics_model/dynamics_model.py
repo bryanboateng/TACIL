@@ -86,7 +86,6 @@ def _create_network(
     hidden_layer_dimensionality: int,
     lipschitz_limit: float | None,
 ) -> torch.nn.Sequential:
-
     layer_dimensionalities = (
         input_dimensionality,
         *(hidden_layer_dimensionality,) * hidden_layer_count,
@@ -97,7 +96,7 @@ def _create_network(
     lipschitz_limit_per_layer = (
         None
         if lipschitz_limit is None
-        else _calculate_lipschitz_constant_upper_bound_per_layer(
+        else _calculate_lipschitz_limit_per_layer(
             lipschitz_limit=lipschitz_limit, linear_layer_count=linear_layer_count
         )
     )
@@ -117,9 +116,9 @@ def _create_network(
     return torch.nn.Sequential(*layers)
 
 
-def _calculate_lipschitz_constant_upper_bound_per_layer(
+def _calculate_lipschitz_limit_per_layer(
     *, lipschitz_limit: float, linear_layer_count: int
-) -> float | None:
+) -> float:
     activation_count = linear_layer_count - 1
 
     # We want the whole network's Lipschitz constant to be at most the target bound.

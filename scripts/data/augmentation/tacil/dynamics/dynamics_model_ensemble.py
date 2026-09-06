@@ -16,7 +16,11 @@ class DynamicsModelEnsemble(torch.nn.Module):
     ):
         super().__init__()
         self.state_normalizer = state_normalizer
-        self._dynamics_models = torch.nn.ModuleList(modules=dynamics_models)
+        self.dynamics_models = dynamics_models
+
+        # Torch reaches parameters only through modules it was handed, so the
+        # same members are registered a second time under a name it walks.
+        self._registered_dynamics_models = torch.nn.ModuleList(modules=dynamics_models)
 
     def predict_next_state(
         self,
@@ -116,14 +120,6 @@ class DynamicsModelEnsemble(torch.nn.Module):
             ],
             dim=0,
         ).mean(dim=0)
-
-    @property
-    def dynamics_models(self) -> list[DynamicsModel]:
-        dynamics_models: list[DynamicsModel] = []
-        for dynamics_model in self._dynamics_models:
-            assert isinstance(dynamics_model, DynamicsModel)
-            dynamics_models.append(dynamics_model)
-        return dynamics_models
 
     # ---- Private --------------------------------------------
 
