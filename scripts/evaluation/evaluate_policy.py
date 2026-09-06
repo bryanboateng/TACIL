@@ -22,8 +22,8 @@ from scripts.evaluation.core.scoring import (
     SuccessStatistics,
     compute_reward_statistics,
     compute_success_statistics,
-    iterate_scored_episodes,
     pick_representative_episodes,
+    run_scored_episodes_per_condition,
 )
 from scripts.evaluation.core.video import (
     FREEZE_SECONDS,
@@ -50,7 +50,7 @@ def evaluate_policy(
     start_episode_seed = 2_000_000 + seed * 10_000
 
     reward_means: list[float] = []
-    for condition, episode_records in iterate_scored_episodes(
+    for condition, episode_records in run_scored_episodes_per_condition(
         policy_factory=policy_factory,
         start_episode_seed=start_episode_seed,
         episode_count_per_condition=100,

@@ -33,7 +33,7 @@ class SuccessStatistics:
 
 
 @torch.no_grad()
-def iterate_scored_episodes(
+def run_scored_episodes_per_condition(
     *,
     policy_factory: PolicyFactory,
     start_episode_seed: int,
@@ -49,6 +49,26 @@ def iterate_scored_episodes(
                 condition=condition,
             ),
         )
+
+
+def run_scored_episodes_over_conditions(
+    *,
+    policy_factory: PolicyFactory,
+    start_episode_seed: int,
+    episode_count_per_condition: int,
+) -> list[EpisodeRecord]:
+    return [
+        episode_record
+        for condition_index, condition in enumerate(iterable=ALL_CONDITIONS)
+        for episode_record in _run_scored_episodes(
+            policy_factory=policy_factory,
+            start_episode_seed=(
+                start_episode_seed + condition_index * episode_count_per_condition
+            ),
+            episode_count=episode_count_per_condition,
+            condition=condition,
+        )
+    ]
 
 
 def _run_scored_episodes(

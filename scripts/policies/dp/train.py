@@ -10,7 +10,7 @@ from wandb import Run
 
 from scripts.evaluation.core.scoring import (
     compute_reward_statistics,
-    iterate_scored_episodes,
+    run_scored_episodes_over_conditions,
 )
 from scripts.policies.dp.config import Config
 from scripts.policies.dp.dataset import Dataset
@@ -174,20 +174,16 @@ def train_diffusion_policy(
             ema_state_dict = copy.deepcopy(noise_prediction_network.state_dict())
             with torch.no_grad():
                 validation_reward = compute_reward_statistics(
-                    episode_records=[
-                        episode_record
-                        for _, episode_records in iterate_scored_episodes(
-                            policy_factory=create_diffusion_policy_factory(
-                                noise_prediction_network=noise_prediction_network,
-                                horizon_lengths=config.horizon_lengths,
-                                noise_scheduler_name=config.sampler,
-                                device=device,
-                            ),
-                            start_episode_seed=100_000,
-                            episode_count_per_condition=config.validation.episode_count_per_condition,
-                        )
-                        for episode_record in episode_records
-                    ]
+                    episode_records=run_scored_episodes_over_conditions(
+                        policy_factory=create_diffusion_policy_factory(
+                            noise_prediction_network=noise_prediction_network,
+                            horizon_lengths=config.horizon_lengths,
+                            noise_scheduler_name=config.sampler,
+                            device=device,
+                        ),
+                        start_episode_seed=100_000,
+                        episode_count_per_condition=config.validation.episode_count_per_condition,
+                    )
                 )
         finally:
             noise_prediction_network_ema.restore(
