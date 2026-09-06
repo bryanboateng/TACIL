@@ -53,7 +53,7 @@ class DynamicsModel(torch.nn.Module):
             first_addend_batch=state_batch, second_addend_batch=state_displacement_batch
         )  # (batch_size, state_dimensionality)
 
-    def measure_local_lipschitz_constants(
+    def calculate_local_lipschitz_constants(
         self, *, state_batch: torch.Tensor, action_batch: torch.Tensor
     ) -> torch.Tensor:  # (batch_size,)
         network_input_batch = _create_normalized_network_input(

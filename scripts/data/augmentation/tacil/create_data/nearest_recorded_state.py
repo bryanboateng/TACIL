@@ -3,11 +3,16 @@ from dataclasses import dataclass
 import torch
 
 from scripts.data.augmentation.tacil.create_data.state_distance import (
-    iterate_distances_to_recorded_states,
+    calculate_state_distances,
 )
 from scripts.data.augmentation.tacil.dynamics.dynamics_model_ensemble import (
     DynamicsModelEnsemble,
 )
+
+# Query states compared per chunk. Each one is measured against every recorded
+# state at once, so the widest tensor holds chunk x recorded x state, and this
+# keeps that inside a few hundred megabytes on the largest budget.
+_COMPARISON_CHUNK_SIZE = 256
 
 
 @dataclass(frozen=True)
@@ -17,7 +22,7 @@ class NearestRecordedStateDistances:
 
 
 @torch.no_grad()
-def measure_distances_to_nearest_recorded_state(
+def calculate_distances_to_nearest_recorded_state(
     *,
     query_state_batch: torch.Tensor,  # (query_count, state_dimensionality)
     query_action_batch: torch.Tensor,  # (query_count, action_dimensionality)
@@ -26,21 +31,16 @@ def measure_distances_to_nearest_recorded_state(
     dynamics_model_ensemble: DynamicsModelEnsemble,
     queries_are_the_recorded_states: bool,
 ) -> NearestRecordedStateDistances:
-    """The nearest neighbour is found among the states alone. Its action is then
-    looked up, so the two distances answer 'how far from the data is this, and
-    does its label agree with the label the data carries there'.
-
-    Searching states and actions together would pick the neighbour whose action
-    already matches, which is the very thing being measured.
-    """
     state_distance_batches: list[torch.Tensor] = []
     action_distance_batches: list[torch.Tensor] = []
 
-    for chunk_start, distance_batch in iterate_distances_to_recorded_states(
-        query_state_batch=query_state_batch,
-        recorded_state_batch=recorded_state_batch,
-        dynamics_model_ensemble=dynamics_model_ensemble,
-    ):  # (chunk_size, recorded_count)
+    for chunk_start in range(0, query_state_batch.shape[0], _COMPARISON_CHUNK_SIZE):
+        chunk_slice = slice(chunk_start, chunk_start + _COMPARISON_CHUNK_SIZE)
+        distance_batch = calculate_state_distances(
+            minuend_batch=query_state_batch[chunk_slice].unsqueeze(dim=1),
+            subtrahend_batch=recorded_state_batch.unsqueeze(dim=0),
+            dynamics_model_ensemble=dynamics_model_ensemble,
+        )  # (chunk_size, recorded_count)
         if queries_are_the_recorded_states:
             chunk_indices = torch.arange(
                 distance_batch.shape[0], device=distance_batch.device
@@ -51,7 +51,7 @@ def measure_distances_to_nearest_recorded_state(
         state_distance_batches.append(nearest.values)
         action_distance_batches.append(
             torch.linalg.norm(
-                query_action_batch[chunk_start : chunk_start + distance_batch.shape[0]]
+                query_action_batch[chunk_slice]
                 - recorded_action_batch[nearest.indices],
                 dim=-1,
             )

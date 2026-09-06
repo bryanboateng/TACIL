@@ -42,7 +42,7 @@ def main() -> None:
                 rng=rng,
             ),
         ),
-        "measure_replay_error": plots.create_replay_error_plot(
+        "calculate_replay_error": plots.create_replay_error_plot(
             backward_prediction_errors_per_step_count=_stop_walks_early(
                 prediction_errors=_draw_growing_errors(rng=rng, growth_per_step=1.6),
                 rng=rng,

@@ -32,7 +32,7 @@ def solve_inverse_dynamics(
 
     iteration_count = 0
     while True:
-        residual_batch = _compute_residual(
+        residual_batch = _calculate_residual(
             dynamics_model_ensemble=dynamics_model_ensemble,
             normalized_state_batch=dynamics_model_ensemble.state_normalizer.normalize(
                 value_batch=state_estimate_batch
@@ -48,7 +48,7 @@ def solve_inverse_dynamics(
         if converged_batch.all() or iteration_count == max_iteration_count:
             break
 
-        jacobian_batch = _compute_jacobian_of_residual_wrt_normalized_state(
+        jacobian_batch = _calculate_jacobian_of_residual_wrt_normalized_state(
             dynamics_model_ensemble=dynamics_model_ensemble,
             normalized_state_batch=dynamics_model_ensemble.state_normalizer.normalize(
                 value_batch=state_estimate_batch
@@ -78,7 +78,7 @@ def solve_inverse_dynamics(
 # ---- Private --------------------------------------------
 
 
-def _compute_residual(
+def _calculate_residual(
     *,
     dynamics_model_ensemble: DynamicsModelEnsemble,
     normalized_state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
@@ -99,7 +99,7 @@ def _compute_residual(
     )  # (batch_size, state_dimensionality)
 
 
-def _compute_jacobian_of_residual_wrt_normalized_state(
+def _calculate_jacobian_of_residual_wrt_normalized_state(
     *,
     dynamics_model_ensemble: DynamicsModelEnsemble,
     normalized_state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
@@ -107,12 +107,12 @@ def _compute_jacobian_of_residual_wrt_normalized_state(
     target_next_state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
 ) -> torch.Tensor:  # (batch_size, state_dimensionality, state_dimensionality)
 
-    def compute_residual(
+    def calculate_residual(
         single_normalized_state: torch.Tensor,  # (state_dimensionality,)
         single_action: torch.Tensor,  # (action_dimensionality,)
         single_target_next_state: torch.Tensor,  # (state_dimensionality,)
     ) -> torch.Tensor:  # (state_dimensionality,)
-        return _compute_residual(
+        return _calculate_residual(
             dynamics_model_ensemble=dynamics_model_ensemble,
             normalized_state_batch=single_normalized_state.unsqueeze(
                 dim=0
@@ -123,7 +123,7 @@ def _compute_jacobian_of_residual_wrt_normalized_state(
             ),  # (1, state_dimensionality)
         ).squeeze(dim=0)  # (state_dimensionality,)
 
-    return torch.vmap(func=torch.func.jacrev(func=compute_residual, argnums=0))(
+    return torch.vmap(func=torch.func.jacrev(func=calculate_residual, argnums=0))(
         normalized_state_batch,  # (batch_size, state_dimensionality)
         action_batch,  # (batch_size, action_dimensionality)
         target_next_state_batch,  # (batch_size, state_dimensionality)

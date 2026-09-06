@@ -32,7 +32,9 @@ def _get_param(config: dict, dotted: str):
     return current
 
 
-def _compute_mean_and_deviation(values: list[float]) -> tuple[float | None, float, int]:
+def _calculate_mean_and_deviation(
+    values: list[float],
+) -> tuple[float | None, float, int]:
     n = len(values)
     if n == 0:
         return None, 0.0, 0
@@ -79,7 +81,7 @@ def main() -> None:
     best: dict = {}
     for group, per_condition in groups.items():
         pct, method, _ = group
-        mean, _, _ = _compute_mean_and_deviation(
+        mean, _, _ = _calculate_mean_and_deviation(
             per_condition.get(config.selection_condition, [])
         )
         if mean is None:
@@ -96,7 +98,7 @@ def main() -> None:
         print(f"### {pct} {method}   (best config, {n_seeds} seeds)")
         print("    config:", group_config[group])
         for label in (ALL_CONDITIONS_LABEL, *(c.label for c in ALL_CONDITIONS)):
-            mean, standard_error, n = _compute_mean_and_deviation(
+            mean, standard_error, n = _calculate_mean_and_deviation(
                 groups[group].get(label, [])
             )
             if mean is not None:

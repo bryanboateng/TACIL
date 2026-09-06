@@ -9,7 +9,7 @@ from tqdm.auto import tqdm
 from wandb import Run
 
 from scripts.evaluation.core.scoring import (
-    compute_reward_statistics,
+    calculate_reward_statistics,
     run_scored_episodes_over_conditions,
 )
 from scripts.policies.dp.config import Config
@@ -122,7 +122,7 @@ def train_diffusion_policy(
             dynamic_ncols=True,
             position=1,
         ):
-            loss = _compute_denoising_loss(
+            loss = _calculate_denoising_loss(
                 noise_prediction_network=noise_prediction_network,
                 training_batch=training_batch,
                 forward_noise_scheduler=forward_noise_scheduler,
@@ -173,7 +173,7 @@ def train_diffusion_policy(
         try:
             ema_state_dict = copy.deepcopy(noise_prediction_network.state_dict())
             with torch.no_grad():
-                validation_reward = compute_reward_statistics(
+                validation_reward = calculate_reward_statistics(
                     episode_records=run_scored_episodes_over_conditions(
                         policy_factory=create_diffusion_policy_factory(
                             noise_prediction_network=noise_prediction_network,
@@ -233,7 +233,7 @@ def _define_step_metrics(*, run: Run) -> None:
         run.define_metric(name=name, step_metric=STEP_METRIC_NAME)
 
 
-def _compute_denoising_loss(
+def _calculate_denoising_loss(
     *,
     noise_prediction_network: ConditionalUnet1d,
     training_batch: tuple[torch.Tensor, torch.Tensor],

@@ -5,7 +5,7 @@ import wandb
 from wandb import Run
 
 from scripts.data.augmentation.tacil.create_data.state_distance import (
-    measure_step_distance,
+    calculate_step_distance,
 )
 from scripts.data.augmentation.tacil.create_dynamics.data import TransitionTriples
 from scripts.data.augmentation.tacil.create_dynamics.dynamics_model_training import (
@@ -13,8 +13,8 @@ from scripts.data.augmentation.tacil.create_dynamics.dynamics_model_training imp
     MemberTrainingState,
 )
 from scripts.data.augmentation.tacil.create_dynamics.statistics import plots
-from scripts.data.augmentation.tacil.create_dynamics.statistics.error_measurement import (
-    measure_errors,
+from scripts.data.augmentation.tacil.create_dynamics.statistics.error_calculation import (
+    calculate_errors,
 )
 from scripts.data.augmentation.tacil.dynamics.dynamics_model_ensemble import (
     DynamicsModelEnsemble,
@@ -128,10 +128,10 @@ def log_ensemble_statistics(
     episode_store: EpisodeStore,
     run: Run,
 ) -> None:
-    expert_step_distance = measure_step_distance(
+    expert_step_distance = calculate_step_distance(
         episode_store=episode_store, dynamics_model_ensemble=dynamics_model_ensemble
     )
-    error_measurements = measure_errors(
+    error_measurements = calculate_errors(
         dynamics_model_ensemble=dynamics_model_ensemble,
         validation_episodes=validation_episodes,
         convergence_tolerance=1e-3 * expert_step_distance,

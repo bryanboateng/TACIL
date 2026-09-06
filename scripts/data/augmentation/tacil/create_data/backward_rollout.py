@@ -66,7 +66,7 @@ def roll_out_backward(
             active_anchor_count=int(active_trajectory_indices.numel())
         )
 
-        backward_step = _compute_backward_step(
+        backward_step = _calculate_backward_step(
             dynamics_model_ensemble=dynamics_model_ensemble,
             state_batch=current_state_batch,
             action_batch=anchor_action_batch[active_trajectory_indices],
@@ -74,7 +74,7 @@ def roll_out_backward(
             convergence_tolerance=convergence_tolerance,
         )
 
-        error_batch = error_meter.measure(
+        error_batch = error_meter.calculate(
             trajectory_indices=active_trajectory_indices, backward_step=backward_step
         )  # (active_count,)
 
@@ -135,7 +135,7 @@ class _BackwardStep:
 
 
 class _ErrorMeter(Protocol):
-    def measure(
+    def calculate(
         self,
         *,
         trajectory_indices: torch.Tensor,  # (active_count,)
@@ -159,13 +159,13 @@ class _ReplayMeter:
 
         self._accepted_action_batch_per_depth: list[torch.Tensor] = []
 
-    def measure(
+    def calculate(
         self,
         *,
         trajectory_indices: torch.Tensor,  # (active_count,)
         backward_step: _BackwardStep,
     ) -> torch.Tensor:  # (active_count,)
-        return self._dynamics_model_ensemble.measure_replay_error(
+        return self._dynamics_model_ensemble.calculate_replay_error(
             start_state_batch=backward_step.predecessor_state_batch,
             action_batch_list=[
                 backward_step.predecessor_action_batch,
@@ -200,7 +200,7 @@ class _AccountMeter:
             anchor_count, device=device
         )  # (anchor_count,)
 
-    def measure(
+    def calculate(
         self,
         *,
         trajectory_indices: torch.Tensor,  # (active_count,)
@@ -208,7 +208,7 @@ class _AccountMeter:
     ) -> torch.Tensor:  # (active_count,)
         return self._account_batch[
             trajectory_indices
-        ] + self._dynamics_model_ensemble.measure_prediction_disagreement(
+        ] + self._dynamics_model_ensemble.calculate_prediction_disagreement(
             state_batch=backward_step.predecessor_state_batch,
             action_batch=backward_step.predecessor_action_batch,
         )
@@ -241,7 +241,7 @@ def _build_error_meter(
             )
 
 
-def _compute_backward_step(
+def _calculate_backward_step(
     *,
     dynamics_model_ensemble: DynamicsModelEnsemble,
     state_batch: torch.Tensor,  # (active_count, state_dimensionality)

@@ -27,7 +27,7 @@ class ErrorMeasurements:
     backward_replay_errors: torch.Tensor  # (window_count, step_count)
 
 
-def measure_errors(
+def calculate_errors(
     *,
     dynamics_model_ensemble: DynamicsModelEnsemble,
     validation_episodes: list[TransitionTriples],
@@ -40,12 +40,12 @@ def measure_errors(
     state_window_batch = torch.from_numpy(state_windows).to(device=device)
     action_window_batch = torch.from_numpy(action_windows).to(device=device)
 
-    forward_prediction_errors = _measure_forward(
+    forward_prediction_errors = _calculate_forward(
         dynamics_model_ensemble=dynamics_model_ensemble,
         state_windows=state_window_batch,
         action_windows=action_window_batch,
     )
-    backward_prediction_errors, backward_replay_errors = _measure_backward(
+    backward_prediction_errors, backward_replay_errors = _calculate_backward(
         dynamics_model_ensemble=dynamics_model_ensemble,
         state_windows=state_window_batch,
         action_windows=action_window_batch,
@@ -84,7 +84,7 @@ def _draw_windows(
 
 
 @torch.no_grad()
-def _measure_forward(
+def _calculate_forward(
     *,
     dynamics_model_ensemble: DynamicsModelEnsemble,
     state_windows: torch.Tensor,  # (window_count, step_count + 1, state_dimensionality)
@@ -112,7 +112,7 @@ def _measure_forward(
 
 
 @torch.no_grad()
-def _measure_backward(
+def _calculate_backward(
     *,
     dynamics_model_ensemble: DynamicsModelEnsemble,
     state_windows: torch.Tensor,  # (window_count, step_count + 1, state_dimensionality)
@@ -163,7 +163,7 @@ def _measure_backward(
             dynamics_model_ensemble=dynamics_model_ensemble,
         )
         replay_errors[window_indices, walk_step_index] = (
-            dynamics_model_ensemble.measure_replay_error(
+            dynamics_model_ensemble.calculate_replay_error(
                 start_state_batch=current_state_batch,
                 action_batch_list=[
                     action_windows[window_indices, replayed_step_index, :]

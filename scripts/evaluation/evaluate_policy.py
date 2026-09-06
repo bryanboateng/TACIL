@@ -20,8 +20,8 @@ from scripts.evaluation.core.rollout import (
 from scripts.evaluation.core.scoring import (
     RewardStatistics,
     SuccessStatistics,
-    compute_reward_statistics,
-    compute_success_statistics,
+    calculate_reward_statistics,
+    calculate_success_statistics,
     pick_representative_episodes,
     run_scored_episodes_per_condition,
 )
@@ -57,14 +57,14 @@ def evaluate_policy(
     ):
         logger.info("Scored the policy in %s.", condition.label)
 
-        reward = compute_reward_statistics(episode_records=episode_records)
+        reward = calculate_reward_statistics(episode_records=episode_records)
         reward_means.append(reward.mean)
 
         _write_summary(
             run=run,
             condition=condition,
             reward=reward,
-            success=compute_success_statistics(episode_records=episode_records),
+            success=calculate_success_statistics(episode_records=episode_records),
         )
         _log_video(
             policy_label=policy_label,

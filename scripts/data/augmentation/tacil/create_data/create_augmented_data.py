@@ -14,10 +14,10 @@ from scripts.data.augmentation.tacil.create_data.episode_assembly import (
     create_augmented_episodes,
 )
 from scripts.data.augmentation.tacil.create_data.nearest_recorded_state import (
-    measure_distances_to_nearest_recorded_state,
+    calculate_distances_to_nearest_recorded_state,
 )
 from scripts.data.augmentation.tacil.create_data.state_distance import (
-    measure_step_distance,
+    calculate_step_distance,
 )
 from scripts.data.augmentation.tacil.create_data.statistics_logging import (
     STAGE_NAME,
@@ -49,12 +49,12 @@ def create_augmented_data(
         expert_part_length=expert_part_length,
     )  # (anchor_count,)
 
-    action_noise_std = _compute_noise_std(
+    action_noise_std = _calculate_noise_std(
         samples=episode_store.actions, noise_range_fraction=config.action_noise
     )  # (action_dimensionality,)
 
     #  We use the median (rather than the mean) because it's robust to outliers.
-    expert_step_distance = measure_step_distance(
+    expert_step_distance = calculate_step_distance(
         episode_store=episode_store, dynamics_model_ensemble=dynamics_model_ensemble
     )
 
@@ -114,7 +114,7 @@ def create_augmented_data(
         # Only the invented steps are asked about: the expert run-out spliced
         # behind each trajectory is recorded data and its distance is zero by
         # construction.
-        synthetic_distances=measure_distances_to_nearest_recorded_state(
+        synthetic_distances=calculate_distances_to_nearest_recorded_state(
             query_state_batch=synthetic_trajectories.states,
             query_action_batch=synthetic_trajectories.actions,
             recorded_state_batch=recorded_state_batch,
@@ -124,7 +124,7 @@ def create_augmented_data(
         ),
         # The same measurement inside the recorded data, which is what says
         # whether the numbers above are unusual.
-        recorded_distances=measure_distances_to_nearest_recorded_state(
+        recorded_distances=calculate_distances_to_nearest_recorded_state(
             query_state_batch=recorded_state_batch,
             query_action_batch=recorded_action_batch,
             recorded_state_batch=recorded_state_batch,
@@ -139,7 +139,7 @@ def create_augmented_data(
     return augmentation_result.episode_store
 
 
-def _compute_noise_std(
+def _calculate_noise_std(
     *,
     samples: npt.NDArray[np.float32],  # (N, dimensionality)
     noise_range_fraction: float,

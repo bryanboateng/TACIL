@@ -95,7 +95,7 @@ def _run_scored_episodes(
 
 
 @torch.no_grad()
-def compute_reward_statistics(
+def calculate_reward_statistics(
     *, episode_records: list[EpisodeRecord]
 ) -> RewardStatistics:
     rewards = np.array([record.reward for record in episode_records])
@@ -119,7 +119,7 @@ def compute_reward_statistics(
     )
 
 
-def compute_success_statistics(
+def calculate_success_statistics(
     *, episode_records: list[EpisodeRecord]
 ) -> SuccessStatistics:
     if not episode_records:
