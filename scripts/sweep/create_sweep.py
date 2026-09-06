@@ -272,7 +272,7 @@ def _build_sweep_configuration(*, config: Config, project: str) -> dict[str, Any
         "program": pipeline_module.replace(".", "/") + ".py",
         "method": config.sweep_method,
         "metric": {
-            "name": f"{STAGE_NAME}/{ALL_CONDITIONS_LABEL}/reward_mean",
+            "name": f"{STAGE_NAME}/{ALL_CONDITIONS_LABEL}/1_reward_mean",
             "goal": "maximize",
         },
         "command": [

@@ -47,7 +47,9 @@ def train_behavior_cloning_policy(
 
     loss_function = torch.nn.MSELoss()
 
-    run.summary[f"{STAGE_NAME}/transition_count"] = len(state_action_pairs.states)
+    run.summary[f"{STAGE_NAME}/0_dataset/1_transition_count"] = len(
+        state_action_pairs.states
+    )
 
     dataset = Dataset(state_action_pairs=state_action_pairs)
 
@@ -118,8 +120,8 @@ def train_behavior_cloning_policy(
 
             run.log(
                 data={
-                    f"{TRAINING_SECTION}/loss": loss.item(),
-                    f"{TRAINING_SECTION}/gradient_norm": gradient_norm.item(),
+                    f"{TRAINING_SECTION}/1_loss": loss.item(),
+                    f"{TRAINING_SECTION}/2_gradient_norm": gradient_norm.item(),
                     STEP_METRIC_NAME: global_step,
                 }
             )
@@ -139,8 +141,8 @@ def train_behavior_cloning_policy(
         )
         run.log(
             data={
-                f"{VALIDATION_SECTION}/reward_mean": validation_reward.mean,
-                f"{VALIDATION_SECTION}/reward_std": validation_reward.std,
+                f"{VALIDATION_SECTION}/1_reward_mean": validation_reward.mean,
+                f"{VALIDATION_SECTION}/2_reward_std": validation_reward.std,
                 EPOCH_METRIC_NAME: epoch_index,
                 STEP_METRIC_NAME: global_step,
             }
@@ -160,11 +162,11 @@ def train_behavior_cloning_policy(
     if best_checkpoint is None:
         raise ValueError("No checkpoint was recorded")
 
-    run.summary[f"{STAGE_NAME}/3_best_checkpoint/epoch"] = best_checkpoint.epoch
-    run.summary[f"{STAGE_NAME}/3_best_checkpoint/validation_reward_mean"] = (
+    run.summary[f"{STAGE_NAME}/3_best_checkpoint/1_epoch"] = best_checkpoint.epoch
+    run.summary[f"{STAGE_NAME}/3_best_checkpoint/2_validation_reward_mean"] = (
         best_checkpoint.validation_reward_mean
     )
-    run.summary[f"{STAGE_NAME}/3_best_checkpoint/validation_reward_std"] = (
+    run.summary[f"{STAGE_NAME}/3_best_checkpoint/3_validation_reward_std"] = (
         best_checkpoint.validation_reward_std
     )
 

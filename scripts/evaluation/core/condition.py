@@ -19,19 +19,22 @@ class Condition:
 
     @property
     def label(self) -> str:
-        if self.disturbance_level is None:
-            disturbance_label = "undisturbed"
-        else:
-            match self.disturbance_level:
-                case DisturbanceLevel.LOW:
-                    disturbance_label = "low_disturbance"
-                case DisturbanceLevel.HIGH:
-                    disturbance_label = "high_disturbance"
-        return f"{self.floor_condition.name.lower()}_{disturbance_label}"
+        return _LABELS[self]
 
 
-ALL_CONDITIONS: tuple[Condition, ...] = tuple(
-    Condition(floor_condition=floor_condition, disturbance_level=disturbance_level)
-    for floor_condition in FloorCondition
-    for disturbance_level in (None, DisturbanceLevel.LOW, DisturbanceLevel.HIGH)
-)
+_LABELS: dict[Condition, str] = {
+    Condition(FloorCondition.GRIPPY, None): "1_grippy_undisturbed",
+    Condition(FloorCondition.GRIPPY, DisturbanceLevel.LOW): "2_grippy_low_disturbance",
+    Condition(FloorCondition.GRIPPY, DisturbanceLevel.HIGH): (
+        "3_grippy_high_disturbance"
+    ),
+    Condition(FloorCondition.SLIPPERY, None): "4_slippery_undisturbed",
+    Condition(FloorCondition.SLIPPERY, DisturbanceLevel.LOW): (
+        "5_slippery_low_disturbance"
+    ),
+    Condition(FloorCondition.SLIPPERY, DisturbanceLevel.HIGH): (
+        "6_slippery_high_disturbance"
+    ),
+}
+
+ALL_CONDITIONS: tuple[Condition, ...] = tuple(_LABELS)

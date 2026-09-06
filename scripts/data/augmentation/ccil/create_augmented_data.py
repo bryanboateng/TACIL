@@ -58,9 +58,9 @@ def create_ccil_augmented_data(
     for epoch_index, losses in enumerate(iterable=epoch_losses):
         run.log(
             data={
-                f"{LOSS_SECTION}/total": losses.total,
-                f"{LOSS_SECTION}/mse": losses.mse,
-                f"{LOSS_SECTION}/lipschitz_penalty": losses.lipschitz_penalty,
+                f"{LOSS_SECTION}/1_total": losses.total,
+                f"{LOSS_SECTION}/2_mse": losses.mse,
+                f"{LOSS_SECTION}/3_lipschitz_penalty": losses.lipschitz_penalty,
                 EPOCH_METRIC_NAME: epoch_index,
             }
         )
@@ -80,13 +80,13 @@ def create_ccil_augmented_data(
     label_count = label_states.shape[0]
     rejected_count = label_count - int(accepted_mask.sum())
 
-    run.summary[f"{STAGE_NAME}/1_labels/expert_transition_count"] = states.shape[0]
-    run.summary[f"{STAGE_NAME}/1_labels/label_count"] = label_count
-    run.summary[f"{STAGE_NAME}/1_labels/distance_threshold"] = distance_threshold
+    run.summary[f"{STAGE_NAME}/1_labels/1_expert_transition_count"] = states.shape[0]
+    run.summary[f"{STAGE_NAME}/1_labels/2_label_count"] = label_count
+    run.summary[f"{STAGE_NAME}/1_labels/3_distance_threshold"] = distance_threshold
     # A rejected label sits further from its expert state than the threshold
     # allows. The denominator is the label_count logged next to it.
-    run.summary[f"{STAGE_NAME}/1_labels/rejected_label_count"] = rejected_count
-    run.summary[f"{STAGE_NAME}/1_labels/rejected_label_fraction"] = (
+    run.summary[f"{STAGE_NAME}/1_labels/4_rejected_label_count"] = rejected_count
+    run.summary[f"{STAGE_NAME}/1_labels/5_rejected_label_fraction"] = (
         rejected_count / max(label_count, 1)
     )
 
@@ -94,14 +94,14 @@ def create_ccil_augmented_data(
         run.summary[f"{STAGE_NAME}/2_label_distances/{label}"] = value
     run.log(
         data={
-            f"{STAGE_NAME}/2_label_distances/plot": create_distribution_panel(
+            f"{STAGE_NAME}/2_label_distances/4_plot": create_distribution_panel(
                 values=label_distances, column_name="label distance"
             )
         }
     )
 
     accepted_states = label_states[accepted_mask]
-    run.summary[f"{STAGE_NAME}/3_dataset/synthetic_transition_count"] = int(
+    run.summary[f"{STAGE_NAME}/3_dataset/1_synthetic_transition_count"] = int(
         accepted_states.shape[0]
     )
     return StateActionPairs(

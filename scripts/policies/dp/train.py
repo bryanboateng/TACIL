@@ -48,9 +48,9 @@ def train_diffusion_policy(
 
     forward_noise_scheduler = create_forward_noise_scheduler()
 
-    run.summary[f"{STAGE_NAME}/transition_count"] = len(expert_episodes.states) + (
-        0 if augmented_episodes is None else len(augmented_episodes.states)
-    )
+    run.summary[f"{STAGE_NAME}/0_dataset/1_transition_count"] = len(
+        expert_episodes.states
+    ) + (0 if augmented_episodes is None else len(augmented_episodes.states))
 
     dataset = Dataset(
         expert_episodes=expert_episodes,
@@ -58,7 +58,7 @@ def train_diffusion_policy(
         horizon_lengths=config.horizon_lengths,
     )
 
-    run.summary[f"{STAGE_NAME}/training_window_count"] = len(dataset)
+    run.summary[f"{STAGE_NAME}/0_dataset/2_training_window_count"] = len(dataset)
 
     noise_prediction_network = ConditionalUnet1d(
         action_dimensionality=expert_episodes.actions.shape[1],
@@ -149,11 +149,11 @@ def train_diffusion_policy(
 
             run.log(
                 data={
-                    f"{TRAINING_SECTION}/loss": loss.item(),
-                    f"{TRAINING_SECTION}/learning_rate": (
+                    f"{TRAINING_SECTION}/1_loss": loss.item(),
+                    f"{TRAINING_SECTION}/3_learning_rate": (
                         learning_rate_scheduler.get_last_lr()[0]
                     ),
-                    f"{TRAINING_SECTION}/gradient_norm": gradient_norm.item(),
+                    f"{TRAINING_SECTION}/2_gradient_norm": gradient_norm.item(),
                     STEP_METRIC_NAME: global_step,
                 }
             )
@@ -191,8 +191,8 @@ def train_diffusion_policy(
             )
         run.log(
             data={
-                f"{VALIDATION_SECTION}/reward_mean": validation_reward.mean,
-                f"{VALIDATION_SECTION}/reward_std": validation_reward.std,
+                f"{VALIDATION_SECTION}/1_reward_mean": validation_reward.mean,
+                f"{VALIDATION_SECTION}/2_reward_std": validation_reward.std,
                 EPOCH_METRIC_NAME: epoch_index,
                 STEP_METRIC_NAME: global_step,
             }
@@ -212,11 +212,11 @@ def train_diffusion_policy(
     if best_checkpoint is None:
         raise ValueError("No checkpoint was recorded")
 
-    run.summary[f"{STAGE_NAME}/3_best_checkpoint/epoch"] = best_checkpoint.epoch
-    run.summary[f"{STAGE_NAME}/3_best_checkpoint/validation_reward_mean"] = (
+    run.summary[f"{STAGE_NAME}/3_best_checkpoint/1_epoch"] = best_checkpoint.epoch
+    run.summary[f"{STAGE_NAME}/3_best_checkpoint/2_validation_reward_mean"] = (
         best_checkpoint.validation_reward_mean
     )
-    run.summary[f"{STAGE_NAME}/3_best_checkpoint/validation_reward_std"] = (
+    run.summary[f"{STAGE_NAME}/3_best_checkpoint/3_validation_reward_std"] = (
         best_checkpoint.validation_reward_std
     )
 

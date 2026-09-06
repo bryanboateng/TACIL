@@ -9,5 +9,9 @@ def summarize_distribution(
         raise ValueError("Summarization failed. Some values are not finite")
     return {
         label: float(np.percentile(a=values, q=percentile))
-        for label, percentile in {"median": 50.0, "p10": 10.0, "p90": 90.0}.items()
+        for label, percentile in {
+            "1_p10": 10.0,
+            "2_median": 50.0,
+            "3_p90": 90.0,
+        }.items()
     }

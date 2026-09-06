@@ -51,11 +51,11 @@ def log_epoch(
     }
     for prefix, member_values in (
         (
-            f"{LOSS_SECTION}/training",
+            f"{LOSS_SECTION}/1_training",
             [metrics.training_loss for metrics in per_member_metrics],
         ),
         (
-            f"{LOSS_SECTION}/validation",
+            f"{LOSS_SECTION}/2_validation",
             [metrics.validation_loss for metrics in per_member_metrics],
         ),
         (
@@ -70,14 +70,14 @@ def log_epoch(
 
     for split, member_split_lipschitz in (
         (
-            "training",
+            "1_training",
             [
                 metrics.training_local_lipschitz_constants
                 for metrics in per_member_metrics
             ],
         ),
         (
-            "validation",
+            "2_validation",
             [
                 metrics.validation_local_lipschitz_constants
                 for metrics in per_member_metrics
@@ -102,10 +102,10 @@ def log_best_checkpoint_summary(
 
     for name, values in (
         (
-            "validation_loss",
+            "1_validation_loss",
             np.array([checkpoint.validation_loss for checkpoint in best_checkpoints]),
         ),
-        ("epoch", np.array([checkpoint.epoch for checkpoint in best_checkpoints])),
+        ("2_epoch", np.array([checkpoint.epoch for checkpoint in best_checkpoints])),
     ):
         for label, value in summarize_distribution(values=values).items():
             run.summary[f"{STAGE_NAME}/3_best_checkpoint/{name}/{label}"] = value
@@ -117,8 +117,8 @@ def log_window_counts(
     for label, value in summarize_distribution(
         values=np.asarray(member_training_window_counts)
     ).items():
-        run.summary[f"{STAGE_NAME}/4_window_count/training/{label}"] = value
-    run.summary[f"{STAGE_NAME}/4_window_count/validation"] = validation_window_count
+        run.summary[f"{STAGE_NAME}/4_window_count/1_training/{label}"] = value
+    run.summary[f"{STAGE_NAME}/4_window_count/2_validation"] = validation_window_count
 
 
 def log_ensemble_statistics(
@@ -147,7 +147,7 @@ def log_ensemble_statistics(
     )
 
     run.summary[
-        f"{STAGE_NAME}/5_error_over_step_count/backward/complete_walk_fraction"
+        f"{STAGE_NAME}/5_error_over_step_count/1_backward/0_complete_walk_fraction"
     ] = float(
         np.isfinite(
             error_measurements.backward_prediction_errors[:, -1].cpu().numpy()
@@ -155,8 +155,8 @@ def log_ensemble_statistics(
     )
 
     for direction_name, prediction_errors in (
-        ("backward", error_measurements.backward_prediction_errors),
-        ("forward", error_measurements.forward_prediction_errors),
+        ("1_backward", error_measurements.backward_prediction_errors),
+        ("2_forward", error_measurements.forward_prediction_errors),
     ):
         _log_errors_per_step_count(
             errors_per_step_count=prediction_errors.cpu().numpy(),
@@ -165,7 +165,7 @@ def log_ensemble_statistics(
         )
     run.log(
         data={
-            f"{STAGE_NAME}/5_error_over_step_count/plot": plots.create_prediction_error_vs_step_count_plot(
+            f"{STAGE_NAME}/5_error_over_step_count/0_plot": plots.create_prediction_error_vs_step_count_plot(
                 forward_prediction_errors_per_step_count=(
                     error_measurements.forward_prediction_errors.cpu().numpy()
                 ),
@@ -173,7 +173,7 @@ def log_ensemble_statistics(
                     error_measurements.backward_prediction_errors.cpu().numpy()
                 ),
             ),
-            f"{STAGE_NAME}/6_replay_error/plot": (
+            f"{STAGE_NAME}/6_replay_error/0_plot": (
                 plots.create_replay_error_plot(
                     backward_prediction_errors_per_step_count=(
                         error_measurements.backward_prediction_errors.cpu().numpy()

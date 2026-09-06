@@ -82,8 +82,10 @@ def create_augmented_data(
     )
 
     if not bool((synthetic_trajectories.trajectory_lengths > 0).any()):
-        run.summary[f"{STAGE_NAME}/1_rollout/empty_anchor_count"] = len(anchor_indices)
-        run.summary[f"{STAGE_NAME}/1_rollout/empty_anchor_fraction"] = 1.0
+        run.summary[f"{STAGE_NAME}/1_rollout/5_empty_anchor_count"] = len(
+            anchor_indices
+        )
+        run.summary[f"{STAGE_NAME}/1_rollout/6_empty_anchor_fraction"] = 1.0
         raise RuntimeError(
             "The trajectory error limit rejected every anchor's first backward step, so "
             "this configuration produced no labels. Training on the expert data "

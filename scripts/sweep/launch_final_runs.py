@@ -15,7 +15,7 @@ from scripts.sweep.create_sweep import (
 
 logger = create_logger()
 
-RANKING_METRIC = f"{STAGE_NAME}/{ALL_CONDITIONS_LABEL}/reward_mean"
+RANKING_METRIC = f"{STAGE_NAME}/{ALL_CONDITIONS_LABEL}/1_reward_mean"
 
 
 @dataclass(frozen=True)

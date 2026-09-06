@@ -47,7 +47,7 @@ def _run(*, config: Config) -> None:
             artifact_name=config.expert_dataset_artifact, run=run
         )
 
-        run.summary[f"{stage_names.POLICY}/transition_count"] = len(
+        run.summary[f"{stage_names.POLICY}/0_dataset/1_transition_count"] = len(
             expert_episodes.states
         )
 

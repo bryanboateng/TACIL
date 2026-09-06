@@ -26,12 +26,12 @@ def log_rollout_statistics(
     error_limit: float,
     run: Run,
 ) -> None:
-    run.summary[f"{STAGE_NAME}/1_rollout/median_step_distance"] = expert_step_distance
-    run.summary[f"{STAGE_NAME}/1_rollout/error_limit"] = error_limit
-    run.summary[f"{STAGE_NAME}/1_rollout/anchor_count"] = (
+    run.summary[f"{STAGE_NAME}/1_rollout/1_median_step_distance"] = expert_step_distance
+    run.summary[f"{STAGE_NAME}/1_rollout/2_error_limit"] = error_limit
+    run.summary[f"{STAGE_NAME}/1_rollout/3_anchor_count"] = (
         rollout_diagnostics.anchor_count
     )
-    run.summary[f"{STAGE_NAME}/1_rollout/not_converged_count"] = (
+    run.summary[f"{STAGE_NAME}/1_rollout/4_not_converged_count"] = (
         rollout_diagnostics.not_converged_count
     )
 
@@ -44,7 +44,7 @@ def log_rollout_statistics(
             run.summary[f"{STAGE_NAME}/2_limit_tightness/{label}"] = value
         run.log(
             data={
-                f"{STAGE_NAME}/2_limit_tightness/plot": create_distribution_panel(
+                f"{STAGE_NAME}/2_limit_tightness/4_plot": create_distribution_panel(
                     values=limit_shares, column_name="final trajectory error / limit"
                 )
             }
@@ -68,8 +68,8 @@ def log_dataset_statistics(
     # nothing was invented in front of it. Zero is the good outcome, and the
     # denominator is the anchor_count logged next to it.
     anchor_count = counts.accepted + counts.empty
-    run.summary[f"{STAGE_NAME}/1_rollout/empty_anchor_count"] = counts.empty
-    run.summary[f"{STAGE_NAME}/1_rollout/empty_anchor_fraction"] = (
+    run.summary[f"{STAGE_NAME}/1_rollout/5_empty_anchor_count"] = counts.empty
+    run.summary[f"{STAGE_NAME}/1_rollout/6_empty_anchor_fraction"] = (
         counts.empty / anchor_count
     )
 
@@ -115,17 +115,17 @@ def log_dataset_statistics(
 
     for quantity, values_per_group in (
         (
-            "state_distance",
+            "1_state_distance",
             (
-                ("synthetic", synthetic_state_distances),
-                ("recorded", recorded_state_distances),
+                ("1_synthetic", synthetic_state_distances),
+                ("2_recorded", recorded_state_distances),
             ),
         ),
         (
-            "action_distance",
+            "2_action_distance",
             (
-                ("synthetic", synthetic_action_distances),
-                ("recorded", recorded_action_distances),
+                ("1_synthetic", synthetic_action_distances),
+                ("2_recorded", recorded_action_distances),
             ),
         ),
     ):
@@ -137,10 +137,10 @@ def log_dataset_statistics(
 
     run.log(
         data={
-            f"{STAGE_NAME}/4_synthetic_length/plot": create_distribution_panel(
+            f"{STAGE_NAME}/4_synthetic_length/4_plot": create_distribution_panel(
                 values=trajectory_lengths, column_name="synthetic part length"
             ),
-            f"{STAGE_NAME}/6_nearest_recorded_state/plot": (
+            f"{STAGE_NAME}/6_nearest_recorded_state/3_plot": (
                 create_nearest_recorded_state_panel(
                     synthetic_state_distances=synthetic_state_distances,
                     synthetic_action_distances=synthetic_action_distances,

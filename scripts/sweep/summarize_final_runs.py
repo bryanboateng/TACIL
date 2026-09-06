@@ -70,10 +70,10 @@ def main() -> None:
             continue
         group = (pct, method, config_key)
         group_config[group] = dict(config_key)
-        for condition in ALL_CONDITIONS:
-            reward = run.summary.get(f"{STAGE_NAME}/{condition.label}/reward_mean")
+        for label in (ALL_CONDITIONS_LABEL, *(c.label for c in ALL_CONDITIONS)):
+            reward = run.summary.get(f"{STAGE_NAME}/{label}/1_reward_mean")
             if reward is not None:
-                groups[group][condition.label].append(reward)
+                groups[group][label].append(reward)
 
     # Best config per (pct, method), chosen by the selection condition's mean.
     best: dict = {}
@@ -95,18 +95,16 @@ def main() -> None:
         n_seeds = len(next(iter(groups[group].values())))
         print(f"### {pct} {method}   (best config, {n_seeds} seeds)")
         print("    config:", group_config[group])
-        for condition in ALL_CONDITIONS:
+        for label in (ALL_CONDITIONS_LABEL, *(c.label for c in ALL_CONDITIONS)):
             mean, standard_error, n = _compute_mean_and_deviation(
-                groups[group].get(condition.label, [])
+                groups[group].get(label, [])
             )
             if mean is not None:
                 marker = (
-                    "  <-- selection"
-                    if condition.label == config.selection_condition
-                    else ""
+                    "  <-- selection" if label == config.selection_condition else ""
                 )
                 print(
-                    f"    {condition.label:26} {mean:.3f} ± {standard_error:.3f}  (n={n}){marker}"
+                    f"    {label:28} {mean:.3f} ± {standard_error:.3f}  (n={n}){marker}"
                 )
         print()
 

@@ -37,10 +37,10 @@ def _run(*, config: Config) -> None:
         episode_store = read_episode_store(
             episode_file_path=config.expert_data_file_path
         )
-        run.summary["episode_count"] = len(episode_store.episode_end_indices)
-        run.summary["transition_count"] = len(episode_store.states)
-        run.summary["state_dimensionality"] = episode_store.states.shape[1]
-        run.summary["action_dimensionality"] = episode_store.actions.shape[1]
+        run.summary["1_episode_count"] = len(episode_store.episode_end_indices)
+        run.summary["2_transition_count"] = len(episode_store.states)
+        run.summary["3_state_dimensionality"] = episode_store.states.shape[1]
+        run.summary["4_action_dimensionality"] = episode_store.actions.shape[1]
 
 
 if __name__ == "__main__":

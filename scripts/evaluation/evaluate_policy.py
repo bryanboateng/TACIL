@@ -41,7 +41,7 @@ STAGE_NAME = stage_names.EVALUATION
 
 # Stands beside the condition labels, so a sweep can rank on every condition at
 # once instead of picking one it was then tuned for.
-ALL_CONDITIONS_LABEL = "all_conditions"
+ALL_CONDITIONS_LABEL = "0_all_conditions"
 
 
 def evaluate_policy(
@@ -75,7 +75,7 @@ def evaluate_policy(
             run=run,
         )
 
-    run.summary[f"{STAGE_NAME}/{ALL_CONDITIONS_LABEL}/reward_mean"] = sum(
+    run.summary[f"{STAGE_NAME}/{ALL_CONDITIONS_LABEL}/1_reward_mean"] = sum(
         reward_means
     ) / len(reward_means)
 
@@ -90,16 +90,18 @@ def _write_summary(
     reward: RewardStatistics,
     success: SuccessStatistics,
 ) -> None:
-    run.summary[f"{STAGE_NAME}/{condition.label}/reward_mean"] = reward.mean
-    run.summary[f"{STAGE_NAME}/{condition.label}/reward_std"] = reward.std
-    run.summary[f"{STAGE_NAME}/{condition.label}/reward_standard_error"] = (
+    run.summary[f"{STAGE_NAME}/{condition.label}/1_reward_mean"] = reward.mean
+    run.summary[f"{STAGE_NAME}/{condition.label}/2_reward_std"] = reward.std
+    run.summary[f"{STAGE_NAME}/{condition.label}/3_reward_standard_error"] = (
         reward.standard_error
     )
-    run.summary[f"{STAGE_NAME}/{condition.label}/success_rate"] = success.rate
-    run.summary[f"{STAGE_NAME}/{condition.label}/success_standard_error"] = (
+    run.summary[f"{STAGE_NAME}/{condition.label}/4_success_rate"] = success.rate
+    run.summary[f"{STAGE_NAME}/{condition.label}/5_success_standard_error"] = (
         success.standard_error
     )
-    run.summary[f"{STAGE_NAME}/{condition.label}/episode_count"] = reward.episode_count
+    run.summary[f"{STAGE_NAME}/{condition.label}/6_episode_count"] = (
+        reward.episode_count
+    )
 
 
 def _log_video(
@@ -138,7 +140,7 @@ def _log_video(
 
             run.log(
                 data={
-                    f"{STAGE_NAME}/{condition.label}/video": wandb.Video(
+                    f"{STAGE_NAME}/{condition.label}/7_video": wandb.Video(
                         data_or_path=str(video_path), format="mp4"
                     )
                 }
