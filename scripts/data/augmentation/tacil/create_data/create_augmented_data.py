@@ -15,6 +15,7 @@ from scripts.data.augmentation.tacil.create_data.episode_assembly import (
 )
 from scripts.data.augmentation.tacil.create_data.nearest_recorded_state import (
     calculate_distances_to_nearest_recorded_state,
+    calculate_distances_within_recorded_states,
 )
 from scripts.data.augmentation.tacil.create_data.state_distance import (
     calculate_step_distance,
@@ -120,17 +121,13 @@ def create_augmented_data(
             recorded_state_batch=recorded_state_batch,
             recorded_action_batch=recorded_action_batch,
             dynamics_model_ensemble=dynamics_model_ensemble,
-            queries_are_the_recorded_states=False,
         ),
         # The same measurement inside the recorded data, which is what says
         # whether the numbers above are unusual.
-        recorded_distances=calculate_distances_to_nearest_recorded_state(
-            query_state_batch=recorded_state_batch,
-            query_action_batch=recorded_action_batch,
+        recorded_distances=calculate_distances_within_recorded_states(
             recorded_state_batch=recorded_state_batch,
             recorded_action_batch=recorded_action_batch,
             dynamics_model_ensemble=dynamics_model_ensemble,
-            queries_are_the_recorded_states=True,
         ),
         expert_step_distance=expert_step_distance,
         run=run,
