@@ -3,7 +3,7 @@ training a model first.
 
 The numbers are shaped like the real ones — errors that grow with depth,
 backward walks that stop early, an ensemble that fans out, invented steps
-that sit further from the data than recorded ones — but nothing here is
+that sit further from the data than expert ones — but nothing here is
 measured.
 """
 
@@ -11,11 +11,9 @@ import numpy as np
 import wandb
 from numpy import typing as npt
 
-from scripts.data.augmentation.tacil.create_data.nearest_recorded_state_plot import (
-    create_nearest_recorded_state_plot,
+from scripts.data.augmentation.tacil.create_data.nearest_expert_state_plot import (
+    create_nearest_expert_state_plot,
 )
-from scripts.data.augmentation.tacil.create_dynamics.statistics import plots
-from scripts.shared.distribution_plot import create_distribution_plot
 from scripts.shared.log import create_logger
 from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
 from scripts.shared.pusht_state import ARENA_SIZE, BLOCK_ORIENTATION_INDEX
@@ -41,38 +39,38 @@ def main() -> None:
     forward_member_trajectories, _, true_trajectory = _draw_fanning_replay(rng=rng)
 
     images = {
-        "prediction_error_vs_step_count": plots.create_prediction_error_vs_step_count_plot(
-            forward_prediction_errors_per_step_count=_draw_growing_errors(
-                rng=rng, growth_per_step=1.25
-            ),
-            backward_prediction_errors_per_step_count=_stop_walks_early(
-                prediction_errors=_draw_growing_errors(rng=rng, growth_per_step=1.6),
-                rng=rng,
-            ),
-        ),
-        "replay_error": plots.create_replay_error_plot(
-            backward_prediction_errors_per_step_count=_stop_walks_early(
-                prediction_errors=_draw_growing_errors(rng=rng, growth_per_step=1.6),
-                rng=rng,
-            ),
-            # Below the prediction error and growing more slowly, the way a
-            # model that underestimates its own drift looks.
-            backward_replay_errors_per_step_count=_stop_walks_early(
-                prediction_errors=0.2
-                * _draw_growing_errors(rng=rng, growth_per_step=1.35),
-                rng=rng,
-            ),
-        ),
-        "true_dynamics_vs_model_0": plots.create_true_dynamics_vs_model_plot(
-            forward_member_trajectories=forward_member_trajectories,
-            true_trajectory=true_trajectory,
-            episode_index=0,
-        ),
-        "nearest_recorded_state": _draw_nearest_recorded_state(rng=rng),
-        "distribution": create_distribution_plot(
-            values=rng.lognormal(mean=1.0, sigma=0.8, size=_POINT_COUNT),
-            column_name="made-up distribution",
-        ),
+        # "prediction_error_vs_step_count": plots.create_prediction_error_vs_step_count_plot(
+        #     forward_prediction_errors_per_step_count=_draw_growing_errors(
+        #         rng=rng, growth_per_step=1.25
+        #     ),
+        #     backward_prediction_errors_per_step_count=_stop_walks_early(
+        #         prediction_errors=_draw_growing_errors(rng=rng, growth_per_step=1.6),
+        #         rng=rng,
+        #     ),
+        # ),
+        # "replay_error": plots.create_replay_error_plot(
+        #     backward_prediction_errors_per_step_count=_stop_walks_early(
+        #         prediction_errors=_draw_growing_errors(rng=rng, growth_per_step=1.6),
+        #         rng=rng,
+        #     ),
+        #     # Below the prediction error and growing more slowly, the way a
+        #     # model that underestimates its own drift looks.
+        #     backward_replay_errors_per_step_count=_stop_walks_early(
+        #         prediction_errors=0.2
+        #         * _draw_growing_errors(rng=rng, growth_per_step=1.35),
+        #         rng=rng,
+        #     ),
+        # ),
+        # "true_dynamics_vs_model_0": plots.create_true_dynamics_vs_model_plot(
+        #     forward_member_trajectories=forward_member_trajectories,
+        #     true_trajectory=true_trajectory,
+        #     episode_index=0,
+        # ),
+        "nearest_expert_state": _draw_nearest_expert_state(rng=rng)
+        # "distribution": create_distribution_plot(
+        #     values=rng.lognormal(mean=1.0, sigma=0.8, size=_POINT_COUNT),
+        #     column_name="made-up distribution",
+        # ),
     }
 
     output_directory_path = OUTPUT_DIRECTORY_PATH / "plot_preview"
@@ -83,22 +81,22 @@ def main() -> None:
         logger.info("Wrote %s", image_path)
 
 
-def _draw_nearest_recorded_state(*, rng: np.random.Generator) -> wandb.Image:
-    """Recorded steps sit close together and their labels agree; invented ones
+def _draw_nearest_expert_state(*, rng: np.random.Generator) -> wandb.Image:
+    """Expert steps sit close together and their labels agree; invented ones
     reach further out, and the further they reach the more the label drifts."""
-    recorded_state_distances = rng.lognormal(mean=0.0, sigma=0.4, size=_POINT_COUNT)
+    expert_state_distances = rng.lognormal(mean=0.0, sigma=0.4, size=_POINT_COUNT)
     synthetic_state_distances = rng.lognormal(mean=0.7, sigma=0.7, size=_POINT_COUNT)
-    return create_nearest_recorded_state_plot(
+    return create_nearest_expert_state_plot(
         synthetic_state_distances=synthetic_state_distances,
         synthetic_action_distances=(
             6.0
             * synthetic_state_distances
             * rng.lognormal(mean=0.0, sigma=0.5, size=_POINT_COUNT)
         ),
-        recorded_state_distances=recorded_state_distances,
-        recorded_action_distances=(
+        expert_state_distances=expert_state_distances,
+        expert_action_distances=(
             6.0
-            * recorded_state_distances
+            * expert_state_distances
             * rng.lognormal(mean=0.0, sigma=0.5, size=_POINT_COUNT)
         ),
     )
@@ -137,7 +135,7 @@ def _draw_fanning_replay(
     npt.NDArray[np.floating],  # (_MEMBER_COUNT, step_count + 1, state_dimensionality)
     npt.NDArray[np.floating],  # (step_count + 1, state_dimensionality)
 ]:
-    """A recorded arc, and members that drift off it further the longer they
+    """An expert arc, and members that drift off it further the longer they
     predict on their own — forward from the first state, backward from the
     last one."""
     steps = np.arange(_REPLAY_STEP_COUNT + 1)
@@ -161,7 +159,7 @@ def _draw_fanning_replay(
     drift_per_dimension = np.array([22.0, 22.0, 18.0, 18.0, 0.9])
     member_trajectories = []
     for drift_scale in (
-        # Forward: at step 0 every member sits on the recorded state, and
+        # Forward: at step 0 every member sits on the expert state, and
         # nothing has compounded yet. Backward mirrors that around the end.
         progress[None, :, None] ** 1.5,
         (1.0 - progress)[None, :, None] ** 1.5,

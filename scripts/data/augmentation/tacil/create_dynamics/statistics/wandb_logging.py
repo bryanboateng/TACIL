@@ -4,8 +4,8 @@ from numpy import typing as npt
 import wandb
 from wandb import Run
 
-from scripts.data.augmentation.tacil.create_data.state_distance import (
-    calculate_step_distance,
+from scripts.data.augmentation.tacil.create_data.distances import (
+    calculate_state_step_distance,
 )
 from scripts.data.augmentation.tacil.create_dynamics.data import TransitionTriples
 from scripts.data.augmentation.tacil.create_dynamics.dynamics_model_training import (
@@ -128,7 +128,7 @@ def log_ensemble_statistics(
     episode_store: EpisodeStore,
     run: Run,
 ) -> None:
-    expert_step_distance = calculate_step_distance(
+    expert_step_distance = calculate_state_step_distance(
         episode_store=episode_store, dynamics_model_ensemble=dynamics_model_ensemble
     )
     error_measurements = calculate_errors(

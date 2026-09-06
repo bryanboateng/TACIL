@@ -8,7 +8,7 @@ from tqdm import tqdm
 from scripts.data.augmentation.tacil.create_data.inverse_dynamics import (
     solve_inverse_dynamics,
 )
-from scripts.data.augmentation.tacil.create_data.state_distance import (
+from scripts.data.augmentation.tacil.create_data.distances import (
     calculate_state_distances,
 )
 from scripts.data.augmentation.tacil.create_dynamics.data import (

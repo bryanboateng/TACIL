@@ -13,12 +13,13 @@ from scripts.data.augmentation.tacil.create_data.config import DataConfig
 from scripts.data.augmentation.tacil.create_data.episode_assembly import (
     create_augmented_episodes,
 )
-from scripts.data.augmentation.tacil.create_data.nearest_recorded_state import (
-    calculate_distances_to_nearest_recorded_state,
-    calculate_distances_within_recorded_states,
+from scripts.data.augmentation.tacil.create_data.nearest_expert_state import (
+    calculate_distances_to_nearest_expert_state,
+    calculate_distances_within_expert_states,
 )
-from scripts.data.augmentation.tacil.create_data.state_distance import (
-    calculate_step_distance,
+from scripts.data.augmentation.tacil.create_data.distances import (
+    calculate_action_step_distance,
+    calculate_state_step_distance,
 )
 from scripts.data.augmentation.tacil.create_data.statistics_logging import (
     STAGE_NAME,
@@ -55,7 +56,7 @@ def create_augmented_data(
     )  # (action_dimensionality,)
 
     #  We use the median (rather than the mean) because it's robust to outliers.
-    expert_step_distance = calculate_step_distance(
+    expert_step_distance = calculate_state_step_distance(
         episode_store=episode_store, dynamics_model_ensemble=dynamics_model_ensemble
     )
 
@@ -101,35 +102,38 @@ def create_augmented_data(
         expert_part_length=expert_part_length,
     )
 
-    recorded_state_batch = torch.as_tensor(data=episode_store.states).to(
+    expert_state_batch = torch.as_tensor(data=episode_store.states).to(
         device=device
-    )  # (recorded_count, state_dimensionality)
-    recorded_action_batch = torch.as_tensor(data=episode_store.actions).to(
+    )  # (expert_count, state_dimensionality)
+    expert_action_batch = torch.as_tensor(data=episode_store.actions).to(
         device=device
-    )  # (recorded_count, action_dimensionality)
+    )  # (expert_count, action_dimensionality)
 
     log_dataset_statistics(
         augmentation_result=augmentation_result,
         source_episode_count=len(episode_store.episode_end_indices),
         source_transition_count=len(episode_store.states),
         # Only the invented steps are asked about: the expert run-out spliced
-        # behind each trajectory is recorded data and its distance is zero by
+        # behind each trajectory is expert data and its distance is zero by
         # construction.
-        synthetic_distances=calculate_distances_to_nearest_recorded_state(
+        synthetic_distances=calculate_distances_to_nearest_expert_state(
             query_state_batch=synthetic_trajectories.states,
             query_action_batch=synthetic_trajectories.actions,
-            recorded_state_batch=recorded_state_batch,
-            recorded_action_batch=recorded_action_batch,
+            expert_state_batch=expert_state_batch,
+            expert_action_batch=expert_action_batch,
             dynamics_model_ensemble=dynamics_model_ensemble,
         ),
-        # The same measurement inside the recorded data, which is what says
+        # The same measurement inside the expert data, which is what says
         # whether the numbers above are unusual.
-        recorded_distances=calculate_distances_within_recorded_states(
-            recorded_state_batch=recorded_state_batch,
-            recorded_action_batch=recorded_action_batch,
+        expert_distances=calculate_distances_within_expert_states(
+            expert_state_batch=expert_state_batch,
+            expert_action_batch=expert_action_batch,
             dynamics_model_ensemble=dynamics_model_ensemble,
         ),
-        expert_step_distance=expert_step_distance,
+        expert_state_step_distance=expert_step_distance,
+        expert_action_step_distance=calculate_action_step_distance(
+            episode_store=episode_store
+        ),
         run=run,
     )
 

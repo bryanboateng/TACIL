@@ -6,11 +6,11 @@ from scripts.data.augmentation.tacil.create_data.backward_rollout import (
 from scripts.data.augmentation.tacil.create_data.episode_assembly import (
     AugmentationResult,
 )
-from scripts.data.augmentation.tacil.create_data.nearest_recorded_state import (
-    NearestRecordedStateDistances,
+from scripts.data.augmentation.tacil.create_data.nearest_expert_state import (
+    NearestExpertStateDistances,
 )
-from scripts.data.augmentation.tacil.create_data.nearest_recorded_state_plot import (
-    create_nearest_recorded_state_plot,
+from scripts.data.augmentation.tacil.create_data.nearest_expert_state_plot import (
+    create_nearest_expert_state_plot,
 )
 from scripts.shared import stage_names
 from scripts.shared.distribution_plot import create_distribution_plot
@@ -26,7 +26,9 @@ def log_rollout_statistics(
     error_limit: float,
     run: Run,
 ) -> None:
-    run.summary[f"{STAGE_NAME}/1_rollout/1_median_step_distance"] = expert_step_distance
+    run.summary[f"{STAGE_NAME}/1_rollout/1_expert_state_step_distance"] = (
+        expert_step_distance
+    )
     run.summary[f"{STAGE_NAME}/1_rollout/2_error_limit"] = error_limit
     run.summary[f"{STAGE_NAME}/1_rollout/3_anchor_count"] = (
         rollout_diagnostics.anchor_count
@@ -56,9 +58,10 @@ def log_dataset_statistics(
     augmentation_result: AugmentationResult,
     source_episode_count: int,
     source_transition_count: int,
-    synthetic_distances: NearestRecordedStateDistances,
-    recorded_distances: NearestRecordedStateDistances,
-    expert_step_distance: float,
+    synthetic_distances: NearestExpertStateDistances,
+    expert_distances: NearestExpertStateDistances,
+    expert_state_step_distance: float,
+    expert_action_step_distance: float,
     run: Run,
 ) -> None:
     trajectory_lengths = augmentation_result.trajectory_lengths
@@ -80,16 +83,16 @@ def log_dataset_statistics(
     # add up to the total and nothing has to be worked out by subtraction.
     #
     # Expert steps are counted twice on purpose, because the policy really does
-    # see them twice: once in the recorded episodes, and once as the run-out
+    # see them twice: once in the expert episodes, and once as the run-out
     # copied behind each anchor so that a synthetic prefix leads back into
-    # recorded behaviour.
+    # expert behaviour.
     invented_count = int(trajectory_lengths.sum())
     run_out_count = (
         int(augmentation_result.episode_store.states.shape[0]) - invented_count
     )
     total_count = source_transition_count + invented_count + run_out_count
 
-    run.summary[f"{STAGE_NAME}/5_dataset/1_recorded_expert_transitions"] = (
+    run.summary[f"{STAGE_NAME}/5_dataset/1_expert_transitions"] = (
         source_transition_count
     )
     run.summary[f"{STAGE_NAME}/5_dataset/2_invented_transitions"] = invented_count
@@ -105,34 +108,42 @@ def log_dataset_statistics(
     )
 
     synthetic_state_distances = (
-        synthetic_distances.state_distances.cpu().numpy() / expert_step_distance
+        synthetic_distances.state_distances.cpu().numpy() / expert_state_step_distance
     )
-    recorded_state_distances = (
-        recorded_distances.state_distances.cpu().numpy() / expert_step_distance
+    expert_state_distances = (
+        expert_distances.state_distances.cpu().numpy() / expert_state_step_distance
     )
-    synthetic_action_distances = synthetic_distances.action_distances.cpu().numpy()
-    recorded_action_distances = recorded_distances.action_distances.cpu().numpy()
+    synthetic_action_distances = (
+        synthetic_distances.action_distances.cpu().numpy() / expert_action_step_distance
+    )
+    expert_action_distances = (
+        expert_distances.action_distances.cpu().numpy() / expert_action_step_distance
+    )
+
+    run.summary[
+        f"{STAGE_NAME}/6_nearest_expert_state/0_expert_action_step_distance"
+    ] = expert_action_step_distance
 
     for quantity, values_per_group in (
         (
             "1_state_distance",
             (
                 ("1_synthetic", synthetic_state_distances),
-                ("2_recorded", recorded_state_distances),
+                ("2_expert", expert_state_distances),
             ),
         ),
         (
             "2_action_distance",
             (
                 ("1_synthetic", synthetic_action_distances),
-                ("2_recorded", recorded_action_distances),
+                ("2_expert", expert_action_distances),
             ),
         ),
     ):
         for group, values in values_per_group:
             for label, value in summarize_distribution(values=values).items():
                 run.summary[
-                    f"{STAGE_NAME}/6_nearest_recorded_state/{quantity}/{group}/{label}"
+                    f"{STAGE_NAME}/6_nearest_expert_state/{quantity}/{group}/{label}"
                 ] = value
 
     run.log(
@@ -140,12 +151,12 @@ def log_dataset_statistics(
             f"{STAGE_NAME}/4_synthetic_length/4_plot": create_distribution_plot(
                 values=trajectory_lengths, column_name="synthetic part length"
             ),
-            f"{STAGE_NAME}/6_nearest_recorded_state/3_plot": (
-                create_nearest_recorded_state_plot(
+            f"{STAGE_NAME}/6_nearest_expert_state/3_plot": (
+                create_nearest_expert_state_plot(
                     synthetic_state_distances=synthetic_state_distances,
                     synthetic_action_distances=synthetic_action_distances,
-                    recorded_state_distances=recorded_state_distances,
-                    recorded_action_distances=recorded_action_distances,
+                    expert_state_distances=expert_state_distances,
+                    expert_action_distances=expert_action_distances,
                 )
             ),
         }
