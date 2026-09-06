@@ -10,16 +10,16 @@ from scripts.data.augmentation.tacil.create_data.backward_rollout import (
     roll_out_backward,
 )
 from scripts.data.augmentation.tacil.create_data.config import DataConfig
+from scripts.data.augmentation.tacil.create_data.distances import (
+    calculate_median_action_step_distance,
+    calculate_median_state_step_distance,
+)
 from scripts.data.augmentation.tacil.create_data.episode_assembly import (
     create_augmented_episodes,
 )
 from scripts.data.augmentation.tacil.create_data.nearest_expert_state import (
     calculate_distances_to_nearest_expert_state,
     calculate_distances_within_expert_states,
-)
-from scripts.data.augmentation.tacil.create_data.distances import (
-    calculate_median_action_step_distance,
-    calculate_median_state_step_distance,
 )
 from scripts.data.augmentation.tacil.create_data.statistics_logging import (
     STAGE_NAME,
@@ -37,7 +37,7 @@ from scripts.shared.seeding import set_seed
 def create_augmented_data(
     *,
     config: DataConfig,
-    episode_store: EpisodeStore,
+    expert_episodes: EpisodeStore,
     dynamics_model_ensemble: DynamicsModelEnsemble,
     expert_part_length: int,
     seed: int,
@@ -48,20 +48,19 @@ def create_augmented_data(
     device = next(dynamics_model_ensemble.parameters()).device
 
     anchor_indices = get_anchor_indices(
-        episode_end_indices=episode_store.episode_end_indices,
+        episode_end_indices=expert_episodes.episode_end_indices,
         expert_part_length=expert_part_length,
     )  # (anchor_count,)
 
     action_noise_std = _calculate_noise_std(
-        samples=episode_store.actions, noise_range_fraction=config.action_noise
+        samples=expert_episodes.actions, noise_range_fraction=config.action_noise
     )  # (action_dimensionality,)
 
-    #  We use the median (rather than the mean) because it's robust to outliers.
     median_expert_state_step_distance = calculate_median_state_step_distance(
-        episode_store=episode_store, dynamics_model_ensemble=dynamics_model_ensemble
+        episode_store=expert_episodes, dynamics_model_ensemble=dynamics_model_ensemble
     )
     median_expert_action_step_distance = calculate_median_action_step_distance(
-        episode_store=episode_store
+        episode_store=expert_episodes
     )
     log_median_expert_step_distances(
         median_expert_state_step_distance=median_expert_state_step_distance,
@@ -73,10 +72,10 @@ def create_augmented_data(
 
     synthetic_trajectories, rollout_diagnostics = roll_out_backward(
         dynamics_model_ensemble=dynamics_model_ensemble,
-        anchor_state_batch=torch.as_tensor(episode_store.states[anchor_indices]).to(
+        anchor_state_batch=torch.as_tensor(expert_episodes.states[anchor_indices]).to(
             device=device
         ),
-        anchor_action_batch=torch.as_tensor(episode_store.actions[anchor_indices]).to(
+        anchor_action_batch=torch.as_tensor(expert_episodes.actions[anchor_indices]).to(
             device=device
         ),
         action_noise_std=torch.as_tensor(action_noise_std).to(device=device),
@@ -95,33 +94,28 @@ def create_augmented_data(
         )
         run.summary[f"{STAGE_NAME}/2_rollout/5_empty_anchor_fraction"] = 1.0
         raise RuntimeError(
-            "The trajectory error limit rejected every anchor's first backward step, so "
-            "this configuration produced no labels. Training on the expert data "
-            "alone would score the unaugmented baseline under an augmented "
-            "run's name, so the run stops here instead."
+            "The trajectory error limit rejected every anchor's first backward step, "
+            "so no synthetic transitions were produced."
         )
 
     augmentation_result = create_augmented_episodes(
         synthetic_trajectories=synthetic_trajectories,
-        expert_episodes=episode_store,
+        expert_episodes=expert_episodes,
         anchor_indices=anchor_indices,
         expert_part_length=expert_part_length,
     )
 
-    expert_state_batch = torch.as_tensor(data=episode_store.states).to(
+    expert_state_batch = torch.as_tensor(data=expert_episodes.states).to(
         device=device
     )  # (expert_count, state_dimensionality)
-    expert_action_batch = torch.as_tensor(data=episode_store.actions).to(
+    expert_action_batch = torch.as_tensor(data=expert_episodes.actions).to(
         device=device
     )  # (expert_count, action_dimensionality)
 
     log_dataset_statistics(
         augmentation_result=augmentation_result,
-        source_episode_count=len(episode_store.episode_end_indices),
-        source_transition_count=len(episode_store.states),
-        # Only the synthetic steps are asked about: the expert run-out spliced
-        # behind each trajectory is expert data and its distance is zero by
-        # construction.
+        source_episode_count=len(expert_episodes.episode_end_indices),
+        source_transition_count=len(expert_episodes.states),
         synthetic_distances=calculate_distances_to_nearest_expert_state(
             query_state_batch=synthetic_trajectories.states,
             query_action_batch=synthetic_trajectories.actions,
@@ -129,8 +123,6 @@ def create_augmented_data(
             expert_action_batch=expert_action_batch,
             dynamics_model_ensemble=dynamics_model_ensemble,
         ),
-        # The same measurement inside the expert data, which is what says
-        # whether the numbers above are unusual.
         expert_distances=calculate_distances_within_expert_states(
             expert_state_batch=expert_state_batch,
             expert_action_batch=expert_action_batch,
@@ -142,6 +134,9 @@ def create_augmented_data(
     )
 
     return augmentation_result.episode_store
+
+
+# ---- Private --------------------------------------------
 
 
 def _calculate_noise_std(
