@@ -15,8 +15,8 @@ class SyntheticTrajectories:
     from the anchor, its last action leads (per the model) to the anchor.
     """
 
-    states: torch.Tensor  # (total_trajectory_length, state_dimensionality)
-    actions: torch.Tensor  # (total_trajectory_length, action_dimensionality)
+    states: torch.Tensor  # (synthetic_step_count, state_dimensionality)
+    actions: torch.Tensor  # (synthetic_step_count, action_dimensionality)
     trajectory_length_batch: torch.Tensor  # (anchor_count,)
 
     @property
