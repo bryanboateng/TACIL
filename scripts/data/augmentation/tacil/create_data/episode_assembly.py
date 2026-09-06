@@ -30,8 +30,6 @@ def create_augmented_episodes(
     anchor_indices: npt.NDArray[np.int64],  # (anchor_count,)
     expert_part_length: int,
 ) -> AugmentationResult:
-    synthetic_states = synthetic_trajectories.states.cpu().numpy()
-    synthetic_actions = synthetic_trajectories.actions.cpu().numpy()
     trajectory_lengths: npt.NDArray[np.int64] = (
         synthetic_trajectories.trajectory_lengths.cpu().numpy()
     )  # (anchor_count,)
@@ -43,8 +41,8 @@ def create_augmented_episodes(
 
     augmented_episodes = _assemble_episodes(
         expert_episodes=expert_episodes,
-        synthetic_states=synthetic_states,
-        synthetic_actions=synthetic_actions,
+        synthetic_states=synthetic_trajectories.states.cpu().numpy(),
+        synthetic_actions=synthetic_trajectories.actions.cpu().numpy(),
         trajectory_lengths=trajectory_lengths,
         anchor_indices=np.asarray(anchor_indices, dtype=np.int64),
         expert_part_length=expert_part_length,
