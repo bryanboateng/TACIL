@@ -1,15 +1,21 @@
-"""Render every panel from made-up numbers, to look at the design without
+"""Render every plot from made-up numbers, to look at the design without
 training a model first.
 
 The numbers are shaped like the real ones — errors that grow with depth,
-backward walks that stop early, an ensemble that fans out — but nothing here
-measures anything.
+backward walks that stop early, an ensemble that fans out, invented steps
+that sit further from the data than recorded ones — but nothing here is
+measured.
 """
 
 import numpy as np
+import wandb
 from numpy import typing as npt
 
+from scripts.data.augmentation.tacil.create_data.nearest_recorded_state_plot import (
+    create_nearest_recorded_state_plot,
+)
 from scripts.data.augmentation.tacil.create_dynamics.statistics import plots
+from scripts.shared.distribution_plot import create_distribution_plot
 from scripts.shared.log import create_logger
 from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
 from scripts.shared.pusht_state import ARENA_SIZE, BLOCK_ORIENTATION_INDEX
@@ -20,11 +26,13 @@ logger = create_logger()
 _SEED = 0
 
 _WINDOW_COUNT = 1024
-_CHAIN_DEPTH = 20
+_TRAJECTORY_DEPTH = 20
 _MEMBER_COUNT = 8
 _REPLAY_STEP_COUNT = 100
 
 _STATE_DIMENSIONALITY = 5
+
+_POINT_COUNT = 4_000
 
 
 def main() -> None:
@@ -42,13 +50,13 @@ def main() -> None:
                 rng=rng,
             ),
         ),
-        "calculate_replay_error": plots.create_replay_error_plot(
+        "replay_error": plots.create_replay_error_plot(
             backward_prediction_errors_per_step_count=_stop_walks_early(
                 prediction_errors=_draw_growing_errors(rng=rng, growth_per_step=1.6),
                 rng=rng,
             ),
-            # Below the prediction error and growing more slowly, the way an
-            # that underestimates its own drift looks.
+            # Below the prediction error and growing more slowly, the way a
+            # model that underestimates its own drift looks.
             backward_replay_errors_per_step_count=_stop_walks_early(
                 prediction_errors=0.2
                 * _draw_growing_errors(rng=rng, growth_per_step=1.35),
@@ -60,9 +68,14 @@ def main() -> None:
             true_trajectory=true_trajectory,
             episode_index=0,
         ),
+        "nearest_recorded_state": _draw_nearest_recorded_state(rng=rng),
+        "distribution": create_distribution_plot(
+            values=rng.lognormal(mean=1.0, sigma=0.8, size=_POINT_COUNT),
+            column_name="made-up distribution",
+        ),
     }
 
-    output_directory_path = OUTPUT_DIRECTORY_PATH / "panel_preview"
+    output_directory_path = OUTPUT_DIRECTORY_PATH / "plot_preview"
     output_directory_path.mkdir(parents=True, exist_ok=True)
     for name, image in images.items():
         image_path = output_directory_path / f"{name}.png"
@@ -70,27 +83,48 @@ def main() -> None:
         logger.info("Wrote %s", image_path)
 
 
+def _draw_nearest_recorded_state(*, rng: np.random.Generator) -> wandb.Image:
+    """Recorded steps sit close together and their labels agree; invented ones
+    reach further out, and the further they reach the more the label drifts."""
+    recorded_state_distances = rng.lognormal(mean=0.0, sigma=0.4, size=_POINT_COUNT)
+    synthetic_state_distances = rng.lognormal(mean=0.7, sigma=0.7, size=_POINT_COUNT)
+    return create_nearest_recorded_state_plot(
+        synthetic_state_distances=synthetic_state_distances,
+        synthetic_action_distances=(
+            6.0
+            * synthetic_state_distances
+            * rng.lognormal(mean=0.0, sigma=0.5, size=_POINT_COUNT)
+        ),
+        recorded_state_distances=recorded_state_distances,
+        recorded_action_distances=(
+            6.0
+            * recorded_state_distances
+            * rng.lognormal(mean=0.0, sigma=0.5, size=_POINT_COUNT)
+        ),
+    )
+
+
 def _draw_growing_errors(
     *, rng: np.random.Generator, growth_per_step: float
-) -> npt.NDArray[np.floating]:  # (_WINDOW_COUNT, _CHAIN_DEPTH)
+) -> npt.NDArray[np.floating]:  # (_WINDOW_COUNT, _TRAJECTORY_DEPTH)
     """Error that compounds with depth, spread over windows by a lognormal
     factor — the log-scale axes of the panels need a spread, not a band of
     equal width."""
-    depths = np.arange(1, _CHAIN_DEPTH + 1)  # (_CHAIN_DEPTH,)
-    median_per_depth = 0.01 * growth_per_step ** (depths - 1)  # (_CHAIN_DEPTH,)
+    depths = np.arange(1, _TRAJECTORY_DEPTH + 1)  # (_TRAJECTORY_DEPTH,)
+    median_per_depth = 0.01 * growth_per_step ** (depths - 1)  # (_TRAJECTORY_DEPTH,)
     per_window_factors = rng.lognormal(
-        mean=0.0, sigma=0.55, size=(_WINDOW_COUNT, _CHAIN_DEPTH)
+        mean=0.0, sigma=0.55, size=(_WINDOW_COUNT, _TRAJECTORY_DEPTH)
     )
     return median_per_depth * per_window_factors
 
 
 def _stop_walks_early(
     *, prediction_errors: npt.NDArray[np.floating], rng: np.random.Generator
-) -> npt.NDArray[np.floating]:  # (_WINDOW_COUNT, _CHAIN_DEPTH)
+) -> npt.NDArray[np.floating]:  # (_WINDOW_COUNT, _TRAJECTORY_DEPTH)
     """A backward walk ends at its first non-converged solve and is NaN from
     there on, so the later columns hold fewer and fewer walks."""
     survived_depths = rng.geometric(p=0.12, size=_WINDOW_COUNT)  # (_WINDOW_COUNT,)
-    depths = np.arange(1, _CHAIN_DEPTH + 1)  # (_CHAIN_DEPTH,)
+    depths = np.arange(1, _TRAJECTORY_DEPTH + 1)  # (_TRAJECTORY_DEPTH,)
 
     stopped_mask = depths > survived_depths[:, None]
     return np.where(stopped_mask, np.nan, prediction_errors)

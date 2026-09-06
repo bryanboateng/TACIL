@@ -11,7 +11,7 @@ plt.rcParams["figure.dpi"] = 150
 plt.rcParams["savefig.dpi"] = 300
 
 
-def create_distribution_panel(*, values: np.ndarray, column_name: str) -> wandb.Image:
+def create_distribution_plot(*, values: np.ndarray, column_name: str) -> wandb.Image:
     figure, axes = plt.subplots(figsize=(6, 4))
     axes.hist(values, bins=_choose_bins(values=values), edgecolor="white")
     axes.set_xlabel(xlabel=column_name)

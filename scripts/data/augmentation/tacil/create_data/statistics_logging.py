@@ -9,11 +9,11 @@ from scripts.data.augmentation.tacil.create_data.episode_assembly import (
 from scripts.data.augmentation.tacil.create_data.nearest_recorded_state import (
     NearestRecordedStateDistances,
 )
-from scripts.data.augmentation.tacil.create_data.nearest_recorded_state_panel import (
-    create_nearest_recorded_state_panel,
+from scripts.data.augmentation.tacil.create_data.nearest_recorded_state_plot import (
+    create_nearest_recorded_state_plot,
 )
 from scripts.shared import stage_names
-from scripts.shared.distribution_panel import create_distribution_panel
+from scripts.shared.distribution_plot import create_distribution_plot
 from scripts.shared.distribution_summary import summarize_distribution
 
 STAGE_NAME = stage_names.DATA
@@ -44,7 +44,7 @@ def log_rollout_statistics(
             run.summary[f"{STAGE_NAME}/2_limit_tightness/{label}"] = value
         run.log(
             data={
-                f"{STAGE_NAME}/2_limit_tightness/4_plot": create_distribution_panel(
+                f"{STAGE_NAME}/2_limit_tightness/4_plot": create_distribution_plot(
                     values=limit_shares, column_name="final trajectory error / limit"
                 )
             }
@@ -137,11 +137,11 @@ def log_dataset_statistics(
 
     run.log(
         data={
-            f"{STAGE_NAME}/4_synthetic_length/4_plot": create_distribution_panel(
+            f"{STAGE_NAME}/4_synthetic_length/4_plot": create_distribution_plot(
                 values=trajectory_lengths, column_name="synthetic part length"
             ),
             f"{STAGE_NAME}/6_nearest_recorded_state/3_plot": (
-                create_nearest_recorded_state_panel(
+                create_nearest_recorded_state_plot(
                     synthetic_state_distances=synthetic_state_distances,
                     synthetic_action_distances=synthetic_action_distances,
                     recorded_state_distances=recorded_state_distances,

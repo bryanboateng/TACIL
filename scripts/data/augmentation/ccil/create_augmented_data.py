@@ -4,7 +4,7 @@ from wandb import Run
 
 from scripts.data.augmentation.ccil.config import CcilConfig
 from scripts.data.augmentation.ccil.world_model import WorldModel, fit_world_model
-from scripts.shared.distribution_panel import create_distribution_panel
+from scripts.shared.distribution_plot import create_distribution_plot
 from scripts.shared.distribution_summary import summarize_distribution
 from scripts.shared import stage_names
 from scripts.shared.episode_store import EpisodeStore
@@ -94,7 +94,7 @@ def create_ccil_augmented_data(
         run.summary[f"{STAGE_NAME}/2_label_distances/{label}"] = value
     run.log(
         data={
-            f"{STAGE_NAME}/2_label_distances/4_plot": create_distribution_panel(
+            f"{STAGE_NAME}/2_label_distances/4_plot": create_distribution_plot(
                 values=label_distances, column_name="label distance"
             )
         }
