@@ -5,7 +5,10 @@ import torch
 from scripts.data.augmentation.tacil.dynamics.dynamics_model_ensemble import (
     DynamicsModelEnsemble,
 )
-from scripts.shared.pusht_state import add_states, subtract_states
+from scripts.data.augmentation.tacil.dynamics.state_distance import (
+    calculate_normalized_state_difference,
+)
+from scripts.shared.pusht_state import add_states
 
 
 @dataclass(frozen=True)
@@ -90,11 +93,10 @@ def _calculate_residual(
         ),
         action_batch=action_batch,
     )  # (batch_size, state_dimensionality)
-    return dynamics_model_ensemble.state_normalizer.normalize_difference(
-        difference_batch=subtract_states(
-            minuend_batch=predicted_next_state_batch,
-            subtrahend_batch=target_next_state_batch,
-        )
+    return calculate_normalized_state_difference(
+        minuend_batch=predicted_next_state_batch,
+        subtrahend_batch=target_next_state_batch,
+        state_normalizer=dynamics_model_ensemble.state_normalizer,
     )  # (batch_size, state_dimensionality)
 
 

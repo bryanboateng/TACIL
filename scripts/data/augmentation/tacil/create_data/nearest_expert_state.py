@@ -2,11 +2,11 @@ from dataclasses import dataclass
 
 import torch
 
-from scripts.data.augmentation.tacil.create_data.distances import (
-    calculate_state_distances,
-)
 from scripts.data.augmentation.tacil.dynamics.dynamics_model_ensemble import (
     DynamicsModelEnsemble,
+)
+from scripts.data.augmentation.tacil.dynamics.state_distance import (
+    calculate_state_distances,
 )
 
 # How many queries states are handled at a time.
@@ -76,7 +76,7 @@ def _calculate_distances(
         distance_batch = calculate_state_distances(
             minuend_batch=query_state_batch[chunk_slice].unsqueeze(dim=1),
             subtrahend_batch=expert_state_batch.unsqueeze(dim=0),
-            dynamics_model_ensemble=dynamics_model_ensemble,
+            state_normalizer=dynamics_model_ensemble.state_normalizer,
         )  # (chunk_size, expert_count)
         if exclude_self_as_neighbour:
             chunk_indices = torch.arange(

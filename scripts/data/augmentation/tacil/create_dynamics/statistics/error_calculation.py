@@ -8,15 +8,15 @@ from tqdm import tqdm
 from scripts.data.augmentation.tacil.create_data.inverse_dynamics import (
     solve_inverse_dynamics,
 )
-from scripts.data.augmentation.tacil.create_data.distances import (
-    calculate_state_distances,
-)
 from scripts.data.augmentation.tacil.create_dynamics.data import (
     TransitionTriples,
     build_windows,
 )
 from scripts.data.augmentation.tacil.dynamics.dynamics_model_ensemble import (
     DynamicsModelEnsemble,
+)
+from scripts.data.augmentation.tacil.dynamics.state_distance import (
+    calculate_state_distances,
 )
 
 
@@ -103,7 +103,7 @@ def _calculate_forward(
             calculate_state_distances(
                 minuend_batch=current_state_batch,
                 subtrahend_batch=state_windows[:, step_index + 1, :],
-                dynamics_model_ensemble=dynamics_model_ensemble,
+                state_normalizer=dynamics_model_ensemble.state_normalizer,
             )
         )
 
@@ -158,7 +158,7 @@ def _calculate_backward(
         prediction_errors[window_indices, walk_step_index] = calculate_state_distances(
             minuend_batch=current_state_batch,
             subtrahend_batch=state_windows[window_indices, window_step_index, :],
-            dynamics_model_ensemble=dynamics_model_ensemble,
+            state_normalizer=dynamics_model_ensemble.state_normalizer,
         )
         replay_errors[window_indices, walk_step_index] = (
             dynamics_model_ensemble.calculate_replay_error(

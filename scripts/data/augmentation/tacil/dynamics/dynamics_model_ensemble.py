@@ -4,7 +4,10 @@ from scripts.data.augmentation.tacil.dynamics.dynamics_model.dynamics_model impo
     DynamicsModel,
 )
 from scripts.shared.normalization import ZScoreNormalizer
-from scripts.shared.pusht_state import average_states, subtract_states
+from scripts.data.augmentation.tacil.dynamics.state_distance import (
+    calculate_normalized_state_difference,
+)
+from scripts.shared.pusht_state import average_states
 
 
 class DynamicsModelEnsemble(torch.nn.Module):
@@ -66,11 +69,10 @@ class DynamicsModelEnsemble(torch.nn.Module):
         per_member_state_batch: torch.Tensor,  # (member_count, batch_size, state_dimensionality)  # noqa: E501
         target_state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
     ) -> torch.Tensor:  # (batch_size,)
-        per_member_deviation_batch = self.state_normalizer.normalize_difference(
-            difference_batch=subtract_states(
-                minuend_batch=per_member_state_batch,
-                subtrahend_batch=target_state_batch.unsqueeze(dim=0),
-            )
+        per_member_deviation_batch = calculate_normalized_state_difference(
+            minuend_batch=per_member_state_batch,
+            subtrahend_batch=target_state_batch.unsqueeze(dim=0),
+            state_normalizer=self.state_normalizer,
         )  # (member_count, batch_size, state_dimensionality)
 
         per_dimension_deviation_batch = (
