@@ -199,7 +199,7 @@ class _AccountMeter:
     ) -> torch.Tensor:  # (active_count,)
         return self._account_batch[
             trajectory_indices
-        ] + self._dynamics_model_ensemble.calculate_prediction_disagreement(
+        ] + self._dynamics_model_ensemble.calculate_prediction_uncertainty(
             state_batch=backward_step.predecessor_state_batch,
             action_batch=backward_step.predecessor_action_batch,
         )
