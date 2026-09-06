@@ -96,7 +96,7 @@ def create_ccil_augmented_data(
     run.log(
         data={
             f"{STAGE_NAME}/2_label_distances/4_plot": create_distribution_plot(
-                values=label_distances, column_name="label distance"
+                values=label_distances, xlabel="label distance"
             )
         }
     )

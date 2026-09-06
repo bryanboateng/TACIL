@@ -133,7 +133,7 @@ def log_dataset_statistics(
     run.log(
         data={
             f"{STAGE_NAME}/3_synthetic_length/4_plot": create_distribution_plot(
-                values=trajectory_lengths, column_name="synthetic part length"
+                values=trajectory_lengths, xlabel="synthetic part length"
             ),
             f"{STAGE_NAME}/5_nearest_expert_state/3_plot": (
                 create_nearest_expert_state_plot(
