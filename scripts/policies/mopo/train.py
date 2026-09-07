@@ -18,6 +18,7 @@ from scripts.policies.mopo.dynamics_training import train_dynamics
 from scripts.policies.mopo.policy import (
     Critic,
     GaussianActor,
+    LearningStatistics,
     MopoPolicy,
     create_mopo_policy_factory,
 )
@@ -112,6 +113,7 @@ def train_mopo_policy(
         iterable=range(config.optimization.epoch_count), desc="Epoch", unit="epoch"
     ):
         policy.train()
+        epoch_statistics: list[LearningStatistics] = []
         for _ in range(config.optimization.step_count_per_epoch):
             if global_step % config.rollout.interval_step_count == 0:
                 imagined_transitions, rollout_statistics = policy.imagine_rollout(
@@ -131,27 +133,40 @@ def train_mopo_policy(
                     }
                 )
 
-            learning_statistics = policy.learn(
-                batch=concatenate_batches(
-                    first=real_buffer.sample(
-                        count=real_batch_size, generator=generator
-                    ),
-                    second=imagined_buffer.sample(
-                        count=imagined_batch_size, generator=generator
-                    ),
+            epoch_statistics.append(
+                policy.learn(
+                    batch=concatenate_batches(
+                        first=real_buffer.sample(
+                            count=real_batch_size, generator=generator
+                        ),
+                        second=imagined_buffer.sample(
+                            count=imagined_batch_size, generator=generator
+                        ),
+                    )
                 )
             )
-
-            run.log(
-                data={
-                    f"{TRAINING_SECTION}/1_actor_loss": learning_statistics.actor_loss,
-                    f"{TRAINING_SECTION}/2_critic_loss": learning_statistics.critic_loss,
-                    f"{TRAINING_SECTION}/3_temperature_loss": learning_statistics.temperature_loss,
-                    f"{TRAINING_SECTION}/4_temperature": learning_statistics.temperature,
-                    STEP_METRIC_NAME: global_step,
-                }
-            )
             global_step += 1
+
+        run.log(
+            data={
+                f"{TRAINING_SECTION}/1_actor_loss": _average(
+                    values=[statistics.actor_loss for statistics in epoch_statistics]
+                ),
+                f"{TRAINING_SECTION}/2_critic_loss": _average(
+                    values=[statistics.critic_loss for statistics in epoch_statistics]
+                ),
+                f"{TRAINING_SECTION}/3_temperature_loss": _average(
+                    values=[
+                        statistics.temperature_loss for statistics in epoch_statistics
+                    ]
+                ),
+                f"{TRAINING_SECTION}/4_temperature": _average(
+                    values=[statistics.temperature for statistics in epoch_statistics]
+                ),
+                EPOCH_METRIC_NAME: epoch_index,
+                STEP_METRIC_NAME: global_step,
+            }
+        )
 
         actor_lr_schedule.step()
 
@@ -206,6 +221,10 @@ def train_mopo_policy(
 
 
 # ---- Private --------------------------------------------
+
+
+def _average(*, values: list[float]) -> float:
+    return sum(values) / len(values)
 
 
 @dataclass(frozen=True)
