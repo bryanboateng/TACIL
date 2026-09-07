@@ -4,9 +4,9 @@ from wandb import Run
 
 from scripts.data.augmentation.ccil.config import CcilConfig
 from scripts.data.augmentation.ccil.world_model import WorldModel, fit_world_model
+from scripts.shared import stage_names
 from scripts.shared.distribution_plot import create_distribution_plot
 from scripts.shared.distribution_summary import summarize_distribution
-from scripts.shared import stage_names
 from scripts.shared.episode_store import EpisodeStore
 from scripts.shared.log import create_logger
 from scripts.shared.seeding import set_seed
@@ -34,10 +34,10 @@ def create_ccil_augmented_data(
 ) -> StateActionPairs:
     set_seed(seed=seed)
 
-    states, actions, next_states = _extract_transitions(episode_store=expert_episodes)
-    state_batch = torch.from_numpy(states).to(device=device)
-    action_batch = torch.from_numpy(actions).to(device=device)
-    next_state_batch = torch.from_numpy(next_states).to(device=device)
+    states, actions, next_states = (
+        torch.from_numpy(x).to(device=device)
+        for x in _extract_transitions(episode_store=expert_episodes)
+    )
 
     world_model = WorldModel(
         state_dimensionality=states.shape[1],
@@ -50,9 +50,9 @@ def create_ccil_augmented_data(
     epoch_losses = fit_world_model(
         world_model=world_model,
         config=config.dynamics,
-        state_batch=state_batch,
-        action_batch=action_batch,
-        next_state_batch=next_state_batch,
+        state_batch=states,
+        action_batch=actions,
+        next_state_batch=next_states,
     )
     _define_epoch_metrics(run=run)
     for epoch_index, losses in enumerate(iterable=epoch_losses):
@@ -68,9 +68,9 @@ def create_ccil_augmented_data(
     with torch.no_grad():
         label_states, label_actions, label_distances = _generate_labels(
             world_model=world_model,
-            state_batch=state_batch,
-            action_batch=action_batch,
-            next_state_batch=next_state_batch,
+            state_batch=states,
+            action_batch=actions,
+            next_state_batch=next_states,
             config=config,
         )
 
@@ -84,8 +84,6 @@ def create_ccil_augmented_data(
     run.summary[f"{STAGE_NAME}/1_labels/1_expert_transition_count"] = states.shape[0]
     run.summary[f"{STAGE_NAME}/1_labels/2_label_count"] = label_count
     run.summary[f"{STAGE_NAME}/1_labels/3_distance_threshold"] = distance_threshold
-    # A rejected label sits further from its expert state than the threshold
-    # allows. The denominator is the label_count logged next to it.
     run.summary[f"{STAGE_NAME}/1_labels/4_rejected_label_count"] = rejected_count
     run.summary[f"{STAGE_NAME}/1_labels/5_rejected_label_fraction"] = (
         rejected_count / max(label_count, 1)

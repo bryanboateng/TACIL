@@ -71,9 +71,6 @@ class WorldModel(torch.nn.Module):
         action_batch: torch.Tensor,  # (transition_count, action_dimensionality)
         next_state_batch: torch.Tensor,  # (transition_count, state_dimensionality)
     ) -> None:
-        """Mean shift, mean-absolute-deviation scale — exactly their
-        init_normalization_to_data."""
-        # Plain subtraction on the angle too. See the module docstring.
         residual_batch = next_state_batch - state_batch
 
         self.state_shift = state_batch.mean(dim=0)
@@ -82,7 +79,6 @@ class WorldModel(torch.nn.Module):
         self.action_scale = (action_batch - self.action_shift).abs().mean(dim=0)
         self.residual_shift = residual_batch.mean(dim=0)
         self.residual_scale = (residual_batch - self.residual_shift).abs().mean(dim=0)
-        # Dimensions that barely move are forced to a zero prediction.
         self.residual_mask = (self.residual_scale >= 1e-8).float()
 
     def forward(
@@ -108,7 +104,6 @@ class WorldModel(torch.nn.Module):
         state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
         action_batch: torch.Tensor,  # (batch_size, action_dimensionality)
     ) -> torch.Tensor:  # (batch_size, state_dimensionality), raw units
-        """Their model.f: raw (state, action) -> raw state residual."""
         normalized_residual_batch = self.forward(state_batch, action_batch)
         return (
             normalized_residual_batch * (self.residual_scale + 1e-8)
@@ -175,8 +170,6 @@ def fit_world_model(
                     config=config,
                 )
             else:
-                # spectral_normalization constrains through the weight
-                # parametrization; "none" is plain MSE.
                 lipschitz_penalty = torch.zeros((), device=mse_loss.device)
             loss = mse_loss + lipschitz_penalty
             loss.backward()
