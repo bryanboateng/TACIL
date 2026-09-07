@@ -5,7 +5,7 @@ import numpy as np
 import torch
 from numpy import typing as npt
 
-from scripts.policies.mopo.buffer import Batch, concatenate_batches
+from scripts.policies.mopo.buffer import Batch
 from scripts.policies.mopo.dynamics import Dynamics
 from scripts.policies.mopo.transitions import Transitions
 from scripts.shared.normalization import MinMaxNormalizer, ZScoreNormalizer
@@ -149,18 +149,18 @@ class MopoPolicy:
         deterministic: bool,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         # (batch_size, action_dimensionality), (batch_size, 1)
-        distribution = self.actor(state_batch)
+        action_distribution = self.actor(state_batch)
 
         raw_action_batch = (
-            distribution.mean if deterministic else distribution.rsample()
+            action_distribution.mean if deterministic else action_distribution.rsample()
         )
         action_batch = torch.tanh(input=raw_action_batch)
 
-        log_probability_batch = distribution.log_prob(value=raw_action_batch).sum(
-            dim=-1, keepdim=True
-        ) - torch.log(input=1.0 - action_batch.square() + 1e-6).sum(
-            dim=-1, keepdim=True
-        )
+        log_probability_batch = action_distribution.log_prob(
+            value=raw_action_batch
+        ).sum(dim=-1, keepdim=True) - torch.log(
+            input=1.0 - action_batch.square() + 1e-6
+        ).sum(dim=-1, keepdim=True)
 
         return action_batch, log_probability_batch
 
@@ -225,8 +225,8 @@ class MopoPolicy:
                 penalty_mean=float(np.mean(penalty_means)),
             )
 
-    def learn(self, *, real_batch: Batch, imagined_batch: Batch) -> LearningStatistics:
-        batch = concatenate_batches(first=real_batch, second=imagined_batch)
+    def learn(self, *, batch: Batch) -> LearningStatistics:
+        target_value_batch = self._calculate_target_value(batch)
 
         first_value_batch = self.first_critic(
             state_batch=batch.states, action_batch=batch.actions
@@ -234,26 +234,6 @@ class MopoPolicy:
         second_value_batch = self.second_critic(
             state_batch=batch.states, action_batch=batch.actions
         )
-
-        with torch.no_grad():
-            next_action_batch, next_log_probability_batch = self.sample_action(
-                state_batch=batch.next_states, deterministic=False
-            )
-            next_value_batch = (
-                torch.min(
-                    input=self.first_target_critic(
-                        state_batch=batch.next_states, action_batch=next_action_batch
-                    ),
-                    other=self.second_target_critic(
-                        state_batch=batch.next_states, action_batch=next_action_batch
-                    ),
-                )
-                - self.temperature * next_log_probability_batch
-            )
-            target_value_batch = (
-                batch.rewards
-                + self.discount_factor * (1.0 - batch.terminations) * next_value_batch
-            )
 
         first_critic_loss = (first_value_batch - target_value_batch).square().mean()
         self.first_critic_optimizer.zero_grad()
@@ -304,6 +284,28 @@ class MopoPolicy:
         )
 
     # ---- Private --------------------------------------------
+
+    def _calculate_target_value(self, batch: Batch):
+        with torch.no_grad():
+            next_action_batch, next_log_probability_batch = self.sample_action(
+                state_batch=batch.next_states, deterministic=False
+            )
+            next_value_batch = (
+                torch.min(
+                    input=self.first_target_critic(
+                        state_batch=batch.next_states, action_batch=next_action_batch
+                    ),
+                    other=self.second_target_critic(
+                        state_batch=batch.next_states, action_batch=next_action_batch
+                    ),
+                )
+                - self.temperature * next_log_probability_batch
+            )
+            target_value_batch = (
+                batch.rewards
+                + self.discount_factor * (1.0 - batch.terminations) * next_value_batch
+            )
+            return target_value_batch
 
     def _update_target_critics(self) -> None:
         for critic, target_critic in (

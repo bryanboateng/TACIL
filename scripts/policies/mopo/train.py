@@ -11,7 +11,7 @@ from scripts.evaluation.core.scoring import (
     calculate_reward_statistics,
     run_scored_episodes_over_conditions,
 )
-from scripts.policies.mopo.buffer import ReplayBuffer
+from scripts.policies.mopo.buffer import ReplayBuffer, concatenate_batches
 from scripts.policies.mopo.config import Config
 from scripts.policies.mopo.dynamics import Dynamics
 from scripts.policies.mopo.dynamics_training import train_dynamics
@@ -133,12 +133,14 @@ def train_mopo_policy(
                 )
 
             learning_statistics = policy.learn(
-                real_batch=real_buffer.sample(
-                    count=real_batch_size, generator=generator
-                ),
-                imagined_batch=imagined_buffer.sample(
-                    count=imagined_batch_size, generator=generator
-                ),
+                batch=concatenate_batches(
+                    first=real_buffer.sample(
+                        count=real_batch_size, generator=generator
+                    ),
+                    second=imagined_buffer.sample(
+                        count=imagined_batch_size, generator=generator
+                    ),
+                )
             )
 
             run.log(
