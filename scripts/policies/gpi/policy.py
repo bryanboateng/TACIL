@@ -120,7 +120,6 @@ def _calculate_action(
         .squeeze(dim=0)
         .cpu()
         .numpy()
-        .astype(np.float32)
     )
 
 
