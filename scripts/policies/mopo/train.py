@@ -80,7 +80,7 @@ def train_mopo_policy(
         action_dimensionality=action_dimensionality,
         device=device,
     )
-    actor_schedule = torch.optim.lr_scheduler.CosineAnnealingLR(
+    actor_lr_schedule = torch.optim.lr_scheduler.CosineAnnealingLR(
         optimizer=policy.actor_optimizer, T_max=config.optimization.epoch_count
     )
 
@@ -154,7 +154,7 @@ def train_mopo_policy(
             )
             global_step += 1
 
-        actor_schedule.step()
+        actor_lr_schedule.step()
 
         if (epoch_index + 1) % config.validation.interval_epoch_count != 0:
             continue
