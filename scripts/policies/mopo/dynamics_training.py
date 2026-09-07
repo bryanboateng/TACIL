@@ -77,15 +77,12 @@ def train_dynamics(
     )
     run.summary[f"{STAGE_NAME}/0_dataset/2_holdout_transition_count"] = holdout_count
 
-    # Every member sees its own bootstrap sample of the training data.
     member_indices = generator.integers(
         low=0,
         high=len(training_indices),
         size=(config.ensemble_size, len(training_indices)),
     )
 
-    # The reference starts from a large finite loss, so that every member counts
-    # as improved after its first epoch.
     best_holdout_losses = [1e10] * config.ensemble_size
     epoch_count_without_improvement = 0
     epoch_index = 0
@@ -132,7 +129,6 @@ def train_dynamics(
             }
         )
 
-        # Every member draws a fresh order over its own bootstrap sample.
         member_indices = _shuffle_rows(index_batch=member_indices, generator=generator)
         epoch_index += 1
         progress_bar.update()
