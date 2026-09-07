@@ -1,5 +1,8 @@
 /output/
 
+# wandb artifact downloads
+/artifacts/
+
 # Python-generated files
 __pycache__/
 *.py[oc]

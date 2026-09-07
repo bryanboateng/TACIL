@@ -1,174 +1,200 @@
+from dataclasses import dataclass
+
+import numpy as np
+import numpy.typing as npt
 import torch
 
-from scripts.shared import load_push_t_zarr
+from scripts.policies.dp.config import HorizonLengthConfig
+from scripts.shared.episode_store import EpisodeStore
+from scripts.shared.normalization import MinMaxNormalizer
 
 
-class PushTWindowDataset(torch.utils.data.Dataset[tuple[torch.Tensor, torch.Tensor]]):
+class Dataset(torch.utils.data.Dataset[tuple[torch.Tensor, torch.Tensor]]):
     def __init__(
         self,
-        prediction_horizon_length: int,
-        observation_horizon_length: int,
-        action_horizon_length: int,
+        *,
+        expert_episodes: EpisodeStore,
+        augmented_episodes: EpisodeStore | None,
+        horizon_lengths: HorizonLengthConfig,
     ) -> None:
-        observations_np, actions_np, episode_ends_np = load_push_t_zarr()
-
-        observations = torch.from_numpy(observations_np).float()
-        actions = torch.from_numpy(actions_np).float()
-        episode_ends = torch.from_numpy(episode_ends_np)
-
-        self.observation_normalization_range = NormalizationRange.from_values(
-            values=observations
-        )
-        self.action_normalization_range = NormalizationRange.from_values(values=actions)
-
-        self._normalized_observations = self.observation_normalization_range.normalize(
-            values=observations
-        )
-        self._normalized_actions = self.action_normalization_range.normalize(
-            values=actions
+        self.observation_normalizer, self.action_normalizer = _create_normalizers(
+            episode_stores=[expert_episodes]
+            + ([augmented_episodes] if augmented_episodes is not None else [])
         )
 
-        self._window_indices = _build_window_indices(
-            episode_ends=episode_ends,
-            prediction_horizon_length=prediction_horizon_length,
-            observation_padding_length=observation_horizon_length - 1,
-            action_padding_length=action_horizon_length - 1,
+        expert_windows = _create_windows(
+            episodes=expert_episodes,
+            observation_normalizer=self.observation_normalizer,
+            action_normalizer=self.action_normalizer,
+            window_length=horizon_lengths.prediction,
+            observation_horizon_length=horizon_lengths.observation,
+            lead_in_length=horizon_lengths.observation - 1,
+            run_out_length=horizon_lengths.execution - 1,
         )
 
-        self._prediction_horizon_length = prediction_horizon_length
-        self._observation_horizon_length = observation_horizon_length
+        if augmented_episodes is None:
+            self._windows = expert_windows
+        else:
+            episode_lengths = np.diff(
+                a=augmented_episodes.episode_end_indices, prepend=0
+            )  # (episode_count,)
+            longest_episode_length = int(episode_lengths.max())
+            if longest_episode_length < horizon_lengths.prediction:
+                raise ValueError(
+                    f"None of the {len(episode_lengths)} augmented episodes is long enough "
+                    f"for one window: the longest is {longest_episode_length} timesteps, "
+                    f"the prediction horizon is {horizon_lengths.prediction}."
+                )
+            augmented_windows = _create_windows(
+                episodes=augmented_episodes,
+                observation_normalizer=self.observation_normalizer,
+                action_normalizer=self.action_normalizer,
+                window_length=horizon_lengths.prediction,
+                observation_horizon_length=horizon_lengths.observation,
+                lead_in_length=0,
+                run_out_length=0,
+            )
+            self._windows = _Windows(
+                observations=torch.cat(
+                    [expert_windows.observations, augmented_windows.observations]
+                ),
+                actions=torch.cat([expert_windows.actions, augmented_windows.actions]),
+            )
 
     def __len__(self) -> int:
-        return len(self._window_indices)
+        return len(self._windows.actions)
 
     def __getitem__(self, index: int) -> tuple[torch.Tensor, torch.Tensor]:
-        (
-            source_read_start_position,
-            source_read_end_position,
-            output_write_start_position,
-            output_write_end_position,
-        ) = (int(value) for value in self._window_indices[index])
-
-        observations = _extract_window_with_edge_padding(
-            source_tensor=self._normalized_observations,
-            output_length=self._prediction_horizon_length,
-            source_read_start_position=source_read_start_position,
-            source_read_end_position=source_read_end_position,
-            output_write_start_position=output_write_start_position,
-            output_write_end_position=output_write_end_position,
-        )
-        actions = _extract_window_with_edge_padding(
-            source_tensor=self._normalized_actions,
-            output_length=self._prediction_horizon_length,
-            source_read_start_position=source_read_start_position,
-            source_read_end_position=source_read_end_position,
-            output_write_start_position=output_write_start_position,
-            output_write_end_position=output_write_end_position,
+        return (
+            self._windows.observations[
+                index
+            ],  # (observation_horizon_length, observation_dimensionality)
+            self._windows.actions[
+                index
+            ],  # (prediction_horizon_length, action_dimensionality)
         )
 
-        observations = observations[: self._observation_horizon_length]
 
-        return observations, actions
-
-
-def _build_window_indices(
-    episode_ends: torch.Tensor,
-    prediction_horizon_length: int,
-    observation_padding_length: int,
-    action_padding_length: int,
-) -> torch.Tensor:
-    window_indices: list[list[int]] = []
-
-    for episode_index, episode_end_position in enumerate(episode_ends):
-        episode_start_position = (
-            int(episode_ends[episode_index - 1]) if episode_index > 0 else 0
-        )
-        episode_length = int(episode_end_position) - episode_start_position
-
-        first_window_offset = -observation_padding_length
-        last_window_offset = (
-            episode_length - prediction_horizon_length + action_padding_length
-        )
-
-        for window_offset in range(first_window_offset, last_window_offset + 1):
-            source_read_start_position = episode_start_position + max(window_offset, 0)
-            source_read_end_position = episode_start_position + min(
-                window_offset + prediction_horizon_length, episode_length
-            )
-
-            output_write_start_position = max(-window_offset, 0)
-            output_write_end_position = min(
-                episode_length - window_offset, prediction_horizon_length
-            )
-
-            window_indices.append(
-                [
-                    source_read_start_position,
-                    source_read_end_position,
-                    output_write_start_position,
-                    output_write_end_position,
-                ]
-            )
-
-    return torch.tensor(window_indices, dtype=torch.long)
+# ---- Private --------------------------------------------
 
 
-def _extract_window_with_edge_padding(
-    source_tensor: torch.Tensor,
-    output_length: int,
-    source_read_start_position: int,
-    source_read_end_position: int,
-    output_write_start_position: int,
-    output_write_end_position: int,
-) -> torch.Tensor:
-    """Read a slice from `source_tensor` and place it inside an output window
-    of length `output_length`. Any positions in the output window before
-    `output_write_start_position` or after `output_write_end_position` are
-    filled by repeating the first / last value of the read slice (edge
-    padding).
-    """
-    valid_content = source_tensor[source_read_start_position:source_read_end_position]
+@dataclass(frozen=True, slots=True)
+class _Windows:
+    observations: (
+        torch.Tensor
+    )  # (window_count, observation_horizon_length, observation_dimensionality)
+    actions: (
+        torch.Tensor
+    )  # (window_count, prediction_horizon_length, action_dimensionality)
 
-    if output_write_start_position == 0 and output_write_end_position == output_length:
-        return valid_content
 
-    output_window = torch.empty(
-        (output_length,) + source_tensor.shape[1:],
-        dtype=source_tensor.dtype,
-        device=source_tensor.device,
+def _create_normalizers(
+    *, episode_stores: list[EpisodeStore]
+) -> tuple[MinMaxNormalizer, MinMaxNormalizer]:
+    return (
+        MinMaxNormalizer(
+            value_batch=torch.from_numpy(
+                np.concatenate(
+                    [episode_store.states for episode_store in episode_stores], axis=0
+                )
+            ).float()
+        ),
+        MinMaxNormalizer(
+            value_batch=torch.from_numpy(
+                np.concatenate(
+                    [episode_store.actions for episode_store in episode_stores], axis=0
+                )
+            ).float()
+        ),
     )
 
-    output_window[output_write_start_position:output_write_end_position] = valid_content
-    output_window[:output_write_start_position] = valid_content[0]
-    output_window[output_write_end_position:] = valid_content[-1]
 
-    return output_window
+def _create_windows(
+    *,
+    episodes: EpisodeStore,
+    observation_normalizer: MinMaxNormalizer,
+    action_normalizer: MinMaxNormalizer,
+    window_length: int,
+    observation_horizon_length: int,
+    lead_in_length: int,
+    run_out_length: int,
+) -> _Windows:
+    window_timesteps = _get_window_timesteps(
+        episode_end_indices=episodes.episode_end_indices,
+        window_length=window_length,
+        lead_in_length=lead_in_length,
+        run_out_length=run_out_length,
+    )  # (window_count, window_length)
+
+    normalized_observations = observation_normalizer.normalize(
+        value_batch=torch.from_numpy(episodes.states).float()
+    )  # (timestep_count, observation_dimensionality)
+    normalized_actions = action_normalizer.normalize(
+        value_batch=torch.from_numpy(episodes.actions).float()
+    )  # (timestep_count, action_dimensionality)
+
+    # A window is as long as the prediction, and only its first
+    # `observation_horizon_length` steps become the observation history:
+
+    #     step         0 1 2 3 4 5 6 7 8 9 A B C D E F
+    #     observation  o o
+    #     prediction   a a a a a a a a a a a a a a a a
+    return _Windows(
+        observations=normalized_observations[
+            window_timesteps[:, :observation_horizon_length]
+        ],
+        actions=normalized_actions[window_timesteps],
+    )
 
 
-class NormalizationRange:
-    """Symmetric min/max normalizer mapping a feature vector to ``[-1, 1]``.
+def _get_window_timesteps(
+    *,
+    episode_end_indices: npt.NDArray[np.int64],  # (episode_count,)
+    window_length: int,
+    lead_in_length: int,
+    run_out_length: int,
+) -> torch.Tensor:  # (window_count, window_length)
+    return torch.cat(
+        [
+            episode_start
+            + _get_window_timesteps_of_one_episode(
+                episode_length=episode_end - episode_start,
+                window_length=window_length,
+                lead_in_length=lead_in_length,
+                run_out_length=run_out_length,
+            )
+            for episode_start, episode_end in _calculate_episode_spans(
+                episode_end_indices=episode_end_indices
+            )
+        ]
+    )
 
-    Guards against zero-range features so constant dimensions stay finite.
-    """
 
-    def __init__(self, minimum: torch.Tensor, maximum: torch.Tensor) -> None:
-        self.minimum = minimum
-        self.maximum = maximum
+def _get_window_timesteps_of_one_episode(
+    *, episode_length: int, window_length: int, lead_in_length: int, run_out_length: int
+) -> torch.Tensor:  # (window_count, window_length)
 
-    @classmethod
-    def from_values(cls, values: torch.Tensor) -> "NormalizationRange":
-        flattened = values.reshape(-1, values.shape[-1])
+    # A window may start before the episode and may end after it.
+    earliest_start = -lead_in_length
+    latest_start = episode_length - window_length + run_out_length
 
-        return cls(
-            minimum=flattened.min(dim=0).values,
-            maximum=flattened.max(dim=0).values,
-        )
+    window_count = max(latest_start + 1 - earliest_start, 0)
 
-    def normalize(self, values: torch.Tensor) -> torch.Tensor:
-        value_range = (self.maximum - self.minimum).clamp(min=1e-8)
-        unit = (values - self.minimum) / value_range
-        return unit * 2.0 - 1.0
+    start_timesteps = earliest_start + torch.arange(end=window_count)  # (window_count,)
 
-    def denormalize(self, values: torch.Tensor) -> torch.Tensor:
-        unit = (values + 1.0) / 2.0
-        return unit * (self.maximum - self.minimum) + self.minimum
+    # From its start, a window covers `window_length` timesteps in a row.
+    covered_timesteps = (
+        start_timesteps[:, None] + torch.arange(end=window_length)[None, :]
+    )  # (window_count, window_length)
+
+    # Reading before or after the episode would land in a neighboring one.
+    return covered_timesteps.clamp(min=0, max=episode_length - 1)
+
+
+def _calculate_episode_spans(
+    *,
+    episode_end_indices: npt.NDArray[np.int64],  # (episode_count,)
+) -> list[tuple[int, int]]:
+    ends = [int(episode_end_index) for episode_end_index in episode_end_indices]
+    starts = [0] + ends[:-1]
+    return list(zip(starts, ends, strict=True))
