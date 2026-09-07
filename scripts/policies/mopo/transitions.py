@@ -6,10 +6,7 @@ from numpy import typing as npt
 
 from scripts.shared.episode_store import EpisodeStore
 from scripts.shared.normalization import MinMaxNormalizer, ZScoreNormalizer
-from scripts.shared.pusht_reward import (
-    calculate_reward_batch,
-    calculate_termination_batch,
-)
+from scripts.shared.pusht_reward import calculate_reward, calculate_termination
 
 
 @dataclass(frozen=True)
@@ -43,10 +40,10 @@ def build_transitions(
         next_states=state_normalizer.normalize(
             value_batch=torch.from_numpy(next_states).float()
         ).numpy(),
-        rewards=calculate_reward_batch(state_batch=next_states)
+        rewards=calculate_reward(state_batch=next_states)
         .astype(np.float32)
         .reshape(-1, 1),
-        terminations=calculate_termination_batch(state_batch=next_states)
+        terminations=calculate_termination(state_batch=next_states)
         .astype(np.float32)
         .reshape(-1, 1),
     )

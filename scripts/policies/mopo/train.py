@@ -25,7 +25,7 @@ from scripts.policies.mopo.transitions import Transitions
 from scripts.shared import stage_names
 from scripts.shared.log import create_logger
 from scripts.shared.normalization import MinMaxNormalizer, ZScoreNormalizer
-from scripts.shared.pusht_reward import calculate_termination_batch
+from scripts.shared.pusht_reward import calculate_termination
 from scripts.shared.seeding import set_seed
 
 logger = create_logger()
@@ -57,8 +57,7 @@ def train_mopo_policy(
         config=config.dynamics,
         rollout_penalty_coefficient=config.rollout.penalty_coefficient,
         transitions=transitions,
-        termination_function=lambda state_batch: calculate_termination_batch(
-            # The model works on normalized states, the PushT rule on raw ones.
+        termination_function=lambda state_batch: calculate_termination(
             state_batch=state_normalizer.denormalize(
                 value_batch=torch.from_numpy(state_batch).float()
             ).numpy()

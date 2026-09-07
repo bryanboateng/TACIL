@@ -1,60 +1,111 @@
 import numpy as np
-import pymunk
-from gym_pusht.envs.pusht import PushTEnv, pymunk_to_shapely
+from gym_pusht.envs.pusht import PushTEnv
 
+from scripts.shared.convex_polygon import calculate_area, calculate_intersection_area
 from scripts.shared.pusht_state import BLOCK_ORIENTATION_INDEX, BLOCK_POSITION_SLICE
 
-GOAL_POSE = np.array([256.0, 256.0, np.pi / 4.0])
 
-SUCCESS_THRESHOLD = 0.95
-
-
-def calculate_coverage_batch(
+def calculate_reward(
     *,
     state_batch: np.ndarray,  # (batch_size, state_dimensionality)
 ) -> np.ndarray:  # (batch_size,)
-    block_body, block_shapes = _create_block()
-
-    goal_geometry = pymunk_to_shapely(
-        PushTEnv.get_goal_pose_body(GOAL_POSE), block_shapes
-    )
-    goal_area = goal_geometry.area
-
-    coverage_batch = np.empty(shape=len(state_batch))
-    for index, state in enumerate(state_batch):
-        # Set the angle first. A body turns around its center of gravity, so
-        # setting the angle after the position moves the body away again.
-        block_body.angle = float(state[BLOCK_ORIENTATION_INDEX])
-        block_body.position = state[BLOCK_POSITION_SLICE].tolist()
-
-        block_geometry = pymunk_to_shapely(block_body, block_shapes)
-        coverage_batch[index] = (
-            block_geometry.intersection(goal_geometry).area / goal_area
-        )
-
-    return coverage_batch
-
-
-def calculate_reward_batch(
-    *,
-    state_batch: np.ndarray,  # (batch_size, state_dimensionality)
-) -> np.ndarray:  # (batch_size,)
+    environment = _create_environment()
     return np.clip(
-        calculate_coverage_batch(state_batch=state_batch) / SUCCESS_THRESHOLD, 0.0, 1.0
+        _calculate_coverage(state_batch=state_batch, environment=environment)
+        / environment.success_threshold,
+        0.0,
+        1.0,
     )
 
 
-def calculate_termination_batch(
+def calculate_termination(
     *,
     state_batch: np.ndarray,  # (batch_size, state_dimensionality)
 ) -> np.ndarray:  # (batch_size,)
-    return calculate_coverage_batch(state_batch=state_batch) > SUCCESS_THRESHOLD
+    environment = _create_environment()
+    return (
+        _calculate_coverage(state_batch=state_batch, environment=environment)
+        > environment.success_threshold
+    )
 
 
 # ---- Private --------------------------------------------
 
 
-def _create_block() -> tuple[pymunk.Body, list[pymunk.Shape]]:
-    # The shapes carry the T outline. The throwaway space is only needed
-    # because the environment builds the block by adding it to a space.
-    return PushTEnv.add_tee(space=pymunk.Space(), position=(0.0, 0.0), angle=0.0)
+def _create_environment() -> PushTEnv:
+    environment = PushTEnv()
+    # The goal pose and the block only exist once the environment has laid out
+    # its scene.
+    environment.reset()
+    return environment
+
+
+def _calculate_coverage(
+    *,
+    state_batch: np.ndarray,  # (batch_size, state_dimensionality)
+    environment: PushTEnv,
+) -> np.ndarray:  # (batch_size,)
+    block_shapes = list(environment.block.shapes)
+
+    goal_body = PushTEnv.get_goal_pose_body(environment.goal_pose)
+    goal_corner_batch = np.stack(
+        arrays=[
+            [list(goal_body.local_to_world(corner)) for corner in shape.get_vertices()]
+            for shape in block_shapes
+        ]
+    )  # (part_count, corner_count, 2)
+
+    block_corner_batch = _place_block(
+        state_batch=state_batch.astype(np.float64), block_shapes=block_shapes
+    )  # (batch_size, part_count, corner_count, 2)
+
+    # The T is made of two parts, so every part of the block is laid over every
+    # part of the goal. The parts only touch, so their overlaps add up.
+    part_count = len(block_shapes)
+    block_part_indices = np.repeat(a=np.arange(part_count), repeats=part_count)
+    goal_part_indices = np.tile(A=np.arange(part_count), reps=part_count)
+
+    pair_count = part_count * part_count
+    batch_size = len(state_batch)
+
+    overlap_area_batch = calculate_intersection_area(
+        first_corner_batch=block_corner_batch[:, block_part_indices].reshape(
+            batch_size * pair_count, -1, 2
+        ),
+        second_corner_batch=np.broadcast_to(
+            goal_corner_batch[goal_part_indices],
+            (batch_size, *goal_corner_batch[goal_part_indices].shape),
+        ).reshape(batch_size * pair_count, -1, 2),
+    )  # (batch_size * pair_count,)
+
+    return overlap_area_batch.reshape(batch_size, pair_count).sum(axis=1) / (
+        calculate_area(corner_batch=goal_corner_batch).sum()
+    )
+
+
+def _place_block(
+    *,
+    state_batch: np.ndarray,  # (batch_size, state_dimensionality)
+    block_shapes: list,
+) -> np.ndarray:  # (batch_size, part_count, corner_count, 2)
+    local_corner_batch = np.stack(
+        arrays=[
+            [list(corner) for corner in shape.get_vertices()] for shape in block_shapes
+        ]
+    )  # (part_count, corner_count, 2)
+
+    angle_batch = state_batch[:, BLOCK_ORIENTATION_INDEX]  # (batch_size,)
+    cosine_batch = np.cos(angle_batch)
+    sine_batch = np.sin(angle_batch)
+    rotation_batch = np.stack(
+        arrays=[
+            np.stack(arrays=[cosine_batch, -sine_batch], axis=-1),
+            np.stack(arrays=[sine_batch, cosine_batch], axis=-1),
+        ],
+        axis=-2,
+    )  # (batch_size, 2, 2)
+
+    return (
+        np.einsum("bij,pcj->bpci", rotation_batch, local_corner_batch)
+        + state_batch[:, None, None, BLOCK_POSITION_SLICE]
+    )
