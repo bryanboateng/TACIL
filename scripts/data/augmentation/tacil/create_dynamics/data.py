@@ -21,7 +21,7 @@ def extract_transitions(*, episode_store: EpisodeStore) -> list[TransitionTriple
 
     episodes: list[TransitionTriples] = []
     for episode_start_index, episode_end_index in zip(
-        episode_start_indices, episode_store.episode_end_indices
+        episode_start_indices, episode_store.episode_end_indices, strict=True
     ):
         episode_states = episode_store.states[
             episode_start_index:episode_end_index
@@ -74,9 +74,10 @@ def build_windows(
     state_window_list: list[npt.NDArray[np.float32]] = []
 
     for episode in episodes:
-        if episode.actions.shape[0] < window_length:
+        episode_length = episode.actions.shape[0]
+        if episode_length < window_length:
             raise ValueError(
-                f"Episode of length {episode.actions.shape[0]} is shorter than "
+                f"Episode of length {episode_length} is shorter than "
                 f"window length {window_length}."
             )
 
