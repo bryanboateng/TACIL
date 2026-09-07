@@ -51,12 +51,17 @@ class DynamicsConfig:
 @dataclass(frozen=True)
 class LabelConfig:
     type: AugmentationType = "noisy_action"
+    rejection_quantile: float = 0.5
     # Only noisy_action uses these two.
     label_count_per_transition: int = 20
     action_noise_std: float = 1e-5
-    rejection_quantile: float = 0.5
 
     def __post_init__(self) -> None:
+        if not 0.0 <= self.rejection_quantile <= 1.0:
+            raise ValueError(
+                f"rejection_quantile must be between 0 and 1, but it is "
+                f"{self.rejection_quantile}."
+            )
         if self.label_count_per_transition <= 0:
             raise ValueError(
                 f"label_count_per_transition must be positive, but it is "
@@ -67,16 +72,9 @@ class LabelConfig:
                 f"action_noise_std must not be negative, but it is "
                 f"{self.action_noise_std}."
             )
-        if not 0.0 <= self.rejection_quantile <= 1.0:
-            raise ValueError(
-                f"rejection_quantile must be between 0 and 1, but it is "
-                f"{self.rejection_quantile}."
-            )
 
 
 @dataclass(frozen=True)
 class CcilConfig:
     dynamics: DynamicsConfig = field(default_factory=DynamicsConfig)
-    # Named for what the stage produces, rather than after the method, so the
-    # command line does not repeat the word twice in one path.
     labels: LabelConfig = field(default_factory=LabelConfig)
