@@ -150,18 +150,24 @@ def train_mopo_policy(
         run.log(
             data={
                 f"{TRAINING_SECTION}/1_actor_loss": _average(
-                    values=[statistics.actor_loss for statistics in epoch_statistics]
+                    value_batch=[
+                        statistics.actor_loss for statistics in epoch_statistics
+                    ]
                 ),
                 f"{TRAINING_SECTION}/2_critic_loss": _average(
-                    values=[statistics.critic_loss for statistics in epoch_statistics]
+                    value_batch=[
+                        statistics.critic_loss for statistics in epoch_statistics
+                    ]
                 ),
                 f"{TRAINING_SECTION}/3_temperature_loss": _average(
-                    values=[
+                    value_batch=[
                         statistics.temperature_loss for statistics in epoch_statistics
                     ]
                 ),
                 f"{TRAINING_SECTION}/4_temperature": _average(
-                    values=[statistics.temperature for statistics in epoch_statistics]
+                    value_batch=[
+                        statistics.temperature for statistics in epoch_statistics
+                    ]
                 ),
                 EPOCH_METRIC_NAME: epoch_index,
                 STEP_METRIC_NAME: global_step,
@@ -223,8 +229,8 @@ def train_mopo_policy(
 # ---- Private --------------------------------------------
 
 
-def _average(*, values: list[float]) -> float:
-    return sum(values) / len(values)
+def _average(*, value_batch: list[torch.Tensor]) -> float:
+    return torch.stack(tensors=value_batch).mean().item()
 
 
 @dataclass(frozen=True)

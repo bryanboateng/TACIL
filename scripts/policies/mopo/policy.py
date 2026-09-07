@@ -14,10 +14,10 @@ from scripts.shared.policy_types import Policy, PolicyFactory
 
 @dataclass(frozen=True)
 class LearningStatistics:
-    actor_loss: float
-    critic_loss: float
-    temperature_loss: float
-    temperature: float
+    actor_loss: torch.Tensor
+    critic_loss: torch.Tensor
+    temperature_loss: torch.Tensor
+    temperature: torch.Tensor
 
 
 @dataclass(frozen=True)
@@ -62,6 +62,8 @@ class GaussianActor(torch.nn.Module):
                 .clamp(min=-5.0, max=2.0)
                 .exp()
             ),
+            # Saves time. The clamp above already keeps it positive.
+            validate_args=False,
         )
 
 
@@ -277,10 +279,11 @@ class MopoPolicy:
         self._update_target_critics()
 
         return LearningStatistics(
-            actor_loss=actor_loss.item(),
-            critic_loss=(first_critic_loss.item() + second_critic_loss.item()) / 2.0,
-            temperature_loss=temperature_loss.item(),
-            temperature=self.temperature.item(),
+            actor_loss=actor_loss.detach(),
+            critic_loss=(first_critic_loss.detach() + second_critic_loss.detach())
+            / 2.0,
+            temperature_loss=temperature_loss.detach(),
+            temperature=self.temperature,
         )
 
     # ---- Private --------------------------------------------

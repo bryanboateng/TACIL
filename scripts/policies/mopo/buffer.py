@@ -28,17 +28,11 @@ class ReplayBuffer:
         self._capacity = capacity
         self._device = device
 
-        self._states = np.zeros(
-            shape=(capacity, state_dimensionality), dtype=np.float32
-        )
-        self._actions = np.zeros(
-            shape=(capacity, action_dimensionality), dtype=np.float32
-        )
-        self._next_states = np.zeros(
-            shape=(capacity, state_dimensionality), dtype=np.float32
-        )
-        self._rewards = np.zeros(shape=(capacity, 1), dtype=np.float32)
-        self._terminations = np.zeros(shape=(capacity, 1), dtype=np.float32)
+        self._states = torch.zeros(capacity, state_dimensionality, device=device)
+        self._actions = torch.zeros(capacity, action_dimensionality, device=device)
+        self._next_states = torch.zeros(capacity, state_dimensionality, device=device)
+        self._rewards = torch.zeros(capacity, 1, device=device)
+        self._terminations = torch.zeros(capacity, 1, device=device)
 
         self._write_index = 0
         self._size = 0
@@ -49,37 +43,53 @@ class ReplayBuffer:
 
     def add(self, *, transitions: Transitions) -> None:
         count = len(transitions.states)
-        indices = np.arange(self._write_index, self._write_index + count) % (
-            self._capacity
+        indices = self._to_tensor(
+            value_batch=np.arange(self._write_index, self._write_index + count)
+            % self._capacity
         )
 
-        self._states[indices] = transitions.states
-        self._actions[indices] = transitions.actions
-        self._next_states[indices] = transitions.next_states
-        self._rewards[indices] = transitions.rewards
-        self._terminations[indices] = transitions.terminations
+        self._states[indices] = self._to_tensor(value_batch=transitions.states)
+        self._actions[indices] = self._to_tensor(value_batch=transitions.actions)
+        self._next_states[indices] = self._to_tensor(
+            value_batch=transitions.next_states
+        )
+        self._rewards[indices] = self._to_tensor(value_batch=transitions.rewards)
+        self._terminations[indices] = self._to_tensor(
+            value_batch=transitions.terminations
+        )
 
         self._write_index = (self._write_index + count) % self._capacity
         self._size = min(self._size + count, self._capacity)
 
     def sample(self, *, count: int, generator: np.random.Generator) -> Batch:
-        indices = generator.integers(low=0, high=self._size, size=count)
+        indices = self._draw_indices(count=count, generator=generator)
         return Batch(
-            states=self._to_tensor(value_batch=self._states[indices]),
-            actions=self._to_tensor(value_batch=self._actions[indices]),
-            next_states=self._to_tensor(value_batch=self._next_states[indices]),
-            rewards=self._to_tensor(value_batch=self._rewards[indices]),
-            terminations=self._to_tensor(value_batch=self._terminations[indices]),
+            states=self._states[indices],
+            actions=self._actions[indices],
+            next_states=self._next_states[indices],
+            rewards=self._rewards[indices],
+            terminations=self._terminations[indices],
         )
 
     def sample_states(
         self, *, count: int, generator: np.random.Generator
     ) -> npt.NDArray[np.float32]:  # (count, state_dimensionality)
-        return self._states[generator.integers(low=0, high=self._size, size=count)]
+        return (
+            self._states[self._draw_indices(count=count, generator=generator)]
+            .cpu()
+            .numpy()
+        )
 
     # ---- Private --------------------------------------------
 
-    def _to_tensor(self, *, value_batch: npt.NDArray[np.float32]) -> torch.Tensor:
+    def _draw_indices(
+        self, *, count: int, generator: np.random.Generator
+    ) -> torch.Tensor:  # (count,)
+        return self._to_tensor(
+            value_batch=generator.integers(low=0, high=self._size, size=count)
+        )
+
+    def _to_tensor(self, *, value_batch: np.ndarray) -> torch.Tensor:
         return torch.as_tensor(data=value_batch, device=self._device)
 
 
