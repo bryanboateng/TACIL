@@ -1,12 +1,3 @@
-"""Render every plot from made-up numbers, to look at the design without
-training a model first.
-
-The numbers are shaped like the real ones — errors that grow with depth,
-backward walks that stop early, an ensemble that fans out, synthetic steps
-that sit further from the data than expert ones — but nothing here is
-measured.
-"""
-
 import numpy as np
 import wandb
 from numpy import typing as npt
@@ -14,6 +5,12 @@ from numpy import typing as npt
 from scripts.data.augmentation.tacil.create_data.nearest_expert_state_plot import (
     create_nearest_expert_state_plot,
 )
+from scripts.data.augmentation.tacil.create_dynamics.statistics.plots import (
+    create_prediction_error_vs_step_count_plot,
+    create_replay_error_plot,
+    create_true_dynamics_vs_model_plot,
+)
+from scripts.shared.distribution_plot import create_distribution_plot
 from scripts.shared.log import create_logger
 from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
 from scripts.shared.pusht_state import ARENA_SIZE, BLOCK_ORIENTATION_INDEX
@@ -36,54 +33,53 @@ _POINT_COUNT = 4_000
 def main() -> None:
     rng = np.random.default_rng(seed=_SEED)
 
-    forward_member_trajectories, _, true_trajectory = _draw_fanning_replay(rng=rng)
+    member_trajectories, true_trajectory = _draw_fanning_trajectories(rng=rng)
 
-    images = {
-        # "prediction_error_vs_step_count": plots.create_prediction_error_vs_step_count_plot(
-        #     forward_prediction_errors_per_step_count=_draw_growing_errors(
-        #         rng=rng, growth_per_step=1.25
-        #     ),
-        #     backward_prediction_errors_per_step_count=_stop_walks_early(
-        #         prediction_errors=_draw_growing_errors(rng=rng, growth_per_step=1.6),
-        #         rng=rng,
-        #     ),
-        # ),
-        # "replay_error": plots.create_replay_error_plot(
-        #     backward_prediction_errors_per_step_count=_stop_walks_early(
-        #         prediction_errors=_draw_growing_errors(rng=rng, growth_per_step=1.6),
-        #         rng=rng,
-        #     ),
-        #     # Below the prediction error and growing more slowly, the way a
-        #     # model that underestimates its own drift looks.
-        #     backward_replay_errors_per_step_count=_stop_walks_early(
-        #         prediction_errors=0.2
-        #         * _draw_growing_errors(rng=rng, growth_per_step=1.35),
-        #         rng=rng,
-        #     ),
-        # ),
-        # "true_dynamics_vs_model_0": plots.create_true_dynamics_vs_model_plot(
-        #     forward_member_trajectories=forward_member_trajectories,
-        #     true_trajectory=true_trajectory,
-        #     episode_index=0,
-        # ),
-        "nearest_expert_state": _draw_nearest_expert_state(rng=rng)
-        # "distribution": create_distribution_plot(
-        #     values=rng.lognormal(mean=1.0, sigma=0.8, size=_POINT_COUNT),
-        #     column_name="made-up distribution",
-        # ),
+    previews = {
+        "prediction_error_vs_step_count": create_prediction_error_vs_step_count_plot(
+            forward_prediction_errors_per_step_count=_draw_growing_errors(
+                rng=rng, growth_per_step=1.25
+            ),
+            backward_prediction_errors_per_step_count=_stop_walks_early(
+                prediction_errors=_draw_growing_errors(rng=rng, growth_per_step=1.6),
+                rng=rng,
+            ),
+        ),
+        "replay_error": create_replay_error_plot(
+            backward_prediction_errors_per_step_count=_stop_walks_early(
+                prediction_errors=_draw_growing_errors(rng=rng, growth_per_step=1.6),
+                rng=rng,
+            ),
+            backward_replay_errors_per_step_count=_stop_walks_early(
+                prediction_errors=0.2
+                * _draw_growing_errors(rng=rng, growth_per_step=1.35),
+                rng=rng,
+            ),
+        ),
+        "true_dynamics_vs_model_0": create_true_dynamics_vs_model_plot(
+            member_trajectories=member_trajectories,
+            true_trajectory=true_trajectory,
+            episode_index=0,
+        ),
+        "nearest_expert_state": _draw_nearest_expert_state_plot(rng=rng),
+        "distribution": create_distribution_plot(
+            values=rng.lognormal(mean=1.0, sigma=0.8, size=_POINT_COUNT),
+            xlabel="made-up distribution",
+        ),
     }
 
     output_directory_path = OUTPUT_DIRECTORY_PATH / "plot_preview"
     output_directory_path.mkdir(parents=True, exist_ok=True)
-    for name, image in images.items():
+    for name, preview in previews.items():
+        image = preview.image
+        if image is None:
+            raise RuntimeError(f"The {name} preview unexpectedly holds no image.")
         image_path = output_directory_path / f"{name}.png"
-        image.image.save(image_path)
+        image.save(image_path)
         logger.info("Wrote %s", image_path)
 
 
-def _draw_nearest_expert_state(*, rng: np.random.Generator) -> wandb.Image:
-    """Expert steps sit close together and their labels agree; synthetic ones
-    reach further out, and the further they reach the more the label drifts."""
+def _draw_nearest_expert_state_plot(*, rng: np.random.Generator) -> wandb.Image:
     expert_state_distances = rng.lognormal(mean=0.0, sigma=0.4, size=_POINT_COUNT)
     synthetic_state_distances = rng.lognormal(mean=0.7, sigma=0.7, size=_POINT_COUNT)
     return create_nearest_expert_state_plot(
@@ -105,9 +101,6 @@ def _draw_nearest_expert_state(*, rng: np.random.Generator) -> wandb.Image:
 def _draw_growing_errors(
     *, rng: np.random.Generator, growth_per_step: float
 ) -> npt.NDArray[np.floating]:  # (_WINDOW_COUNT, _TRAJECTORY_DEPTH)
-    """Error that compounds with depth, spread over windows by a lognormal
-    factor — the log-scale axes of the panels need a spread, not a band of
-    equal width."""
     depths = np.arange(1, _TRAJECTORY_DEPTH + 1)  # (_TRAJECTORY_DEPTH,)
     median_per_depth = 0.01 * growth_per_step ** (depths - 1)  # (_TRAJECTORY_DEPTH,)
     per_window_factors = rng.lognormal(
@@ -119,8 +112,6 @@ def _draw_growing_errors(
 def _stop_walks_early(
     *, prediction_errors: npt.NDArray[np.floating], rng: np.random.Generator
 ) -> npt.NDArray[np.floating]:  # (_WINDOW_COUNT, _TRAJECTORY_DEPTH)
-    """A backward walk ends at its first non-converged solve and is NaN from
-    there on, so the later columns hold fewer and fewer walks."""
     survived_depths = rng.geometric(p=0.12, size=_WINDOW_COUNT)  # (_WINDOW_COUNT,)
     depths = np.arange(1, _TRAJECTORY_DEPTH + 1)  # (_TRAJECTORY_DEPTH,)
 
@@ -128,16 +119,12 @@ def _stop_walks_early(
     return np.where(stopped_mask, np.nan, prediction_errors)
 
 
-def _draw_fanning_replay(
+def _draw_fanning_trajectories(
     *, rng: np.random.Generator
 ) -> tuple[
     npt.NDArray[np.floating],  # (_MEMBER_COUNT, step_count + 1, state_dimensionality)
-    npt.NDArray[np.floating],  # (_MEMBER_COUNT, step_count + 1, state_dimensionality)
     npt.NDArray[np.floating],  # (step_count + 1, state_dimensionality)
 ]:
-    """An expert arc, and members that drift off it further the longer they
-    predict on their own — forward from the first state, backward from the
-    last one."""
     steps = np.arange(_REPLAY_STEP_COUNT + 1)
     progress = steps / _REPLAY_STEP_COUNT
 
@@ -150,38 +137,22 @@ def _draw_fanning_replay(
     )
     true_trajectory[:, 2] = 0.35 * ARENA_SIZE + 0.35 * ARENA_SIZE * progress
     true_trajectory[:, 3] = 0.45 * ARENA_SIZE + 0.20 * ARENA_SIZE * progress**2
-    # Wrapped to [0, 2*pi), like the real state: the block spins through
-    # several full turns over the episode.
     true_trajectory[:, BLOCK_ORIENTATION_INDEX] = (2.5 * np.pi * progress) % (
         2.0 * np.pi
     )
 
     drift_per_dimension = np.array([22.0, 22.0, 18.0, 18.0, 0.9])
-    member_trajectories = []
-    for drift_scale in (
-        # Forward: at step 0 every member sits on the expert state, and
-        # nothing has compounded yet. Backward mirrors that around the end.
-        progress[None, :, None] ** 1.5,
-        (1.0 - progress)[None, :, None] ** 1.5,
-    ):
-        member_noise = rng.normal(
-            loc=0.0, scale=1.0, size=(_MEMBER_COUNT, 1, _STATE_DIMENSIONALITY)
-        )
-        trajectories = (
-            true_trajectory[None, :, :]
-            + drift_scale * member_noise * drift_per_dimension
-        )
-        trajectories[..., BLOCK_ORIENTATION_INDEX] %= 2.0 * np.pi
-        member_trajectories.append(trajectories)
-
-    forward_member_trajectories, backward_member_trajectories = member_trajectories
-    # Half the members give up before reaching the start, the way a solve that
-    # stops converging leaves the rest of the walk empty.
-    backward_member_trajectories[: _MEMBER_COUNT // 2, : _REPLAY_STEP_COUNT // 4, :] = (
-        np.nan
+    drift_scale = progress[None, :, None] ** 1.5
+    member_noise = rng.normal(
+        loc=0.0, scale=1.0, size=(_MEMBER_COUNT, 1, _STATE_DIMENSIONALITY)
     )
 
-    return forward_member_trajectories, backward_member_trajectories, true_trajectory
+    member_trajectories = (
+        true_trajectory[None, :, :] + drift_scale * member_noise * drift_per_dimension
+    )
+    member_trajectories[..., BLOCK_ORIENTATION_INDEX] %= 2.0 * np.pi
+
+    return member_trajectories, true_trajectory
 
 
 if __name__ == "__main__":

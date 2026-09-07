@@ -166,7 +166,7 @@ def create_replay_error_plot(
 
 def create_true_dynamics_vs_model_plot(
     *,
-    forward_member_trajectories: npt.NDArray[
+    member_trajectories: npt.NDArray[
         np.floating
     ],  # (member_count, step_count + 1, state_dimensionality)
     true_trajectory: npt.NDArray[np.floating],  # (step_count + 1, state_dimensionality)
@@ -188,9 +188,7 @@ def create_true_dynamics_vs_model_plot(
         (agent_position_subplot, slice(0, 2), "Agent Position"),
         (block_position_subplot, slice(2, 4), "Block Position"),
     ):
-        for member_index, member_trajectory in enumerate(
-            iterable=forward_member_trajectories
-        ):
+        for member_index, member_trajectory in enumerate(iterable=member_trajectories):
             path = member_trajectory[:, dimension_slice]
             subplot.plot(
                 path[:, 0],
@@ -217,7 +215,7 @@ def create_true_dynamics_vs_model_plot(
         subplot.set_aspect(aspect="equal", adjustable="box")
 
     steps = np.arange(true_trajectory.shape[0])
-    for member_trajectory in forward_member_trajectories:
+    for member_trajectory in member_trajectories:
         block_orientation_subplot.plot(
             steps,
             _break_at_wraps(

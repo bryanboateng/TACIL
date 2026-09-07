@@ -1,7 +1,7 @@
 import numpy as np
 import torch
-from numpy import typing as npt
 import wandb
+from numpy import typing as npt
 from wandb import Run
 
 from scripts.data.augmentation.tacil.create_data.distances import (
@@ -241,7 +241,7 @@ def _create_replay_panels(
 
         replay_panels[f"{STAGE_NAME}/8_replay/episode_{episode_index}"] = (
             plots.create_true_dynamics_vs_model_plot(
-                forward_member_trajectories=(forward_member_trajectories.cpu().numpy()),
+                member_trajectories=(forward_member_trajectories.cpu().numpy()),
                 true_trajectory=true_trajectory,
                 episode_index=episode_index,
             )
