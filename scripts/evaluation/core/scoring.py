@@ -15,10 +15,7 @@ from scripts.shared.policy_types import PolicyFactory
 @dataclass(frozen=True)
 class RewardStatistics:
     mean: float
-    # The spread of the episodes around the mean.
     std: float
-    # The uncertainty of the mean itself. A comparison of two methods needs
-    # this value, not the spread of the episodes.
     standard_error: float
     episode_count: int
 
@@ -103,8 +100,6 @@ def calculate_reward_statistics(
             episode_count=0,
         )
 
-    # ddof=1, because these episodes are a sample of the possible seeds. They
-    # are not the full population.
     std = float(rewards.std(ddof=1)) if episode_count > 1 else 0.0
     return RewardStatistics(
         mean=float(rewards.mean()),
