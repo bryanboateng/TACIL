@@ -339,19 +339,15 @@ def create_mopo_policy_factory(
             state_batch = state_normalizer.normalize(
                 value_batch=torch.from_numpy(
                     np.stack(arrays=list(observations_by_episode_index.values()))
-                ).to(device=device, dtype=torch.float32)
-            )
+                ).float()
+            ).to(device=device)
 
             with torch.no_grad():
-                action_batch = (
-                    action_normalizer.denormalize(
-                        value_batch=policy.sample_action(
-                            state_batch=state_batch, deterministic=True
-                        )[0]
-                    )
-                    .cpu()
-                    .numpy()
-                )
+                action_batch = action_normalizer.denormalize(
+                    value_batch=policy.sample_action(
+                        state_batch=state_batch, deterministic=True
+                    )[0].cpu()
+                ).numpy()
 
             return dict(
                 zip(observations_by_episode_index.keys(), action_batch, strict=True)
