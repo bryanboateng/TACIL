@@ -146,7 +146,7 @@ class MopoPolicy:
         self,
         *,
         state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
-        deterministic: bool = False,
+        deterministic: bool,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         # (batch_size, action_dimensionality), (batch_size, 1)
         distribution = self.actor(state_batch)
@@ -185,7 +185,8 @@ class MopoPolicy:
                     self.sample_action(
                         state_batch=torch.as_tensor(
                             data=state_batch, device=self.device
-                        )
+                        ),
+                        deterministic=False,
                     )[0]
                     .cpu()
                     .numpy()
@@ -236,7 +237,7 @@ class MopoPolicy:
 
         with torch.no_grad():
             next_action_batch, next_log_probability_batch = self.sample_action(
-                state_batch=batch.next_states
+                state_batch=batch.next_states, deterministic=False
             )
             next_value_batch = (
                 torch.min(
@@ -265,7 +266,7 @@ class MopoPolicy:
         self.second_critic_optimizer.step()
 
         action_batch, log_probability_batch = self.sample_action(
-            state_batch=batch.states
+            state_batch=batch.states, deterministic=False
         )
         actor_loss = (
             -torch.min(
