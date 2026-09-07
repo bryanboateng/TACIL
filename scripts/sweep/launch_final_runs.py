@@ -3,8 +3,7 @@ from dataclasses import dataclass
 import tyro
 import wandb
 
-from scripts.evaluation.evaluate_policy import ALL_CONDITIONS_LABEL
-from scripts.evaluation.evaluate_policy import STAGE_NAME
+from scripts.evaluation.evaluate_policy import ALL_CONDITIONS_LABEL, STAGE_NAME
 from scripts.shared.log import create_logger
 from scripts.sweep.create_sweep import (
     METHOD_FIXED_ARGUMENTS,
@@ -25,9 +24,10 @@ class Config:
 
     sweep_id: str
 
-    project_prefix: str = "2026-08-22"
-    final_project: str = "2026-08-24-final"
-    entity: str = "bryanboateng-team"
+    # Both name a project rather than defaulting to one: a stale default would
+    # read an old sweep and print its winners without saying so.
+    project_prefix: str
+    final_project: str
 
     top_k: int = 3
     seeds: tuple[int, ...] = (0, 1, 2)
@@ -39,7 +39,7 @@ def main() -> None:
     sweep_project = (
         f"{config.project_prefix}-{config.dataset_percentage}-{config.method}"
     )
-    sweep = wandb.Api().sweep(f"{config.entity}/{sweep_project}/{config.sweep_id}")
+    sweep = wandb.Api().sweep(f"{sweep_project}/{config.sweep_id}")
 
     ranked = sorted(
         (run for run in sweep.runs if RANKING_METRIC in run.summary),
@@ -54,7 +54,6 @@ def main() -> None:
             config.top_k,
         )
 
-    final_project = config.final_project
     module = METHOD_MODULES[config.method]
 
     for run in ranked[: config.top_k]:
@@ -66,7 +65,7 @@ def main() -> None:
                 "python",
                 "-m",
                 module,
-                f"--wandb-project={final_project}",
+                f"--wandb-project={config.final_project}",
                 f"--expert-dataset-artifact=datasets/dataset-{config.dataset_percentage}:latest",
                 f"--seed={seed}",
                 # Top-level option: it must precede the augmentation subcommand,
