@@ -1,9 +1,3 @@
-"""Replay buffers of MOPO.
-
-Ported from `~/uni/masterarbeit/OfflineRL-Kit`, `offlinerlkit/buffer/buffer.py`.
-One buffer holds the real transitions, the other the imagined ones.
-"""
-
 from dataclasses import dataclass
 
 import numpy as np
