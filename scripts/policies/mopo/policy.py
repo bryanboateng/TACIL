@@ -57,9 +57,11 @@ class GaussianActor(torch.nn.Module):
         features = self.backbone(state_batch)
         return torch.distributions.Normal(
             loc=self.mean_layer(features),
-            scale=self.log_standard_deviation_layer(features)
-            .clamp(min=-5.0, max=2.0)
-            .exp(),
+            scale=(
+                self.log_standard_deviation_layer(features)
+                .clamp(min=-5.0, max=2.0)
+                .exp()
+            ),
         )
 
 
@@ -162,7 +164,6 @@ class MopoPolicy:
 
         return action_batch, log_probability_batch
 
-    @torch.no_grad()
     def imagine_rollout(
         self,
         *,
@@ -170,53 +171,58 @@ class MopoPolicy:
         length: int,
         generator: np.random.Generator,
     ) -> tuple[Transitions, RolloutStatistics]:
-        state_batches: list[npt.NDArray[np.float32]] = []
-        action_batches: list[npt.NDArray[np.float32]] = []
-        next_state_batches: list[npt.NDArray[np.float32]] = []
-        reward_batches: list[npt.NDArray[np.float32]] = []
-        termination_batches: list[npt.NDArray[np.float32]] = []
-        penalty_means: list[float] = []
+        with torch.no_grad():
+            state_batches: list[npt.NDArray[np.float32]] = []
+            action_batches: list[npt.NDArray[np.float32]] = []
+            next_state_batches: list[npt.NDArray[np.float32]] = []
+            reward_batches: list[npt.NDArray[np.float32]] = []
+            termination_batches: list[npt.NDArray[np.float32]] = []
+            penalty_means: list[float] = []
 
-        state_batch = start_state_batch
-        for _ in range(length):
-            action_batch = (
-                self.sample_action(
-                    state_batch=torch.as_tensor(data=state_batch, device=self.device)
-                )[0]
-                .cpu()
-                .numpy()
-            )  # (active_count, action_dimensionality)
+            state_batch = start_state_batch
+            for _ in range(length):
+                action_batch = (
+                    self.sample_action(
+                        state_batch=torch.as_tensor(
+                            data=state_batch, device=self.device
+                        )
+                    )[0]
+                    .cpu()
+                    .numpy()
+                )  # (active_count, action_dimensionality)
 
-            imagined_step = self.dynamics.imagine_step(
-                state_batch=state_batch, action_batch=action_batch, generator=generator
+                imagined_step = self.dynamics.imagine_step(
+                    state_batch=state_batch,
+                    action_batch=action_batch,
+                    generator=generator,
+                )
+
+                state_batches.append(state_batch)
+                action_batches.append(action_batch)
+                next_state_batches.append(imagined_step.next_state_batch)
+                reward_batches.append(imagined_step.reward_batch)
+                termination_batches.append(imagined_step.termination_batch)
+                penalty_means.append(imagined_step.penalty_mean)
+
+                continuation_mask = imagined_step.termination_batch.flatten() == 0.0
+                if not continuation_mask.any():
+                    break
+
+                state_batch = imagined_step.next_state_batch[continuation_mask]
+
+            transitions = Transitions(
+                states=np.concatenate(state_batches, axis=0),
+                actions=np.concatenate(action_batches, axis=0),
+                next_states=np.concatenate(next_state_batches, axis=0),
+                rewards=np.concatenate(reward_batches, axis=0),
+                terminations=np.concatenate(termination_batches, axis=0),
             )
 
-            state_batches.append(state_batch)
-            action_batches.append(action_batch)
-            next_state_batches.append(imagined_step.next_state_batch)
-            reward_batches.append(imagined_step.reward_batch)
-            termination_batches.append(imagined_step.termination_batch)
-            penalty_means.append(imagined_step.penalty_mean)
-
-            continuation_mask = imagined_step.termination_batch.flatten() == 0.0
-            if not continuation_mask.any():
-                break
-
-            state_batch = imagined_step.next_state_batch[continuation_mask]
-
-        transitions = Transitions(
-            states=np.concatenate(state_batches, axis=0),
-            actions=np.concatenate(action_batches, axis=0),
-            next_states=np.concatenate(next_state_batches, axis=0),
-            rewards=np.concatenate(reward_batches, axis=0),
-            terminations=np.concatenate(termination_batches, axis=0),
-        )
-
-        return transitions, RolloutStatistics(
-            transition_count=len(transitions.states),
-            reward_mean=float(transitions.rewards.mean()),
-            penalty_mean=float(np.mean(penalty_means)),
-        )
+            return transitions, RolloutStatistics(
+                transition_count=len(transitions.states),
+                reward_mean=float(transitions.rewards.mean()),
+                penalty_mean=float(np.mean(penalty_means)),
+            )
 
     def learn(self, *, real_batch: Batch, imagined_batch: Batch) -> LearningStatistics:
         batch = concatenate_batches(first=real_batch, second=imagined_batch)

@@ -213,7 +213,6 @@ def _train_for_one_epoch(
     return float(np.mean(losses))
 
 
-@torch.no_grad()
 def _calculate_holdout_losses(
     *,
     model_ensemble: DynamicsModelEnsemble,
@@ -221,8 +220,9 @@ def _calculate_holdout_losses(
     target_batch: torch.Tensor,  # (holdout_count, target_dimensionality)
 ) -> list[float]:
     model_ensemble.eval()
-    mean_batch, _ = model_ensemble(input_batch)
-    return (mean_batch - target_batch).square().mean(dim=(1, 2)).tolist()
+    with torch.no_grad():
+        mean_batch, _ = model_ensemble(input_batch)
+        return (mean_batch - target_batch).square().mean(dim=(1, 2)).tolist()
 
 
 def _calculate_elite_loss(*, holdout_losses: list[float], elite_count: int) -> float:

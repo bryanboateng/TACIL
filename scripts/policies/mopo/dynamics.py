@@ -225,7 +225,6 @@ class Dynamics:
         self.penalty_coefficient = penalty_coefficient
         self.device = device
 
-    @torch.no_grad()
     def imagine_step(
         self,
         *,
@@ -233,48 +232,49 @@ class Dynamics:
         action_batch: npt.NDArray[np.float32],  # (batch_size, action_dimensionality)
         generator: np.random.Generator,
     ) -> ImaginedStep:
-        input_batch = self.input_normalizer.normalize(
-            value_batch=np.concatenate([state_batch, action_batch], axis=-1)
-        )  # (batch_size, input_dimensionality)
+        with torch.no_grad():
+            input_batch = self.input_normalizer.normalize(
+                value_batch=np.concatenate([state_batch, action_batch], axis=-1)
+            )  # (batch_size, input_dimensionality)
 
-        mean_batch, log_variance_batch = self.model_ensemble(
-            torch.as_tensor(data=input_batch, device=self.device)
-        )  # each (ensemble_size, batch_size, target_dimensionality)
+            mean_batch, log_variance_batch = self.model_ensemble(
+                torch.as_tensor(data=input_batch, device=self.device)
+            )  # each (ensemble_size, batch_size, target_dimensionality)
 
-        mean = mean_batch.cpu().numpy()
-        mean[..., :-1] += state_batch
-        std = np.sqrt(np.exp(log_variance_batch.cpu().numpy()))
+            mean = mean_batch.cpu().numpy()
+            mean[..., :-1] += state_batch
+            std = np.sqrt(np.exp(log_variance_batch.cpu().numpy()))
 
-        # `generator.normal` is float64, so the noise is cast back.
-        member_sample_batch = (
-            mean + generator.normal(size=mean.shape).astype(np.float32) * std
-        )  # (ensemble_size, batch_size, target_dimensionality)
+            # `generator.normal` is float64, so the noise is cast back.
+            member_sample_batch = (
+                mean + generator.normal(size=mean.shape).astype(np.float32) * std
+            )  # (ensemble_size, batch_size, target_dimensionality)
 
-        batch_size = len(state_batch)
-        sample_batch = member_sample_batch[
-            self.model_ensemble.draw_elite_indices(
-                count=batch_size, generator=generator
-            ),
-            np.arange(batch_size),
-        ]  # (batch_size, target_dimensionality)
+            batch_size = len(state_batch)
+            sample_batch = member_sample_batch[
+                self.model_ensemble.draw_elite_indices(
+                    count=batch_size, generator=generator
+                ),
+                np.arange(batch_size),
+            ]  # (batch_size, target_dimensionality)
 
-        next_state_batch = sample_batch[..., :-1]
-        reward_batch = sample_batch[..., -1:]
+            next_state_batch = sample_batch[..., :-1]
+            reward_batch = sample_batch[..., -1:]
 
-        # Aleatoric uncertainty: the widest predicted spread in the ensemble.
-        penalty_batch = np.amax(np.linalg.norm(std, axis=2), axis=0)[
-            :, None
-        ]  # (batch_size, 1)
+            # Aleatoric uncertainty: the widest predicted spread in the ensemble.
+            penalty_batch = np.amax(np.linalg.norm(std, axis=2), axis=0)[
+                :, None
+            ]  # (batch_size, 1)
 
-        return ImaginedStep(
-            next_state_batch=next_state_batch,
-            reward_batch=reward_batch - self.penalty_coefficient * penalty_batch,
-            # The termination function returns a bool array, so it is cast.
-            termination_batch=self.termination_function(next_state_batch)
-            .reshape(-1, 1)
-            .astype(np.float32),
-            penalty_mean=float(penalty_batch.mean()),
-        )
+            return ImaginedStep(
+                next_state_batch=next_state_batch,
+                reward_batch=reward_batch - self.penalty_coefficient * penalty_batch,
+                # The termination function returns a bool array, so it is cast.
+                termination_batch=self.termination_function(next_state_batch)
+                .reshape(-1, 1)
+                .astype(np.float32),
+                penalty_mean=float(penalty_batch.mean()),
+            )
 
 
 def _soft_clamp(
