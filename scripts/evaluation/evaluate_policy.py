@@ -40,8 +40,6 @@ logger = create_logger()
 
 STAGE_NAME = stage_names.EVALUATION
 
-# Stands beside the condition labels, so a sweep can rank on every condition at
-# once instead of picking one it was then tuned for.
 ALL_CONDITIONS_LABEL = "0_all_conditions"
 
 
@@ -67,9 +65,7 @@ def evaluate_policy(
                 run=run,
                 condition=condition,
                 reward=reward,
-                success=calculate_success_statistics(
-                    episode_records=episode_records
-                ),
+                success=calculate_success_statistics(episode_records=episode_records),
             )
             _log_video(
                 policy_label=policy_label,
@@ -182,7 +178,7 @@ def _write_episode_frames(
             frame = _convert_surface_to_frame(surface=surface)
             video_writer.append_data(frame)
 
-        # Freeze on the final annotated frame.
+        # Freeze on the final frame.
         if frame is not None:
             for _ in range(fps * FREEZE_SECONDS):
                 video_writer.append_data(frame)
@@ -223,18 +219,7 @@ def _create_replay_policy(*, action_sequences: list[list[np.ndarray]]) -> Policy
         actions = {}
         for episode_index in observations_by_episode_index.keys():
             action_sequence = action_sequences[episode_index]
-            step_index = step_indices[episode_index]
-            # An episode ends when the environment says so, not when the
-            # recorded actions run out. A replay that outlives its recording
-            # has already diverged, and would otherwise fail here with a bare
-            # IndexError instead of the check the caller makes afterwards.
-            if step_index >= len(action_sequence):
-                raise RuntimeError(
-                    f"The replay is still running after all "
-                    f"{len(action_sequence)} recorded actions, so it did not "
-                    f"reproduce the episode."
-                )
-            actions[episode_index] = action_sequence[step_index]
+            actions[episode_index] = action_sequence[step_indices[episode_index]]
             step_indices[episode_index] += 1
         return actions
 
