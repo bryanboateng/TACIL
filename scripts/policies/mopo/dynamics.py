@@ -1,14 +1,3 @@
-"""Dynamics model ensemble of MOPO.
-
-Ported from the reference implementation in `~/uni/masterarbeit/OfflineRL-Kit`
-(`offlinerlkit/modules/dynamics_module.py`, `offlinerlkit/nets/ensemble_linear.py`
-and `offlinerlkit/dynamics/ensemble_dynamics.py`).
-
-Divergence from the reference: the termination function takes the next state
-alone. The reference passes state, action and next state, because its Mujoco
-termination rules read all three. The PushT rule reads the next state only.
-"""
-
 from collections.abc import Callable
 from dataclasses import dataclass
 

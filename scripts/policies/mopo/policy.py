@@ -1,14 +1,3 @@
-"""Soft Actor-Critic policy of MOPO.
-
-Ported from `~/uni/masterarbeit/OfflineRL-Kit`
-(`offlinerlkit/policy/model_free/sac.py`, `offlinerlkit/policy/model_based/mopo.py`,
-`offlinerlkit/modules/actor_module.py`, `offlinerlkit/modules/critic_module.py`,
-`offlinerlkit/modules/dist_module.py`).
-
-The actor works in a normalized state and action space, so the largest action
-is 1 in every dimension. See `scripts/policies/mopo/transitions.py` for why.
-"""
-
 import copy
 from dataclasses import dataclass
 
@@ -21,8 +10,6 @@ from scripts.policies.mopo.dynamics import Dynamics
 from scripts.policies.mopo.transitions import Transitions
 from scripts.shared.normalization import MinMaxNormalizer, ZScoreNormalizer
 from scripts.shared.policy_types import Policy, PolicyFactory
-
-LOG_STANDARD_DEVIATION_LIMITS = (-5.0, 2.0)
 
 
 @dataclass(frozen=True)
@@ -71,10 +58,7 @@ class GaussianActor(torch.nn.Module):
         return torch.distributions.Normal(
             loc=self.mean_layer(features),
             scale=self.log_standard_deviation_layer(features)
-            .clamp(
-                min=LOG_STANDARD_DEVIATION_LIMITS[0],
-                max=LOG_STANDARD_DEVIATION_LIMITS[1],
-            )
+            .clamp(min=-5.0, max=2.0)
             .exp(),
         )
 

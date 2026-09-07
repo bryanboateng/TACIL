@@ -1,11 +1,3 @@
-"""Dynamics training of MOPO.
-
-Ported from `EnsembleDynamics.train` in the reference implementation
-(`~/uni/masterarbeit/OfflineRL-Kit`, `offlinerlkit/dynamics/ensemble_dynamics.py`).
-Training runs until no ensemble member improves on the holdout split for
-`patience_epoch_count` epochs in a row. Only the best members are kept.
-"""
-
 from collections.abc import Callable
 
 import numpy as np
