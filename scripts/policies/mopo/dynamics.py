@@ -213,7 +213,7 @@ class InputNormalizer:
         *,
         value_batch: npt.NDArray[np.float32],  # (batch_size, dimensionality)
     ) -> npt.NDArray[np.float32]:  # (batch_size, dimensionality)
-        return ((value_batch - self.mean) / self.std).astype(np.float32)
+        return (value_batch - self.mean) / self.std
 
 
 class Dynamics:
@@ -256,8 +256,9 @@ class Dynamics:
         mean[..., :-1] += state_batch
         std = np.sqrt(np.exp(log_variance_batch.cpu().numpy()))
 
+        # `generator.normal` is float64, so the noise is cast back.
         member_sample_batch = (
-            mean + generator.normal(size=mean.shape) * std
+            mean + generator.normal(size=mean.shape).astype(np.float32) * std
         )  # (ensemble_size, batch_size, target_dimensionality)
 
         batch_size = len(state_batch)
@@ -266,19 +267,20 @@ class Dynamics:
                 count=batch_size, generator=generator
             ),
             np.arange(batch_size),
-        ].astype(np.float32)  # (batch_size, target_dimensionality)
+        ]  # (batch_size, target_dimensionality)
 
         next_state_batch = sample_batch[..., :-1]
         reward_batch = sample_batch[..., -1:]
 
         # Aleatoric uncertainty: the widest predicted spread in the ensemble.
-        penalty_batch = np.amax(np.linalg.norm(std, axis=2), axis=0)[:, None].astype(
-            np.float32
-        )  # (batch_size, 1)
+        penalty_batch = np.amax(np.linalg.norm(std, axis=2), axis=0)[
+            :, None
+        ]  # (batch_size, 1)
 
         return ImaginedStep(
             next_state_batch=next_state_batch,
             reward_batch=reward_batch - self.penalty_coefficient * penalty_batch,
+            # The termination function returns a bool array, so it is cast.
             termination_batch=self.termination_function(next_state_batch)
             .reshape(-1, 1)
             .astype(np.float32),

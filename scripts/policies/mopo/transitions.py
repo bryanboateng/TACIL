@@ -45,13 +45,9 @@ def build_transitions(
     action_normalizer: MinMaxNormalizer,
 ) -> Transitions:
     states = episode_store.states
-    actions = (
-        action_normalizer.normalize(
-            value_batch=torch.from_numpy(episode_store.actions).float()
-        )
-        .numpy()
-        .astype(np.float32)
-    )
+    actions = action_normalizer.normalize(
+        value_batch=torch.from_numpy(episode_store.actions).float()
+    ).numpy()
 
     # The last step of an episode has no successor.
     is_start_of_transition = np.ones(shape=len(states), dtype=np.bool_)
@@ -68,6 +64,7 @@ def build_transitions(
         next_states=_normalize_states(
             state_batch=next_states, state_normalizer=state_normalizer
         ),
+        # The reward is float64 and the termination bool, so both are cast.
         rewards=calculate_reward_batch(state_batch=next_states)
         .astype(np.float32)
         .reshape(-1, 1),
@@ -85,8 +82,6 @@ def _normalize_states(
     state_batch: npt.NDArray[np.float32],  # (transition_count, state_dimensionality)
     state_normalizer: ZScoreNormalizer,
 ) -> npt.NDArray[np.float32]:  # (transition_count, state_dimensionality)
-    return (
-        state_normalizer.normalize(value_batch=torch.from_numpy(state_batch).float())
-        .numpy()
-        .astype(np.float32)
-    )
+    return state_normalizer.normalize(
+        value_batch=torch.from_numpy(state_batch).float()
+    ).numpy()

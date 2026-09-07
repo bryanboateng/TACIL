@@ -60,7 +60,7 @@ def train_mopo_policy(
         termination_function=lambda state_batch: calculate_termination_batch(
             # The model works on normalized states, the PushT rule on raw ones.
             state_batch=state_normalizer.denormalize(
-                value_batch=torch.from_numpy(state_batch)
+                value_batch=torch.from_numpy(state_batch).float()
             ).numpy()
         ),
         seed=seed,
