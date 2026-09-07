@@ -135,7 +135,6 @@ class RecoloredRenderWrapper(gymnasium.Wrapper):
             pt1=origin_coordinates.int_tuple,
             pt2=tip_coordinates.int_tuple,
             color=(40, 200, 80),
-            # OpenCV rejects a thickness of zero, which a small render gives.
             thickness=max(1, int(self._render_settings.size / 250)),
             line_type=cv2.LINE_AA,
             tipLength=0.25,
@@ -161,7 +160,6 @@ class RecoloredRenderWrapper(gymnasium.Wrapper):
                 ),
                 markerType=cv2.MARKER_CROSS,
                 markerSize=max(1, int(8 / 96 * self._render_settings.size)),
-                # OpenCV rejects a thickness of zero, which a small render gives.
                 thickness=max(1, int(1 / 96 * self._render_settings.size)),
             )
 

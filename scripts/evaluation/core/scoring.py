@@ -26,8 +26,6 @@ class RewardStatistics:
 @dataclass(frozen=True)
 class SuccessStatistics:
     rate: float
-    # The uncertainty of the rate. Successes are counted, not averaged, so the
-    # spread follows from the rate itself rather than from the episodes.
     standard_error: float
 
 
@@ -119,15 +117,13 @@ def calculate_reward_statistics(
 def calculate_success_statistics(
     *, episode_records: list[EpisodeRecord]
 ) -> SuccessStatistics:
-    if not episode_records:
-        return SuccessStatistics(rate=0.0, standard_error=float("nan"))
+    episode_count = len(episode_records)
+    if episode_count == 0:
+        return SuccessStatistics(rate=float("nan"), standard_error=float("nan"))
 
     rate = float(np.mean([record.terminated for record in episode_records]))
-    # An episode either succeeds or it does not, so the rate is a proportion
-    # and its spread follows from the rate: p * (1 - p) per episode.
     return SuccessStatistics(
-        rate=rate,
-        standard_error=float(np.sqrt(rate * (1.0 - rate) / len(episode_records))),
+        rate=rate, standard_error=float(np.sqrt(rate * (1.0 - rate) / episode_count))
     )
 
 

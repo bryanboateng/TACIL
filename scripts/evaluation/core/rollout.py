@@ -35,14 +35,13 @@ class _EpisodeRun:
     frames: list[np.ndarray] | None = None
     rewards: list[float] = field(default_factory=list)
     actions: list[np.ndarray] = field(default_factory=list)
-    best_reward: float = 0.0
     terminated: bool = False
 
     @property
     def record(self) -> EpisodeRecord:
         return EpisodeRecord(
             seed=self.seed,
-            reward=self.best_reward,
+            reward=max(self.rewards, default=float("nan")),
             terminated=self.terminated,
             final_observation=self.observation,
             actions=self.actions,
@@ -65,7 +64,6 @@ def create_environment(
         damping=damping,
         render_mode="rgb_array" if render_settings is not None else None,
     )
-    environment.reset()
 
     if condition.disturbance_level is not None:
         environment = disturbance.DisturbanceWrapper(
@@ -129,9 +127,6 @@ def roll_out_episodes(
                 episode_run.observation = observation
                 episode_run.actions.append(action)
                 episode_run.rewards.append(float(step_reward))
-                episode_run.best_reward = max(
-                    episode_run.best_reward, float(step_reward)
-                )
 
                 if episode_run.frames is not None:
                     episode_run.frames.append(

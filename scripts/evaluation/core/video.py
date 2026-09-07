@@ -142,9 +142,6 @@ def _convert_frame_to_surface(*, frame: np.ndarray) -> Surface:
 def _add_text_to_surface(
     *, text: str, placement: _Placement, surface: Surface, font: Font
 ) -> None:
-    # pygame renders single lines only, so render each line separately and
-    # stack them: top placements grow downward from the margin, bottom
-    # placements keep their last line on the bottom margin.
     line_surfaces = [font.render(line, True, (0, 0, 0)) for line in text.split("\n")]
     margin = surface.get_width() // 100
     line_height = round(font.get_linesize() * 1.25)

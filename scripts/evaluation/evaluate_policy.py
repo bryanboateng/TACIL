@@ -63,20 +63,22 @@ def evaluate_policy(
             reward = calculate_reward_statistics(episode_records=episode_records)
             reward_means.append(reward.mean)
 
-        _write_summary(
-            run=run,
-            condition=condition,
-            reward=reward,
-            success=calculate_success_statistics(episode_records=episode_records),
-        )
-        _log_video(
-            policy_label=policy_label,
-            condition=condition,
-            episode_records=pick_representative_episodes(
-                episode_records=episode_records
-            ),
-            run=run,
-        )
+            _write_summary(
+                run=run,
+                condition=condition,
+                reward=reward,
+                success=calculate_success_statistics(
+                    episode_records=episode_records
+                ),
+            )
+            _log_video(
+                policy_label=policy_label,
+                condition=condition,
+                episode_records=pick_representative_episodes(
+                    episode_records=episode_records
+                ),
+                run=run,
+            )
 
     run.summary[f"{STAGE_NAME}/{ALL_CONDITIONS_LABEL}/1_reward_mean"] = sum(
         reward_means
