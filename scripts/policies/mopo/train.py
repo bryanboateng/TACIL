@@ -1,4 +1,5 @@
 import copy
+import time
 from dataclasses import dataclass
 
 import numpy as np
@@ -114,16 +115,20 @@ def train_mopo_policy(
     ):
         policy.train()
         epoch_statistics: list[LearningStatistics] = []
+        rollout_seconds = 0.0
+        epoch_start = time.perf_counter()
         for _ in range(config.optimization.step_count_per_epoch):
             if global_step % config.rollout.interval_step_count == 0:
+                rollout_start = time.perf_counter()
                 imagined_transitions, rollout_statistics = policy.imagine_rollout(
                     start_state_batch=real_buffer.sample_states(
-                        count=config.rollout.start_state_count, generator=generator
+                        count=config.rollout.start_state_count
                     ),
                     length=config.rollout.length,
                     generator=generator,
                 )
                 imagined_buffer.add(transitions=imagined_transitions)
+                rollout_seconds += time.perf_counter() - rollout_start
                 run.log(
                     data={
                         f"{ROLLOUT_SECTION}/1_transition_count": rollout_statistics.transition_count,
@@ -136,39 +141,38 @@ def train_mopo_policy(
             epoch_statistics.append(
                 policy.learn(
                     batch=concatenate_batches(
-                        first=real_buffer.sample(
-                            count=real_batch_size, generator=generator
-                        ),
-                        second=imagined_buffer.sample(
-                            count=imagined_batch_size, generator=generator
-                        ),
+                        first=real_buffer.sample(count=real_batch_size),
+                        second=imagined_buffer.sample(count=imagined_batch_size),
                     )
                 )
             )
             global_step += 1
 
+        training_statistics = {
+            f"{TRAINING_SECTION}/1_actor_loss": _average(
+                value_batch=[statistics.actor_loss for statistics in epoch_statistics]
+            ),
+            f"{TRAINING_SECTION}/2_critic_loss": _average(
+                value_batch=[statistics.critic_loss for statistics in epoch_statistics]
+            ),
+            f"{TRAINING_SECTION}/3_temperature_loss": _average(
+                value_batch=[
+                    statistics.temperature_loss for statistics in epoch_statistics
+                ]
+            ),
+            f"{TRAINING_SECTION}/4_temperature": _average(
+                value_batch=[statistics.temperature for statistics in epoch_statistics]
+            ),
+        }
+        # Read after the averages, because that is where the device catches up.
+        epoch_seconds = time.perf_counter() - epoch_start
+
         run.log(
             data={
-                f"{TRAINING_SECTION}/1_actor_loss": _average(
-                    value_batch=[
-                        statistics.actor_loss for statistics in epoch_statistics
-                    ]
-                ),
-                f"{TRAINING_SECTION}/2_critic_loss": _average(
-                    value_batch=[
-                        statistics.critic_loss for statistics in epoch_statistics
-                    ]
-                ),
-                f"{TRAINING_SECTION}/3_temperature_loss": _average(
-                    value_batch=[
-                        statistics.temperature_loss for statistics in epoch_statistics
-                    ]
-                ),
-                f"{TRAINING_SECTION}/4_temperature": _average(
-                    value_batch=[
-                        statistics.temperature for statistics in epoch_statistics
-                    ]
-                ),
+                **training_statistics,
+                f"{TRAINING_SECTION}/5_learning_seconds": epoch_seconds
+                - rollout_seconds,
+                f"{ROLLOUT_SECTION}/4_seconds": rollout_seconds,
                 EPOCH_METRIC_NAME: epoch_index,
                 STEP_METRIC_NAME: global_step,
             }

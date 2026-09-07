@@ -61,8 +61,8 @@ class ReplayBuffer:
         self._write_index = (self._write_index + count) % self._capacity
         self._size = min(self._size + count, self._capacity)
 
-    def sample(self, *, count: int, generator: np.random.Generator) -> Batch:
-        indices = self._draw_indices(count=count, generator=generator)
+    def sample(self, *, count: int) -> Batch:
+        indices = self._draw_indices(count=count)
         return Batch(
             states=self._states[indices],
             actions=self._actions[indices],
@@ -72,22 +72,16 @@ class ReplayBuffer:
         )
 
     def sample_states(
-        self, *, count: int, generator: np.random.Generator
+        self, *, count: int
     ) -> npt.NDArray[np.float32]:  # (count, state_dimensionality)
-        return (
-            self._states[self._draw_indices(count=count, generator=generator)]
-            .cpu()
-            .numpy()
-        )
+        return self._states[self._draw_indices(count=count)].cpu().numpy()
 
     # ---- Private --------------------------------------------
 
-    def _draw_indices(
-        self, *, count: int, generator: np.random.Generator
-    ) -> torch.Tensor:  # (count,)
-        return self._to_tensor(
-            value_batch=generator.integers(low=0, high=self._size, size=count)
-        )
+    def _draw_indices(self, *, count: int) -> torch.Tensor:  # (count,)
+        # Drawn on the device. Sending indices over from the processor makes
+        # the host wait for the device at every single step.
+        return torch.randint(low=0, high=self._size, size=(count,), device=self._device)
 
     def _to_tensor(self, *, value_batch: np.ndarray) -> torch.Tensor:
         return torch.as_tensor(data=value_batch, device=self._device)
