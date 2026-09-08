@@ -2,22 +2,16 @@ import tempfile
 from pathlib import Path
 
 import numpy as np
-import pygame
 import torch
 import wandb
 from gymnasium import Env
 from imageio import v2 as imageio
-from pygame import Surface
 from tqdm import tqdm
 from wandb import Run
 
-from scripts.evaluation.core.condition import Condition
-from scripts.evaluation.core.renderer import RenderSettings
-from scripts.evaluation.core.rollout import (
-    EpisodeRecord,
-    create_environment,
-    roll_out_episodes,
-)
+from scripts.environments.conditions import Condition
+from scripts.environments.environment import Environment
+from scripts.evaluation.core.rollout import EpisodeRecord, roll_out_episodes
 from scripts.evaluation.core.scoring import (
     RewardStatistics,
     SuccessStatistics,
@@ -25,11 +19,6 @@ from scripts.evaluation.core.scoring import (
     calculate_success_statistics,
     pick_representative_episodes,
     run_scored_episodes_per_condition,
-)
-from scripts.evaluation.core.video import (
-    FREEZE_SECONDS,
-    get_video_fps,
-    render_episode_surfaces,
 )
 from scripts.shared import stage_names
 from scripts.shared.log import create_logger
@@ -42,9 +31,17 @@ STAGE_NAME = stage_names.EVALUATION
 
 ALL_CONDITIONS_LABEL = "0_all_conditions"
 
+# How long the last frame of an episode is held before the next one starts.
+_FREEZE_SECONDS = 2
+
 
 def evaluate_policy(
-    *, policy_factory: PolicyFactory, policy_label: str, seed: int, run: Run
+    *,
+    policy_factory: PolicyFactory,
+    policy_label: str,
+    environment: Environment,
+    seed: int,
+    run: Run,
 ) -> None:
     start_episode_seed = 2_000_000 + seed * 10_000
 
@@ -52,6 +49,7 @@ def evaluate_policy(
     with torch.no_grad():
         scored_episodes_per_condition = run_scored_episodes_per_condition(
             policy_factory=policy_factory,
+            environment=environment,
             start_episode_seed=start_episode_seed,
             episode_count_per_condition=100,
         )
@@ -69,6 +67,7 @@ def evaluate_policy(
             )
             _log_video(
                 policy_label=policy_label,
+                environment=environment,
                 condition=condition,
                 episode_records=pick_representative_episodes(
                     episode_records=episode_records
@@ -108,14 +107,14 @@ def _write_summary(
 def _log_video(
     *,
     policy_label: str,
+    environment: Environment,
     condition: Condition,
     episode_records: dict[int, EpisodeRecord],
     run: Run,
 ) -> None:
-    fps = get_video_fps()
-    render_settings = RenderSettings(size=1_000, supersample_factor=2)
-    environment = create_environment(
-        condition=condition, render_settings=render_settings
+    fps = environment.video_frames_per_second
+    gym_environment = environment.create_gym_environment(
+        condition=condition, render=True
     )
     try:
         with tempfile.TemporaryDirectory() as video_directory:
@@ -131,6 +130,7 @@ def _log_video(
                 _write_episode_frames(
                     policy_label=policy_label,
                     environment=environment,
+                    gym_environment=gym_environment,
                     condition=condition,
                     episode_records=episode_records,
                     video_writer=video_writer,
@@ -147,13 +147,14 @@ def _log_video(
                 }
             )
     finally:
-        environment.close()
+        gym_environment.close()
 
 
 def _write_episode_frames(
     *,
     policy_label: str,
-    environment: Env,
+    environment: Environment,
+    gym_environment: Env,
     condition: Condition,
     episode_records: dict[int, EpisodeRecord],
     video_writer,
@@ -165,35 +166,30 @@ def _write_episode_frames(
         unit="episode",
     ):
         replayed_record = _replay_episode_with_rendering(
-            episode_record=episode_record, environment=environment
+            episode_record=episode_record, gym_environment=gym_environment
         )
 
         frame: np.ndarray | None = None
-        for surface in render_episode_surfaces(
+        for frame in environment.render_episode_frames(
             episode_record=replayed_record,
             condition=condition,
             policy_label=policy_label,
             percentile=percentile,
         ):
-            frame = _convert_surface_to_frame(surface=surface)
             video_writer.append_data(frame)
 
         # Freeze on the final frame.
         if frame is not None:
-            for _ in range(fps * FREEZE_SECONDS):
+            for _ in range(fps * _FREEZE_SECONDS):
                 video_writer.append_data(frame)
 
 
-def _convert_surface_to_frame(*, surface: Surface) -> np.ndarray:
-    return np.transpose(a=pygame.surfarray.array3d(surface=surface), axes=(1, 0, 2))
-
-
 def _replay_episode_with_rendering(
-    *, episode_record: EpisodeRecord, environment: Env
+    *, episode_record: EpisodeRecord, gym_environment: Env
 ) -> EpisodeRecord:
     with torch.no_grad():
         (replayed_record,) = roll_out_episodes(
-            environments=[environment],
+            environments=[gym_environment],
             seeds=[episode_record.seed],
             policy=_create_replay_policy(action_sequences=[episode_record.actions]),
             render=True,

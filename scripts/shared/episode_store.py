@@ -61,3 +61,14 @@ def read_episode_store(*, episode_file_path: Path) -> EpisodeStore:
         actions=_get(key="data/action", dtype=np.float32),
         episode_end_indices=_get(key="meta/episode_ends", dtype=np.int64),
     )
+
+
+def write_episode_store(*, episode_store: EpisodeStore, save_file_path: Path) -> None:
+    root = zarr.open_group(str(save_file_path), mode="w")
+
+    data_group = root.create_group("data")
+    data_group.create_array("state", data=episode_store.states)
+    data_group.create_array("action", data=episode_store.actions)
+
+    meta_group = root.create_group("meta")
+    meta_group.create_array("episode_ends", data=episode_store.episode_end_indices)

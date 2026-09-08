@@ -6,6 +6,7 @@ from torch.utils.data import DataLoader
 from tqdm.auto import tqdm
 from wandb import Run
 
+from scripts.environments.environment import Environment
 from scripts.evaluation.core.scoring import (
     calculate_reward_statistics,
     run_scored_episodes_over_conditions,
@@ -36,6 +37,7 @@ VALIDATION_SECTION = f"{STAGE_NAME}/2_validation"
 
 def train_behavior_cloning_policy(
     *,
+    environment: Environment,
     config: Config,
     state_action_pairs: StateActionPairs,
     seed: int,
@@ -133,6 +135,7 @@ def train_behavior_cloning_policy(
         with torch.no_grad():
             validation_reward = calculate_reward_statistics(
                 episode_records=run_scored_episodes_over_conditions(
+                    environment=environment,
                     policy_factory=create_behavior_cloning_policy_factory(
                         policy_model=model, device=device
                     ),

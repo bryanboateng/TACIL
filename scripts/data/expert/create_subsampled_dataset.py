@@ -5,11 +5,19 @@ from pathlib import Path
 import numpy as np
 import tyro
 import wandb
-import zarr
 from rich.pretty import pretty_repr
 from wandb import Run
 
-from scripts.shared.episode_store import EpisodeStore, download_episode_store
+from scripts.environments.registry import (
+    EnvironmentName,
+    dataset_artifact_name,
+    dataset_project,
+)
+from scripts.shared.episode_store import (
+    EpisodeStore,
+    download_episode_store,
+    write_episode_store,
+)
 from scripts.shared.log import create_logger
 from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
 
@@ -18,7 +26,7 @@ logger = create_logger()
 
 @dataclass
 class Config:
-    wandb_project: str
+    environment: EnvironmentName
     percentage: int
 
     def __post_init__(self):
@@ -34,13 +42,17 @@ def main():
 
 def _run(*, config: Config):
     with wandb.init(
-        project=config.wandb_project,
+        project=dataset_project(name=config.environment),
         job_type="dataset-subsampling",
         config=asdict(config),
         dir=OUTPUT_DIRECTORY_PATH,
     ) as run:
         expert_episode_store = download_episode_store(
-            artifact_name="dataset-100:latest", run=run
+            artifact_name=(
+                dataset_artifact_name(name=config.environment, percentage=100)
+                + ":latest"
+            ),
+            run=run,
         )
 
         subsampled_episode_store = _subsample_episodes(
@@ -55,6 +67,7 @@ def _run(*, config: Config):
 
         _upload_episode_store(
             subsampled_episode_store=subsampled_episode_store,
+            environment=config.environment,
             percentage=config.percentage,
             run=run,
         )
@@ -141,29 +154,25 @@ def _log_dataset_statistics(
 
 
 def _upload_episode_store(
-    *, subsampled_episode_store: EpisodeStore, percentage: int, run: Run
+    *,
+    subsampled_episode_store: EpisodeStore,
+    environment: EnvironmentName,
+    percentage: int,
+    run: Run,
 ):
     with tempfile.TemporaryDirectory() as temporary_directory:
         output_zarr_path = Path(temporary_directory) / "dataset.zarr"
 
-        _write_episode_store(
+        write_episode_store(
             episode_store=subsampled_episode_store, save_file_path=output_zarr_path
         )
 
-        new_artifact = wandb.Artifact(name=f"dataset-{percentage}", type="dataset")
+        new_artifact = wandb.Artifact(
+            name=dataset_artifact_name(name=environment, percentage=percentage),
+            type="dataset",
+        )
         new_artifact.add_dir(local_path=str(output_zarr_path))
         run.log_artifact(artifact_or_path=new_artifact)
-
-
-def _write_episode_store(*, episode_store: EpisodeStore, save_file_path: Path):
-    root = zarr.open_group(str(save_file_path), mode="w")
-
-    data_group = root.create_group("data")
-    data_group.create_array("state", data=episode_store.states)
-    data_group.create_array("action", data=episode_store.actions)
-
-    meta_group = root.create_group("meta")
-    meta_group.create_array("episode_ends", data=episode_store.episode_end_indices)
 
 
 if __name__ == "__main__":
