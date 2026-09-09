@@ -27,9 +27,9 @@ class BehaviorCloningPolicyModel(torch.nn.Module):
         self.observation_normalizer = observation_normalizer
         self.action_normalizer = action_normalizer
 
-    def predict_action(
+    def forward(
+        # *, keep key-word parameters optional because the model is exported and used in other places
         self,
-        *,
         observation_batch: torch.Tensor,  # (batch_size, observation_dimensionality)
         observation_noise: float | None = None,
     ) -> torch.Tensor:  # (batch_size, action_dimensionality)
@@ -70,9 +70,7 @@ def create_behavior_cloning_policy_factory(
 
             with torch.no_grad():
                 action_batch = (
-                    policy_model.predict_action(observation_batch=observation_batch)
-                    .cpu()
-                    .numpy()
+                    policy_model(observation_batch).cpu().numpy()
                 )  # (episode_count, action_dimensionality)
 
             return dict(

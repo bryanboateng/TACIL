@@ -234,12 +234,6 @@ def fit_world_model(
 
 
 class _SpectralNormClamp(torch.nn.Module):
-    # CCIL does not compute the spectral norm exactly. It runs one power
-    # iteration per forward pass, and these two vectors carry the estimate
-    # from one pass to the next (spectral_norm.py:82-98 in the CCIL repo).
-    # The estimate is always smaller than the true norm, so it clamps the
-    # weights less than an exact norm would. CCIL published its numbers with
-    # that weaker clamp, so this port keeps it.
     left_vector: torch.Tensor  # (output_dimensionality,)
     right_vector: torch.Tensor  # (input_dimensionality,)
 

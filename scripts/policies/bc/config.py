@@ -34,7 +34,8 @@ class ValidationConfig:
 @dataclass(frozen=True)
 class Config:
     optimization: OptimizationConfig
-    validation: ValidationConfig
+
+    validation: ValidationConfig | None
     hidden_layer_dimensionality: int = 256
 
     observation_noise: float | None = None
@@ -52,7 +53,11 @@ class Config:
                 f"{self.observation_noise}."
             )
 
-        if self.optimization.epoch_count % self.validation.interval_epoch_count != 0:
+        if (
+            self.validation is not None
+            and self.optimization.epoch_count % self.validation.interval_epoch_count
+            != 0
+        ):
             raise ValueError(
                 f"An epoch count of {self.optimization.epoch_count} must be "
                 f"divisible by the validation interval of "
