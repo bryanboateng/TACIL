@@ -1,5 +1,5 @@
 import pickle
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import TypeAlias
 
