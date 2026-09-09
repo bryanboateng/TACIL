@@ -3,24 +3,20 @@ from dataclasses import dataclass
 import torch
 from tqdm import tqdm
 
-from scripts.data.augmentation.ccil.config import DynamicsConfig, LipschitzType
+from scripts.data.augmentation.ccil.config import (
+    DynamicsConfig,
+    LearnedSlack,
+    Regularization,
+    SoftSamplingPenalty,
+    SpectralNormalization,
+)
 
 
 @dataclass(frozen=True)
 class EpochLosses:
     total: float
-    mse: float
-    lipschitz_penalty: float
-
-
-class _SpectralNormClamp(torch.nn.Module):
-    def __init__(self, *, lipschitz_constraint: float) -> None:
-        super().__init__()
-        self.lipschitz_constraint = lipschitz_constraint
-
-    def forward(self, weight: torch.Tensor) -> torch.Tensor:
-        spectral_norm = torch.linalg.matrix_norm(weight, ord=2)
-        return weight / torch.clamp(spectral_norm / self.lipschitz_constraint, min=1.0)
+    data_term: float
+    regularization_term: float
 
 
 class WorldModel(torch.nn.Module):
@@ -30,8 +26,7 @@ class WorldModel(torch.nn.Module):
         state_dimensionality: int,
         action_dimensionality: int,
         hidden_layer_sizes: tuple[int, ...],
-        lipschitz_type: LipschitzType,
-        lipschitz_constraint: float,
+        regularization: Regularization | None,
     ) -> None:
         super().__init__()
         layer_sizes = (
@@ -47,13 +42,28 @@ class WorldModel(torch.nn.Module):
                 for index in range(len(layer_sizes) - 1)
             ]
         )
-        if lipschitz_type == "spectral_normalization":
-            for layer in self._layers:
-                torch.nn.utils.parametrize.register_parametrization(
-                    layer,
-                    "weight",
-                    _SpectralNormClamp(lipschitz_constraint=lipschitz_constraint),
+        self.slack_network: _SlackNetwork | None = None
+
+        match regularization:
+            case SpectralNormalization(lipschitz_constraint=lipschitz_constraint):
+                for index, layer in enumerate(iterable=self._layers):
+                    torch.nn.utils.parametrize.register_parametrization(
+                        layer,
+                        "weight",
+                        _SpectralNormClamp(
+                            input_dimensionality=layer_sizes[index],
+                            output_dimensionality=layer_sizes[index + 1],
+                            lipschitz_constraint=lipschitz_constraint,
+                        ),
+                    )
+            case LearnedSlack():
+                self.slack_network = _SlackNetwork(
+                    state_dimensionality=state_dimensionality,
+                    action_dimensionality=action_dimensionality,
+                    hidden_layer_sizes=hidden_layer_sizes,
                 )
+            case SoftSamplingPenalty() | None:
+                pass
 
         # Transformation buffers, overwritten by initialize_transformations.
         self.register_buffer("state_shift", torch.zeros(state_dimensionality))
@@ -110,6 +120,16 @@ class WorldModel(torch.nn.Module):
             + self.residual_shift
         ) * self.residual_mask
 
+    def predict_next_state(
+        self,
+        *,
+        state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
+        action_batch: torch.Tensor,  # (batch_size, action_dimensionality)
+    ) -> torch.Tensor:  # (batch_size, state_dimensionality), raw units
+        return state_batch + self.predict_residual(
+            state_batch=state_batch, action_batch=action_batch
+        )
+
 
 def fit_world_model(
     *,
@@ -145,7 +165,7 @@ def fit_world_model(
         iterable=range(config.epoch_count), desc="ccil dynamics", unit="epoch"
     ):
         permutation = torch.randperm(transition_count, device=state_batch.device)
-        total_sum = mse_sum = penalty_sum = 0.0
+        total_sum = data_sum = regularization_sum = 0.0
 
         for step_index in range(step_count_per_epoch):
             batch_indices = permutation[
@@ -156,34 +176,53 @@ def fit_world_model(
 
             optimizer.zero_grad()
             predicted_batch = world_model.forward(batch_states, batch_actions)
-            mse_loss = torch.nn.functional.mse_loss(
-                predicted_batch, normalized_residual_targets[batch_indices]
-            )
-            if config.lipschitz_type == "soft_sampling":
-                lipschitz_penalty = _soft_sampling_lipschitz_penalty(
-                    world_model=world_model,
-                    state_batch=batch_states,
-                    action_batch=batch_actions,
-                    predicted_residual_batch=world_model.predict_residual(
-                        state_batch=batch_states, action_batch=batch_actions
-                    ),
-                    config=config,
-                )
-            else:
-                lipschitz_penalty = torch.zeros((), device=mse_loss.device)
-            loss = mse_loss + lipschitz_penalty
+            target_batch = normalized_residual_targets[batch_indices]
+
+            match config.regularization:
+                case SoftSamplingPenalty() as soft_sampling:
+                    data_term = torch.nn.functional.mse_loss(
+                        predicted_batch, target_batch
+                    )
+                    regularization_term = _soft_sampling_lipschitz_penalty(
+                        world_model=world_model,
+                        state_batch=batch_states,
+                        action_batch=batch_actions,
+                        normalized_prediction_batch=predicted_batch,
+                        config=soft_sampling,
+                    )
+                case LearnedSlack() as learned_slack:
+                    if world_model.slack_network is None:
+                        raise ValueError(
+                            "The world model carries no slack network, so it was "
+                            "built for a different regularization."
+                        )
+                    data_term, regularization_term = _slack_losses(
+                        slack_network=world_model.slack_network,
+                        state_batch=batch_states,
+                        action_batch=batch_actions,
+                        predicted_batch=predicted_batch,
+                        target_batch=target_batch,
+                        config=learned_slack,
+                    )
+                case SpectralNormalization() | None:
+                    data_term = torch.nn.functional.mse_loss(
+                        predicted_batch, target_batch
+                    )
+                    regularization_term = torch.zeros((), device=data_term.device)
+
+            loss = data_term + regularization_term
             loss.backward()
             optimizer.step()
 
             total_sum += float(loss.item())
-            mse_sum += float(mse_loss.item())
-            penalty_sum += float(lipschitz_penalty.item())
+            data_sum += float(data_term.item())
+            regularization_sum += float(regularization_term.item())
 
         epoch_losses.append(
             EpochLosses(
                 total=total_sum / step_count_per_epoch,
-                mse=mse_sum / step_count_per_epoch,
-                lipschitz_penalty=penalty_sum / step_count_per_epoch,
+                data_term=data_sum / step_count_per_epoch,
+                regularization_term=regularization_sum / step_count_per_epoch,
             )
         )
 
@@ -194,28 +233,148 @@ def fit_world_model(
 # ---- Private --------------------------------------------
 
 
+class _SpectralNormClamp(torch.nn.Module):
+    # CCIL does not compute the spectral norm exactly. It runs one power
+    # iteration per forward pass, and these two vectors carry the estimate
+    # from one pass to the next (spectral_norm.py:82-98 in the CCIL repo).
+    # The estimate is always smaller than the true norm, so it clamps the
+    # weights less than an exact norm would. CCIL published its numbers with
+    # that weaker clamp, so this port keeps it.
+    left_vector: torch.Tensor  # (output_dimensionality,)
+    right_vector: torch.Tensor  # (input_dimensionality,)
+
+    def __init__(
+        self,
+        *,
+        input_dimensionality: int,
+        output_dimensionality: int,
+        lipschitz_constraint: float,
+    ) -> None:
+        super().__init__()
+        self.lipschitz_constraint = lipschitz_constraint
+        self.register_buffer(
+            name="left_vector",
+            tensor=torch.nn.functional.normalize(
+                torch.empty(output_dimensionality).normal_(mean=0.0, std=1.0),
+                dim=0,
+                eps=1e-12,
+            ),
+        )
+        self.register_buffer(
+            name="right_vector",
+            tensor=torch.nn.functional.normalize(
+                torch.empty(input_dimensionality).normal_(mean=0.0, std=1.0),
+                dim=0,
+                eps=1e-12,
+            ),
+        )
+
+    def forward(self, weight: torch.Tensor) -> torch.Tensor:
+        left_vector = self.left_vector
+        right_vector = self.right_vector
+
+        if self.training:
+            with torch.no_grad():
+                torch.nn.functional.normalize(
+                    torch.mv(weight.t(), left_vector),
+                    dim=0,
+                    eps=1e-12,
+                    out=self.right_vector,
+                )
+                torch.nn.functional.normalize(
+                    torch.mv(weight, self.right_vector),
+                    dim=0,
+                    eps=1e-12,
+                    out=self.left_vector,
+                )
+            left_vector = self.left_vector.clone()
+            right_vector = self.right_vector.clone()
+
+        spectral_norm = torch.dot(left_vector, torch.mv(weight, right_vector))
+        return weight / torch.clamp(spectral_norm / self.lipschitz_constraint, min=1.0)
+
+
+class _SlackNetwork(torch.nn.Module):
+    def __init__(
+        self,
+        *,
+        state_dimensionality: int,
+        action_dimensionality: int,
+        hidden_layer_sizes: tuple[int, ...],
+    ) -> None:
+        super().__init__()
+        layer_sizes = (
+            state_dimensionality + action_dimensionality,
+            *hidden_layer_sizes,
+            1,
+        )
+        self._layers = torch.nn.ModuleList(
+            modules=[
+                torch.nn.Linear(
+                    in_features=layer_sizes[index], out_features=layer_sizes[index + 1]
+                )
+                for index in range(len(layer_sizes) - 1)
+            ]
+        )
+
+    def forward(
+        self,
+        state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
+        action_batch: torch.Tensor,  # (batch_size, action_dimensionality)
+    ) -> torch.Tensor:  # (batch_size, 1)
+        features = torch.cat(tensors=[state_batch, action_batch], dim=-1)
+        *hidden_layers, output_layer = self._layers
+        for hidden_layer in hidden_layers:
+            features = torch.relu(hidden_layer(features))
+        return output_layer(features) * (1.0 + 1e-8)
+
+
+def _slack_losses(
+    *,
+    slack_network: _SlackNetwork,
+    state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
+    action_batch: torch.Tensor,  # (batch_size, action_dimensionality)
+    predicted_batch: torch.Tensor,  # (batch_size, state_dimensionality)
+    target_batch: torch.Tensor,  # (batch_size, state_dimensionality)
+    config: LearnedSlack,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    slack_batch = torch.sigmoid(
+        slack_network(state_batch, action_batch)
+    )  # (batch_size, 1)
+
+    error_batch = torch.nn.functional.mse_loss(
+        predicted_batch, target_batch, reduction="none"
+    )  # (batch_size, state_dimensionality)
+
+    weighted_error = torch.linalg.norm(slack_batch * error_batch, dim=-1).mean()
+    slack_reward = -config.weight * slack_batch.mean()
+    return weighted_error, slack_reward
+
+
 def _soft_sampling_lipschitz_penalty(
     *,
     world_model: WorldModel,
     state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
     action_batch: torch.Tensor,  # (batch_size, action_dimensionality)
-    predicted_residual_batch: torch.Tensor,  # (batch_size, state_dimensionality)
-    config: DynamicsConfig,
+    normalized_prediction_batch: torch.Tensor,  # (batch_size, state_dimensionality)
+    config: SoftSamplingPenalty,
 ) -> torch.Tensor:  # scalar
-    sample_count = config.soft_lipschitz_sample_count
+    sample_count = config.sample_count
 
     repeated_states = state_batch.repeat_interleave(repeats=sample_count, dim=0)
     repeated_actions = action_batch.repeat_interleave(repeats=sample_count, dim=0)
-    repeated_predictions = predicted_residual_batch.repeat_interleave(
+    repeated_predictions = normalized_prediction_batch.repeat_interleave(
         repeats=sample_count, dim=0
     )
 
     state_noise = torch.randn_like(repeated_states)
     action_noise = torch.randn_like(repeated_actions)
-    noisy_predictions = world_model.predict_residual(
-        state_batch=repeated_states + state_noise * config.soft_lipschitz_sampling_eps,
+    noisy_next_states = world_model.predict_next_state(
+        state_batch=(
+            repeated_states + state_noise * config.sampling_standard_deviation
+        ),
         action_batch=(
-            repeated_actions + action_noise * config.soft_lipschitz_sampling_eps
+            repeated_actions + action_noise * config.sampling_standard_deviation
         ),
     )
 
@@ -223,11 +382,11 @@ def _soft_sampling_lipschitz_penalty(
         torch.cat(tensors=[state_noise, action_noise], dim=-1), dim=-1
     )
     prediction_differences = torch.linalg.norm(
-        repeated_predictions - noisy_predictions, dim=-1
+        repeated_predictions - noisy_next_states, dim=-1
     )
 
     return (
-        config.soft_lipschitz_penalty_weight
+        config.penalty_weight
         * torch.relu(
             prediction_differences - config.lipschitz_constraint * noise_magnitudes
         ).mean()

@@ -18,6 +18,7 @@ from scripts.policies.dp.network import ConditionalUnet1d
 from scripts.policies.dp.noise_scheduler import create_forward_noise_scheduler
 from scripts.policies.dp.policy import create_diffusion_policy_factory
 from scripts.policies.shared.checkpoint import Checkpoint
+from scripts.policies.shared.observation_noise import disturb_half_of_the_batch
 from scripts.shared import stage_names
 from scripts.shared.episode_store import EpisodeStore
 from scripts.shared.log import create_logger
@@ -127,6 +128,7 @@ def train_diffusion_policy(
                 training_batch=training_batch,
                 forward_noise_scheduler=forward_noise_scheduler,
                 observation_horizon_length=config.horizon_lengths.observation,
+                observation_noise=config.observation_noise,
                 device=device,
             )
 
@@ -239,6 +241,7 @@ def _calculate_denoising_loss(
     training_batch: tuple[torch.Tensor, torch.Tensor],
     forward_noise_scheduler: DDPMScheduler,
     observation_horizon_length: int,
+    observation_noise: float | None,
     device: torch.device,
 ) -> torch.Tensor:
     observations, actions = training_batch
@@ -255,6 +258,11 @@ def _calculate_denoising_loss(
     condition_batch = observations[:, :observation_horizon_length, :].flatten(
         start_dim=1
     )  # (batch_size, observation_horizon_length * observation_dimensionality)
+
+    if observation_noise is not None:
+        condition_batch = disturb_half_of_the_batch(
+            value_batch=condition_batch, noise=observation_noise
+        )
 
     noise_batch = torch.randn(
         size=actions.shape, device=device

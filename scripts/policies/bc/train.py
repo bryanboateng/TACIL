@@ -92,7 +92,8 @@ def train_behavior_cloning_policy(
             optimizer.zero_grad()
 
             predicted_action_batch = model.predict_action(
-                observation_batch=observation_batch
+                observation_batch=observation_batch,
+                observation_noise=config.observation_noise,
             )  # (batch_size, action_dimensionality)
 
             loss = loss_function(

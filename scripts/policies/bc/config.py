@@ -37,11 +37,19 @@ class Config:
     validation: ValidationConfig
     hidden_layer_dimensionality: int = 256
 
+    observation_noise: float | None = None
+
     def __post_init__(self) -> None:
         if self.hidden_layer_dimensionality <= 0:
             raise ValueError(
                 f"hidden_layer_dimensionality must be positive, but it is "
                 f"{self.hidden_layer_dimensionality}."
+            )
+
+        if self.observation_noise is not None and self.observation_noise <= 0:
+            raise ValueError(
+                f"observation_noise must be positive when it is set, but it is "
+                f"{self.observation_noise}."
             )
 
         if self.optimization.epoch_count % self.validation.interval_epoch_count != 0:
