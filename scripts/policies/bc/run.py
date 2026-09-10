@@ -43,7 +43,7 @@ def _run(*, config: Config) -> None:
     device = torch.device(device="cuda" if torch.cuda.is_available() else "cpu")
     log_device_info(device=device, logger=logger)
 
-    environment = create_environment(name=config.environment)
+    environment = create_environment(environment=config.environment)
 
     with wandb.init(
         project=config.wandb_project,

@@ -9,7 +9,6 @@ from rich.pretty import pretty_repr
 
 from scripts.environments.maniskill.observation import (
     POSE_ACTION_POSITION_SLICE,
-    has_absolute_pose_actions,
     kept_column_indices,
     known_task_ids,
     robot_root_translation,
@@ -23,7 +22,7 @@ logger = create_logger()
 @dataclass
 class Config:
     task_id: str
-    """The ManiSkill task the trajectory belongs to, for example RollBall-v1."""
+    """The ManiSkill task the trajectory belongs to, for example PushCube-v1."""
 
     trajectory_file_path: Path
     """A ManiSkill trajectory replayed with `--obs-mode state`."""
@@ -83,11 +82,7 @@ def read_maniskill_trajectories(
     # robot's base, while the state names it measured from the world origin.
     # Everything downstream works in world coordinates, so the recorded
     # actions are moved there once, here, before any normalization.
-    action_offset = (
-        robot_root_translation(task_id=task_id)
-        if has_absolute_pose_actions(task_id=task_id)
-        else None
-    )
+    action_offset = robot_root_translation(task_id=task_id)
 
     state_arrays: list[np.ndarray] = []
     action_arrays: list[np.ndarray] = []
@@ -104,8 +99,7 @@ def read_maniskill_trajectories(
                 a=trajectory["actions"], dtype=np.float32
             )  # (episode_length, action_dimensionality)
 
-            if action_offset is not None:
-                actions[:, POSE_ACTION_POSITION_SLICE] += action_offset
+            actions[:, POSE_ACTION_POSITION_SLICE] += action_offset
 
             # ManiSkill stores one observation more than actions, because it
             # also records the state the last action leads to. The episode

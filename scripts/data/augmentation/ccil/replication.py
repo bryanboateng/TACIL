@@ -115,6 +115,9 @@ def _run(*, config: Config) -> None:
 
         logger.info("Stage 2/3: training the policy.")
         policy_model = train_behavior_cloning_policy(
+            # The policy is exported for the CCIL codebase to score, so this
+            # script never rolls it out itself.
+            environment=None,
             config=policy_config,
             state_action_pairs=state_action_pairs,
             seed=config.seed,

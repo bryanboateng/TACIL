@@ -146,10 +146,7 @@ def _log_dataset_statistics(
 
 
 def _upload_episode_store(
-    *,
-    subsampled_episode_store: EpisodeStore,
-    environment: EnvironmentName,
-    run: Run,
+    *, subsampled_episode_store: EpisodeStore, environment: EnvironmentName, run: Run
 ):
     with tempfile.TemporaryDirectory() as temporary_directory:
         output_zarr_path = Path(temporary_directory) / "dataset.zarr"

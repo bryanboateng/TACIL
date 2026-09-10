@@ -10,11 +10,8 @@ from rich.pretty import pretty_repr
 
 from scripts.environments.conditions import ALL_CONDITIONS
 from scripts.environments.pusht.environment import PushTEnvironment
-from scripts.environments.pusht.video import (
-    FREEZE_SECONDS,
-    get_video_fps,
-    render_episode_surfaces,
-)
+from scripts.environments.pusht.video import PLAYBACK_SPEED, get_video_fps
+from scripts.evaluation.core.video import FREEZE_SECONDS, render_episode_surfaces
 from scripts.evaluation.core.rollout import roll_out_episodes
 from scripts.policies.gpi import config as gpi
 from scripts.policies.gpi.policy import create_geometric_policy_factory
@@ -66,6 +63,7 @@ def _run(*, config: gpi.Config) -> None:
             condition=condition,
             policy_label="dp (eternal-sweep-6)",
             percentile=75,
+            playback_speed=PLAYBACK_SPEED,
         )
 
         # Play the episode, then hold on the final frame, matching the recorded freeze.

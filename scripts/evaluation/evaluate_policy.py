@@ -12,6 +12,7 @@ from wandb import Run
 from scripts.environments.conditions import Condition
 from scripts.environments.environment import Environment
 from scripts.evaluation.core.rollout import EpisodeRecord, roll_out_episodes
+from scripts.evaluation.core.video import FREEZE_SECONDS
 from scripts.evaluation.core.scoring import (
     RewardStatistics,
     SuccessStatistics,
@@ -30,9 +31,6 @@ logger = create_logger()
 STAGE_NAME = stage_names.EVALUATION
 
 ALL_CONDITIONS_LABEL = "0_all_conditions"
-
-# How long the last frame of an episode is held before the next one starts.
-_FREEZE_SECONDS = 2
 
 
 def evaluate_policy(
@@ -180,7 +178,7 @@ def _write_episode_frames(
 
         # Freeze on the final frame.
         if frame is not None:
-            for _ in range(fps * _FREEZE_SECONDS):
+            for _ in range(fps * FREEZE_SECONDS):
                 video_writer.append_data(frame)
 
 

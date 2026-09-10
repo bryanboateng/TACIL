@@ -37,13 +37,16 @@ VALIDATION_SECTION = f"{STAGE_NAME}/2_validation"
 
 def train_behavior_cloning_policy(
     *,
-    environment: Environment,
+    environment: Environment | None,
     config: Config,
     state_action_pairs: StateActionPairs,
     seed: int,
     device: torch.device,
     run: Run,
 ) -> BehaviorCloningPolicyModel:
+    if config.validation is not None and environment is None:
+        raise ValueError("Validation rolls the policy out, so it needs an environment.")
+
     set_seed(seed=seed)
     _define_step_metrics(run=run)
 
@@ -131,6 +134,7 @@ def train_behavior_cloning_policy(
 
         if (
             config.validation is None
+            or environment is None
             or (epoch_index + 1) % config.validation.interval_epoch_count != 0
         ):
             continue

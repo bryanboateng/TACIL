@@ -1,13 +1,18 @@
 import torch
 
+from scripts.environments.state_space import StatePicture
+
 
 class VectorStateSpace:
     """A state whose entries are ordinary numbers, so they add and subtract
     the way numbers do."""
 
-    def __init__(self, *, dimensionality: int, action_dimensionality: int):
+    def __init__(
+        self, *, dimensionality: int, action_dimensionality: int, picture: StatePicture
+    ):
         self._dimensionality = dimensionality
         self._action_dimensionality = action_dimensionality
+        self._picture = picture
 
     @property
     def dimensionality(self) -> int:
@@ -16,6 +21,10 @@ class VectorStateSpace:
     @property
     def network_input_dimensionality(self) -> int:
         return self._dimensionality + self._action_dimensionality
+
+    @property
+    def picture(self) -> StatePicture:
+        return self._picture
 
     def add(
         self,

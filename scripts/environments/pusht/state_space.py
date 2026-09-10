@@ -1,5 +1,7 @@
 import torch
 
+from scripts.environments.state_space import PositionGroup, StatePicture
+
 AGENT_POSITION_SLICE = slice(0, 2)
 BLOCK_POSITION_SLICE = slice(2, 4)
 POSITION_SLICE = slice(0, 4)
@@ -7,12 +9,6 @@ BLOCK_ORIENTATION_INDEX = 4
 
 # The block orientation is the last entry of a state.
 STATE_DIMENSIONALITY = BLOCK_ORIENTATION_INDEX + 1
-
-STATE_GROUPS = (
-    ("agent", AGENT_POSITION_SLICE),
-    ("block", BLOCK_POSITION_SLICE),
-    ("orientation", slice(BLOCK_ORIENTATION_INDEX, BLOCK_ORIENTATION_INDEX + 1)),
-)
 
 ARENA_SIZE = 512
 
@@ -50,6 +46,19 @@ class PushTStateSpace:
     @property
     def network_input_dimensionality(self) -> int:
         return NETWORK_INPUT_DIMENSIONALITY
+
+    @property
+    def picture(self) -> StatePicture:
+        return StatePicture(
+            position_groups=(
+                PositionGroup(label="Agent Position", entries=AGENT_POSITION_SLICE),
+                PositionGroup(label="Block Position", entries=BLOCK_POSITION_SLICE),
+            ),
+            horizontal_limits=(0.0, ARENA_SIZE),
+            vertical_limits=(0.0, ARENA_SIZE),
+            position_unit="px",
+            orientation_index=BLOCK_ORIENTATION_INDEX,
+        )
 
     def add(
         self,

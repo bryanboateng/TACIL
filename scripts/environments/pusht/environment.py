@@ -1,14 +1,15 @@
 import gym_pusht  # noqa: F401
 import gymnasium
 import numpy as np
-import pygame
 from gymnasium import Env
 
 from scripts.environments.conditions import Condition, DisturbanceLevel, FloorCondition
-from scripts.environments.pusht import disturbance, video
+from scripts.environments.pusht import disturbance
 from scripts.environments.pusht.gpi_geometry import PushTGpiGeometry
 from scripts.environments.pusht.renderer import RecoloredRenderWrapper, RenderSettings
 from scripts.environments.pusht.state_space import PushTStateSpace
+from scripts.environments.pusht.video import PLAYBACK_SPEED, get_video_fps
+from scripts.evaluation.core import video
 from scripts.evaluation.core.rollout import EpisodeRecord
 
 _RENDER_SETTINGS = RenderSettings(size=1_000, supersample_factor=2)
@@ -32,7 +33,7 @@ class PushTEnvironment:
 
     @property
     def video_frames_per_second(self) -> int:
-        return video.get_video_fps()
+        return get_video_fps()
 
     def create_gym_environment(self, *, condition: Condition, render: bool) -> Env:
         match condition.floor_condition:
@@ -78,15 +79,13 @@ class PushTEnvironment:
         policy_label: str,
         percentile: int,
     ) -> list[np.ndarray]:
-        return [
-            _convert_surface_to_frame(surface=surface)
-            for surface in video.render_episode_surfaces(
-                episode_record=episode_record,
-                condition=condition,
-                policy_label=policy_label,
-                percentile=percentile,
-            )
-        ]
+        return video.render_episode_frames(
+            episode_record=episode_record,
+            condition=condition,
+            policy_label=policy_label,
+            percentile=percentile,
+            playback_speed=PLAYBACK_SPEED,
+        )
 
 
 # ---- Private --------------------------------------------
@@ -108,7 +107,3 @@ def _get_disturbance_magnitude(
                     return 24
                 case DisturbanceLevel.HIGH:
                     return 72
-
-
-def _convert_surface_to_frame(*, surface: pygame.Surface) -> np.ndarray:
-    return np.transpose(a=pygame.surfarray.array3d(surface=surface), axes=(1, 0, 2))

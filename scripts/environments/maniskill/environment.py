@@ -13,13 +13,13 @@ from scripts.environments.maniskill.observation import (
     POSE_ACTION_POSITION_SLICE,
     control_mode,
     create_state_space,
-    has_absolute_pose_actions,
     kept_column_indices,
     known_task_ids,
     max_episode_steps,
     robot_root_translation,
 )
 from scripts.environments.vector_state_space import VectorStateSpace
+from scripts.evaluation.core import video
 from scripts.evaluation.core.rollout import EpisodeRecord
 
 # A sparse reward is one for a solved episode and zero otherwise, so the mean
@@ -32,33 +32,31 @@ _REWARD_MODE = "sparse"
 # only ever draws the handful of episodes that go into a video.
 _RENDER_BACKEND = "cpu"
 
-# How quickly the moved object loses speed on the table. GRIPPY is the setting
-# the demonstrations were recorded under, SLIPPERY the altered one.
+# How well the pushed object grips the table. GRIPPY is the setting the
+# demonstrations were recorded under, SLIPPERY the altered one.
 #
-# For a rolling ball this is damping, not surface friction. Friction decides
-# how a body slides, and a ball hardly slides: raising it from 0.05 to 0.30
-# changed the roll distance by three percent, which is no condition at all.
-# Damping decides how a body coasts, and that is what a ball does.
-#
-# Because the recorded setting already lets the ball coast almost freely, the
-# only direction with any room left is more resistance. So here the altered
-# surface is a slower one. Measured with a 0.6 m/s push: 0.00 rolls 1.96 m,
-# 0.25 rolls 1.54 m, 0.50 rolls 1.33 m, 1.00 rolls 0.42 m. The goal sits
-# roughly half a metre away, so 0.50 shortens the roll clearly while leaving
-# the task solvable.
-_DAMPING_BY_FLOOR_CONDITION = {FloorCondition.GRIPPY: 0.0, FloorCondition.SLIPPERY: 0.5}
+# For a cube this is surface friction, because a cube slides. Measured as how
+# far the cube travels after a 0.5 m/s knock: friction 0.30 lets it slide
+# 0.04 m, 0.10 lets it slide 0.10 m and 0.05 lets it slide 0.11 m. The chosen
+# pair therefore roughly triples the slide without making the cube
+# uncontrollable.
+_FRICTION_BY_FLOOR_CONDITION = {
+    FloorCondition.GRIPPY: 0.3,
+    FloorCondition.SLIPPERY: 0.05,
+}
 
-# The strength of one sideways kick, in newton seconds. Measured as the
-# distance the ball ends up from where it would have been: 0.002 moves it
-# 0.06 m, 0.005 moves it 0.16 m. Both are a visible fraction of the half metre
-# to the goal without making the task hopeless.
+# The strength of one sideways kick, in newton seconds. Measured as how far the
+# cube ends up from where it would have been after four kicks: 0.010 moves it
+# 0.014 m and 0.020 moves it 0.060 m. Both are a visible fraction of the
+# roughly 0.1 m to the goal without knocking the cube off the table, which
+# 0.050 does at 0.40 m.
 _IMPULSE_BY_DISTURBANCE_LEVEL = {
-    DisturbanceLevel.LOW: 0.002,
-    DisturbanceLevel.HIGH: 0.005,
+    DisturbanceLevel.LOW: 0.01,
+    DisturbanceLevel.HIGH: 0.02,
 }
 
 # The name the task gives the object the policy moves.
-_MOVED_OBJECT_NAME_BY_TASK = {"RollBall-v1": "ball", "PushCube-v1": "obj"}
+_MOVED_OBJECT_NAME_BY_TASK = {"PushCube-v1": "obj"}
 
 
 class ManiSkillEnvironment:
@@ -71,6 +69,7 @@ class ManiSkillEnvironment:
             )
         self._task_id = task_id
         self._state_space = create_state_space(task_id=task_id)
+        self._gpi_geometry = ManiSkillGpiGeometry(task_id=task_id)
 
     @property
     def state_space(self) -> VectorStateSpace:
@@ -78,7 +77,7 @@ class ManiSkillEnvironment:
 
     @property
     def gpi_geometry(self) -> ManiSkillGpiGeometry:
-        return ManiSkillGpiGeometry(task_id=self._task_id)
+        return self._gpi_geometry
 
     @property
     def video_frames_per_second(self) -> int:
@@ -87,34 +86,35 @@ class ManiSkillEnvironment:
     def create_gym_environment(self, *, condition: Condition, render: bool) -> Env:
         moved_object_name = _MOVED_OBJECT_NAME_BY_TASK[self._task_id]
 
-        environment: Env = CPUGymWrapper(
-            gymnasium.make(
-                self._task_id,
-                obs_mode="state",
-                control_mode=control_mode(task_id=self._task_id),
-                reward_mode=_REWARD_MODE,
-                sim_backend="physx_cpu",
-                render_backend=_RENDER_BACKEND,
-                render_mode="rgb_array" if render else None,
-                max_episode_steps=max_episode_steps(task_id=self._task_id),
+        environment: Env = _RebuiltSceneWrapper(
+            environment=CPUGymWrapper(
+                gymnasium.make(
+                    self._task_id,
+                    obs_mode="state",
+                    control_mode=control_mode(task_id=self._task_id),
+                    reward_mode=_REWARD_MODE,
+                    sim_backend="physx_cpu",
+                    render_backend=_RENDER_BACKEND,
+                    render_mode="rgb_array" if render else None,
+                    max_episode_steps=max_episode_steps(task_id=self._task_id),
+                )
             )
         )
 
-        if has_absolute_pose_actions(task_id=self._task_id):
-            environment = _RootFrameActionWrapper(
-                environment=environment,
-                root_translation=robot_root_translation(task_id=self._task_id),
-            )
+        environment = _RootFrameActionWrapper(
+            environment=environment,
+            root_translation=robot_root_translation(task_id=self._task_id),
+        )
 
         environment = _SelectedObservationWrapper(
             environment=environment,
             column_indices=kept_column_indices(task_id=self._task_id),
         )
 
-        environment = _DampingWrapper(
+        environment = _FrictionWrapper(
             environment=environment,
             object_name=moved_object_name,
-            damping=_DAMPING_BY_FLOOR_CONDITION[condition.floor_condition],
+            friction=_FRICTION_BY_FLOOR_CONDITION[condition.floor_condition],
         )
 
         if condition.disturbance_level is not None:
@@ -134,12 +134,36 @@ class ManiSkillEnvironment:
         policy_label: str,
         percentile: int,
     ) -> list[np.ndarray]:
-        if episode_record.frames is None:
-            raise ValueError(f"No frames found for episode {episode_record.seed}")
-        return episode_record.frames
+        return video.render_episode_frames(
+            episode_record=episode_record,
+            condition=condition,
+            policy_label=policy_label,
+            percentile=percentile,
+            # ManiSkill records 20 frames a second, which is watchable as it is.
+            playback_speed=1.0,
+        )
 
 
 # ---- Private --------------------------------------------
+
+
+class _RebuiltSceneWrapper(gymnasium.Wrapper):
+    """Builds the scene again on every reset.
+
+    PhysX keeps solver state between episodes, such as its record of which
+    surfaces touch. A plain reset leaves that state in place, so an episode
+    played a second time in the same environment drifts away from the first.
+    The evaluation plays a scored episode again to record it, and refuses a
+    recording that does not match, so the two have to agree exactly.
+    """
+
+    def __init__(self, *, environment: gymnasium.Env) -> None:
+        super().__init__(env=environment)
+
+    def reset(self, *, seed: int | None = None, options: dict | None = None) -> tuple:
+        return self.env.reset(
+            seed=seed, options={**(options or {}), "reconfigure": True}
+        )
 
 
 class _RootFrameActionWrapper(gymnasium.ActionWrapper):
@@ -182,33 +206,30 @@ class _SelectedObservationWrapper(gymnasium.ObservationWrapper):
         return observation[self._column_indices]
 
 
-class _DampingWrapper(gymnasium.Wrapper):
-    """Sets how quickly the moved object loses speed on the table.
+class _FrictionWrapper(gymnasium.Wrapper):
+    """Sets how well the pushed object grips the table.
 
     The setting is applied after every reset, because a reset can rebuild the
-    scene and hand back a fresh body.
+    scene and hand back a fresh material.
     """
 
-    # The recorded setting damps the spin a little even where it damps the
-    # travel not at all, so the spin never drops below that.
-    _MINIMUM_ANGULAR_DAMPING = 0.05
-
     def __init__(
-        self, *, environment: gymnasium.Env, object_name: str, damping: float
+        self, *, environment: gymnasium.Env, object_name: str, friction: float
     ) -> None:
         super().__init__(env=environment)
         self._object_name = object_name
-        self._damping = damping
+        self._friction = friction
 
     def reset(self, **kwargs) -> tuple:
         result = self.env.reset(**kwargs)
-        self._apply_damping()
+        self._apply_friction()
         return result
 
-    def _apply_damping(self) -> None:
+    def _apply_friction(self) -> None:
         actor = getattr(self.env.unwrapped, self._object_name)
         body = actor._objs[0].find_component_by_type(
             sapien.physx.PhysxRigidDynamicComponent
         )
-        body.linear_damping = self._damping
-        body.angular_damping = max(self._MINIMUM_ANGULAR_DAMPING, self._damping)
+        for collision_shape in body.collision_shapes:
+            collision_shape.physical_material.static_friction = self._friction
+            collision_shape.physical_material.dynamic_friction = self._friction

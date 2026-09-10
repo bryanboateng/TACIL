@@ -3,7 +3,6 @@ import torch
 from scripts.environments.maniskill.observation import (
     POSE_ACTION_POSITION_SLICE,
     agent_position_slice,
-    has_absolute_pose_actions,
 )
 
 
@@ -12,19 +11,13 @@ class ManiSkillGpiGeometry:
     frame.
 
     There is no object frame here. The reference makes that frame optional
-    through its `use_relative_action` switch (GPI/gpi/policies/base.py), and a
-    3D task has no single sensible choice: a rolling ball has no orientation
-    worth speaking of, and a stacking task has more than one object to pick
-    from. So both conversions hand the action straight back.
+    through its `use_relative_action` switch (GPI/gpi/policies/base.py), and
+    the cube barely turns while it is pushed: 0.00 degrees per step at the
+    median and 1.55 at the 99th percentile. A frame that never rotates adds
+    nothing, so both conversions hand the action straight back.
     """
 
     def __init__(self, *, task_id: str) -> None:
-        if not has_absolute_pose_actions(task_id=task_id):
-            raise ValueError(
-                f"GPI cannot drive {task_id!r}. Its actions are gripper "
-                f"displacements, and GPI subtracts a recorded position from a "
-                f"recorded action, which needs the action to be a position."
-            )
         self._agent_position_slice = agent_position_slice(task_id=task_id)
 
     @property
