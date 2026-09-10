@@ -5,6 +5,7 @@ import tyro
 import wandb
 from rich.pretty import pretty_repr
 
+from scripts.environments.registry import EnvironmentName, dataset_artifact_name
 from scripts.shared.episode_store import read_episode_store
 from scripts.shared.log import create_logger
 from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
@@ -15,6 +16,7 @@ logger = create_logger()
 @dataclass
 class Config:
     wandb_project: str
+    environment: EnvironmentName
     expert_data_file_path: Path
 
 
@@ -36,7 +38,11 @@ def _run(*, config: Config) -> None:
 
         episode_count = len(episode_store.episode_end_indices)
         artifact = wandb.Artifact(
-            name=f"dataset-{episode_count}-original", type="dataset"
+            name=dataset_artifact_name(
+                environment=config.environment, episode_count=episode_count
+            )
+            + "-original",
+            type="dataset",
         )
         artifact.add_dir(local_path=str(config.expert_data_file_path))
         run.log_artifact(artifact_or_path=artifact)

@@ -1,25 +1,28 @@
 import numpy as np
 import torch
 
-from scripts.policies.gpi.geometry import (
-    calculate_observation_distances,
-    convert_position_to_block_frame,
-)
+from scripts.environments.gpi_geometry import GpiGeometry
 from scripts.shared.episode_store import EpisodeStore
 from scripts.shared.normalization import MinMaxNormalizer
-from scripts.shared.pusht_state import BLOCK_ORIENTATION_INDEX, BLOCK_POSITION_SLICE
 
 
 class Demonstrations:
-    def __init__(self, *, episode_store: EpisodeStore, device: torch.device) -> None:
+    def __init__(
+        self,
+        *,
+        episode_store: EpisodeStore,
+        geometry: GpiGeometry,
+        device: torch.device,
+    ) -> None:
+        self._geometry = geometry
+
         observations = torch.from_numpy(
             episode_store.states
         ).float()  # (step_count, observation_dimensionality)
 
-        actions = convert_position_to_block_frame(
-            block_position_batch=observations[:, BLOCK_POSITION_SLICE],
-            block_angle_batch=observations[:, BLOCK_ORIENTATION_INDEX],
-            position_batch=torch.from_numpy(episode_store.actions).float(),
+        actions = geometry.convert_actions_to_object_frame(
+            observation_batch=observations,
+            action_batch=torch.from_numpy(episode_store.actions).float(),
         )  # (step_count, action_dimensionality)
 
         self._observation_normalizer = MinMaxNormalizer(value_batch=observations).to(
@@ -69,7 +72,7 @@ class Demonstrations:
                 "so no demonstration is left for it to follow."
             )
 
-        distances = calculate_observation_distances(
+        distances = self._geometry.calculate_observation_distances(
             observation_batch=self._normalized_observations,
             query_observation=query_observation,
         )  # (step_count,)

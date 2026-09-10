@@ -1,6 +1,9 @@
 import torch
 
-from scripts.shared.pusht_state import BLOCK_ORIENTATION_INDEX, POSITION_SLICE
+from scripts.environments.pusht.state_space import (
+    BLOCK_ORIENTATION_INDEX,
+    POSITION_SLICE,
+)
 
 
 def convert_position_to_block_frame(

@@ -6,18 +6,20 @@ from scripts.data.augmentation.tacil.dynamics.dynamics_model.dynamics_model impo
 from scripts.data.augmentation.tacil.dynamics.state_distance import (
     calculate_normalized_state_difference,
 )
+from scripts.environments.state_space import StateSpace
 from scripts.shared.normalization import ZScoreNormalizer
-from scripts.shared.pusht_state import average_states
 
 
 class DynamicsModelEnsemble(torch.nn.Module):
     def __init__(
         self,
         *,
+        state_space: StateSpace,
         state_normalizer: ZScoreNormalizer,
         dynamics_models: list[DynamicsModel],
     ):
         super().__init__()
+        self.state_space = state_space
         self.state_normalizer = state_normalizer
         self._dynamics_models_module_list = torch.nn.ModuleList(modules=dynamics_models)
 
@@ -38,7 +40,7 @@ class DynamicsModelEnsemble(torch.nn.Module):
         state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
         action_batch: torch.Tensor,  # (batch_size, action_dimensionality)
     ) -> torch.Tensor:  # (batch_size, state_dimensionality)
-        return average_states(
+        return self.state_space.average(
             state_batch=self._predict_next_state_per_member(
                 state_batch=state_batch, action_batch=action_batch
             )
@@ -55,7 +57,9 @@ class DynamicsModelEnsemble(torch.nn.Module):
         )  # (member_count, batch_size, state_dimensionality)
         return self._calculate_member_spread(
             per_member_state_batch=per_member_state_batch,
-            reference_state_batch=average_states(state_batch=per_member_state_batch),
+            reference_state_batch=self.state_space.average(
+                state_batch=per_member_state_batch
+            ),
         )
 
     def calculate_replay_error(
@@ -111,6 +115,7 @@ class DynamicsModelEnsemble(torch.nn.Module):
         per_member_deviation_batch = calculate_normalized_state_difference(
             minuend_batch=per_member_state_batch,
             subtrahend_batch=reference_state_batch.unsqueeze(dim=0),
+            state_space=self.state_space,
             state_normalizer=self.state_normalizer,
         )  # (member_count, batch_size, state_dimensionality)
 

@@ -6,7 +6,7 @@ from matplotlib.artist import Artist
 from matplotlib.legend_handler import HandlerTuple
 from numpy import typing as npt
 
-from scripts.shared.pusht_state import ARENA_SIZE, BLOCK_ORIENTATION_INDEX
+from scripts.environments.pusht.state_space import ARENA_SIZE, BLOCK_ORIENTATION_INDEX
 
 matplotlib.use(backend="Agg")
 
