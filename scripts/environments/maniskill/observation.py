@@ -1,7 +1,7 @@
 import numpy as np
 from numpy import typing as npt
 
-from scripts.environments.state_space import PositionGroup, StatePicture
+from scripts.environments.state_picture import PositionGroup, StatePicture
 from scripts.environments.vector_state_space import VectorStateSpace
 
 # ManiSkill flattens its state dictionary in a fixed order, so every entry sits

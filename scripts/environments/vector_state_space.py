@@ -1,6 +1,6 @@
 import torch
 
-from scripts.environments.state_space import StatePicture
+from scripts.environments.state_picture import StatePicture
 
 
 class VectorStateSpace:

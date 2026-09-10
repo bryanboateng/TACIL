@@ -1,6 +1,6 @@
 import torch
 
-from scripts.environments.state_space import PositionGroup, StatePicture
+from scripts.environments.state_picture import PositionGroup, StatePicture
 
 AGENT_POSITION_SLICE = slice(0, 2)
 BLOCK_POSITION_SLICE = slice(2, 4)

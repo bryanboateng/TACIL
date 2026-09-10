@@ -6,7 +6,7 @@ from matplotlib.artist import Artist
 from matplotlib.legend_handler import HandlerTuple
 from numpy import typing as npt
 
-from scripts.environments.state_space import StatePicture
+from scripts.environments.state_picture import StatePicture
 
 matplotlib.use(backend="Agg")
 
