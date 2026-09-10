@@ -1,30 +1,38 @@
+"""What the reader sees written on an episode video."""
+
 from enum import Enum, auto
 
 import numpy as np
 import pygame
-from gym_pusht.envs import PushTEnv
 from pygame import Surface
 from pygame.font import Font
 
-from scripts.evaluation.core.condition import (
-    Condition,
-    DisturbanceLevel,
-    FloorCondition,
-)
+from scripts.environments.conditions import Condition, DisturbanceLevel, FloorCondition
 from scripts.evaluation.core.rollout import EpisodeRecord
 from scripts.shared.paths import PROJECT_ROOT_DIRECTORY_PATH
 
+# How long the last frame of an episode is held before the next one starts.
 FREEZE_SECONDS = 2
-PLAYBACK_SPEED = 3.5
 
 
-def get_video_fps() -> int:
-    actions_per_second = PushTEnv.metadata["render_fps"]
-    if not isinstance(actions_per_second, int):
-        raise TypeError(
-            f"Expected an integer action rate, got {type(actions_per_second).__name__}"
+def render_episode_frames(
+    *,
+    episode_record: EpisodeRecord,
+    condition: Condition,
+    policy_label: str,
+    percentile: int,
+    playback_speed: float,
+) -> list[np.ndarray]:
+    return [
+        convert_surface_to_frame(surface=surface)
+        for surface in render_episode_surfaces(
+            episode_record=episode_record,
+            condition=condition,
+            policy_label=policy_label,
+            percentile=percentile,
+            playback_speed=playback_speed,
         )
-    return round(actions_per_second * PLAYBACK_SPEED)
+    ]
 
 
 def render_episode_surfaces(
@@ -33,6 +41,7 @@ def render_episode_surfaces(
     condition: Condition,
     policy_label: str,
     percentile: int,
+    playback_speed: float,
 ) -> list[pygame.Surface]:
     if episode_record.frames is None:
         raise ValueError(f"No frames found for episode {episode_record.seed}")
@@ -65,7 +74,7 @@ def render_episode_surfaces(
             font=font,
         )
         _add_text_to_surface(
-            text=f"speed: {PLAYBACK_SPEED}×\nstep: {step}",
+            text=f"speed: {_describe_speed(playback_speed=playback_speed)}\nstep: {step}",
             placement=_Placement.BOTTOM_LEFT,
             surface=annotated_surface,
             font=font,
@@ -93,7 +102,19 @@ def render_episode_surfaces(
     return annotated_surfaces
 
 
+def convert_surface_to_frame(*, surface: Surface) -> np.ndarray:
+    return np.transpose(a=pygame.surfarray.array3d(surface=surface), axes=(1, 0, 2))
+
+
 # ---- Private --------------------------------------------
+
+_TEXT_COLOR = (0, 0, 0)
+_TEXT_OUTLINE_COLOR = (255, 255, 255)
+
+
+def _describe_speed(*, playback_speed: float) -> str:
+    """Write a whole speed without its trailing zero, so 1.0 reads as 1."""
+    return f"{playback_speed:g}×"
 
 
 class _Placement(Enum):
@@ -139,10 +160,41 @@ def _convert_frame_to_surface(*, frame: np.ndarray) -> Surface:
     return pygame.surfarray.make_surface(array=frame.transpose(1, 0, 2))
 
 
+def _render_line(*, text: str, font: Font) -> Surface:
+    """Draw one line, dark on a light outline.
+
+    The outline keeps the writing readable over a dark picture. Push T draws
+    a light arena, but a ManiSkill camera sees a black background above the
+    table.
+    """
+    outline_width = max(1, font.get_height() // 14)
+    core = font.render(text, True, _TEXT_COLOR)
+    outline = font.render(text, True, _TEXT_OUTLINE_COLOR)
+
+    line = Surface(
+        size=(
+            core.get_width() + 2 * outline_width,
+            core.get_height() + 2 * outline_width,
+        ),
+        flags=pygame.SRCALPHA,
+    )
+    for horizontal_offset in range(-outline_width, outline_width + 1):
+        for vertical_offset in range(-outline_width, outline_width + 1):
+            line.blit(
+                source=outline,
+                dest=(
+                    outline_width + horizontal_offset,
+                    outline_width + vertical_offset,
+                ),
+            )
+    line.blit(source=core, dest=(outline_width, outline_width))
+    return line
+
+
 def _add_text_to_surface(
     *, text: str, placement: _Placement, surface: Surface, font: Font
 ) -> None:
-    line_surfaces = [font.render(line, True, (0, 0, 0)) for line in text.split("\n")]
+    line_surfaces = [_render_line(text=line, font=font) for line in text.split("\n")]
     margin = surface.get_width() // 100
     line_height = round(font.get_linesize() * 1.25)
     block_height = line_height * len(line_surfaces)

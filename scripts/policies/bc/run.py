@@ -12,6 +12,8 @@ from scripts.data.augmentation.ccil import augmentation as ccil
 from scripts.data.augmentation.ccil.config import CcilConfig
 from scripts.data.augmentation.tacil import augmentation as tacil
 from scripts.data.augmentation.tacil.augmentation import TacilConfig
+from scripts.environments.registry import create_environment
+from scripts.environments.state_space import StateSpace
 from scripts.evaluation.evaluate_policy import evaluate_policy
 from scripts.policies.bc import config as bc_config
 from scripts.policies.bc.policy import create_behavior_cloning_policy_factory
@@ -41,6 +43,8 @@ def _run(*, config: Config) -> None:
     device = torch.device(device="cuda" if torch.cuda.is_available() else "cpu")
     log_device_info(device=device, logger=logger)
 
+    environment = create_environment(environment=config.environment)
+
     with wandb.init(
         project=config.wandb_project,
         job_type="bc",
@@ -63,6 +67,7 @@ def _run(*, config: Config) -> None:
             state_action_pairs = expert_state_action_pairs
         else:
             synthetic_state_action_pairs = _create_synthetic_state_action_pairs(
+                state_space=environment.state_space,
                 augmentation_config=config.augmentation,
                 expert_episodes=expert_episodes,
                 seed=config.seed,
@@ -91,6 +96,7 @@ def _run(*, config: Config) -> None:
         logger.info("Stage 2/3: training the behavior-cloning policy.")
         policy_model = train_behavior_cloning_policy(
             config=config.policy,
+            environment=environment,
             state_action_pairs=state_action_pairs,
             seed=config.seed,
             device=device,
@@ -100,6 +106,7 @@ def _run(*, config: Config) -> None:
 
         logger.info("Stage 3/3: evaluating the policy.")
         evaluate_policy(
+            environment=environment,
             policy_factory=create_behavior_cloning_policy_factory(
                 policy_model=policy_model, device=device
             ),
@@ -113,6 +120,7 @@ def _run(*, config: Config) -> None:
 def _create_synthetic_state_action_pairs(
     *,
     augmentation_config: Augmentation,
+    state_space: StateSpace,
     expert_episodes: EpisodeStore,
     seed: int,
     device: torch.device,
@@ -130,6 +138,7 @@ def _create_synthetic_state_action_pairs(
         case TacilConfig() as tacil_configuration:
             tacil_episodes = tacil.augment(
                 config=tacil_configuration,
+                state_space=state_space,
                 expert_episodes=expert_episodes,
                 # Behavior cloning trains on single (state, action) pairs, not
                 # windows, so no expert part is needed.

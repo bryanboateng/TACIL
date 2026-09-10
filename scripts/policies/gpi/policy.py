@@ -4,22 +4,23 @@ import numpy as np
 import torch
 from numpy import typing as npt
 
+from scripts.environments.gpi_geometry import GpiGeometry
 from scripts.policies.gpi.config import Config, ObservationNoiseConfig
 from scripts.policies.gpi.demonstrations import Demonstrations
-from scripts.policies.gpi.geometry import convert_position_to_world_frame
 from scripts.shared.episode_store import EpisodeStore
 from scripts.shared.policy_types import Policy, PolicyFactory
-from scripts.shared.pusht_state import (
-    AGENT_POSITION_SLICE,
-    BLOCK_ORIENTATION_INDEX,
-    BLOCK_POSITION_SLICE,
-)
 
 
 def create_geometric_policy_factory(
-    *, episode_store: EpisodeStore, config: Config, device: torch.device
+    *,
+    episode_store: EpisodeStore,
+    geometry: GpiGeometry,
+    config: Config,
+    device: torch.device,
 ) -> PolicyFactory:
-    demonstrations = Demonstrations(episode_store=episode_store, device=device)
+    demonstrations = Demonstrations(
+        episode_store=episode_store, geometry=geometry, device=device
+    )
 
     def create_policy(*, episode_seeds: list[int]) -> Policy:
         episode_states = [
@@ -41,6 +42,7 @@ def create_geometric_policy_factory(
                         device=device, dtype=torch.float32
                     ),
                     demonstrations=demonstrations,
+                    geometry=geometry,
                     episode_state=episode_states[episode_index],
                     observation_noise_config=config.observation_noise,
                     steps_per_search=config.steps_per_search,
@@ -71,6 +73,7 @@ def _calculate_action(
     *,
     observation: torch.Tensor,
     demonstrations: Demonstrations,
+    geometry: GpiGeometry,
     episode_state: _EpisodeState,
     observation_noise_config: ObservationNoiseConfig,
     steps_per_search: int,
@@ -101,20 +104,27 @@ def _calculate_action(
 
     recorded_observation, recorded_action = demonstrations.read_step(index=step_index)
 
-    normalized_agent_target_position = _calculate_agent_target_position(
-        recorded_position=recorded_observation[AGENT_POSITION_SLICE],  # (2,)
-        recorded_action=recorded_action,  # (2,)
-        current_position=noisy_normalized_observation[AGENT_POSITION_SLICE],  # (2,)
+    state_slice = geometry.agent_position_slice
+    action_slice = geometry.action_position_slice
+
+    # Only the entries that name a position are steered. Any others, such as a
+    # gripper opening, are taken from the recorded step as they are. The
+    # reference does the same, at GPI/gpi/policies/state.py:99, where the whole
+    # recorded action is copied and only its first two entries are overwritten.
+    normalized_action = recorded_action.clone()  # (action_dimensionality,)
+    normalized_action[action_slice] = _calculate_agent_target_position(
+        recorded_position=recorded_observation[state_slice],
+        recorded_action=recorded_action[action_slice],
+        current_position=noisy_normalized_observation[state_slice],
         progression_weight=progression_weight,
         attraction_weight=attraction_weight,
-    )  # (2,)
+    )
 
     return (
-        convert_position_to_world_frame(
-            block_position_batch=observation[BLOCK_POSITION_SLICE].unsqueeze(dim=0),
-            block_angle_batch=observation[BLOCK_ORIENTATION_INDEX].unsqueeze(dim=0),
-            position_batch=demonstrations.denormalize_action(
-                action_batch=normalized_agent_target_position.unsqueeze(dim=0)
+        geometry.convert_actions_to_world_frame(
+            observation_batch=observation.unsqueeze(dim=0),
+            action_batch=demonstrations.denormalize_action(
+                action_batch=normalized_action.unsqueeze(dim=0)
             ),
         )
         .squeeze(dim=0)
@@ -165,16 +175,16 @@ def _consume_next_step_index(
 
 def _calculate_agent_target_position(
     *,
-    recorded_position: torch.Tensor,  # (2,)
-    recorded_action: torch.Tensor,  # (2,)
-    current_position: torch.Tensor,  # (2,)
+    recorded_position: torch.Tensor,  # (agent_position_dimensionality,)
+    recorded_action: torch.Tensor,  # (agent_position_dimensionality,)
+    current_position: torch.Tensor,  # (agent_position_dimensionality,)
     progression_weight: float,
     attraction_weight: float,
-) -> torch.Tensor:  # (2,), normalized
-    progression_flow = recorded_action - recorded_position  # (2,)
-    attraction_flow = recorded_position - current_position  # (2,)
+) -> torch.Tensor:  # (agent_position_dimensionality,), normalized
+    progression_flow = recorded_action - recorded_position
+    attraction_flow = recorded_position - current_position
     return (
         current_position
         + progression_weight * progression_flow
         + attraction_weight * attraction_flow
-    )  # (2,)
+    )

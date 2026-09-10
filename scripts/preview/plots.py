@@ -13,7 +13,11 @@ from scripts.data.augmentation.tacil.create_dynamics.statistics.plots import (
 from scripts.shared.distribution_plot import create_distribution_plot
 from scripts.shared.log import create_logger
 from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
-from scripts.shared.pusht_state import ARENA_SIZE, BLOCK_ORIENTATION_INDEX
+from scripts.environments.pusht.state_space import (
+    ARENA_SIZE,
+    BLOCK_ORIENTATION_INDEX,
+    PushTStateSpace,
+)
 
 logger = create_logger()
 
@@ -59,6 +63,7 @@ def main() -> None:
         "true_dynamics_vs_model_0": create_true_dynamics_vs_model_plot(
             member_trajectories=member_trajectories,
             true_trajectory=true_trajectory,
+            picture=PushTStateSpace().picture,
             episode_index=0,
         ),
         "nearest_expert_state": _draw_nearest_expert_state_plot(rng=rng),

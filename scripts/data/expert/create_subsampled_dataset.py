@@ -5,11 +5,15 @@ from pathlib import Path
 import numpy as np
 import tyro
 import wandb
-import zarr
 from rich.pretty import pretty_repr
 from wandb import Run
 
-from scripts.shared.episode_store import EpisodeStore, download_episode_store
+from scripts.environments.registry import EnvironmentName, dataset_artifact_name
+from scripts.shared.episode_store import (
+    EpisodeStore,
+    download_episode_store,
+    write_episode_store,
+)
 from scripts.shared.log import create_logger
 from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
 
@@ -19,6 +23,7 @@ logger = create_logger()
 @dataclass
 class Config:
     wandb_project: str
+    environment: EnvironmentName
     source_dataset_artifact: str
     episode_count: int
 
@@ -59,7 +64,9 @@ def _run(*, config: Config):
         )
 
         _upload_episode_store(
-            subsampled_episode_store=subsampled_episode_store, run=run
+            subsampled_episode_store=subsampled_episode_store,
+            environment=config.environment,
+            run=run,
         )
 
 
@@ -87,13 +94,8 @@ def _subsample_episodes(
     cumulative_transition_count = 0
 
     for selected_episode_index in selected_episode_indices:
-        if not isinstance(selected_episode_index, int):
-            raise TypeError(
-                f"Expected int, got {type(selected_episode_index).__name__}"
-            )
-
-        start_index: int = episode_start_indices[selected_episode_index]
-        end_index: int = episode_store.episode_end_indices[selected_episode_index]
+        start_index = int(episode_start_indices[selected_episode_index])
+        end_index = int(episode_store.episode_end_indices[selected_episode_index])
 
         episode_transition_indices = np.arange(
             start_index, stop=end_index
@@ -143,31 +145,25 @@ def _log_dataset_statistics(
     )
 
 
-def _upload_episode_store(*, subsampled_episode_store: EpisodeStore, run: Run):
+def _upload_episode_store(
+    *, subsampled_episode_store: EpisodeStore, environment: EnvironmentName, run: Run
+):
     with tempfile.TemporaryDirectory() as temporary_directory:
         output_zarr_path = Path(temporary_directory) / "dataset.zarr"
 
-        _write_episode_store(
+        write_episode_store(
             episode_store=subsampled_episode_store, save_file_path=output_zarr_path
         )
 
         new_artifact = wandb.Artifact(
-            name=f"dataset-{len(subsampled_episode_store.episode_end_indices)}",
+            name=dataset_artifact_name(
+                environment=environment,
+                episode_count=len(subsampled_episode_store.episode_end_indices),
+            ),
             type="dataset",
         )
         new_artifact.add_dir(local_path=str(output_zarr_path))
         run.log_artifact(artifact_or_path=new_artifact)
-
-
-def _write_episode_store(*, episode_store: EpisodeStore, save_file_path: Path):
-    root = zarr.open_group(str(save_file_path), mode="w")
-
-    data_group = root.create_group("data")
-    data_group.create_array("state", data=episode_store.states)
-    data_group.create_array("action", data=episode_store.actions)
-
-    meta_group = root.create_group("meta")
-    meta_group.create_array("episode_ends", data=episode_store.episode_end_indices)
 
 
 if __name__ == "__main__":

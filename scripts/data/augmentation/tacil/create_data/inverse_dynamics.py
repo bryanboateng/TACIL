@@ -8,7 +8,6 @@ from scripts.data.augmentation.tacil.dynamics.dynamics_model_ensemble import (
 from scripts.data.augmentation.tacil.dynamics.state_distance import (
     calculate_normalized_state_difference,
 )
-from scripts.shared.pusht_state import add_states
 
 
 @dataclass(frozen=True)
@@ -64,7 +63,7 @@ def solve_inverse_dynamics(
             B=residual_batch.unsqueeze(dim=-1),
         ).squeeze(-1)  # (batch_size, state_dimensionality)
 
-        state_estimate_batch = add_states(
+        state_estimate_batch = dynamics_model_ensemble.state_space.add(
             first_addend_batch=state_estimate_batch,
             second_addend_batch=-dynamics_model_ensemble.state_normalizer.denormalize_difference(
                 normalized_difference_batch=normalized_newton_step_batch
@@ -96,6 +95,7 @@ def _calculate_residual(
     return calculate_normalized_state_difference(
         minuend_batch=predicted_next_state_batch,
         subtrahend_batch=target_next_state_batch,
+        state_space=dynamics_model_ensemble.state_space,
         state_normalizer=dynamics_model_ensemble.state_normalizer,
     )  # (batch_size, state_dimensionality)
 

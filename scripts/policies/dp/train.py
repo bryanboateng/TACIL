@@ -8,6 +8,7 @@ from torch import nn as nn
 from tqdm.auto import tqdm
 from wandb import Run
 
+from scripts.environments.environment import Environment
 from scripts.evaluation.core.scoring import (
     calculate_reward_statistics,
     run_scored_episodes_over_conditions,
@@ -37,6 +38,7 @@ VALIDATION_SECTION = f"{STAGE_NAME}/2_validation"
 
 def train_diffusion_policy(
     *,
+    environment: Environment,
     config: Config,
     expert_episodes: EpisodeStore,
     augmented_episodes: EpisodeStore | None,
@@ -177,6 +179,7 @@ def train_diffusion_policy(
             with torch.no_grad():
                 validation_reward = calculate_reward_statistics(
                     episode_records=run_scored_episodes_over_conditions(
+                        environment=environment,
                         policy_factory=create_diffusion_policy_factory(
                             noise_prediction_network=noise_prediction_network,
                             horizon_lengths=config.horizon_lengths,

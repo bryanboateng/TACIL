@@ -6,6 +6,7 @@ from torch.utils.data import DataLoader
 from tqdm.auto import tqdm
 from wandb import Run
 
+from scripts.environments.environment import Environment
 from scripts.evaluation.core.scoring import (
     calculate_reward_statistics,
     run_scored_episodes_over_conditions,
@@ -36,12 +37,16 @@ VALIDATION_SECTION = f"{STAGE_NAME}/2_validation"
 
 def train_behavior_cloning_policy(
     *,
+    environment: Environment | None,
     config: Config,
     state_action_pairs: StateActionPairs,
     seed: int,
     device: torch.device,
     run: Run,
 ) -> BehaviorCloningPolicyModel:
+    if config.validation is not None and environment is None:
+        raise ValueError("Validation rolls the policy out, so it needs an environment.")
+
     set_seed(seed=seed)
     _define_step_metrics(run=run)
 
@@ -129,6 +134,7 @@ def train_behavior_cloning_policy(
 
         if (
             config.validation is None
+            or environment is None
             or (epoch_index + 1) % config.validation.interval_epoch_count != 0
         ):
             continue
@@ -136,6 +142,7 @@ def train_behavior_cloning_policy(
         with torch.no_grad():
             validation_reward = calculate_reward_statistics(
                 episode_records=run_scored_episodes_over_conditions(
+                    environment=environment,
                     policy_factory=create_behavior_cloning_policy_factory(
                         policy_model=model, device=device
                     ),

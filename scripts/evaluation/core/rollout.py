@@ -1,18 +1,9 @@
 from dataclasses import dataclass, field
 
-import gym_pusht  # noqa: F401
-import gymnasium
 import numpy as np
 from gymnasium import Env
 from tqdm import tqdm
 
-from scripts.evaluation.core import disturbance
-from scripts.evaluation.core.condition import (
-    Condition,
-    DisturbanceLevel,
-    FloorCondition,
-)
-from scripts.evaluation.core.renderer import RecoloredRenderWrapper, RenderSettings
 from scripts.shared.policy_types import Policy
 
 
@@ -48,43 +39,6 @@ class _EpisodeRun:
             rewards=self.rewards,
             frames=self.frames,
         )
-
-
-def create_environment(
-    *, condition: Condition, render_settings: RenderSettings | None
-) -> Env:
-    match condition.floor_condition:
-        case FloorCondition.GRIPPY:
-            damping = 0.0
-        case FloorCondition.SLIPPERY:
-            damping = 0.2
-
-    environment = gymnasium.make(
-        id="gym_pusht/PushT-v0",
-        damping=damping,
-        render_mode="rgb_array" if render_settings is not None else None,
-    )
-
-    if condition.disturbance_level is not None:
-        environment = disturbance.DisturbanceWrapper(
-            environment=environment,
-            magnitude=_get_disturbance_magnitude(
-                floor_condition=condition.floor_condition,
-                disturbance_level=condition.disturbance_level,
-            ),
-        )
-
-    if render_settings is not None:
-        match condition.floor_condition:
-            case FloorCondition.GRIPPY:
-                colormap = "Blues"
-            case FloorCondition.SLIPPERY:
-                colormap = "Oranges"
-        environment = RecoloredRenderWrapper(
-            environment=environment, colormap=colormap, render_settings=render_settings
-        )
-
-    return environment
 
 
 def roll_out_episodes(
@@ -144,24 +98,6 @@ def roll_out_episodes(
 
 
 # ---- Private --------------------------------------------
-
-
-def _get_disturbance_magnitude(
-    *, floor_condition: FloorCondition, disturbance_level: DisturbanceLevel
-) -> float:
-    match floor_condition:
-        case FloorCondition.GRIPPY:
-            match disturbance_level:
-                case DisturbanceLevel.LOW:
-                    return 1_500
-                case DisturbanceLevel.HIGH:
-                    return 4_500
-        case FloorCondition.SLIPPERY:
-            match disturbance_level:
-                case DisturbanceLevel.LOW:
-                    return 24
-                case DisturbanceLevel.HIGH:
-                    return 72
 
 
 def _render_frame(environment: Env) -> np.ndarray:

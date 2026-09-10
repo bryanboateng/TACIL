@@ -8,14 +8,11 @@ import tyro
 import wandb
 from rich.pretty import pretty_repr
 
-from scripts.evaluation.core.condition import ALL_CONDITIONS
-from scripts.evaluation.core.renderer import RenderSettings
-from scripts.evaluation.core.rollout import create_environment, roll_out_episodes
-from scripts.evaluation.core.video import (
-    FREEZE_SECONDS,
-    get_video_fps,
-    render_episode_surfaces,
-)
+from scripts.environments.conditions import ALL_CONDITIONS
+from scripts.environments.pusht.environment import PushTEnvironment
+from scripts.environments.pusht.video import PLAYBACK_SPEED, get_video_fps
+from scripts.evaluation.core.video import FREEZE_SECONDS, render_episode_surfaces
+from scripts.evaluation.core.rollout import roll_out_episodes
 from scripts.policies.gpi import config as gpi
 from scripts.policies.gpi.policy import create_geometric_policy_factory
 from scripts.shared.episode_store import read_episode_store
@@ -39,6 +36,7 @@ def _run(*, config: gpi.Config) -> None:
     screen = pygame.display.set_mode(size=(RENDER_SIZE, RENDER_SIZE))
     clock = pygame.time.Clock()
 
+    push_t_environment = PushTEnvironment()
     fps = get_video_fps()
     policy_factory = _create_policy_factory(config=config)
 
@@ -46,9 +44,8 @@ def _run(*, config: gpi.Config) -> None:
         seed = random.randint(a=0, b=2**31 - 1)
         pygame.display.set_caption(title="Preview")
 
-        environment = create_environment(
-            condition=condition,
-            render_settings=RenderSettings(size=RENDER_SIZE, supersample_factor=1),
+        environment = push_t_environment.create_gym_environment(
+            condition=condition, render=True
         )
         try:
             with torch.no_grad():
@@ -66,6 +63,7 @@ def _run(*, config: gpi.Config) -> None:
             condition=condition,
             policy_label="dp (eternal-sweep-6)",
             percentile=75,
+            playback_speed=PLAYBACK_SPEED,
         )
 
         # Play the episode, then hold on the final frame, matching the recorded freeze.
@@ -85,6 +83,7 @@ def _create_policy_factory(config: gpi.Config) -> PolicyFactory:
 
     dataset_artifact = "datasets/dataset-100:latest"
     return create_geometric_policy_factory(
+        geometry=PushTEnvironment().gpi_geometry,
         episode_store=read_episode_store(
             episode_file_path=(
                 Path(wandb.Api().artifact(name=dataset_artifact).download())
