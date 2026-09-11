@@ -33,6 +33,8 @@ class Config:
 
     seeds: tuple[int, ...] = tuple(range(40, 50))
 
+    evaluate: bool = True
+
     def __post_init__(self) -> None:
         if len(self.tasks) == 0:
             raise ValueError("tasks must name at least one task, but it is empty.")
@@ -79,7 +81,8 @@ def _run(*, config: Config) -> None:
                     )
                 )
 
-    _evaluate(config=config)
+    if config.evaluate:
+        _evaluate(config=config)
 
 
 def _evaluate(*, config: Config) -> None:
