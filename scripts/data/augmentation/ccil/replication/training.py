@@ -5,7 +5,6 @@ from typing import TypeAlias
 
 import numpy as np
 import torch
-import tyro
 import wandb
 import yaml
 from rich.pretty import pretty_repr
@@ -60,13 +59,8 @@ class Config:
     augmentation: Augmentation | None
 
 
-def main() -> None:
-    config = tyro.cli(f=Config)
+def train(*, config: Config) -> None:
     logger.info(pretty_repr(config))
-    _run(config=config)
-
-
-def _run(*, config: Config) -> None:
     device = torch.device(device="cuda" if torch.cuda.is_available() else "cpu")
     log_device_info(device=device, logger=logger)
 
@@ -308,7 +302,3 @@ def _export_policy(*, policy_model: torch.nn.Module, file_path: Path) -> None:
     # The model normalizes on its own, so the CCIL authors' code can load
     # this file and call it.
     torch.jit.script(policy_model.to(device=torch.device("cpu"))).save(str(file_path))
-
-
-if __name__ == "__main__":
-    main()
