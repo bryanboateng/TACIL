@@ -1,5 +1,3 @@
-from collections.abc import Callable
-
 import numpy as np
 import torch
 from numpy import typing as npt
@@ -11,6 +9,7 @@ from scripts.policies.mopo.dynamics import (
     Dynamics,
     DynamicsModelEnsemble,
     InputNormalizer,
+    TerminationFunction,
 )
 from scripts.policies.mopo.transitions import Transitions
 from scripts.shared import stage_names
@@ -27,7 +26,7 @@ def train_dynamics(
     config: DynamicsConfig,
     rollout_penalty_coefficient: float,
     transitions: Transitions,
-    termination_function: Callable[[npt.NDArray[np.float32]], npt.NDArray[np.bool_]],
+    termination_function: TerminationFunction,
     seed: int,
     device: torch.device,
     run: Run,

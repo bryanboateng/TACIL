@@ -1,5 +1,6 @@
 import copy
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 
 import numpy as np
@@ -8,26 +9,19 @@ from torch.optim import Adam
 from tqdm import tqdm
 from wandb import Run
 
-from scripts.evaluation.core.scoring import (
-    calculate_reward_statistics,
-    run_scored_episodes_over_conditions,
-)
 from scripts.policies.mopo.buffer import ReplayBuffer, concatenate_batches
 from scripts.policies.mopo.config import Config
-from scripts.policies.mopo.dynamics import Dynamics
+from scripts.policies.mopo.dynamics import Dynamics, TerminationFunction
 from scripts.policies.mopo.dynamics_training import train_dynamics
 from scripts.policies.mopo.policy import (
     CRITIC_COUNT,
     EnsembleCritic,
     GaussianActor,
     MopoPolicy,
-    create_mopo_policy_factory,
 )
 from scripts.policies.mopo.transitions import Transitions
 from scripts.shared import stage_names
 from scripts.shared.log import create_logger
-from scripts.shared.normalization import MinMaxNormalizer, ZScoreNormalizer
-from scripts.shared.pusht_reward import calculate_termination
 from scripts.shared.seeding import set_seed
 
 logger = create_logger()
@@ -42,16 +36,29 @@ VALIDATION_SECTION = f"{STAGE_NAME}/2_validation"
 ROLLOUT_SECTION = f"{STAGE_NAME}/3_rollout"
 
 
+@dataclass(frozen=True)
+class ValidationScore:
+    mean: float
+    std: float
+
+
 def train_mopo_policy(
     *,
     config: Config,
     transitions: Transitions,
-    state_normalizer: ZScoreNormalizer,
-    action_normalizer: MinMaxNormalizer,
+    termination_function: TerminationFunction,
+    score_policy: Callable[[MopoPolicy], ValidationScore],
     seed: int,
     device: torch.device,
     run: Run,
 ) -> MopoPolicy:
+    """Trains a MOPO policy on the given transitions.
+
+    The environment reaches this function through two arguments only:
+    termination_function tells the dynamics model when an imagined state ends
+    an episode, and score_policy runs the policy wherever it belongs. Nothing
+    here knows which environment that is.
+    """
     set_seed(seed=seed)
     _define_step_metrics(run=run)
 
@@ -59,11 +66,7 @@ def train_mopo_policy(
         config=config.dynamics,
         rollout_penalty_coefficient=config.rollout.penalty_coefficient,
         transitions=transitions,
-        termination_function=lambda state_batch: calculate_termination(
-            state_batch=state_normalizer.denormalize(
-                value_batch=torch.from_numpy(state_batch).float()
-            ).numpy()
-        ),
+        termination_function=termination_function,
         seed=seed,
         device=device,
         run=run,
@@ -173,22 +176,12 @@ def train_mopo_policy(
         if (epoch_index + 1) % config.validation.interval_epoch_count != 0:
             continue
 
-        validation_reward = calculate_reward_statistics(
-            episode_records=run_scored_episodes_over_conditions(
-                policy_factory=create_mopo_policy_factory(
-                    policy=policy,
-                    state_normalizer=state_normalizer,
-                    action_normalizer=action_normalizer,
-                    device=device,
-                ),
-                start_episode_seed=100_000,
-                episode_count_per_condition=config.validation.episode_count_per_condition,
-            )
-        )
+        validation_score = score_policy(policy)
+        policy.train()
         run.log(
             data={
-                f"{VALIDATION_SECTION}/1_reward_mean": validation_reward.mean,
-                f"{VALIDATION_SECTION}/2_reward_std": validation_reward.std,
+                f"{VALIDATION_SECTION}/1_reward_mean": validation_score.mean,
+                f"{VALIDATION_SECTION}/2_reward_std": validation_score.std,
                 EPOCH_METRIC_NAME: epoch_index,
                 STEP_METRIC_NAME: global_step,
             }
@@ -196,11 +189,11 @@ def train_mopo_policy(
 
         if (
             best_checkpoint is None
-            or validation_reward.mean > best_checkpoint.validation_reward_mean
+            or validation_score.mean > best_checkpoint.validation_reward_mean
         ):
             best_checkpoint = _Checkpoint(
-                validation_reward_mean=validation_reward.mean,
-                validation_reward_std=validation_reward.std,
+                validation_reward_mean=validation_score.mean,
+                validation_reward_std=validation_score.std,
                 epoch=epoch_index,
                 actor_state_dict=copy.deepcopy(policy.actor.state_dict()),
             )
@@ -216,7 +209,8 @@ def train_mopo_policy(
         best_checkpoint.validation_reward_std
     )
 
-    policy.actor.load_state_dict(state_dict=best_checkpoint.actor_state_dict)
+    if config.validation.keep_best_checkpoint:
+        policy.actor.load_state_dict(state_dict=best_checkpoint.actor_state_dict)
     return policy
 
 

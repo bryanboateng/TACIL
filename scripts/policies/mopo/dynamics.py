@@ -8,6 +8,10 @@ from torch.nn import functional
 
 from scripts.policies.mopo.config import DynamicsConfig
 
+# Decides, from a state alone, whether the episode is over. The dynamics
+# model predicts where the robot lands but not whether it fell over.
+type TerminationFunction = Callable[[npt.NDArray[np.float32]], npt.NDArray[np.bool_]]
+
 
 @dataclass(frozen=True)
 class ImaginedStep:
@@ -212,9 +216,7 @@ class Dynamics:
         model_ensemble: DynamicsModelEnsemble,
         optimizer: torch.optim.Optimizer,
         input_normalizer: InputNormalizer,
-        termination_function: Callable[
-            [npt.NDArray[np.float32]], npt.NDArray[np.bool_]
-        ],
+        termination_function: TerminationFunction,
         penalty_coefficient: float,
         device: torch.device,
     ) -> None:

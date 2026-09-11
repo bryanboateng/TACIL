@@ -111,6 +111,10 @@ class OptimizationConfig:
 class ValidationConfig:
     interval_epoch_count: int = 100
     episode_count_per_condition: int = 12
+    # Whether to report the best policy seen during training or the one that
+    # training ended on. The MOPO paper reports the last one, so a run that
+    # reproduces it must not pick the best.
+    keep_best_checkpoint: bool = True
 
     def __post_init__(self) -> None:
         for name, value in (
