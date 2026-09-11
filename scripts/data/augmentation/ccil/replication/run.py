@@ -19,7 +19,7 @@ class Config:
 
     output_directory_path: Path = OUTPUT_DIRECTORY_PATH / "replication"
 
-    # The tasks that mujoco.sh and metaworld.sh cover..
+    # The tasks that mujoco.sh and metaworld.sh cover.
     tasks: tuple[str, ...] = (
         "hopper",
         "walker2d",
@@ -43,7 +43,7 @@ class Config:
 
 
 def main() -> None:
-    config = tyro.cli(f=Config, config=[tyro.conf.UsePythonSyntaxForLiteralCollections])
+    config = tyro.cli(f=Config)
     logger.info(pretty_repr(config))
     _run(config=config)
 
