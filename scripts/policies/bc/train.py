@@ -57,6 +57,7 @@ def train_behavior_cloning_policy(
         dataset=dataset,
         batch_size=config.optimization.batch_size,
         shuffle=True,
+        drop_last=True,
         pin_memory=device.type == "cuda",
     )
 
@@ -65,7 +66,7 @@ def train_behavior_cloning_policy(
         action_dimensionality=state_action_pairs.actions.shape[1],
         hidden_layer_dimensionality=config.hidden_layer_dimensionality,
         observation_normalizer=ZScoreNormalizer(
-            value_batch=dataset.states.to(device=device)
+            value_batch=dataset.states.to(device=device), correction=0, epsilon=1e-3
         ),
         action_normalizer=MinMaxNormalizer(
             value_batch=dataset.actions.to(device=device)

@@ -263,8 +263,12 @@ def _build_training_data(
     device: torch.device,
     run: Run,
 ) -> StateActionPairs:
+    last_timestep_indices = expert_episodes.episode_end_indices - 1
+    expert_keep_mask = np.ones(expert_episodes.states.shape[0], dtype=bool)
+    expert_keep_mask[last_timestep_indices] = False
     expert_state_action_pairs = StateActionPairs(
-        states=expert_episodes.states, actions=expert_episodes.actions
+        states=expert_episodes.states[expert_keep_mask],
+        actions=expert_episodes.actions[expert_keep_mask],
     )
     if ccil_config is None:
         return expert_state_action_pairs
