@@ -17,9 +17,9 @@ from scripts.policies.mopo.config import Config
 from scripts.policies.mopo.dynamics import Dynamics
 from scripts.policies.mopo.dynamics_training import train_dynamics
 from scripts.policies.mopo.policy import (
-    Critic,
+    CRITIC_COUNT,
+    EnsembleCritic,
     GaussianActor,
-    LearningStatistics,
     MopoPolicy,
     create_mopo_policy_factory,
 )
@@ -114,7 +114,6 @@ def train_mopo_policy(
         iterable=range(config.optimization.epoch_count), desc="Epoch", unit="epoch"
     ):
         policy.train()
-        epoch_statistics: list[LearningStatistics] = []
         rollout_seconds = 0.0
         epoch_start = time.perf_counter()
         for _ in range(config.optimization.step_count_per_epoch):
@@ -138,31 +137,22 @@ def train_mopo_policy(
                     }
                 )
 
-            epoch_statistics.append(
-                policy.learn(
-                    batch=concatenate_batches(
-                        first=real_buffer.sample(count=real_batch_size),
-                        second=imagined_buffer.sample(count=imagined_batch_size),
-                    )
+            policy.learn(
+                batch=concatenate_batches(
+                    first=real_buffer.sample(count=real_batch_size),
+                    second=imagined_buffer.sample(count=imagined_batch_size),
                 )
             )
             global_step += 1
 
+        epoch_statistics = policy.take_average_statistics(
+            step_count=config.optimization.step_count_per_epoch
+        )
         training_statistics = {
-            f"{TRAINING_SECTION}/1_actor_loss": _average(
-                value_batch=[statistics.actor_loss for statistics in epoch_statistics]
-            ),
-            f"{TRAINING_SECTION}/2_critic_loss": _average(
-                value_batch=[statistics.critic_loss for statistics in epoch_statistics]
-            ),
-            f"{TRAINING_SECTION}/3_temperature_loss": _average(
-                value_batch=[
-                    statistics.temperature_loss for statistics in epoch_statistics
-                ]
-            ),
-            f"{TRAINING_SECTION}/4_temperature": _average(
-                value_batch=[statistics.temperature for statistics in epoch_statistics]
-            ),
+            f"{TRAINING_SECTION}/1_actor_loss": epoch_statistics.actor_loss,
+            f"{TRAINING_SECTION}/2_critic_loss": epoch_statistics.critic_loss,
+            f"{TRAINING_SECTION}/3_temperature_loss": epoch_statistics.temperature_loss,
+            f"{TRAINING_SECTION}/4_temperature": epoch_statistics.temperature,
         }
         # Read after the averages, because that is where the device catches up.
         epoch_seconds = time.perf_counter() - epoch_start
@@ -233,10 +223,6 @@ def train_mopo_policy(
 # ---- Private --------------------------------------------
 
 
-def _average(*, value_batch: list[torch.Tensor]) -> float:
-    return torch.stack(tensors=value_batch).mean().item()
-
-
 @dataclass(frozen=True)
 class _Checkpoint:
     validation_reward_mean: float
@@ -258,44 +244,45 @@ def _create_policy(
         action_dimensionality=action_dimensionality,
         hidden_layer_dimensionalities=config.optimization.hidden_layer_dimensionalities,
     ).to(device=device)
-    first_critic = Critic(
+    critic = EnsembleCritic(
+        member_count=CRITIC_COUNT,
         state_dimensionality=state_dimensionality,
         action_dimensionality=action_dimensionality,
         hidden_layer_dimensionalities=config.optimization.hidden_layer_dimensionalities,
     ).to(device=device)
-    second_critic = Critic(
-        state_dimensionality=state_dimensionality,
-        action_dimensionality=action_dimensionality,
-        hidden_layer_dimensionalities=config.optimization.hidden_layer_dimensionalities,
-    ).to(device=device)
+    target_critic = copy.deepcopy(x=critic).eval()
 
     log_temperature = torch.zeros(1, requires_grad=True, device=device)
 
-    return MopoPolicy(
+    policy = MopoPolicy(
         actor=actor,
-        first_critic=first_critic,
-        second_critic=second_critic,
+        critic=critic,
+        target_critic=target_critic,
         actor_optimizer=Adam(
-            params=actor.parameters(), lr=config.optimization.actor_learning_rate
+            params=actor.parameters(),
+            lr=config.optimization.actor_learning_rate,
+            fused=True,
         ),
-        first_critic_optimizer=Adam(
-            params=first_critic.parameters(),
-            lr=config.optimization.critic_learning_rate,
+        temperature_optimizer=Adam(
+            params=[log_temperature],
+            lr=config.optimization.temperature_learning_rate,
+            fused=True,
         ),
-        second_critic_optimizer=Adam(
-            params=second_critic.parameters(),
+        critic_optimizer=Adam(
+            params=critic.parameters(),
             lr=config.optimization.critic_learning_rate,
+            fused=True,
         ),
         log_temperature=log_temperature,
-        temperature_optimizer=Adam(
-            params=[log_temperature], lr=config.optimization.temperature_learning_rate
-        ),
         target_entropy=-float(action_dimensionality),
         dynamics=dynamics,
         discount_factor=config.optimization.discount_factor,
         target_update_rate=config.optimization.target_update_rate,
         device=device,
     )
+    if config.optimization.compiled:
+        policy.compile_learning()
+    return policy
 
 
 def _define_step_metrics(*, run: Run) -> None:

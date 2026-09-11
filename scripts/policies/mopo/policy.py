@@ -1,4 +1,4 @@
-import copy
+import math
 from dataclasses import dataclass
 
 import numpy as np
@@ -11,13 +11,19 @@ from scripts.policies.mopo.transitions import Transitions
 from scripts.shared.normalization import MinMaxNormalizer, ZScoreNormalizer
 from scripts.shared.policy_types import Policy, PolicyFactory
 
+CRITIC_COUNT = 2
+
+_HALF_LOG_TWO_PI = 0.5 * math.log(2.0 * math.pi)
+
+_STATISTIC_COUNT = 4
+
 
 @dataclass(frozen=True)
 class LearningStatistics:
-    actor_loss: torch.Tensor
-    critic_loss: torch.Tensor
-    temperature_loss: torch.Tensor
-    temperature: torch.Tensor
+    actor_loss: float
+    critic_loss: float
+    temperature_loss: float
+    temperature: float
 
 
 @dataclass(frozen=True)
@@ -53,47 +59,74 @@ class GaussianActor(torch.nn.Module):
     def forward(
         self,
         state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
-    ) -> torch.distributions.Normal:
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        # each (batch_size, action_dimensionality)
         features = self.backbone(state_batch)
-        return torch.distributions.Normal(
-            loc=self.mean_layer(features),
-            scale=(
-                self.log_standard_deviation_layer(features)
-                .clamp(min=-5.0, max=2.0)
-                .exp()
-            ),
-            # Saves time. The clamp above already keeps it positive.
-            validate_args=False,
+        return (
+            self.mean_layer(features),
+            self.log_standard_deviation_layer(features).clamp(min=-5.0, max=2.0).exp(),
         )
 
 
-class Critic(torch.nn.Module):
+class EnsembleCritic(torch.nn.Module):
+    """Holds every critic in one stack of weights.
+
+    Soft actor critic needs two critics. Kept apart they cost two of
+    everything: two forward passes, two backward passes, two optimizers.
+    Stacked they cost one of each, because a single matrix product covers
+    both members. The arithmetic stays the same.
+    """
+
     def __init__(
         self,
         *,
+        member_count: int,
         state_dimensionality: int,
         action_dimensionality: int,
         hidden_layer_dimensionalities: tuple[int, ...],
     ) -> None:
         super().__init__()
 
-        self.network = torch.nn.Sequential(
-            _create_backbone(
-                input_dimensionality=state_dimensionality + action_dimensionality,
-                hidden_layer_dimensionalities=hidden_layer_dimensionalities,
-            ),
-            torch.nn.Linear(
-                in_features=hidden_layer_dimensionalities[-1], out_features=1
-            ),
-        )
+        self.member_count = member_count
+
+        dimensionalities = [
+            state_dimensionality + action_dimensionality,
+            *hidden_layer_dimensionalities,
+            1,
+        ]
+        self.weights = torch.nn.ParameterList()
+        self.biases = torch.nn.ParameterList()
+        for input_dimensionality, output_dimensionality in zip(
+            dimensionalities[:-1], dimensionalities[1:], strict=True
+        ):
+            weight = torch.empty(
+                member_count, input_dimensionality, output_dimensionality
+            )
+            bias = torch.empty(member_count, 1, output_dimensionality)
+            bound = 1.0 / math.sqrt(input_dimensionality)
+            for member_index in range(member_count):
+                # torch.nn.Linear keeps its weight transposed, so each member is
+                # initialized through a transposed view to match it exactly.
+                torch.nn.init.kaiming_uniform_(
+                    tensor=weight[member_index].T, a=math.sqrt(5.0)
+                )
+                torch.nn.init.uniform_(tensor=bias[member_index], a=-bound, b=bound)
+            self.weights.append(torch.nn.Parameter(data=weight))
+            self.biases.append(torch.nn.Parameter(data=bias))
 
     def forward(
         self,
-        *,
-        state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
-        action_batch: torch.Tensor,  # (batch_size, action_dimensionality)
-    ) -> torch.Tensor:  # (batch_size, 1)
-        return self.network(torch.cat(tensors=[state_batch, action_batch], dim=-1))
+        input_batch: torch.Tensor,  # (batch_size, input_dimensionality)
+    ) -> torch.Tensor:  # (member_count, batch_size, 1)
+        value_batch = input_batch.unsqueeze(0).expand(self.member_count, -1, -1)
+        last_index = len(self.weights) - 1
+        for index, (weight, bias) in enumerate(
+            zip(self.weights, self.biases, strict=True)
+        ):
+            value_batch = torch.baddbmm(input=bias, batch1=value_batch, batch2=weight)
+            if index != last_index:
+                value_batch = torch.relu(input=value_batch)
+        return value_batch
 
 
 class MopoPolicy:
@@ -101,13 +134,12 @@ class MopoPolicy:
         self,
         *,
         actor: GaussianActor,
-        first_critic: Critic,
-        second_critic: Critic,
+        critic: EnsembleCritic,
+        target_critic: EnsembleCritic,
         actor_optimizer: torch.optim.Optimizer,
-        first_critic_optimizer: torch.optim.Optimizer,
-        second_critic_optimizer: torch.optim.Optimizer,
-        log_temperature: torch.Tensor,
         temperature_optimizer: torch.optim.Optimizer,
+        critic_optimizer: torch.optim.Optimizer,
+        log_temperature: torch.Tensor,
         target_entropy: float,
         dynamics: Dynamics,
         discount_factor: float,
@@ -115,18 +147,17 @@ class MopoPolicy:
         device: torch.device,
     ) -> None:
         self.actor = actor
-        self.first_critic = first_critic
-        self.second_critic = second_critic
-        self.first_target_critic = copy.deepcopy(first_critic).eval()
-        self.second_target_critic = copy.deepcopy(second_critic).eval()
+        self.critic = critic
+        self.target_critic = target_critic
 
         self.actor_optimizer = actor_optimizer
-        self.first_critic_optimizer = first_critic_optimizer
-        self.second_critic_optimizer = second_critic_optimizer
+        self.temperature_optimizer = temperature_optimizer
+        self.critic_optimizer = critic_optimizer
 
         self.log_temperature = log_temperature
-        self.temperature_optimizer = temperature_optimizer
         self.target_entropy = target_entropy
+        # Held in place rather than reassigned, so a compiled learning step
+        # keeps writing to the same memory.
         self.temperature = log_temperature.detach().exp()
 
         self.dynamics = dynamics
@@ -134,15 +165,29 @@ class MopoPolicy:
         self.target_update_rate = target_update_rate
         self.device = device
 
+        self._critic_parameters: list[torch.Tensor] = list(critic.parameters())
+        self._target_critic_parameters: list[torch.Tensor] = list(
+            target_critic.parameters()
+        )
+
+        self._statistic_sums = torch.zeros(_STATISTIC_COUNT, device=device)
+        self._learn_step = self._run_learn_step
+
+    def compile_learning(self) -> None:
+        """Bundles the learning step into a replayable graph.
+
+        The networks are small, so the device idles while it waits for the
+        next command. Bundling cuts the number of commands, not the work.
+        """
+        self._learn_step = torch.compile(self._run_learn_step, mode="reduce-overhead")
+
     def train(self) -> None:
         self.actor.train()
-        self.first_critic.train()
-        self.second_critic.train()
+        self.critic.train()
 
     def eval(self) -> None:
         self.actor.eval()
-        self.first_critic.eval()
-        self.second_critic.eval()
+        self.critic.eval()
 
     def sample_action(
         self,
@@ -151,20 +196,22 @@ class MopoPolicy:
         deterministic: bool,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         # (batch_size, action_dimensionality), (batch_size, 1)
-        action_distribution = self.actor(state_batch)
+        mean_batch, standard_deviation_batch = self.actor(state_batch)
 
         raw_action_batch = (
-            action_distribution.mean if deterministic else action_distribution.rsample()
+            mean_batch
+            if deterministic
+            else mean_batch
+            + standard_deviation_batch * torch.randn_like(input=mean_batch)
         )
         action_batch = torch.tanh(input=raw_action_batch)
 
-        log_probability_batch = action_distribution.log_prob(
-            value=raw_action_batch
-        ).sum(dim=-1, keepdim=True) - torch.log(
-            input=1.0 - action_batch.square() + 1e-6
-        ).sum(dim=-1, keepdim=True)
-
-        return action_batch, log_probability_batch
+        return action_batch, _calculate_log_probability(
+            mean_batch=mean_batch,
+            standard_deviation_batch=standard_deviation_batch,
+            raw_action_batch=raw_action_batch,
+            action_batch=action_batch,
+        )
 
     def imagine_rollout(
         self,
@@ -227,101 +274,121 @@ class MopoPolicy:
                 penalty_mean=float(np.mean(penalty_means)),
             )
 
-    def learn(self, *, batch: Batch) -> LearningStatistics:
-        target_value_batch = self._calculate_target_value(batch)
+    def learn(self, *, batch: Batch) -> None:
+        """Runs one update and adds its losses to the running sums.
 
-        first_value_batch = self.first_critic(
-            state_batch=batch.states, action_batch=batch.actions
-        )
-        second_value_batch = self.second_critic(
-            state_batch=batch.states, action_batch=batch.actions
-        )
-
-        first_critic_loss = (first_value_batch - target_value_batch).square().mean()
-        self.first_critic_optimizer.zero_grad()
-        first_critic_loss.backward()
-        self.first_critic_optimizer.step()
-
-        second_critic_loss = (second_value_batch - target_value_batch).square().mean()
-        self.second_critic_optimizer.zero_grad()
-        second_critic_loss.backward()
-        self.second_critic_optimizer.step()
-
-        action_batch, log_probability_batch = self.sample_action(
-            state_batch=batch.states, deterministic=False
-        )
-        actor_loss = (
-            -torch.min(
-                input=self.first_critic(
-                    state_batch=batch.states, action_batch=action_batch
-                ),
-                other=self.second_critic(
-                    state_batch=batch.states, action_batch=action_batch
-                ),
-            ).mean()
-            + self.temperature * log_probability_batch.mean()
-        )
-        self.actor_optimizer.zero_grad()
-        actor_loss.backward()
-        self.actor_optimizer.step()
-
-        temperature_loss = -(
-            self.log_temperature
-            * (log_probability_batch.detach() + self.target_entropy)
-        ).mean()
-        self.temperature_optimizer.zero_grad()
-        temperature_loss.backward()
-        self.temperature_optimizer.step()
-        self.temperature = torch.clamp(
-            input=self.log_temperature.detach().exp(), min=0.0, max=1.0
+        Nothing is returned, because a replayed graph overwrites whatever it
+        hands back. Read the losses through take_average_statistics instead.
+        """
+        self._learn_step(
+            batch.states,
+            batch.actions,
+            batch.next_states,
+            batch.rewards,
+            batch.terminations,
         )
 
-        self._update_target_critics()
-
+    def take_average_statistics(self, *, step_count: int) -> LearningStatistics:
+        actor_loss, critic_loss, temperature_loss, temperature = (
+            self._statistic_sums / step_count
+        ).tolist()
+        self._statistic_sums.zero_()
         return LearningStatistics(
-            actor_loss=actor_loss.detach(),
-            critic_loss=(first_critic_loss.detach() + second_critic_loss.detach())
-            / 2.0,
-            temperature_loss=temperature_loss.detach(),
-            temperature=self.temperature,
+            actor_loss=actor_loss,
+            critic_loss=critic_loss,
+            temperature_loss=temperature_loss,
+            temperature=temperature,
         )
 
     # ---- Private --------------------------------------------
 
-    def _calculate_target_value(self, batch: Batch):
+    def _run_learn_step(
+        self,
+        state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
+        action_batch: torch.Tensor,  # (batch_size, action_dimensionality)
+        next_state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
+        reward_batch: torch.Tensor,  # (batch_size, 1)
+        termination_batch: torch.Tensor,  # (batch_size, 1)
+    ) -> None:
         with torch.no_grad():
             next_action_batch, next_log_probability_batch = self.sample_action(
-                state_batch=batch.next_states, deterministic=False
+                state_batch=next_state_batch, deterministic=False
             )
             next_value_batch = (
-                torch.min(
-                    input=self.first_target_critic(
-                        state_batch=batch.next_states, action_batch=next_action_batch
-                    ),
-                    other=self.second_target_critic(
-                        state_batch=batch.next_states, action_batch=next_action_batch
-                    ),
+                self.target_critic(
+                    torch.cat(tensors=[next_state_batch, next_action_batch], dim=-1)
                 )
+                .min(dim=0)
+                .values
                 - self.temperature * next_log_probability_batch
             )
             target_value_batch = (
-                batch.rewards
-                + self.discount_factor * (1.0 - batch.terminations) * next_value_batch
+                reward_batch
+                + self.discount_factor * (1.0 - termination_batch) * next_value_batch
             )
-            return target_value_batch
 
-    def _update_target_critics(self) -> None:
-        for critic, target_critic in (
-            (self.first_critic, self.first_target_critic),
-            (self.second_critic, self.second_target_critic),
-        ):
-            for parameter, target_parameter in zip(
-                critic.parameters(), target_critic.parameters(), strict=True
-            ):
-                target_parameter.data.copy_(
-                    other=target_parameter.data * (1.0 - self.target_update_rate)
-                    + parameter.data * self.target_update_rate
-                )
+        value_batch = self.critic(
+            torch.cat(tensors=[state_batch, action_batch], dim=-1)
+        )  # (member_count, batch_size, 1)
+        # Averaged over the batch and summed over the members, which gives each
+        # member the same gradient it would get on its own.
+        critic_loss = (
+            (value_batch - target_value_batch.unsqueeze(0))
+            .square()
+            .mean(dim=(1, 2))
+            .sum()
+        )
+        self.critic_optimizer.zero_grad(set_to_none=True)
+        critic_loss.backward()
+        self.critic_optimizer.step()
+
+        sampled_action_batch, log_probability_batch = self.sample_action(
+            state_batch=state_batch, deterministic=False
+        )
+        actor_loss = (
+            -self.critic(torch.cat(tensors=[state_batch, sampled_action_batch], dim=-1))
+            .min(dim=0)
+            .values.mean()
+            + self.temperature * log_probability_batch.mean()
+        )
+        temperature_loss = -(
+            self.log_temperature
+            * (log_probability_batch.detach() + self.target_entropy)
+        ).mean()
+        # The actor and the temperature share no parameter, so one backward
+        # pass over their sum gives both the gradient they would get apart.
+        self.actor_optimizer.zero_grad(set_to_none=True)
+        self.temperature_optimizer.zero_grad(set_to_none=True)
+        (actor_loss + temperature_loss).backward()
+        self.actor_optimizer.step()
+        self.temperature_optimizer.step()
+
+        self.temperature.copy_(
+            other=self.log_temperature.detach().exp().clamp(min=0.0, max=1.0)
+        )
+        self._update_target_critic()
+
+        # The temperature carries a length of one, so every entry is reshaped
+        # to a plain number before they are stacked.
+        self._statistic_sums += torch.stack(
+            tensors=[
+                actor_loss.detach().reshape(()),
+                (critic_loss.detach() / self.critic.member_count).reshape(()),
+                temperature_loss.detach().reshape(()),
+                self.temperature.reshape(()),
+            ]
+        )
+
+    def _update_target_critic(self) -> None:
+        with torch.no_grad():
+            torch._foreach_mul_(
+                self._target_critic_parameters, 1.0 - self.target_update_rate
+            )
+            torch._foreach_add_(
+                self._target_critic_parameters,
+                self._critic_parameters,
+                alpha=self.target_update_rate,
+            )
 
 
 def create_mopo_policy_factory(
@@ -362,6 +429,29 @@ def create_mopo_policy_factory(
 
 
 # ---- Private --------------------------------------------
+
+
+def _calculate_log_probability(
+    *,
+    mean_batch: torch.Tensor,  # (batch_size, action_dimensionality)
+    standard_deviation_batch: torch.Tensor,  # (batch_size, action_dimensionality)
+    raw_action_batch: torch.Tensor,  # (batch_size, action_dimensionality)
+    action_batch: torch.Tensor,  # (batch_size, action_dimensionality)
+) -> torch.Tensor:  # (batch_size, 1)
+    """The log probability of a tanh squashed Gaussian action.
+
+    Written out rather than taken from torch.distributions, which builds a
+    throwaway object on every call. The value is the same.
+    """
+    normalized_batch = (raw_action_batch - mean_batch) / standard_deviation_batch
+    gaussian_log_probability_batch = (
+        -0.5 * normalized_batch.square()
+        - standard_deviation_batch.log()
+        - _HALF_LOG_TWO_PI
+    )
+    return gaussian_log_probability_batch.sum(dim=-1, keepdim=True) - torch.log(
+        input=1.0 - action_batch.square() + 1e-6
+    ).sum(dim=-1, keepdim=True)
 
 
 def _create_backbone(
