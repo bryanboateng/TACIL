@@ -11,10 +11,10 @@ def calculate_reward(
 ) -> np.ndarray:  # (batch_size,)
     environment = _create_environment()
     return np.clip(
-        _calculate_coverage(state_batch=state_batch, environment=environment)
+        a=_calculate_coverage(state_batch=state_batch, environment=environment)
         / environment.success_threshold,
-        0.0,
-        1.0,
+        a_min=0.0,
+        a_max=1.0,
     )
 
 
