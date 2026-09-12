@@ -1,9 +1,11 @@
 import torch
 
+_CONSTANT_DIMENSION_THRESHOLD = 1e-4
+
 
 class MinMaxNormalizer(torch.nn.Module):
-    minimum: torch.Tensor  # (dimensionality,)
-    maximum: torch.Tensor  # (dimensionality,)
+    scale: torch.Tensor  # (dimensionality,)
+    offset: torch.Tensor  # (dimensionality,)
 
     def __init__(
         self,
@@ -11,25 +13,33 @@ class MinMaxNormalizer(torch.nn.Module):
         value_batch: torch.Tensor,  # (batch_size, dimensionality)
     ) -> None:
         super().__init__()
-        self.register_buffer(name="minimum", tensor=value_batch.min(dim=0).values)
-        self.register_buffer(name="maximum", tensor=value_batch.max(dim=0).values)
+        minimum = value_batch.min(dim=0).values  # (dimensionality,)
+        value_range = value_batch.max(dim=0).values - minimum  # (dimensionality,)
+        constant_dimension_mask = (
+            value_range < _CONSTANT_DIMENSION_THRESHOLD
+        )  # (dimensionality,)
+
+        scale = 2.0 / value_range  # (dimensionality,)
+        scale[constant_dimension_mask] = 1.0
+        offset = -1.0 - scale * minimum  # (dimensionality,)
+        offset[constant_dimension_mask] = -minimum[constant_dimension_mask]
+
+        self.register_buffer(name="scale", tensor=scale)
+        self.register_buffer(name="offset", tensor=offset)
 
     def normalize(
         self,
         *,
         value_batch: torch.Tensor,  # (batch_size, dimensionality)
     ) -> torch.Tensor:  # (batch_size, dimensionality)
-        value_range = self.maximum - self.minimum  # (dimensionality,)
-        unit_batch = (value_batch - self.minimum) / value_range.clamp(min=1e-8)
-        return unit_batch * 2.0 - 1.0
+        return value_batch * self.scale + self.offset
 
     def denormalize(
         self,
         *,
         value_batch: torch.Tensor,  # (batch_size, dimensionality)
     ) -> torch.Tensor:  # (batch_size, dimensionality)
-        unit_batch = (value_batch + 1.0) / 2.0
-        return unit_batch * (self.maximum - self.minimum) + self.minimum
+        return (value_batch - self.offset) / self.scale
 
 
 class ZScoreNormalizer(torch.nn.Module):
@@ -40,17 +50,12 @@ class ZScoreNormalizer(torch.nn.Module):
         self,
         *,
         value_batch: torch.Tensor,  # (batch_size, dimensionality)
-        correction: int = 1,
-        epsilon: float = 0.0,
     ) -> None:
         super().__init__()
+        std = value_batch.std(dim=0)  # (dimensionality,)
+        std[std < _CONSTANT_DIMENSION_THRESHOLD] = 1.0
         self.register_buffer(name="mean", tensor=value_batch.mean(dim=0))
-        self.register_buffer(
-            name="std",
-            tensor=(value_batch.std(dim=0, correction=correction) + epsilon).clamp(
-                min=1e-8
-            ),
-        )
+        self.register_buffer(name="std", tensor=std)
 
     def normalize(
         self,
