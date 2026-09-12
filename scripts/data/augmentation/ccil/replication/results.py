@@ -3,6 +3,12 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
+import tyro
+
+from scripts.shared.log import create_logger
+from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
+
+logger = create_logger()
 
 VARIANT_LABELS = (("none", "BC"), ("noise", "NoiseBC"), ("ccil", "CCIL"))
 
@@ -59,6 +65,19 @@ PAPER_RESULTS: dict[str, dict[str, PaperResult]] = {
 _ROW_FORMAT = "{:<14}{:<10}{:>24}{:>24}{:>7}"
 
 
+@dataclass(frozen=True)
+class Config:
+    directory_path: Path = OUTPUT_DIRECTORY_PATH / "replication"
+
+
+def main() -> None:
+    config = tyro.cli(f=Config)
+    logger.info(
+        "Replication against the CCIL paper:\n%s",
+        format_summary(directory_path=config.directory_path),
+    )
+
+
 def format_summary(*, directory_path: Path) -> str:
     seed_means = _read_seed_means(directory_path=directory_path)
     if not seed_means:
@@ -97,3 +116,7 @@ def _read_seed_means(*, directory_path: Path) -> dict[tuple[str, str], list[floa
             rewards = pickle.load(file)
         seed_means.setdefault((task, variant), []).append(float(np.mean(rewards)))
     return seed_means
+
+
+if __name__ == "__main__":
+    main()
