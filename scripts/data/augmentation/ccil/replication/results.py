@@ -62,49 +62,81 @@ PAPER_RESULTS: dict[str, dict[str, PaperResult]] = {
     },
 }
 
-_ROW_FORMAT = "{:<14}{:<10}{:>24}{:>24}{:>7}"
+_ROW_FORMAT = "{:<14}{:<9}{:>22}{:>22}{:>22}{:>8}"
 
 
 @dataclass(frozen=True)
 class Config:
-    directory_path: Path = OUTPUT_DIRECTORY_PATH / "replication"
+    ccil_output_directory_path: Path
 
 
 def main() -> None:
     config = tyro.cli(f=Config)
     logger.info(
         "Replication against the CCIL paper:\n%s",
-        format_summary(directory_path=config.directory_path),
+        format_summary(ccil_output_directory_path=config.ccil_output_directory_path),
     )
 
 
-def format_summary(*, directory_path: Path) -> str:
-    seed_means = _read_seed_means(directory_path=directory_path)
-    if not seed_means:
-        return f"No scored policies under {directory_path}."
+def format_summary(*, ccil_output_directory_path: Path) -> str:
+    seed_means = _read_seed_means(directory_path=OUTPUT_DIRECTORY_PATH / "replication")
 
-    lines: list[str] = [_ROW_FORMAT.format("task", "variant", "ours", "paper", "seeds")]
+    their_seed_means = _read_their_seed_means(directory_path=ccil_output_directory_path)
+
+    lines: list[str] = [
+        _ROW_FORMAT.format("task", "variant", "ours", "theirs", "paper", "seeds")
+    ]
     for task in sorted({task for task, _ in seed_means}):
         for variant, label in VARIANT_LABELS:
             means = seed_means.get((task, variant))
             if means is None:
                 continue
+            theirs = their_seed_means.get((task, variant))
             paper = PAPER_RESULTS.get(task, {}).get(variant)
             lines.append(
                 _ROW_FORMAT.format(
                     task,
                     label,
-                    f"{np.mean(means):.2f} +- {np.std(means):.2f}",
+                    _format_mean(means),
+                    _format_mean(theirs),
                     "-"
                     if paper is None
                     else f"{paper.mean:.2f} +- {paper.standard_deviation:.2f}",
-                    len(means),
+                    f"{len(means)}/{0 if theirs is None else len(theirs)}",
                 )
             )
     return "\n".join(lines)
 
 
 # ---- Private --------------------------------------------
+
+
+def _format_mean(values: list[float] | None) -> str:
+    if not values:
+        return "-"
+    return f"{np.mean(values):.2f} +- {np.std(values):.2f}"
+
+
+def _read_their_seed_means(
+    *, directory_path: Path
+) -> dict[tuple[str, str], list[float]]:
+    seed_means: dict[tuple[str, str], list[float]] = {}
+    for rewards_file_path in sorted(
+        directory_path.glob("*/seed*/*/policy/*/rewards_noise_*.pkl")
+    ):
+        parts = rewards_file_path.parts
+        task = parts[-6]
+        policy_directory_name = parts[-2]
+        if policy_directory_name == "naive":
+            variant = "none"
+        elif policy_directory_name.startswith("noise_"):
+            variant = "noise"
+        else:
+            variant = "ccil"
+        with rewards_file_path.open("rb") as file:
+            rewards = pickle.load(file)
+        seed_means.setdefault((task, variant), []).append(float(np.mean(rewards)))
+    return seed_means
 
 
 def _read_seed_means(*, directory_path: Path) -> dict[tuple[str, str], list[float]]:
