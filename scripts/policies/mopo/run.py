@@ -22,6 +22,7 @@ from scripts.shared.log import create_logger, log_device_info
 from scripts.shared.normalization import MinMaxNormalizer, ZScoreNormalizer
 from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
 from scripts.shared.pusht_reward import calculate_reward, calculate_termination
+from scripts.shared.pusht_state import ARENA_SIZE, POSITION_SLICE
 
 logger = create_logger()
 
@@ -73,10 +74,8 @@ def _run(*, config: Config) -> None:
         policy = train_mopo_policy(
             config=config.policy,
             transitions=transitions,
-            termination_function=lambda state_batch: calculate_termination(
-                state_batch=state_normalizer.denormalize(
-                    value_batch=torch.from_numpy(state_batch).float()
-                ).numpy()
+            termination_function=lambda state_batch: _calculate_termination(
+                normalized_state_batch=state_batch, state_normalizer=state_normalizer
             ),
             score_policy=lambda policy: _score_policy(
                 policy=policy,
@@ -138,6 +137,44 @@ def _build_transitions(
         .astype(np.float32)
         .reshape(-1, 1),
     )
+
+
+def _calculate_termination(
+    *,
+    normalized_state_batch: np.ndarray,  # (batch_size, state_dimensionality)
+    state_normalizer: ZScoreNormalizer,
+) -> np.ndarray:  # (batch_size,)
+    """Ends an imagined rollout on success, or on a state that cannot happen.
+
+    The dynamics model may predict anything, and over several imagined steps
+    it can drift far off the board. Without this, such a state stays in the
+    buffer and the policy learns from it. OfflineRL-Kit guards its own
+    rollouts the same way, by ending them once a value leaves a plausible
+    range.
+
+    A whole arena of slack on each side keeps real overshoots at the wall.
+    Beyond that no state describes anything the blocks could do.
+    """
+    state_batch = state_normalizer.denormalize(
+        value_batch=torch.from_numpy(normalized_state_batch).float()
+    ).numpy()
+
+    position_batch = state_batch[:, POSITION_SLICE]
+    plausible_batch = (
+        np.isfinite(state_batch).all(axis=-1)
+        & (position_batch > -ARENA_SIZE).all(axis=-1)
+        & (position_batch < 2 * ARENA_SIZE).all(axis=-1)
+    )
+
+    termination_batch = ~plausible_batch
+    # The coverage is the costly part, so it only runs on states that could
+    # have happened at all. It also cannot take an empty batch, which is what
+    # a wholly derailed rollout would hand it.
+    if plausible_batch.any():
+        termination_batch[plausible_batch] = calculate_termination(
+            state_batch=state_batch[plausible_batch]
+        )
+    return termination_batch
 
 
 def _score_policy(

@@ -34,8 +34,6 @@ def calculate_termination(
 
 def _create_environment() -> PushTEnv:
     environment = PushTEnv()
-    # The goal pose and the block only exist once the environment has laid out
-    # its scene.
     environment.reset()
     return environment
 
