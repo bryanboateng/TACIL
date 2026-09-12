@@ -57,7 +57,6 @@ def train_behavior_cloning_policy(
         dataset=dataset,
         batch_size=config.optimization.batch_size,
         shuffle=True,
-        drop_last=True,
         pin_memory=device.type == "cuda",
     )
 
