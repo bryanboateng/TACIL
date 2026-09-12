@@ -268,7 +268,11 @@ def _create_policy(
             fused=True,
         ),
         log_temperature=log_temperature,
-        target_entropy=-float(action_dimensionality),
+        target_entropy=(
+            -float(action_dimensionality)
+            if config.optimization.target_entropy is None
+            else config.optimization.target_entropy
+        ),
         dynamics=dynamics,
         discount_factor=config.optimization.discount_factor,
         target_update_rate=config.optimization.target_update_rate,

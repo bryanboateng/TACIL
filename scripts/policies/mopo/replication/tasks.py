@@ -61,6 +61,7 @@ class Target:
     name: str
     tasks: dict[str, Task]
     epoch_count: int
+    target_entropy: float | None
 
 
 def _create_task(
@@ -97,12 +98,15 @@ _PAPER_SETTINGS = (
     ("hopper", "mixed-v0", "gym_mujoco/hopper_mixed.hdf5", 5, 1.0, 67.5),
     # The version 0 file for this one is named "walker", not "walker2d".
     ("walker2d", "mixed-v0", "gym_mujoco/walker_mixed.hdf5", 1, 1.0, 39.0),
+    # Table 4 prints a penalty of 1 for this one, while the authors' own
+    # examples/config/d4rl/halfcheetah_medium_expert.py sets 5.0. The file is
+    # followed, because the file produced the number.
     (
         "halfcheetah",
         "medium-expert-v0",
         "gym_mujoco/halfcheetah_medium_expert.hdf5",
         5,
-        1.0,
+        5.0,
         63.3,
     ),
     (
@@ -169,8 +173,16 @@ PAPER = Target(
             for robot, dataset, dataset_path, rollout_length, penalty_coefficient, published_score in _PAPER_SETTINGS
         )
     },
-    # The authors' own configuration runs 1000 epochs of 1000 steps.
+    # 1000 epochs of 1000 steps. The epoch count is never named in the paper
+    # nor in the d4rl configuration files. softlearning holds a per-robot
+    # table that would give 3000 for the half cheetah and the walker, but it
+    # is keyed by "HalfCheetah" while these configs pass "halfcheetah", so the
+    # lookup misses and RLAlgorithm falls back to its own default of 1000.
     epoch_count=1000,
+    # Their base configuration names -3 outright, for every robot, rather
+    # than the 'auto' setting that would give the negative action count.
+    # It matches for the hopper and differs for the other two.
+    target_entropy=-3.0,
 )
 
 OFFLINE_RL_KIT = Target(
@@ -190,6 +202,7 @@ OFFLINE_RL_KIT = Target(
         )
     },
     epoch_count=3000,
+    target_entropy=None,
 )
 
 ALL_TARGETS = {target.name: target for target in (PAPER, OFFLINE_RL_KIT)}

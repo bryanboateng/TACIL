@@ -160,7 +160,9 @@ def _build_policy_config(
             penalty_coefficient=task.penalty_coefficient,
         ),
         optimization=dataclasses.replace(
-            default.optimization, epoch_count=target.epoch_count
+            default.optimization,
+            epoch_count=target.epoch_count,
+            target_entropy=target.target_entropy,
         ),
         validation=mopo_config.ValidationConfig(
             interval_epoch_count=config.validation_interval_epoch_count,
