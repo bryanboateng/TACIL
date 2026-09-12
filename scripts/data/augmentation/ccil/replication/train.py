@@ -121,10 +121,6 @@ def _augmentations(*, task: str) -> tuple[tuple[str, Augmentation | None], ...]:
     return (("none", None), ("noise", Noise(size=noise_size)), ("ccil", Ccil()))
 
 
-if __name__ == "__main__":
-    main()
-
-
 def _train(
     *,
     seed: int,
@@ -381,3 +377,7 @@ def _export_policy(*, policy_model: torch.nn.Module, file_path: Path) -> None:
     # The model normalizes on its own, so the CCIL authors' code can load
     # this file and call it.
     torch.jit.script(policy_model.to(device=torch.device("cpu"))).save(str(file_path))
+
+
+if __name__ == "__main__":
+    main()
