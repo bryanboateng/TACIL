@@ -11,7 +11,8 @@ from rich.pretty import pretty_repr
 from scripts.policies.mopo import config as mopo_config
 from scripts.policies.mopo.replication.dataset import load_dataset
 from scripts.policies.mopo.replication.evaluation import evaluate
-from scripts.policies.mopo.replication.tasks import ALL_TARGETS, Target, Task
+from scripts.policies.mopo.replication.results import write_result
+from scripts.policies.mopo.replication.tasks import ALL_TASKS, EPOCH_COUNT, Task
 from scripts.policies.mopo.replication.termination import get_termination_function
 from scripts.policies.mopo.train import ValidationScore, train_mopo_policy
 from scripts.policies.mopo.transitions import Transitions
@@ -26,7 +27,6 @@ class Config:
     seed: int
     wandb_project: str
 
-    target: str
     task: str
 
     validation_episode_count: int = 10
@@ -34,15 +34,9 @@ class Config:
     final_episode_count: int = 100
 
     def __post_init__(self) -> None:
-        if self.target not in ALL_TARGETS:
+        if self.task not in ALL_TASKS:
             raise ValueError(
-                f"target must be one of {sorted(ALL_TARGETS)}, but it is "
-                f"{self.target!r}."
-            )
-        if self.task not in ALL_TARGETS[self.target].tasks:
-            raise ValueError(
-                f"Target {self.target!r} holds no task {self.task!r}. It holds "
-                f"{sorted(ALL_TARGETS[self.target].tasks)}."
+                f"task must be one of {sorted(ALL_TASKS)}, but it is {self.task!r}."
             )
 
 
@@ -53,13 +47,12 @@ def main() -> None:
 
 
 def _run(*, config: Config) -> None:
-    target = ALL_TARGETS[config.target]
-    task = target.tasks[config.task]
+    task = ALL_TASKS[config.task]
 
     device = torch.device(device="cuda" if torch.cuda.is_available() else "cpu")
     log_device_info(device=device, logger=logger)
 
-    policy_config = _build_policy_config(target=target, task=task, config=config)
+    policy_config = _build_policy_config(task=task, config=config)
     logger.info(pretty_repr(policy_config))
 
     with wandb.init(
@@ -68,9 +61,9 @@ def _run(*, config: Config) -> None:
         config=asdict(obj=config) | {"policy": asdict(obj=policy_config)},
         dir=OUTPUT_DIRECTORY_PATH,
     ) as run:
-        run.summary["0_task/1_target"] = target.name
-        run.summary["0_task/2_name"] = task.name
-        run.summary["0_task/3_published_score"] = task.published_score
+        run.summary["0_task/1_name"] = task.name
+        run.summary["0_task/2_published_score"] = task.published_score
+        run.summary["0_task/3_published_score_std"] = task.published_score_std
         run.summary["0_task/4_rollout_length"] = task.rollout_length
         run.summary["0_task/5_penalty_coefficient"] = task.penalty_coefficient
 
@@ -131,21 +124,26 @@ def _run(*, config: Config) -> None:
         run.summary["4_evaluation/6_score_difference"] = (
             result.score_mean - task.published_score
         )
+        run.summary["4_evaluation/7_within_published_spread"] = (
+            abs(result.score_mean - task.published_score) <= task.published_score_std
+        )
+        result_file_path = write_result(
+            task=task.name, seed=config.seed, score=result.score_mean
+        )
         logger.info(
-            "Stage 3/3: score %.1f +- %.1f, published %.1f.",
+            "Stage 3/3: score %.1f +- %.1f, published %.1f. Wrote %s.",
             result.score_mean,
             result.score_std,
             task.published_score,
+            result_file_path,
         )
 
 
 # ---- Private --------------------------------------------
 
 
-def _build_policy_config(
-    *, target: Target, task: Task, config: Config
-) -> mopo_config.Config:
-    """Takes the rollout settings from the task and the length from the target."""
+def _build_policy_config(*, task: Task, config: Config) -> mopo_config.Config:
+    """Takes the rollout settings from the task, the rest from the defaults."""
     default = mopo_config.Config(
         dynamics=mopo_config.DynamicsConfig(),
         rollout=mopo_config.RolloutConfig(),
@@ -159,17 +157,23 @@ def _build_policy_config(
             length=task.rollout_length,
             penalty_coefficient=task.penalty_coefficient,
         ),
-        optimization=dataclasses.replace(
-            default.optimization,
-            epoch_count=target.epoch_count,
-            target_entropy=target.target_entropy,
+        optimization=dataclasses.replace(default.optimization, epoch_count=EPOCH_COUNT),
+        validation=mopo_config.ValidationConfig(),
+    )
+    return dataclasses.replace(
+        default,
+        rollout=dataclasses.replace(
+            default.rollout,
+            length=task.rollout_length,
+            penalty_coefficient=task.penalty_coefficient,
         ),
+        optimization=dataclasses.replace(default.optimization, epoch_count=EPOCH_COUNT),
         validation=mopo_config.ValidationConfig(
             interval_epoch_count=config.validation_interval_epoch_count,
             episode_count_per_condition=config.validation_episode_count,
-            # Both published tables read the policy off the end of training,
+            # The published table reads the policy off the end of training,
             # not off its best moment. Picking the best would report a higher
-            # number than either of them.
+            # number than the table it is compared against.
             keep_best_checkpoint=False,
         ),
     )

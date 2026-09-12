@@ -81,11 +81,6 @@ class OptimizationConfig:
     real_data_ratio: float = 0.05
     epoch_count: int = 3000
     step_count_per_epoch: int = 1000
-    # How much randomness the policy is asked to keep. None asks for the
-    # negative action count, which is the usual choice. The MOPO authors
-    # instead fixed it at -3 for every robot, so reproducing their table
-    # needs that number rather than the usual one.
-    target_entropy: float | None = None
     # The networks are small, so the device spends most of a learning step
     # waiting for the next command. Bundling the step into one replayable
     # graph cuts the waiting. Turn it off to read a stack trace.

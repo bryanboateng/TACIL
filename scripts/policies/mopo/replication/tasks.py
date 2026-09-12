@@ -1,14 +1,41 @@
-"""The D4RL benchmark tasks MOPO was published on.
+"""The D4RL benchmark tasks this port is checked against.
 
-Two tables exist, and they do not agree. The MOPO paper reports version 0 of
-the datasets, OfflineRL-Kit reports version 2. A task on halfcheetah-medium
-scores 42.3 in the paper and 72.4 in the library. Both are named here, so a
-run says up front which table it aims at.
+The reference for MOPO in this repository is OfflineRL-Kit, the library that
+accompanies MOBILE (Sun et al., ICML 2023). Its README prints a score per
+task, and reaching those scores is what says the port computes what it
+should. The settings below are the ones its run_example/run_mopo.py suggests.
+
+The MOPO authors' own code at github.com/tianheyu927/mopo reports much lower
+numbers on the same robots, for example 42.3 against 72.4 on the medium half
+cheetah. It runs on TensorFlow 1 and mujoco-py and no longer starts, so it is
+read rather than run. Reading it turned up places where the two disagree, and
+they are recorded here because a reader of the thesis will ask.
+
+Where OfflineRL-Kit departs from the authors, and this port follows
+OfflineRL-Kit:
+
+  actor learning rate       1e-4 against 3e-4
+  temperature learning rate 1e-4 against 3e-4
+  learning rate schedule    cosine on the actor against none
+  temperature               held at or below one against unbounded
+  action log std floor      -5 against -20
+  squash correction         log(1 - a^2 + 1e-6) against the exact form
+  target entropy            minus the action count against a fixed -3
+  halfcheetah termination   out of range check against never terminating
+  walker2d termination      an added out of range check
+  dataset assembly          its own reader against d4rl.qlearning_dataset
+
+And where the authors' code departs from their own paper:
+
+  spectral normalization    the appendix describes it, fc.py imports the
+                            function and never calls it
+  halfcheetah medium-expert Table 4 prints a penalty of 1, the config sets 5
+  target entropy            the paper never mentions it, base.py fixes -3
 """
 
 from dataclasses import dataclass
 
-_DATASET_BASE_URL = "http://rail.eecs.berkeley.edu/datasets/offline_rl"
+_DATASET_BASE_URL = "http://rail.eecs.berkeley.edu/datasets/offline_rl/gym_mujoco_v2"
 
 # D4RL turns a return into a score between 0 and 100, where 0 is a random
 # policy and 100 is an expert. These are the two returns it measures against.
@@ -24,6 +51,8 @@ _ENVIRONMENT_IDS = {
     "walker2d": "Walker2d-v4",
 }
 
+EPOCH_COUNT = 3000
+
 
 @dataclass(frozen=True)
 class Task:
@@ -34,6 +63,10 @@ class Task:
     rollout_length: int
     penalty_coefficient: float
     published_score: float
+    # The spread over the four seeds the library averaged. It varies wildly
+    # between tasks, so a task with a tight spread says far more about
+    # whether the port is right than one with a loose one.
+    published_score_std: float
 
     @property
     def dataset_file_name(self) -> str:
@@ -47,162 +80,40 @@ class Task:
         )
 
 
-@dataclass(frozen=True)
-class Target:
-    """A published table, together with the settings that produced it.
+# Rollout length and penalty from run_example/run_mopo.py, scores from the
+# README, which averages four seeds.
+_SETTINGS = (
+    ("halfcheetah", "medium", 5, 0.5, 72.4, 4.2),
+    ("hopper", "medium", 5, 5.0, 62.8, 38.1),
+    ("walker2d", "medium", 5, 0.5, 84.1, 3.2),
+    ("halfcheetah", "medium_replay", 5, 0.5, 72.1, 3.8),
+    ("hopper", "medium_replay", 5, 2.5, 92.7, 20.7),
+    ("walker2d", "medium_replay", 1, 2.5, 85.9, 5.3),
+    ("halfcheetah", "medium_expert", 5, 2.5, 83.6, 12.5),
+    ("hopper", "medium_expert", 5, 5.0, 74.6, 44.2),
+    ("walker2d", "medium_expert", 1, 2.5, 108.2, 4.3),
+)
 
-    The appendix of the paper says spectral normalization is applied to the
-    dynamics models. The authors' own code imports the function and never
-    calls it, in neither mopo/models/fc.py nor mopo/models/bnn.py, so the
-    published table was produced without it. The code is followed here,
-    because the table is what is being reproduced.
-    """
-
-    name: str
-    tasks: dict[str, Task]
-    epoch_count: int
-    target_entropy: float | None
-
-
-def _create_task(
-    *,
-    robot: str,
-    dataset: str,
-    dataset_path: str,
-    rollout_length: int,
-    penalty_coefficient: float,
-    published_score: float,
-) -> Task:
-    return Task(
-        name=f"{robot}-{dataset}",
-        robot=robot,
-        environment_id=_ENVIRONMENT_IDS[robot],
-        dataset_url=f"{_DATASET_BASE_URL}/{dataset_path}",
-        rollout_length=rollout_length,
-        penalty_coefficient=penalty_coefficient,
-        published_score=published_score,
+ALL_TASKS = {
+    task.name: task
+    for task in (
+        Task(
+            name=f"{robot}-{dataset.replace('_', '-')}-v2",
+            robot=robot,
+            environment_id=_ENVIRONMENT_IDS[robot],
+            dataset_url=f"{_DATASET_BASE_URL}/{robot}_{dataset}-v2.hdf5",
+            rollout_length=rollout_length,
+            penalty_coefficient=penalty_coefficient,
+            published_score=published_score,
+            published_score_std=published_score_std,
+        )
+        for (
+            robot,
+            dataset,
+            rollout_length,
+            penalty_coefficient,
+            published_score,
+            published_score_std,
+        ) in _SETTINGS
     )
-
-
-# The rollout length and the penalty coefficient come from Table 4 in the
-# appendix of the paper, the scores from its Table 1. The paper calls the
-# medium-replay datasets "mixed", and so do the version 0 file names.
-_PAPER_SETTINGS = (
-    ("halfcheetah", "random-v0", "gym_mujoco/halfcheetah_random.hdf5", 5, 0.5, 35.4),
-    ("hopper", "random-v0", "gym_mujoco/hopper_random.hdf5", 5, 1.0, 11.7),
-    ("walker2d", "random-v0", "gym_mujoco/walker2d_random.hdf5", 1, 1.0, 13.6),
-    ("halfcheetah", "medium-v0", "gym_mujoco/halfcheetah_medium.hdf5", 1, 1.0, 42.3),
-    ("hopper", "medium-v0", "gym_mujoco/hopper_medium.hdf5", 5, 5.0, 28.0),
-    ("walker2d", "medium-v0", "gym_mujoco/walker2d_medium.hdf5", 5, 5.0, 17.8),
-    ("halfcheetah", "mixed-v0", "gym_mujoco/halfcheetah_mixed.hdf5", 5, 1.0, 53.1),
-    ("hopper", "mixed-v0", "gym_mujoco/hopper_mixed.hdf5", 5, 1.0, 67.5),
-    # The version 0 file for this one is named "walker", not "walker2d".
-    ("walker2d", "mixed-v0", "gym_mujoco/walker_mixed.hdf5", 1, 1.0, 39.0),
-    # Table 4 prints a penalty of 1 for this one, while the authors' own
-    # examples/config/d4rl/halfcheetah_medium_expert.py sets 5.0. The file is
-    # followed, because the file produced the number.
-    (
-        "halfcheetah",
-        "medium-expert-v0",
-        "gym_mujoco/halfcheetah_medium_expert.hdf5",
-        5,
-        5.0,
-        63.3,
-    ),
-    (
-        "hopper",
-        "medium-expert-v0",
-        "gym_mujoco/hopper_medium_expert.hdf5",
-        5,
-        1.0,
-        23.7,
-    ),
-    (
-        "walker2d",
-        "medium-expert-v0",
-        "gym_mujoco/walker2d_medium_expert.hdf5",
-        1,
-        2.0,
-        44.6,
-    ),
-)
-
-# The rollout length and the penalty coefficient are the ones suggested in
-# run_example/run_mopo.py of OfflineRL-Kit, the scores are from its README.
-# The library reports no result on the random datasets.
-_OFFLINE_RL_KIT_SETTINGS = (
-    ("halfcheetah", "medium-v2", "halfcheetah_medium-v2.hdf5", 5, 0.5, 72.4),
-    ("hopper", "medium-v2", "hopper_medium-v2.hdf5", 5, 5.0, 62.8),
-    ("walker2d", "medium-v2", "walker2d_medium-v2.hdf5", 5, 0.5, 84.1),
-    (
-        "halfcheetah",
-        "medium-replay-v2",
-        "halfcheetah_medium_replay-v2.hdf5",
-        5,
-        0.5,
-        72.1,
-    ),
-    ("hopper", "medium-replay-v2", "hopper_medium_replay-v2.hdf5", 5, 2.5, 92.7),
-    ("walker2d", "medium-replay-v2", "walker2d_medium_replay-v2.hdf5", 1, 2.5, 85.9),
-    (
-        "halfcheetah",
-        "medium-expert-v2",
-        "halfcheetah_medium_expert-v2.hdf5",
-        5,
-        2.5,
-        83.6,
-    ),
-    ("hopper", "medium-expert-v2", "hopper_medium_expert-v2.hdf5", 5, 5.0, 74.6),
-    ("walker2d", "medium-expert-v2", "walker2d_medium_expert-v2.hdf5", 1, 2.5, 108.2),
-)
-
-
-PAPER = Target(
-    name="paper",
-    tasks={
-        task.name: task
-        for task in (
-            _create_task(
-                robot=robot,
-                dataset=dataset,
-                dataset_path=dataset_path,
-                rollout_length=rollout_length,
-                penalty_coefficient=penalty_coefficient,
-                published_score=published_score,
-            )
-            for robot, dataset, dataset_path, rollout_length, penalty_coefficient, published_score in _PAPER_SETTINGS
-        )
-    },
-    # 1000 epochs of 1000 steps. The epoch count is never named in the paper
-    # nor in the d4rl configuration files. softlearning holds a per-robot
-    # table that would give 3000 for the half cheetah and the walker, but it
-    # is keyed by "HalfCheetah" while these configs pass "halfcheetah", so the
-    # lookup misses and RLAlgorithm falls back to its own default of 1000.
-    epoch_count=1000,
-    # Their base configuration names -3 outright, for every robot, rather
-    # than the 'auto' setting that would give the negative action count.
-    # It matches for the hopper and differs for the other two.
-    target_entropy=-3.0,
-)
-
-OFFLINE_RL_KIT = Target(
-    name="offline-rl-kit",
-    tasks={
-        task.name: task
-        for task in (
-            _create_task(
-                robot=robot,
-                dataset=dataset,
-                dataset_path=f"gym_mujoco_v2/{dataset_file_name}",
-                rollout_length=rollout_length,
-                penalty_coefficient=penalty_coefficient,
-                published_score=published_score,
-            )
-            for robot, dataset, dataset_file_name, rollout_length, penalty_coefficient, published_score in _OFFLINE_RL_KIT_SETTINGS
-        )
-    },
-    epoch_count=3000,
-    target_entropy=None,
-)
-
-ALL_TARGETS = {target.name: target for target in (PAPER, OFFLINE_RL_KIT)}
+}
