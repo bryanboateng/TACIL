@@ -52,13 +52,6 @@ def train_mopo_policy(
     device: torch.device,
     run: Run,
 ) -> MopoPolicy:
-    """Trains a MOPO policy on the given transitions.
-
-    The environment reaches this function through two arguments only:
-    termination_function tells the dynamics model when an imagined state ends
-    an episode, and score_policy runs the policy wherever it belongs. Nothing
-    here knows which environment that is.
-    """
     set_seed(seed=seed)
     _define_step_metrics(run=run)
 

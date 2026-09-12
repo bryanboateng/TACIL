@@ -1,11 +1,3 @@
-"""Area of the overlap between two convex polygons, for whole batches at once.
-
-The overlap of two convex polygons is itself convex, and its corners come from
-three places: corners of the first polygon inside the second, corners of the
-second inside the first, and crossings of their edges. Collecting all three
-sets and walking them in angular order around their mean gives the overlap.
-"""
-
 import numpy as np
 
 TOLERANCE = 1e-9
