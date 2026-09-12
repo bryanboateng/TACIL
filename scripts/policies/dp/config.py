@@ -84,7 +84,15 @@ class Config:
     hidden_channel_counts: tuple[int, ...] = (256, 512, 1024)
     sampler: Literal["ddim", "ddpm"] = "ddim"
 
+    observation_noise: float | None = None
+
     def __post_init__(self) -> None:
+        if self.observation_noise is not None and self.observation_noise <= 0:
+            raise ValueError(
+                f"observation_noise must be positive when it is set, but it is "
+                f"{self.observation_noise}."
+            )
+
         if len(self.hidden_channel_counts) == 0:
             raise ValueError(
                 "hidden_channel_counts must name at least one size, but it is empty."

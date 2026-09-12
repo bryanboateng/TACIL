@@ -1,6 +1,7 @@
 import numpy as np
 import torch
 
+from scripts.policies.shared.observation_noise import disturb_half_of_the_batch
 from scripts.shared.normalization import MinMaxNormalizer, ZScoreNormalizer
 from scripts.shared.policy_types import Policy, PolicyFactory
 
@@ -26,13 +27,23 @@ class BehaviorCloningPolicyModel(torch.nn.Module):
         self.observation_normalizer = observation_normalizer
         self.action_normalizer = action_normalizer
 
-    def predict_action(
+    def forward(
+        # *, keep key-word parameters optional because the model is exported and used in other places
         self,
-        *,
         observation_batch: torch.Tensor,  # (batch_size, observation_dimensionality)
+        observation_noise: float | None = None,
     ) -> torch.Tensor:  # (batch_size, action_dimensionality)
+        normalized_observation_batch = self.observation_normalizer.normalize(
+            value_batch=observation_batch
+        )  # (batch_size, observation_dimensionality)
+
+        if observation_noise is not None:
+            normalized_observation_batch = disturb_half_of_the_batch(
+                value_batch=normalized_observation_batch, noise=observation_noise
+            )
+
         normalized_action_batch = self.network(
-            self.observation_normalizer.normalize(value_batch=observation_batch)
+            normalized_observation_batch
         )  # (batch_size, action_dimensionality)
 
         return self.action_normalizer.denormalize(
@@ -59,9 +70,7 @@ def create_behavior_cloning_policy_factory(
 
             with torch.no_grad():
                 action_batch = (
-                    policy_model.predict_action(observation_batch=observation_batch)
-                    .cpu()
-                    .numpy()
+                    policy_model(observation_batch).cpu().numpy()
                 )  # (episode_count, action_dimensionality)
 
             return dict(

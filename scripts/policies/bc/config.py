@@ -34,8 +34,11 @@ class ValidationConfig:
 @dataclass(frozen=True)
 class Config:
     optimization: OptimizationConfig
-    validation: ValidationConfig
+
+    validation: ValidationConfig | None
     hidden_layer_dimensionality: int = 256
+
+    observation_noise: float | None = None
 
     def __post_init__(self) -> None:
         if self.hidden_layer_dimensionality <= 0:
@@ -44,7 +47,17 @@ class Config:
                 f"{self.hidden_layer_dimensionality}."
             )
 
-        if self.optimization.epoch_count % self.validation.interval_epoch_count != 0:
+        if self.observation_noise is not None and self.observation_noise <= 0:
+            raise ValueError(
+                f"observation_noise must be positive when it is set, but it is "
+                f"{self.observation_noise}."
+            )
+
+        if (
+            self.validation is not None
+            and self.optimization.epoch_count % self.validation.interval_epoch_count
+            != 0
+        ):
             raise ValueError(
                 f"An epoch count of {self.optimization.epoch_count} must be "
                 f"divisible by the validation interval of "

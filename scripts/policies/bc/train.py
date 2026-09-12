@@ -91,8 +91,8 @@ def train_behavior_cloning_policy(
 
             optimizer.zero_grad()
 
-            predicted_action_batch = model.predict_action(
-                observation_batch=observation_batch
+            predicted_action_batch = model(
+                observation_batch, config.observation_noise
             )  # (batch_size, action_dimensionality)
 
             loss = loss_function(
@@ -127,7 +127,10 @@ def train_behavior_cloning_policy(
             )
             global_step += 1
 
-        if (epoch_index + 1) % config.validation.interval_epoch_count != 0:
+        if (
+            config.validation is None
+            or (epoch_index + 1) % config.validation.interval_epoch_count != 0
+        ):
             continue
 
         with torch.no_grad():
@@ -159,6 +162,9 @@ def train_behavior_cloning_policy(
                 epoch=epoch_index,
                 state_dict=copy.deepcopy(model.state_dict()),
             )
+
+    if config.validation is None:
+        return model
 
     if best_checkpoint is None:
         raise ValueError("No checkpoint was recorded")

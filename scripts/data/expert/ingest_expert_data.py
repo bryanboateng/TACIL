@@ -30,14 +30,18 @@ def _run(*, config: Config) -> None:
         job_type="expert-data-ingestion",
         dir=OUTPUT_DIRECTORY_PATH,
     ) as run:
-        artifact = wandb.Artifact(name="dataset-100", type="dataset")
-        artifact.add_dir(local_path=str(config.expert_data_file_path))
-        run.log_artifact(artifact_or_path=artifact)
-
         episode_store = read_episode_store(
             episode_file_path=config.expert_data_file_path
         )
-        run.summary["1_episode_count"] = len(episode_store.episode_end_indices)
+
+        episode_count = len(episode_store.episode_end_indices)
+        artifact = wandb.Artifact(
+            name=f"dataset-{episode_count}-original", type="dataset"
+        )
+        artifact.add_dir(local_path=str(config.expert_data_file_path))
+        run.log_artifact(artifact_or_path=artifact)
+
+        run.summary["1_episode_count"] = episode_count
         run.summary["2_transition_count"] = len(episode_store.states)
         run.summary["3_state_dimensionality"] = episode_store.states.shape[1]
         run.summary["4_action_dimensionality"] = episode_store.actions.shape[1]

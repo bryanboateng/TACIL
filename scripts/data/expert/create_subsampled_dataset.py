@@ -19,11 +19,16 @@ logger = create_logger()
 @dataclass
 class Config:
     wandb_project: str
-    percentage: int
+    source_dataset_artifact: str
+    episode_count: int
 
     def __post_init__(self):
-        if not 1 <= self.percentage <= 99:
-            raise ValueError(f"percentage must be in [1, 99], got {self.percentage}")
+        if self.episode_count < 1:
+            raise ValueError("episode_count must be positive")
+
+        artifact_name = self.source_dataset_artifact.rsplit("/", 1)[-1].split(":", 1)[0]
+        if not artifact_name.endswith("-original"):
+            raise ValueError("Subsampling requires an original dataset.")
 
 
 def main():
@@ -40,11 +45,11 @@ def _run(*, config: Config):
         dir=OUTPUT_DIRECTORY_PATH,
     ) as run:
         expert_episode_store = download_episode_store(
-            artifact_name="dataset-100:latest", run=run
+            artifact_name=config.source_dataset_artifact, run=run
         )
 
         subsampled_episode_store = _subsample_episodes(
-            episode_store=expert_episode_store, fraction=config.percentage / 100
+            episode_store=expert_episode_store, episode_count=config.episode_count
         )
 
         _log_dataset_statistics(
@@ -54,21 +59,19 @@ def _run(*, config: Config):
         )
 
         _upload_episode_store(
-            subsampled_episode_store=subsampled_episode_store,
-            percentage=config.percentage,
-            run=run,
+            subsampled_episode_store=subsampled_episode_store, run=run
         )
 
 
 def _subsample_episodes(
-    *, episode_store: EpisodeStore, fraction: float
+    *, episode_store: EpisodeStore, episode_count: int
 ) -> EpisodeStore:
 
-    episode_count = len(episode_store.episode_end_indices)
+    source_episode_count = len(episode_store.episode_end_indices)
 
     selected_episode_indices = np.sort(
         a=np.random.default_rng(seed=42).choice(
-            a=episode_count, size=round(episode_count * fraction), replace=False
+            a=source_episode_count, size=episode_count, replace=False
         )
     )  # (selected_episode_count,)
 
@@ -140,9 +143,7 @@ def _log_dataset_statistics(
     )
 
 
-def _upload_episode_store(
-    *, subsampled_episode_store: EpisodeStore, percentage: int, run: Run
-):
+def _upload_episode_store(*, subsampled_episode_store: EpisodeStore, run: Run):
     with tempfile.TemporaryDirectory() as temporary_directory:
         output_zarr_path = Path(temporary_directory) / "dataset.zarr"
 
@@ -150,7 +151,10 @@ def _upload_episode_store(
             episode_store=subsampled_episode_store, save_file_path=output_zarr_path
         )
 
-        new_artifact = wandb.Artifact(name=f"dataset-{percentage}", type="dataset")
+        new_artifact = wandb.Artifact(
+            name=f"dataset-{len(subsampled_episode_store.episode_end_indices)}",
+            type="dataset",
+        )
         new_artifact.add_dir(local_path=str(output_zarr_path))
         run.log_artifact(artifact_or_path=new_artifact)
 
