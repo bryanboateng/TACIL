@@ -259,6 +259,10 @@ class MopoPolicy:
             )
 
     def learn(self, *, batch: Batch) -> None:
+        # A replayable graph starts a fresh iteration on its own only when no
+        # backward pass is still outstanding. This step carries its own
+        # backward, so the boundary has to be named.
+        torch.compiler.cudagraph_mark_step_begin()
         self._statistic_sums += self._learn_step(batch)
 
     def take_average_statistics(self, *, step_count: int) -> LearningStatistics:
