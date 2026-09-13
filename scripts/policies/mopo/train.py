@@ -90,10 +90,10 @@ def train_mopo_policy(
         device=device,
     )
 
-    real_batch_size = int(
+    real_data_batch_size = int(
         config.optimization.batch_size * config.optimization.real_data_ratio
     )
-    imagined_batch_size = config.optimization.batch_size - real_batch_size
+    imagined_data_batch_size = config.optimization.batch_size - real_data_batch_size
 
     best_checkpoint: _Checkpoint | None = None
     global_step = 0
@@ -102,11 +102,11 @@ def train_mopo_policy(
         iterable=range(config.optimization.epoch_count), desc="Epoch", unit="epoch"
     ):
         policy.train()
-        rollout_seconds = 0.0
-        epoch_start = time.perf_counter()
+        rollout_duration = 0.0
+        epoch_start_timepoint = time.perf_counter()
         for _ in range(config.optimization.step_count_per_epoch):
             if global_step % config.rollout.interval_step_count == 0:
-                rollout_start = time.perf_counter()
+                rollout_start_timepoint = time.perf_counter()
                 imagined_transitions, rollout_metrics = policy.imagine_rollout(
                     start_state_batch=real_buffer.sample_states(
                         count=config.rollout.start_state_count
@@ -114,7 +114,7 @@ def train_mopo_policy(
                     length=config.rollout.length,
                 )
                 imagined_buffer.add(transitions=imagined_transitions)
-                rollout_seconds += time.perf_counter() - rollout_start
+                rollout_duration += time.perf_counter() - rollout_start_timepoint
                 run.log(
                     data={
                         f"{ROLLOUT_SECTION}/1_transition_count": rollout_metrics.transition_count,
@@ -126,8 +126,8 @@ def train_mopo_policy(
 
             policy.learn(
                 batch=concatenate_batches(
-                    first=real_buffer.sample(count=real_batch_size),
-                    second=imagined_buffer.sample(count=imagined_batch_size),
+                    first=real_buffer.sample(count=real_data_batch_size),
+                    second=imagined_buffer.sample(count=imagined_data_batch_size),
                 )
             )
             global_step += 1
@@ -140,14 +140,14 @@ def train_mopo_policy(
             f"{TRAINING_SECTION}/4_temperature": epoch_metrics.temperature,
         }
         # Read after the averages, because that is where the device catches up.
-        epoch_seconds = time.perf_counter() - epoch_start
+        epoch_seconds = time.perf_counter() - epoch_start_timepoint
 
         run.log(
             data={
                 **training_metrics,
                 f"{TRAINING_SECTION}/5_learning_seconds": epoch_seconds
-                - rollout_seconds,
-                f"{ROLLOUT_SECTION}/4_seconds": rollout_seconds,
+                - rollout_duration,
+                f"{ROLLOUT_SECTION}/4_seconds": rollout_duration,
                 EPOCH_METRIC_NAME: epoch_index,
                 STEP_METRIC_NAME: global_step,
             }
@@ -191,7 +191,7 @@ def train_mopo_policy(
         best_checkpoint.validation_reward_std
     )
 
-    if config.validation.keep_best_checkpoint:
+    if config.validation.kept_policy == "best":
         policy.actor.load_state_dict(state_dict=best_checkpoint.actor_state_dict)
     return policy
 
@@ -230,12 +230,12 @@ def _create_policy(
 
     log_temperature = torch.zeros(1, requires_grad=True, device=device)
 
-    card_is_too_old = (
+    card_is_too_old_for_compilation = (
         torch.cuda.get_device_capability(device=device) < (7, 0)
         and device.type == "cuda"
     )
     compile_learning_step = config.optimization.compile_learning_step
-    if compile_learning_step and card_is_too_old:
+    if compile_learning_step and card_is_too_old_for_compilation:
         logger.warning("Current device does not support torch.compile")
         compile_learning_step = False
 

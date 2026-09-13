@@ -166,7 +166,7 @@ def _build_policy_config(*, task: Task, config: Config) -> mopo_config.Config:
             # The published table reads the policy off the end of training,
             # not off its best moment. Picking the best would report a higher
             # number than the table it is compared against.
-            keep_best_checkpoint=False,
+            kept_policy="last",
         ),
     )
 
