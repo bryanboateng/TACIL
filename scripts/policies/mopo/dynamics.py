@@ -26,8 +26,8 @@ class EnsembleLinearLayer(torch.nn.Module):
         *,
         input_dimensionality: int,
         output_dimensionality: int,
-        ensemble_size: int,
         weight_decay: float,
+        ensemble_size: int,
     ) -> None:
         super().__init__()
 
@@ -86,8 +86,7 @@ class DynamicsModelEnsemble(torch.nn.Module):
         self.ensemble_size = config.ensemble_size
         self.elite_count = config.elite_count
 
-        # The model predicts the state change and the reward, each as a mean
-        # and a log variance.
+        # state change and reward
         target_dimensionality = state_dimensionality + 1
 
         layer_dimensionalities = [
@@ -99,8 +98,8 @@ class DynamicsModelEnsemble(torch.nn.Module):
                 EnsembleLinearLayer(
                     input_dimensionality=input_dimensionality,
                     output_dimensionality=output_dimensionality,
-                    ensemble_size=config.ensemble_size,
                     weight_decay=weight_decay,
+                    ensemble_size=config.ensemble_size,
                 )
                 for input_dimensionality, output_dimensionality, weight_decay in zip(
                     layer_dimensionalities[:-1],
@@ -113,8 +112,8 @@ class DynamicsModelEnsemble(torch.nn.Module):
         self.output_layer = EnsembleLinearLayer(
             input_dimensionality=layer_dimensionalities[-1],
             output_dimensionality=2 * target_dimensionality,
-            ensemble_size=config.ensemble_size,
             weight_decay=config.weight_decays[-1],
+            ensemble_size=config.ensemble_size,
         )
 
         self.activation = torch.nn.SiLU()
