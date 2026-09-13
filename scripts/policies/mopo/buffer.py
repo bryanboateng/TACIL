@@ -79,8 +79,6 @@ class ReplayBuffer:
     # ---- Private --------------------------------------------
 
     def _draw_indices(self, *, count: int) -> torch.Tensor:  # (count,)
-        # Drawn on the device. Sending indices over from the processor makes
-        # the host wait for the device at every single step.
         return torch.randint(low=0, high=self._size, size=(count,), device=self._device)
 
     def _to_tensor(self, *, value_batch: np.ndarray) -> torch.Tensor:
