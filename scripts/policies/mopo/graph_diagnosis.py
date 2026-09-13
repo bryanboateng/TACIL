@@ -112,17 +112,38 @@ for logger_name in (
 ):
     logging.getLogger(logger_name).addHandler(handler)
 
+ITERATION_COUNT = 40
+
 compiled = torch.compile(policy._run_learn_step, mode="reduce-overhead")
-for _ in range(4):
+for _ in range(ITERATION_COUNT):
+    torch.compiler.cudagraph_mark_step_begin()
     policy._statistic_sums += compiled(batch)
 if DEVICE.type == "cuda":
     torch.cuda.synchronize()
 
-lines = [
-    line
-    for line in buffer.getvalue().splitlines()
-    if "cudagraph" in line.lower() or "skip" in line.lower()
-]
+# Which state each fragment ended up in, counted over the whole run.
+counts = {
+    "recorded": 0,
+    "warmed up": 0,
+    "ran eager, ancestor warming": 0,
+    "replayed": 0,
+}
+for line in buffer.getvalue().splitlines():
+    if "recording cudagraph tree" in line:
+        counts["recorded"] += 1
+    elif "Running warmup of function" in line:
+        counts["warmed up"] += 1
+    elif "because ancestor needed to warm up" in line:
+        counts["ran eager, ancestor warming"] += 1
+    elif "replay" in line.lower():
+        counts["replayed"] += 1
+
+print(f"  over {ITERATION_COUNT} iterations:")
+for label, count in counts.items():
+    print(f"    {label:30s} {count}")
+print()
 print(
-    "\n".join(f"  {line[:160]}" for line in lines[:20]) if lines else "  nothing logged"
+    "  Fragments are replayed, so the bundling does something."
+    if counts["replayed"]
+    else "  Nothing was ever replayed. The bundling costs and gives nothing."
 )
