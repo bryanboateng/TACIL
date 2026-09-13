@@ -158,16 +158,6 @@ def _build_policy_config(*, task: Task, config: Config) -> mopo_config.Config:
             penalty_coefficient=task.penalty_coefficient,
         ),
         optimization=dataclasses.replace(default.optimization, epoch_count=EPOCH_COUNT),
-        validation=mopo_config.ValidationConfig(),
-    )
-    return dataclasses.replace(
-        default,
-        rollout=dataclasses.replace(
-            default.rollout,
-            length=task.rollout_length,
-            penalty_coefficient=task.penalty_coefficient,
-        ),
-        optimization=dataclasses.replace(default.optimization, epoch_count=EPOCH_COUNT),
         validation=mopo_config.ValidationConfig(
             interval_epoch_count=config.validation_interval_epoch_count,
             episode_count_per_condition=config.validation_episode_count,
