@@ -141,9 +141,13 @@ class MopoPolicy:
         self.actor_optimizer = actor_optimizer
 
         self._critic = critic
+        self._critic_parameters: list[torch.Tensor] = list(critic.parameters())
         self._critic_optimizer = critic_optimizer
 
         self._target_critic = target_critic
+        self._target_critic_parameters: list[torch.Tensor] = list(
+            target_critic.parameters()
+        )
         self._target_critic_update_rate = target_critic_update_rate
 
         self._log_temperature = log_temperature
@@ -154,13 +158,8 @@ class MopoPolicy:
         self._discount_factor = discount_factor
         self._device = device
 
-        self._critic_parameters: list[torch.Tensor] = list(critic.parameters())
-        self._target_critic_parameters: list[torch.Tensor] = list(
-            target_critic.parameters()
-        )
-
         self._statistic_sums = torch.zeros(_STATISTIC_COUNT, device=device)
-        self._learn_step = (
+        self._learn_step_function = (
             torch.compile(model=self._run_learn_step, mode="reduce-overhead")
             if compile_learning_step
             else self._run_learn_step
@@ -261,7 +260,7 @@ class MopoPolicy:
         # backward pass is still outstanding. This step carries its own
         # backward, so the boundary has to be named.
         torch.compiler.cudagraph_mark_step_begin()
-        self._statistic_sums += self._learn_step(batch)
+        self._statistic_sums += self._learn_step_function(batch)
 
     def take_average_statistics(self, *, step_count: int) -> LearningStatistics:
         actor_loss, critic_loss, temperature_loss, temperature = (
