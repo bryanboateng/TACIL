@@ -223,11 +223,6 @@ class MopoPolicy:
         start_state_batch: torch.Tensor,  # (start_count, state_dimensionality)
         length: int,
     ) -> tuple[Transitions, RolloutStatistics]:
-        """Dreams a few steps forward from real states, and keeps what it saw.
-
-        Rollouts that ended drop out, so later steps carry fewer rows. Nothing
-        leaves the device until the statistics are read at the end.
-        """
         with torch.no_grad():
             state_batches: list[torch.Tensor] = []
             action_batches: list[torch.Tensor] = []
@@ -253,9 +248,7 @@ class MopoPolicy:
                 termination_batches.append(imagined_step.termination_batch)
                 penalty_sums.append(imagined_step.penalty_sum)
 
-                continuation_mask = imagined_step.termination_batch.flatten() == 0.0
-                # The one place the host waits for the device: whether any
-                # rollout is still alive decides whether to step again.
+                continuation_mask = imagined_step.termination_batch[:, 0] == 0.0
                 if not bool(continuation_mask.any()):
                     break
 
