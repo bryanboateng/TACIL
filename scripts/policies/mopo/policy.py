@@ -9,10 +9,6 @@ from scripts.policies.mopo.transitions import Transitions
 from scripts.shared.normalization import MinMaxNormalizer, ZScoreNormalizer
 from scripts.shared.policy_types import Policy, PolicyFactory
 
-# Soft actor critic scores every step with two critics and believes the
-# more cautious of the two. Not a knob: the method is built around the pair.
-CRITIC_COUNT = 2
-
 _STATISTIC_COUNT = 4
 
 
@@ -78,9 +74,11 @@ class EnsembleCritic(torch.nn.Module):
         state_dimensionality: int,
         action_dimensionality: int,
         hidden_layer_dimensionalities: tuple[int, ...],
+        critic_count: int,
     ) -> None:
         super().__init__()
 
+        self.critic_count = critic_count
         dimensionalities = [
             state_dimensionality + action_dimensionality,
             *hidden_layer_dimensionalities,
@@ -94,6 +92,7 @@ class EnsembleCritic(torch.nn.Module):
             weight, bias = _stack_linear_layers(
                 input_dimensionality=input_dimensionality,
                 output_dimensionality=output_dimensionality,
+                critic_count=critic_count,
             )
             self.weights.append(weight)
             self.biases.append(bias)
@@ -101,10 +100,10 @@ class EnsembleCritic(torch.nn.Module):
     def forward(
         self,
         input_batch: torch.Tensor,  # (batch_size, input_dimensionality)
-    ) -> torch.Tensor:  # (CRITIC_COUNT, batch_size, 1)
-        # Both critics see the same input, so one copy is spread across the
+    ) -> torch.Tensor:  # (critic_count, batch_size, 1)
+        # Every critic sees the same input, so one copy is spread across the
         # critic axis without being duplicated in memory.
-        value_batch = input_batch.unsqueeze(0).expand(CRITIC_COUNT, -1, -1)
+        value_batch = input_batch.unsqueeze(0).expand(self.critic_count, -1, -1)
 
         # baddbmm is the batched product with the bias folded in. Written as
         # two steps it costs an extra intermediate on every layer, measured as
@@ -337,10 +336,10 @@ class MopoPolicy:
         """Moves the critic towards the mark and reports how far off it was."""
         value_batch = self.critic(
             torch.cat(tensors=[batch.states, batch.actions], dim=-1)
-        )  # (CRITIC_COUNT, batch_size, 1)
+        )  # (critic_count, batch_size, 1)
         critic_loss_batch = (
             (value_batch - target_value_batch.unsqueeze(0)).square().mean(dim=(1, 2))
-        )  # (CRITIC_COUNT,)
+        )  # (critic_count,)
 
         # Summed for the step, which gives each critic the gradient it would
         # get on its own.
@@ -440,21 +439,21 @@ def create_mopo_policy_factory(
 
 
 def _stack_linear_layers(
-    *, input_dimensionality: int, output_dimensionality: int
+    *, input_dimensionality: int, output_dimensionality: int, critic_count: int
 ) -> tuple[torch.nn.Parameter, torch.nn.Parameter]:
     layers = [
         torch.nn.Linear(
             in_features=input_dimensionality, out_features=output_dimensionality
         )
-        for _ in range(CRITIC_COUNT)
+        for _ in range(critic_count)
     ]
     return (
         torch.nn.Parameter(
             data=torch.stack(tensors=[layer.weight.T for layer in layers])
-        ),  # (CRITIC_COUNT, input_dimensionality, output_dimensionality)
+        ),  # (critic_count, input_dimensionality, output_dimensionality)
         torch.nn.Parameter(
             data=torch.stack(tensors=[layer.bias for layer in layers]).unsqueeze(dim=1)
-        ),  # (CRITIC_COUNT, 1, output_dimensionality)
+        ),  # (critic_count, 1, output_dimensionality)
     )
 
 

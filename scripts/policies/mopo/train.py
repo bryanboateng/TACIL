@@ -226,6 +226,7 @@ def _create_policy(
         state_dimensionality=state_dimensionality,
         action_dimensionality=action_dimensionality,
         hidden_layer_dimensionalities=config.optimization.hidden_layer_dimensionalities,
+        critic_count=2,
     ).to(device=device)
     target_critic = copy.deepcopy(x=critic).eval()
 
