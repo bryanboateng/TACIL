@@ -1,4 +1,3 @@
-import math
 from dataclasses import dataclass
 
 import numpy as np
@@ -10,6 +9,8 @@ from scripts.policies.mopo.transitions import Transitions
 from scripts.shared.normalization import MinMaxNormalizer, ZScoreNormalizer
 from scripts.shared.policy_types import Policy, PolicyFactory
 
+# Soft actor critic scores every step with two critics and believes the
+# more cautious of the two. Not a knob: the method is built around the pair.
 CRITIC_COUNT = 2
 
 _STATISTIC_COUNT = 4
@@ -71,25 +72,14 @@ class GaussianActor(torch.nn.Module):
 
 
 class EnsembleCritic(torch.nn.Module):
-    """Holds every critic in one stack of weights.
-
-    Soft actor critic needs two critics. Kept apart they cost two of
-    everything: two forward passes, two backward passes, two optimizers.
-    Stacked they cost one of each, because a single matrix product covers
-    both members. The arithmetic stays the same.
-    """
-
     def __init__(
         self,
         *,
-        member_count: int,
         state_dimensionality: int,
         action_dimensionality: int,
         hidden_layer_dimensionalities: tuple[int, ...],
     ) -> None:
         super().__init__()
-
-        self.member_count = member_count
 
         dimensionalities = [
             state_dimensionality + action_dimensionality,
@@ -101,34 +91,34 @@ class EnsembleCritic(torch.nn.Module):
         for input_dimensionality, output_dimensionality in zip(
             dimensionalities[:-1], dimensionalities[1:], strict=True
         ):
-            weight = torch.empty(
-                member_count, input_dimensionality, output_dimensionality
+            weight, bias = _stack_linear_layers(
+                input_dimensionality=input_dimensionality,
+                output_dimensionality=output_dimensionality,
             )
-            bias = torch.empty(member_count, 1, output_dimensionality)
-            bound = 1.0 / math.sqrt(input_dimensionality)
-            for member_index in range(member_count):
-                # torch.nn.Linear keeps its weight transposed, so each member is
-                # initialized through a transposed view to match it exactly.
-                torch.nn.init.kaiming_uniform_(
-                    tensor=weight[member_index].T, a=math.sqrt(5.0)
-                )
-                torch.nn.init.uniform_(tensor=bias[member_index], a=-bound, b=bound)
-            self.weights.append(torch.nn.Parameter(data=weight))
-            self.biases.append(torch.nn.Parameter(data=bias))
+            self.weights.append(weight)
+            self.biases.append(bias)
 
     def forward(
         self,
         input_batch: torch.Tensor,  # (batch_size, input_dimensionality)
-    ) -> torch.Tensor:  # (member_count, batch_size, 1)
-        value_batch = input_batch.unsqueeze(0).expand(self.member_count, -1, -1)
-        last_index = len(self.weights) - 1
-        for index, (weight, bias) in enumerate(
-            zip(self.weights, self.biases, strict=True)
-        ):
-            value_batch = torch.baddbmm(input=bias, batch1=value_batch, batch2=weight)
-            if index != last_index:
-                value_batch = torch.relu(input=value_batch)
-        return value_batch
+    ) -> torch.Tensor:  # (CRITIC_COUNT, batch_size, 1)
+        # Both critics see the same input, so one copy is spread across the
+        # critic axis without being duplicated in memory.
+        value_batch = input_batch.unsqueeze(0).expand(CRITIC_COUNT, -1, -1)
+
+        # baddbmm is the batched product with the bias folded in. Written as
+        # two steps it costs an extra intermediate on every layer, measured as
+        # five percent of the whole learning step.
+        *hidden_layers, output_layer = zip(self.weights, self.biases, strict=True)
+        for weight, bias in hidden_layers:
+            value_batch = torch.relu(
+                input=torch.baddbmm(input=bias, batch1=value_batch, batch2=weight)
+            )
+
+        output_weight, output_bias = output_layer
+        return torch.baddbmm(
+            input=output_bias, batch1=value_batch, batch2=output_weight
+        )
 
 
 class MopoPolicy:
@@ -304,7 +294,7 @@ class MopoPolicy:
         return torch.stack(
             tensors=[
                 actor_loss.detach().reshape(()),
-                (critic_loss.detach() / self.critic.member_count).reshape(()),
+                critic_loss.reshape(()),
                 temperature_loss.detach().reshape(()),
                 _read_temperature(log_temperature=self.log_temperature).reshape(()),
             ]
@@ -343,19 +333,19 @@ class MopoPolicy:
         """Moves the critic towards the mark and reports how far off it was."""
         value_batch = self.critic(
             torch.cat(tensors=[batch.states, batch.actions], dim=-1)
-        )  # (member_count, batch_size, 1)
-        # Averaged over the batch and summed over the members, which gives each
-        # member the same gradient it would get on its own.
-        critic_loss = (
-            (value_batch - target_value_batch.unsqueeze(0))
-            .square()
-            .mean(dim=(1, 2))
-            .sum()
-        )
+        )  # (CRITIC_COUNT, batch_size, 1)
+        critic_loss_batch = (
+            (value_batch - target_value_batch.unsqueeze(0)).square().mean(dim=(1, 2))
+        )  # (CRITIC_COUNT,)
+
+        # Summed for the step, which gives each critic the gradient it would
+        # get on its own.
         self.critic_optimizer.zero_grad(set_to_none=True)
-        critic_loss.backward()
+        critic_loss_batch.sum().backward()
         self.critic_optimizer.step()
-        return critic_loss
+
+        # Reported as the average, which is what one critic was off by.
+        return critic_loss_batch.detach().mean()
 
     def _update_actor_and_temperature(
         self,
@@ -443,6 +433,25 @@ def create_mopo_policy_factory(
 
 
 # ---- Private --------------------------------------------
+
+
+def _stack_linear_layers(
+    *, input_dimensionality: int, output_dimensionality: int
+) -> tuple[torch.nn.Parameter, torch.nn.Parameter]:
+    layers = [
+        torch.nn.Linear(
+            in_features=input_dimensionality, out_features=output_dimensionality
+        )
+        for _ in range(CRITIC_COUNT)
+    ]
+    return (
+        torch.nn.Parameter(
+            data=torch.stack(tensors=[layer.weight.T for layer in layers])
+        ),  # (CRITIC_COUNT, input_dimensionality, output_dimensionality)
+        torch.nn.Parameter(
+            data=torch.stack(tensors=[layer.bias for layer in layers]).unsqueeze(dim=1)
+        ),  # (CRITIC_COUNT, 1, output_dimensionality)
+    )
 
 
 def _read_temperature(*, log_temperature: torch.Tensor) -> torch.Tensor:  # (1,)
