@@ -140,19 +140,19 @@ class MopoPolicy:
         self.actor = actor
         self.actor_optimizer = actor_optimizer
 
-        self.critic = critic
-        self.critic_optimizer = critic_optimizer
+        self._critic = critic
+        self._critic_optimizer = critic_optimizer
 
-        self.target_critic = target_critic
-        self.target_critic_update_rate = target_critic_update_rate
+        self._target_critic = target_critic
+        self._target_critic_update_rate = target_critic_update_rate
 
-        self.log_temperature = log_temperature
-        self.temperature_optimizer = temperature_optimizer
-        self.target_entropy = target_entropy
+        self._log_temperature = log_temperature
+        self._temperature_optimizer = temperature_optimizer
+        self._target_entropy = target_entropy
 
-        self.dynamics = dynamics
-        self.discount_factor = discount_factor
-        self.device = device
+        self._dynamics = dynamics
+        self._discount_factor = discount_factor
+        self._device = device
 
         self._critic_parameters: list[torch.Tensor] = list(critic.parameters())
         self._target_critic_parameters: list[torch.Tensor] = list(
@@ -168,11 +168,11 @@ class MopoPolicy:
 
     def train(self) -> None:
         self.actor.train()
-        self.critic.train()
+        self._critic.train()
 
     def eval(self) -> None:
         self.actor.eval()
-        self.critic.eval()
+        self._critic.eval()
 
     def sample_action(
         self,
@@ -223,7 +223,7 @@ class MopoPolicy:
                     state_batch=state_batch, deterministic=False
                 )[0]
 
-                imagined_step = self.dynamics.imagine_step(
+                imagined_step = self._dynamics.imagine_step(
                     state_batch=state_batch, action_batch=action_batch
                 )
 
@@ -278,7 +278,7 @@ class MopoPolicy:
     # ---- Private --------------------------------------------
 
     def _run_learn_step(self, batch: Batch) -> torch.Tensor:  # (_STATISTIC_COUNT,)
-        temperature = _read_temperature(log_temperature=self.log_temperature)
+        temperature = _read_temperature(log_temperature=self._log_temperature)
 
         target_value_batch = self._calculate_target_value(
             batch=batch, temperature=temperature
@@ -299,7 +299,7 @@ class MopoPolicy:
                 actor_loss.detach().reshape(()),
                 critic_loss.reshape(()),
                 temperature_loss.detach().reshape(()),
-                _read_temperature(log_temperature=self.log_temperature).reshape(()),
+                _read_temperature(log_temperature=self._log_temperature).reshape(()),
             ]
         )
 
@@ -314,7 +314,7 @@ class MopoPolicy:
                 state_batch=batch.next_states, deterministic=False
             )
             next_value_batch = (
-                self.target_critic(
+                self._target_critic(
                     torch.cat(tensors=[batch.next_states, next_action_batch], dim=-1)
                 )
                 .min(dim=0)
@@ -323,7 +323,7 @@ class MopoPolicy:
             )
             target_value_batch = (
                 batch.rewards
-                + self.discount_factor * (1.0 - batch.terminations) * next_value_batch
+                + self._discount_factor * (1.0 - batch.terminations) * next_value_batch
             )
         return target_value_batch
 
@@ -334,7 +334,7 @@ class MopoPolicy:
         target_value_batch: torch.Tensor,  # (batch_size, 1)
     ) -> torch.Tensor:  # ()
         """Moves the critic towards the mark and reports how far off it was."""
-        value_batch = self.critic(
+        value_batch = self._critic(
             torch.cat(tensors=[batch.states, batch.actions], dim=-1)
         )  # (critic_count, batch_size, 1)
         critic_loss_batch = (
@@ -343,9 +343,9 @@ class MopoPolicy:
 
         # Summed for the step, which gives each critic the gradient it would
         # get on its own.
-        self.critic_optimizer.zero_grad(set_to_none=True)
+        self._critic_optimizer.zero_grad(set_to_none=True)
         critic_loss_batch.sum().backward()
-        self.critic_optimizer.step()
+        self._critic_optimizer.step()
 
         # Reported as the average, which is what one critic was off by.
         return critic_loss_batch.detach().mean()
@@ -365,7 +365,7 @@ class MopoPolicy:
             state_batch=batch.states, deterministic=False
         )
         actor_loss = (
-            -self.critic(
+            -self._critic(
                 torch.cat(tensors=[batch.states, sampled_action_batch], dim=-1)
             )
             .min(dim=0)
@@ -374,27 +374,27 @@ class MopoPolicy:
         )
 
         temperature_loss = -(
-            self.log_temperature
-            * (log_probability_batch.detach() + self.target_entropy)
+            self._log_temperature
+            * (log_probability_batch.detach() + self._target_entropy)
         ).mean()
         # The actor and the temperature share no parameter, so one backward
         # pass over their sum gives both the gradient they would get apart.
         self.actor_optimizer.zero_grad(set_to_none=True)
-        self.temperature_optimizer.zero_grad(set_to_none=True)
+        self._temperature_optimizer.zero_grad(set_to_none=True)
         (actor_loss + temperature_loss).backward()
         self.actor_optimizer.step()
-        self.temperature_optimizer.step()
+        self._temperature_optimizer.step()
         return actor_loss, temperature_loss
 
     def _update_target_critic(self) -> None:
         with torch.no_grad():
             torch._foreach_mul_(
-                self._target_critic_parameters, 1.0 - self.target_critic_update_rate
+                self._target_critic_parameters, 1.0 - self._target_critic_update_rate
             )
             torch._foreach_add_(
                 self._target_critic_parameters,
                 self._critic_parameters,
-                alpha=self.target_critic_update_rate,
+                alpha=self._target_critic_update_rate,
             )
 
 
