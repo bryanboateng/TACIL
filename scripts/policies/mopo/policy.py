@@ -124,33 +124,34 @@ class MopoPolicy:
         self,
         *,
         actor: GaussianActor,
-        critic: CriticEnsemble,
-        target_critic: CriticEnsemble,
         actor_optimizer: torch.optim.Optimizer,
-        temperature_optimizer: torch.optim.Optimizer,
+        critic: CriticEnsemble,
         critic_optimizer: torch.optim.Optimizer,
+        target_critic: CriticEnsemble,
+        target_critic_update_rate: float,
         log_temperature: torch.Tensor,
+        temperature_optimizer: torch.optim.Optimizer,
         target_entropy: float,
         dynamics: Dynamics,
         discount_factor: float,
-        target_update_rate: float,
         compile_learning_step: bool,
         device: torch.device,
     ) -> None:
         self.actor = actor
-        self.critic = critic
-        self.target_critic = target_critic
-
         self.actor_optimizer = actor_optimizer
-        self.temperature_optimizer = temperature_optimizer
+
+        self.critic = critic
         self.critic_optimizer = critic_optimizer
 
+        self.target_critic = target_critic
+        self.target_critic_update_rate = target_critic_update_rate
+
         self.log_temperature = log_temperature
+        self.temperature_optimizer = temperature_optimizer
         self.target_entropy = target_entropy
 
         self.dynamics = dynamics
         self.discount_factor = discount_factor
-        self.target_update_rate = target_update_rate
         self.device = device
 
         self._critic_parameters: list[torch.Tensor] = list(critic.parameters())
@@ -388,12 +389,12 @@ class MopoPolicy:
     def _update_target_critic(self) -> None:
         with torch.no_grad():
             torch._foreach_mul_(
-                self._target_critic_parameters, 1.0 - self.target_update_rate
+                self._target_critic_parameters, 1.0 - self.target_critic_update_rate
             )
             torch._foreach_add_(
                 self._target_critic_parameters,
                 self._critic_parameters,
-                alpha=self.target_update_rate,
+                alpha=self.target_critic_update_rate,
             )
 
 

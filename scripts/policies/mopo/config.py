@@ -76,7 +76,7 @@ class OptimizationConfig:
     critic_learning_rate: float = 3e-4
     temperature_learning_rate: float = 1e-4
     discount_factor: float = 0.99
-    target_update_rate: float = 0.005
+    target_critic_update_rate: float = 0.005
     batch_size: int = 256
     real_data_ratio: float = 0.05
     epoch_count: int = 3000
@@ -89,7 +89,7 @@ class OptimizationConfig:
             ("critic_learning_rate", self.critic_learning_rate),
             ("temperature_learning_rate", self.temperature_learning_rate),
             ("discount_factor", self.discount_factor),
-            ("target_update_rate", self.target_update_rate),
+            ("target_critic_update_rate", self.target_critic_update_rate),
             ("batch_size", self.batch_size),
             ("epoch_count", self.epoch_count),
             ("step_count_per_epoch", self.step_count_per_epoch),

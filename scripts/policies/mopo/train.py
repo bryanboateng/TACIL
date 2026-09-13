@@ -243,28 +243,28 @@ def _create_policy(
 
     return MopoPolicy(
         actor=actor,
-        critic=critic,
-        target_critic=target_critic,
         actor_optimizer=Adam(
             params=actor.parameters(),
             lr=config.optimization.actor_learning_rate,
             fused=True,
         ),
-        temperature_optimizer=Adam(
-            params=[log_temperature],
-            lr=config.optimization.temperature_learning_rate,
-            fused=True,
-        ),
+        critic=critic,
         critic_optimizer=Adam(
             params=critic.parameters(),
             lr=config.optimization.critic_learning_rate,
             fused=True,
         ),
+        target_critic=target_critic,
+        target_critic_update_rate=config.optimization.target_critic_update_rate,
         log_temperature=log_temperature,
+        temperature_optimizer=Adam(
+            params=[log_temperature],
+            lr=config.optimization.temperature_learning_rate,
+            fused=True,
+        ),
         target_entropy=-float(action_dimensionality),
         dynamics=dynamics,
         discount_factor=config.optimization.discount_factor,
-        target_update_rate=config.optimization.target_update_rate,
         compile_learning_step=compile_learning_step,
         device=device,
     )
