@@ -1,4 +1,3 @@
-from collections.abc import Callable
 from dataclasses import dataclass
 
 import numpy as np
@@ -163,7 +162,7 @@ class MopoPolicy:
 
         self._statistic_sums = torch.zeros(_STATISTIC_COUNT, device=device)
         self._learn_step = (
-            _bundle_learning_step(self._run_learn_step, device=device)
+            torch.compile(model=self._run_learn_step, mode="reduce-overhead")
             if compile_learning_step
             else self._run_learn_step
         )
@@ -457,14 +456,6 @@ def _stack_linear_layers(
             data=torch.stack(tensors=[layer.bias for layer in layers]).unsqueeze(dim=1)
         ),  # (CRITIC_COUNT, 1, output_dimensionality)
     )
-
-
-def _bundle_learning_step(
-    step: Callable[[Batch], torch.Tensor], *, device: torch.device
-) -> Callable[[Batch], torch.Tensor]:
-    if device.type == "cuda" and torch.cuda.get_device_capability(device) < (7, 0):
-        return torch.compile(model=step, backend="cudagraphs")
-    return torch.compile(model=step, mode="reduce-overhead")
 
 
 def _read_temperature(*, log_temperature: torch.Tensor) -> torch.Tensor:  # (1,)

@@ -231,6 +231,15 @@ def _create_policy(
 
     log_temperature = torch.zeros(1, requires_grad=True, device=device)
 
+    card_is_too_old = (
+        torch.cuda.get_device_capability(device=device) < (7, 0)
+        and device.type == "cuda"
+    )
+    compile_learning_step = config.optimization.compile_learning_step
+    if compile_learning_step and card_is_too_old:
+        logger.warning("Current device does not support torch.compile")
+        compile_learning_step = False
+
     return MopoPolicy(
         actor=actor,
         critic=critic,
@@ -255,7 +264,7 @@ def _create_policy(
         dynamics=dynamics,
         discount_factor=config.optimization.discount_factor,
         target_update_rate=config.optimization.target_update_rate,
-        compile_learning_step=config.optimization.compile_learning_step,
+        compile_learning_step=compile_learning_step,
         device=device,
     )
 
