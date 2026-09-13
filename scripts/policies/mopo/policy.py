@@ -286,8 +286,6 @@ class MopoPolicy:
 
         self._update_target_critic()
 
-        # In the order LearningMetrics lists them. The temperature carries
-        # a length of one, so every entry is reshaped to a plain number first.
         return torch.stack(
             tensors=[
                 actor_loss.detach().reshape(()),
@@ -326,22 +324,19 @@ class MopoPolicy:
         *,
         batch: Batch,
         target_value_batch: torch.Tensor,  # (batch_size, 1)
-    ) -> torch.Tensor:  # ()
-        """Moves the critic towards the mark and reports how far off it was."""
+    ) -> torch.Tensor:
         value_batch = self._critic(
             torch.cat(tensors=[batch.states, batch.actions], dim=-1)
         )  # (critic_count, batch_size, 1)
+
         critic_loss_batch = (
             (value_batch - target_value_batch.unsqueeze(0)).square().mean(dim=(1, 2))
         )  # (critic_count,)
 
-        # Summed for the step, which gives each critic the gradient it would
-        # get on its own.
         self._critic_optimizer.zero_grad(set_to_none=True)
         critic_loss_batch.sum().backward()
         self._critic_optimizer.step()
 
-        # Reported as the average, which is what one critic was off by.
         return critic_loss_batch.detach().mean()
 
     def _update_actor_and_temperature(
@@ -350,11 +345,6 @@ class MopoPolicy:
         batch: Batch,
         temperature: torch.Tensor,  # (1,)
     ) -> tuple[torch.Tensor, torch.Tensor]:  # each ()
-        """Moves the actor and the temperature, and reports both losses.
-
-        The actor is scored on what it would do now rather than on what was
-        recorded, which is what lets it learn from data it did not produce.
-        """
         sampled_action_batch, log_probability_batch = self.sample_action(
             state_batch=batch.states, deterministic=False
         )
@@ -371,13 +361,15 @@ class MopoPolicy:
             self._log_temperature
             * (log_probability_batch.detach() + self._target_entropy)
         ).mean()
-        # The actor and the temperature share no parameter, so one backward
-        # pass over their sum gives both the gradient they would get apart.
         self.actor_optimizer.zero_grad(set_to_none=True)
         self._temperature_optimizer.zero_grad(set_to_none=True)
+
+        # The actor and the temperature share no parameter, so one backward
+        # pass over their sum gives both the gradient they would get apart.
         (actor_loss + temperature_loss).backward()
         self.actor_optimizer.step()
         self._temperature_optimizer.step()
+
         return actor_loss, temperature_loss
 
     def _update_target_critic(self) -> None:
