@@ -6,6 +6,7 @@ import torch
 
 from scripts.policies.mopo.buffer import Batch
 from scripts.policies.mopo.dynamics import Dynamics
+from scripts.policies.mopo.transitions import Transitions
 from scripts.shared.normalization import MinMaxNormalizer, ZScoreNormalizer
 from scripts.shared.policy_types import Policy, PolicyFactory
 
@@ -22,15 +23,6 @@ class LearningStatistics:
     critic_loss: float
     temperature_loss: float
     temperature: float
-
-
-@dataclass(frozen=True)
-class ImaginedRollout:
-    states: torch.Tensor  # (transition_count, state_dimensionality)
-    actions: torch.Tensor  # (transition_count, action_dimensionality)
-    next_states: torch.Tensor  # (transition_count, state_dimensionality)
-    rewards: torch.Tensor  # (transition_count, 1)
-    terminations: torch.Tensor  # (transition_count, 1)
 
 
 @dataclass(frozen=True)
@@ -67,11 +59,12 @@ class GaussianActor(torch.nn.Module):
         self,
         state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        # each (batch_size, action_dimensionality)
         features = self.backbone(state_batch)
         return (
-            self.mean_layer(features),
-            self.log_standard_deviation_layer(features).clamp(min=-5.0, max=2.0).exp(),
+            self.mean_layer(features),  # (batch_size, action_dimensionality)
+            self.log_standard_deviation_layer(features)
+            .clamp(min=-5.0, max=2.0)
+            .exp(),  # (batch_size, action_dimensionality)
         )
 
 
@@ -199,7 +192,6 @@ class MopoPolicy:
         state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
         deterministic: bool,
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        # (batch_size, action_dimensionality), (batch_size, 1)
         mean_batch, standard_deviation_batch = self.actor(state_batch)
 
         raw_action_batch = (
@@ -210,11 +202,14 @@ class MopoPolicy:
         )
         action_batch = torch.tanh(input=raw_action_batch)
 
-        return action_batch, _calculate_log_probability(
-            mean_batch=mean_batch,
-            standard_deviation_batch=standard_deviation_batch,
-            raw_action_batch=raw_action_batch,
-            action_batch=action_batch,
+        return (
+            action_batch,  # (batch_size, action_dimensionality)
+            _calculate_log_probability(
+                mean_batch=mean_batch,
+                standard_deviation_batch=standard_deviation_batch,
+                raw_action_batch=raw_action_batch,
+                action_batch=action_batch,
+            ),  # (batch_size, 1)
         )
 
     def imagine_rollout(
@@ -222,7 +217,7 @@ class MopoPolicy:
         *,
         start_state_batch: torch.Tensor,  # (start_count, state_dimensionality)
         length: int,
-    ) -> tuple[ImaginedRollout, RolloutStatistics]:
+    ) -> tuple[Transitions, RolloutStatistics]:
         """Dreams a few steps forward from real states, and keeps what it saw.
 
         Rollouts that ended drop out, so later steps carry fewer rows. Nothing
@@ -261,7 +256,7 @@ class MopoPolicy:
 
                 state_batch = imagined_step.next_state_batch[continuation_mask]
 
-            rollout = ImaginedRollout(
+            rollout = Transitions(
                 states=torch.cat(tensors=state_batches, dim=0),
                 actions=torch.cat(tensors=action_batches, dim=0),
                 next_states=torch.cat(tensors=next_state_batches, dim=0),
@@ -439,11 +434,6 @@ def create_mopo_policy_factory(
 
 
 def _read_temperature(*, log_temperature: torch.Tensor) -> torch.Tensor:  # (1,)
-    """How strongly the policy is pushed to stay random.
-
-    OfflineRL-Kit holds it at or below one, which the paper's own code does
-    not. Kept as the reference has it.
-    """
     return log_temperature.detach().exp().clamp(min=0.0, max=1.0)
 
 

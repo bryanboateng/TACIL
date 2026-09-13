@@ -1,9 +1,7 @@
 from collections.abc import Callable
 from dataclasses import dataclass
 
-import numpy as np
 import torch
-from numpy import typing as npt
 from torch.nn import functional
 
 from scripts.policies.mopo.config import DynamicsConfig
@@ -196,23 +194,30 @@ class DynamicsModelEnsemble(torch.nn.Module):
 
 
 class InputNormalizer:
+    """Centres and scales the model inputs, the way the reference does.
+
+    Fitted and applied on the device, so that neither the dynamics training
+    nor an imagined step has to travel to the processor for it.
+    """
+
     def __init__(
         self,
         *,
-        value_batch: npt.NDArray[np.float32],  # (batch_size, dimensionality)
+        value_batch: torch.Tensor,  # (batch_size, dimensionality)
     ) -> None:
-        self.mean = value_batch.mean(axis=0, keepdims=True)
-
-        std = value_batch.std(axis=0, keepdims=True)
-        std[std < 1e-12] = 1.0
-        self.std = std
+        self.mean = value_batch.mean(dim=0, keepdim=True)
+        standard_deviation = value_batch.std(dim=0, unbiased=False, keepdim=True)
+        # A dimension that never moves would otherwise divide by nothing. The
+        # reference uses the same bound.
+        standard_deviation[standard_deviation < 1e-12] = 1.0
+        self.standard_deviation = standard_deviation
 
     def normalize(
         self,
         *,
-        value_batch: npt.NDArray[np.float32],  # (batch_size, dimensionality)
-    ) -> npt.NDArray[np.float32]:  # (batch_size, dimensionality)
-        return (value_batch - self.mean) / self.std
+        value_batch: torch.Tensor,  # (batch_size, dimensionality)
+    ) -> torch.Tensor:  # (batch_size, dimensionality)
+        return (value_batch - self.mean) / self.standard_deviation
 
 
 class Dynamics:
@@ -233,15 +238,6 @@ class Dynamics:
         self.penalty_coefficient = penalty_coefficient
         self.device = device
 
-        # The scaler is fitted on the processor but read on the device once
-        # per imagined step, so it is copied over rather than sent each time.
-        self._input_mean = torch.as_tensor(
-            data=input_normalizer.mean, dtype=torch.float32, device=device
-        )
-        self._input_std = torch.as_tensor(
-            data=input_normalizer.std, dtype=torch.float32, device=device
-        )
-
     def imagine_step(
         self,
         *,
@@ -255,10 +251,9 @@ class Dynamics:
         reward is lowered by how far the ensemble disagrees.
         """
         with torch.no_grad():
-            input_batch = (
-                torch.cat(tensors=[state_batch, action_batch], dim=-1)
-                - self._input_mean
-            ) / self._input_std
+            input_batch = self.input_normalizer.normalize(
+                value_batch=torch.cat(tensors=[state_batch, action_batch], dim=-1)
+            )
 
             mean_batch, log_variance_batch = self.model_ensemble(input_batch)
             # each (ensemble_size, batch_size, target_dimensionality)

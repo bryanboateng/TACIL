@@ -1,7 +1,5 @@
 import numpy as np
 import torch
-from numpy import typing as npt
-from numpy.random import Generator
 from tqdm import tqdm
 from wandb import Run
 
@@ -34,13 +32,14 @@ def train_dynamics(
 ) -> Dynamics:
     _define_epoch_metrics(run=run)
 
-    generator = np.random.default_rng(seed=seed)
+    generator = torch.Generator(device=device).manual_seed(seed)
 
-    input_batch = np.concatenate(
-        [transitions.states, transitions.actions], axis=-1
+    input_batch = torch.cat(
+        tensors=[transitions.states, transitions.actions], dim=-1
     )  # (transition_count, input_dimensionality)
-    target_batch = np.concatenate(
-        [transitions.next_states - transitions.states, transitions.rewards], axis=-1
+    target_batch = torch.cat(
+        tensors=[transitions.next_states - transitions.states, transitions.rewards],
+        dim=-1,
     )  # (transition_count, target_dimensionality)
 
     training_indices, holdout_indices = _get_split_indices(
@@ -55,13 +54,10 @@ def train_dynamics(
         value_batch=input_batch[training_indices]
     )
     training_target_batch = target_batch[training_indices]
-    holdout_input_batch = torch.as_tensor(
-        data=input_normalizer.normalize(value_batch=input_batch[holdout_indices]),
-        device=device,
+    holdout_input_batch = input_normalizer.normalize(
+        value_batch=input_batch[holdout_indices]
     )
-    holdout_target_batch = torch.as_tensor(
-        data=target_batch[holdout_indices], device=device
-    )
+    holdout_target_batch = target_batch[holdout_indices]
 
     model_ensemble = DynamicsModelEnsemble(
         config=config,
@@ -79,10 +75,15 @@ def train_dynamics(
         holdout_indices
     )
 
-    member_indices = generator.integers(
+    # One draw with replacement per member, so each model sees its own view
+    # of the data. Kept as indices rather than as gathered copies: gathering
+    # the whole thing would build several hundred megabytes every epoch.
+    member_indices = torch.randint(
         low=0,
         high=len(training_indices),
         size=(config.ensemble_size, len(training_indices)),
+        generator=generator,
+        device=device,
     )
 
     best_holdout_losses = [1e10] * config.ensemble_size
@@ -95,9 +96,9 @@ def train_dynamics(
             config=config,
             model_ensemble=model_ensemble,
             optimizer=optimizer,
-            input_batch=training_input_batch[member_indices],
-            target_batch=training_target_batch[member_indices],
-            device=device,
+            input_batch=training_input_batch,
+            target_batch=training_target_batch,
+            member_indices=member_indices,
         )
         holdout_losses = _calculate_holdout_losses(
             model_ensemble=model_ensemble,
@@ -162,10 +163,12 @@ def train_dynamics(
 
 
 def _get_split_indices(
-    *, transition_count: int, holdout_ratio: float, generator: Generator
-) -> tuple[npt.NDArray[np.int64], npt.NDArray[np.int64]]:
+    *, transition_count: int, holdout_ratio: float, generator: torch.Generator
+) -> tuple[torch.Tensor, torch.Tensor]:
     holdout_count = min(int(transition_count * holdout_ratio), 1_000)
-    shuffled_indices = generator.permutation(x=transition_count)
+    shuffled_indices = torch.randperm(
+        n=transition_count, generator=generator, device=generator.device
+    )
     holdout_indices = shuffled_indices[:holdout_count]
     training_indices = shuffled_indices[holdout_count:]
     return training_indices, holdout_indices
@@ -176,31 +179,35 @@ def _train_for_one_epoch(
     config: DynamicsConfig,
     model_ensemble: DynamicsModelEnsemble,
     optimizer: torch.optim.Optimizer,
-    input_batch: npt.NDArray[np.float32],  # (ensemble_size, sample_count, input_dim)
-    target_batch: npt.NDArray[np.float32],  # (ensemble_size, sample_count, target_dim)
-    device: torch.device,
+    input_batch: torch.Tensor,  # (sample_count, input_dimensionality)
+    target_batch: torch.Tensor,  # (sample_count, target_dimensionality)
+    member_indices: torch.Tensor,  # (ensemble_size, sample_count)
 ) -> float:
     model_ensemble.train()
 
-    sample_count = input_batch.shape[1]
-    losses: list[float] = []
+    sample_count = member_indices.shape[1]
+    loss_sum = torch.zeros((), device=input_batch.device)
+    batch_count = 0
 
     for start_index in range(0, sample_count, config.batch_size):
-        end_index = start_index + config.batch_size
+        # Each member's own rows for this batch, picked as they are needed.
+        batch_member_indices = member_indices[
+            :, start_index : start_index + config.batch_size
+        ]
 
         mean_batch, log_variance_batch = model_ensemble(
-            torch.as_tensor(data=input_batch[:, start_index:end_index], device=device)
+            input_batch[batch_member_indices]
         )  # each (ensemble_size, batch_size, target_dimensionality)
 
         inverse_variance_batch = torch.exp(input=-log_variance_batch)
-        target_tensor = torch.as_tensor(
-            data=target_batch[:, start_index:end_index], device=device
-        )
 
         # Gaussian negative log likelihood, averaged over batch and dimension
         # and summed over the ensemble.
         loss = (
-            ((mean_batch - target_tensor).square() * inverse_variance_batch)
+            (
+                (mean_batch - target_batch[batch_member_indices]).square()
+                * inverse_variance_batch
+            )
             .mean(dim=(1, 2))
             .sum()
             + log_variance_batch.mean(dim=(1, 2)).sum()
@@ -216,9 +223,12 @@ def _train_for_one_epoch(
         loss.backward()
         optimizer.step()
 
-        losses.append(loss.item())
+        # Summed on the device. Reading each batch's loss out would make the
+        # host wait for the device a few thousand times an epoch.
+        loss_sum += loss.detach()
+        batch_count += 1
 
-    return float(np.mean(losses))
+    return float(loss_sum) / batch_count
 
 
 def _calculate_holdout_losses(
@@ -239,11 +249,13 @@ def _calculate_elite_loss(*, holdout_losses: list[float], elite_count: int) -> f
 
 def _shuffle_rows(
     *,
-    index_batch: npt.NDArray[np.int64],  # (ensemble_size, sample_count)
-    generator: np.random.Generator,
-) -> npt.NDArray[np.int64]:  # (ensemble_size, sample_count)
-    order = np.argsort(generator.uniform(size=index_batch.shape), axis=-1)
-    return index_batch[np.arange(index_batch.shape[0])[:, None], order]
+    index_batch: torch.Tensor,  # (ensemble_size, sample_count)
+    generator: torch.Generator,
+) -> torch.Tensor:  # (ensemble_size, sample_count)
+    order = torch.rand(
+        index_batch.shape, generator=generator, device=index_batch.device
+    ).argsort(dim=-1)
+    return index_batch.gather(dim=-1, index=order)
 
 
 def _define_epoch_metrics(*, run: Run) -> None:

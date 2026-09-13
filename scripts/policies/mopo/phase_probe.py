@@ -1,9 +1,10 @@
-"""Times the two phases of a MOPO epoch on whatever machine it runs on.
+"""Times the three phases of a MOPO run on whatever machine it runs on.
 
-An epoch is a rollout through the learned dynamics followed by a thousand
-learning steps, and which of the two dominates decides where any further
-work belongs. A full run reports both to wandb anyway; this answers the same
-question in a few minutes rather than a few hours.
+A run trains the dynamics models once, then repeats a rollout through them
+followed by a thousand learning steps. Which of the three dominates decides
+where any further work belongs. A full run reports the last two to wandb
+anyway; this answers the same question in minutes rather than hours, and
+covers the model training as well.
 
     CUDA_VISIBLE_DEVICES=<n> uv run python -m scripts.policies.mopo.phase_probe
 """
@@ -15,17 +16,20 @@ import torch
 
 from scripts.policies.mopo import config as mopo_config
 from scripts.policies.mopo.buffer import ReplayBuffer, concatenate_batches
+from scripts.policies.mopo.config import DynamicsConfig
 from scripts.policies.mopo.dynamics import (
     Dynamics,
     DynamicsModelEnsemble,
     InputNormalizer,
 )
+from scripts.policies.mopo.dynamics_training import _train_for_one_epoch
 from scripts.policies.mopo.replication.dataset import load_dataset
 from scripts.policies.mopo.replication.tasks import ALL_TASKS
 from scripts.policies.mopo.replication.termination import get_termination_function
 from scripts.policies.mopo.train import _create_policy
+from scripts.policies.mopo.transitions import Transitions
 
-TASK_NAME = "walker2d-medium-replay-v2"
+TASK_NAME = "walker2d-medium-v2"
 MEASURED_EPOCH_COUNT = 3
 LEARNING_STEP_COUNT = 1000
 WARMUP_STEP_COUNT = 200
@@ -60,7 +64,18 @@ def main() -> None:
         validation=mopo_config.ValidationConfig(),
     )
 
-    inputs = np.concatenate([dataset.states, dataset.actions], axis=-1)
+    transitions = Transitions(
+        states=torch.from_numpy(dataset.states).to(device=device),
+        actions=torch.from_numpy(dataset.actions).to(device=device),
+        next_states=torch.from_numpy(dataset.next_states).to(device=device),
+        rewards=torch.from_numpy(dataset.rewards).to(device=device),
+        terminations=torch.from_numpy(dataset.terminations).to(device=device),
+    )
+    inputs = torch.cat(tensors=[transitions.states, transitions.actions], dim=-1)
+    targets = torch.cat(
+        tensors=[transitions.next_states - transitions.states, transitions.rewards],
+        dim=-1,
+    )
     ensemble = (
         DynamicsModelEnsemble(
             config=config.dynamics,
@@ -79,6 +94,16 @@ def main() -> None:
         device=device,
     )
 
+    dynamics_seconds = _measure_dynamics_epoch(
+        config=config.dynamics,
+        input_batch=dynamics.input_normalizer.normalize(value_batch=inputs),
+        target_batch=targets,
+        state_dimensionality=state_dimensionality,
+        action_dimensionality=action_dimensionality,
+        device=device,
+    )
+    print(f"one dynamics epoch: {dynamics_seconds:.2f} s")
+
     policy = _create_policy(
         config=config,
         dynamics=dynamics,
@@ -94,13 +119,7 @@ def main() -> None:
         action_dimensionality=action_dimensionality,
         device=device,
     )
-    real_buffer.add(
-        states=dataset.states,
-        actions=dataset.actions,
-        next_states=dataset.next_states,
-        rewards=dataset.rewards,
-        terminations=dataset.terminations,
-    )
+    real_buffer.add(transitions=transitions)
     imagined_buffer = ReplayBuffer(
         capacity=config.rollout.start_state_count
         * config.rollout.length
@@ -117,13 +136,7 @@ def main() -> None:
             ),
             length=config.rollout.length,
         )
-        imagined_buffer.add(
-            states=rollout.states,
-            actions=rollout.actions,
-            next_states=rollout.next_states,
-            rewards=rollout.rewards,
-            terminations=rollout.terminations,
-        )
+        imagined_buffer.add(transitions=rollout)
         return statistics
 
     def synchronize():
@@ -181,6 +194,7 @@ def main() -> None:
     total = rollout_mean + learning_mean
 
     print()
+    print(f"{'dynamics epoch (once)':24s}{dynamics_seconds:8.2f} s")
     print(
         f"{'rollout per epoch':24s}{rollout_mean:8.2f} s   {rollout_mean / total * 100:4.1f} %"
     )
@@ -190,6 +204,47 @@ def main() -> None:
     print(f"{'together':24s}{total:8.2f} s")
     print()
     print(f"{EPOCH_COUNT} epochs would take {total * EPOCH_COUNT / 3600:.1f} h")
+
+
+def _measure_dynamics_epoch(
+    *,
+    config: DynamicsConfig,
+    input_batch: torch.Tensor,
+    target_batch: torch.Tensor,
+    state_dimensionality: int,
+    action_dimensionality: int,
+    device: torch.device,
+) -> float:
+    """One pass of dynamics training. A run does dozens before it starts."""
+    generator = torch.Generator(device=device).manual_seed(0)
+    member_indices = torch.randint(
+        low=0,
+        high=len(input_batch),
+        size=(config.ensemble_size, len(input_batch)),
+        generator=generator,
+        device=device,
+    )
+    ensemble = DynamicsModelEnsemble(
+        config=config,
+        state_dimensionality=state_dimensionality,
+        action_dimensionality=action_dimensionality,
+    ).to(device=device)
+    optimizer = torch.optim.Adam(ensemble.parameters(), lr=config.learning_rate)
+
+    if device.type == "cuda":
+        torch.cuda.synchronize()
+    start = time.perf_counter()
+    _train_for_one_epoch(
+        config=config,
+        model_ensemble=ensemble,
+        optimizer=optimizer,
+        input_batch=input_batch,
+        target_batch=target_batch,
+        member_indices=member_indices,
+    )
+    if device.type == "cuda":
+        torch.cuda.synchronize()
+    return time.perf_counter() - start
 
 
 if __name__ == "__main__":

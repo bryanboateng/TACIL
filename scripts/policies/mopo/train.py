@@ -84,13 +84,7 @@ def train_mopo_policy(
         action_dimensionality=action_dimensionality,
         device=device,
     )
-    real_buffer.add(
-        states=transitions.states,
-        actions=transitions.actions,
-        next_states=transitions.next_states,
-        rewards=transitions.rewards,
-        terminations=transitions.terminations,
-    )
+    real_buffer.add(transitions=transitions)
 
     imagined_buffer = ReplayBuffer(
         capacity=config.rollout.start_state_count
@@ -118,19 +112,13 @@ def train_mopo_policy(
         for _ in range(config.optimization.step_count_per_epoch):
             if global_step % config.rollout.interval_step_count == 0:
                 rollout_start = time.perf_counter()
-                imagined_rollout, rollout_statistics = policy.imagine_rollout(
+                imagined_transitions, rollout_statistics = policy.imagine_rollout(
                     start_state_batch=real_buffer.sample_states(
                         count=config.rollout.start_state_count
                     ),
                     length=config.rollout.length,
                 )
-                imagined_buffer.add(
-                    states=imagined_rollout.states,
-                    actions=imagined_rollout.actions,
-                    next_states=imagined_rollout.next_states,
-                    rewards=imagined_rollout.rewards,
-                    terminations=imagined_rollout.terminations,
-                )
+                imagined_buffer.add(transitions=imagined_transitions)
                 rollout_seconds += time.perf_counter() - rollout_start
                 run.log(
                     data={

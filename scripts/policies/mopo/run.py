@@ -64,6 +64,7 @@ def _run(*, config: Config) -> None:
             episode_store=expert_episodes,
             state_normalizer=state_normalizer,
             action_normalizer=action_normalizer,
+            device=device,
         )
         run.summary["0_transitions/1_count"] = len(transitions.states)
         run.summary["0_transitions/2_reward_mean"] = float(transitions.rewards.mean())
@@ -113,6 +114,7 @@ def _build_transitions(
     episode_store: EpisodeStore,
     state_normalizer: ZScoreNormalizer,
     action_normalizer: MinMaxNormalizer,
+    device: torch.device,
 ) -> Transitions:
     has_successor = np.ones(shape=len(episode_store.states), dtype=np.bool_)
     has_successor[episode_store.episode_end_indices - 1] = False
@@ -120,22 +122,26 @@ def _build_transitions(
 
     next_states = episode_store.states[source_indices + 1]
 
+    # The rewards come from the board geometry, which is worked out on the
+    # processor. Everything is moved over once, here.
     return Transitions(
         states=state_normalizer.normalize(
             value_batch=torch.from_numpy(episode_store.states[source_indices]).float()
-        ).numpy(),
+        ).to(device=device),
         actions=action_normalizer.normalize(
             value_batch=torch.from_numpy(episode_store.actions[source_indices]).float()
-        ).numpy(),
+        ).to(device=device),
         next_states=state_normalizer.normalize(
             value_batch=torch.from_numpy(next_states).float()
-        ).numpy(),
-        rewards=calculate_reward(state_batch=next_states)
-        .astype(np.float32)
-        .reshape(-1, 1),
-        terminations=calculate_termination(state_batch=next_states)
-        .astype(np.float32)
-        .reshape(-1, 1),
+        ).to(device=device),
+        rewards=torch.from_numpy(
+            calculate_reward(state_batch=next_states).astype(np.float32).reshape(-1, 1)
+        ).to(device=device),
+        terminations=torch.from_numpy(
+            calculate_termination(state_batch=next_states)
+            .astype(np.float32)
+            .reshape(-1, 1)
+        ).to(device=device),
     )
 
 

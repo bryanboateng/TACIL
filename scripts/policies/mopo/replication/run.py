@@ -69,12 +69,14 @@ def _run(*, config: Config) -> None:
 
         logger.info("Stage 1/3: reading %s.", task.dataset_file_name)
         dataset = load_dataset(task=task)
+        # The file is read on the processor and moved over once. Everything
+        # after this point stays on the device.
         transitions = Transitions(
-            states=dataset.states,
-            actions=dataset.actions,
-            next_states=dataset.next_states,
-            rewards=dataset.rewards,
-            terminations=dataset.terminations,
+            states=torch.from_numpy(dataset.states).to(device=device),
+            actions=torch.from_numpy(dataset.actions).to(device=device),
+            next_states=torch.from_numpy(dataset.next_states).to(device=device),
+            rewards=torch.from_numpy(dataset.rewards).to(device=device),
+            terminations=torch.from_numpy(dataset.terminations).to(device=device),
         )
         run.summary["0_dataset/1_transition_count"] = len(transitions.states)
         run.summary["0_dataset/2_state_dimensionality"] = dataset.state_dimensionality
