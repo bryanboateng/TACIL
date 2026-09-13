@@ -199,13 +199,14 @@ class MopoPolicy:
         raw_action_batch = (
             action_distribution.mean if deterministic else action_distribution.rsample()
         )
-        action_batch = torch.tanh(input=raw_action_batch)
 
         # The probability of an action is the multiplication of each action features' probability.
         # Because we want the log probability we multiply sum each action features' log probability.
         raw_log_probability_batch = action_distribution.log_prob(
             value=raw_action_batch
         ).sum(dim=-1, keepdim=True)  # (batch_size, 1)
+
+        action_batch = torch.tanh(input=raw_action_batch)
 
         squash_correction_batch = torch.log(
             input=1.0 - action_batch.square() + 1e-6
