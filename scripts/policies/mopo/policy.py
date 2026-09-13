@@ -12,8 +12,6 @@ from scripts.shared.policy_types import Policy, PolicyFactory
 
 CRITIC_COUNT = 2
 
-_HALF_LOG_TWO_PI = 0.5 * math.log(2.0 * math.pi)
-
 _STATISTIC_COUNT = 4
 
 
@@ -58,13 +56,17 @@ class GaussianActor(torch.nn.Module):
     def forward(
         self,
         state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
-    ) -> tuple[torch.Tensor, torch.Tensor]:
+    ) -> torch.distributions.Normal:
         features = self.backbone(state_batch)
-        return (
-            self.mean_layer(features),  # (batch_size, action_dimensionality)
-            self.log_standard_deviation_layer(features)
-            .clamp(min=-5.0, max=2.0)
-            .exp(),  # (batch_size, action_dimensionality)
+        return torch.distributions.Normal(
+            loc=self.mean_layer(features),
+            scale=(
+                self.log_standard_deviation_layer(features)
+                .clamp(min=-5.0, max=2.0)
+                .exp()
+            ),
+            # Saves time. The clamp above already keeps it positive.
+            validate_args=False,
         )
 
 
@@ -192,24 +194,22 @@ class MopoPolicy:
         state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
         deterministic: bool,
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        mean_batch, standard_deviation_batch = self.actor(state_batch)
+        action_distribution = self.actor(state_batch)
 
         raw_action_batch = (
-            mean_batch
-            if deterministic
-            else mean_batch
-            + standard_deviation_batch * torch.randn_like(input=mean_batch)
+            action_distribution.mean if deterministic else action_distribution.rsample()
         )
         action_batch = torch.tanh(input=raw_action_batch)
 
+        log_probability_batch = action_distribution.log_prob(
+            value=raw_action_batch
+        ).sum(dim=-1, keepdim=True) - torch.log(
+            input=1.0 - action_batch.square() + 1e-6
+        ).sum(dim=-1, keepdim=True)
+
         return (
             action_batch,  # (batch_size, action_dimensionality)
-            _calculate_log_probability(
-                mean_batch=mean_batch,
-                standard_deviation_batch=standard_deviation_batch,
-                raw_action_batch=raw_action_batch,
-                action_batch=action_batch,
-            ),  # (batch_size, 1)
+            log_probability_batch,  # (batch_size, 1)
         )
 
     def imagine_rollout(
@@ -435,29 +435,6 @@ def create_mopo_policy_factory(
 
 def _read_temperature(*, log_temperature: torch.Tensor) -> torch.Tensor:  # (1,)
     return log_temperature.detach().exp().clamp(min=0.0, max=1.0)
-
-
-def _calculate_log_probability(
-    *,
-    mean_batch: torch.Tensor,  # (batch_size, action_dimensionality)
-    standard_deviation_batch: torch.Tensor,  # (batch_size, action_dimensionality)
-    raw_action_batch: torch.Tensor,  # (batch_size, action_dimensionality)
-    action_batch: torch.Tensor,  # (batch_size, action_dimensionality)
-) -> torch.Tensor:  # (batch_size, 1)
-    """The log probability of a tanh squashed Gaussian action.
-
-    Written out rather than taken from torch.distributions, which builds a
-    throwaway object on every call. The value is the same.
-    """
-    normalized_batch = (raw_action_batch - mean_batch) / standard_deviation_batch
-    gaussian_log_probability_batch = (
-        -0.5 * normalized_batch.square()
-        - standard_deviation_batch.log()
-        - _HALF_LOG_TWO_PI
-    )
-    return gaussian_log_probability_batch.sum(dim=-1, keepdim=True) - torch.log(
-        input=1.0 - action_batch.square() + 1e-6
-    ).sum(dim=-1, keepdim=True)
 
 
 def _create_backbone(
