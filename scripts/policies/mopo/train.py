@@ -268,8 +268,21 @@ def _create_policy(
         device=device,
     )
     if config.optimization.compiled:
-        policy.compile_learning()
+        if _supports_compilation(device=device):
+            policy.compile_learning()
+        else:
+            logger.warning(
+                "Not bundling the learning step: %s is too old for the "
+                "compiler. Expect roughly twice the time per step.",
+                torch.cuda.get_device_name(device),
+            )
     return policy
+
+
+def _supports_compilation(*, device: torch.device) -> bool:
+    if device.type != "cuda":
+        return True
+    return torch.cuda.get_device_capability(device=device) >= (7, 0)
 
 
 def _define_step_metrics(*, run: Run) -> None:
