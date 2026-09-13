@@ -107,7 +107,7 @@ def train_mopo_policy(
         for _ in range(config.optimization.step_count_per_epoch):
             if global_step % config.rollout.interval_step_count == 0:
                 rollout_start = time.perf_counter()
-                imagined_transitions, rollout_statistics = policy.imagine_rollout(
+                imagined_transitions, rollout_metrics = policy.imagine_rollout(
                     start_state_batch=real_buffer.sample_states(
                         count=config.rollout.start_state_count
                     ),
@@ -117,9 +117,9 @@ def train_mopo_policy(
                 rollout_seconds += time.perf_counter() - rollout_start
                 run.log(
                     data={
-                        f"{ROLLOUT_SECTION}/1_transition_count": rollout_statistics.transition_count,
-                        f"{ROLLOUT_SECTION}/2_reward_mean": rollout_statistics.reward_mean,
-                        f"{ROLLOUT_SECTION}/3_penalty_mean": rollout_statistics.penalty_mean,
+                        f"{ROLLOUT_SECTION}/1_transition_count": rollout_metrics.transition_count,
+                        f"{ROLLOUT_SECTION}/2_reward_mean": rollout_metrics.reward_mean,
+                        f"{ROLLOUT_SECTION}/3_penalty_mean": rollout_metrics.penalty_mean,
                         STEP_METRIC_NAME: global_step,
                     }
                 )
@@ -132,21 +132,19 @@ def train_mopo_policy(
             )
             global_step += 1
 
-        epoch_statistics = policy.take_average_statistics(
-            step_count=config.optimization.step_count_per_epoch
-        )
-        training_statistics = {
-            f"{TRAINING_SECTION}/1_actor_loss": epoch_statistics.actor_loss,
-            f"{TRAINING_SECTION}/2_critic_loss": epoch_statistics.critic_loss,
-            f"{TRAINING_SECTION}/3_temperature_loss": epoch_statistics.temperature_loss,
-            f"{TRAINING_SECTION}/4_temperature": epoch_statistics.temperature,
+        epoch_metrics = policy.get_epoch_metrics()
+        training_metrics = {
+            f"{TRAINING_SECTION}/1_actor_loss": epoch_metrics.actor_loss,
+            f"{TRAINING_SECTION}/2_critic_loss": epoch_metrics.critic_loss,
+            f"{TRAINING_SECTION}/3_temperature_loss": epoch_metrics.temperature_loss,
+            f"{TRAINING_SECTION}/4_temperature": epoch_metrics.temperature,
         }
         # Read after the averages, because that is where the device catches up.
         epoch_seconds = time.perf_counter() - epoch_start
 
         run.log(
             data={
-                **training_statistics,
+                **training_metrics,
                 f"{TRAINING_SECTION}/5_learning_seconds": epoch_seconds
                 - rollout_seconds,
                 f"{ROLLOUT_SECTION}/4_seconds": rollout_seconds,

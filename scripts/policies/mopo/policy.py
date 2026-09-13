@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 
 import numpy as np
 import torch
@@ -9,11 +9,9 @@ from scripts.policies.mopo.transitions import Transitions
 from scripts.shared.normalization import MinMaxNormalizer, ZScoreNormalizer
 from scripts.shared.policy_types import Policy, PolicyFactory
 
-_STATISTIC_COUNT = 4
-
 
 @dataclass(frozen=True)
-class LearningStatistics:
+class LearningMetrics:
     actor_loss: float
     critic_loss: float
     temperature_loss: float
@@ -21,7 +19,7 @@ class LearningStatistics:
 
 
 @dataclass(frozen=True)
-class RolloutStatistics:
+class RolloutMetrics:
     transition_count: int
     reward_mean: float
     penalty_mean: float
@@ -158,7 +156,10 @@ class MopoPolicy:
         self._discount_factor = discount_factor
         self._device = device
 
-        self._statistic_sums = torch.zeros(_STATISTIC_COUNT, device=device)
+        self._metric_sums = torch.zeros(
+            len(fields(class_or_instance=LearningMetrics)), device=device
+        )
+        self._metric_step_count = 0
         self._learn_step_function = (
             torch.compile(model=self._run_learn_step, mode="reduce-overhead")
             if compile_learning_step
@@ -207,7 +208,7 @@ class MopoPolicy:
         *,
         start_state_batch: torch.Tensor,  # (start_count, state_dimensionality)
         length: int,
-    ) -> tuple[Transitions, RolloutStatistics]:
+    ) -> tuple[Transitions, RolloutMetrics]:
         with torch.no_grad():
             state_batches: list[torch.Tensor] = []
             action_batches: list[torch.Tensor] = []
@@ -248,7 +249,7 @@ class MopoPolicy:
             )
 
             transition_count = len(rollout.states)
-            return rollout, RolloutStatistics(
+            return rollout, RolloutMetrics(
                 transition_count=transition_count,
                 reward_mean=float(rollout.rewards.mean()),
                 penalty_mean=float(torch.stack(tensors=penalty_sums).sum())
@@ -260,23 +261,22 @@ class MopoPolicy:
         # backward pass is still outstanding. This step carries its own
         # backward, so the boundary has to be named.
         torch.compiler.cudagraph_mark_step_begin()
-        self._statistic_sums += self._learn_step_function(batch)
+        self._metric_sums += self._learn_step_function(batch)
+        self._metric_step_count += 1
 
-    def take_average_statistics(self, *, step_count: int) -> LearningStatistics:
-        actor_loss, critic_loss, temperature_loss, temperature = (
-            self._statistic_sums / step_count
-        ).tolist()
-        self._statistic_sums.zero_()
-        return LearningStatistics(
-            actor_loss=actor_loss,
-            critic_loss=critic_loss,
-            temperature_loss=temperature_loss,
-            temperature=temperature,
+    def get_epoch_metrics(self) -> LearningMetrics:
+        metrics = LearningMetrics(
+            *(self._metric_sums / self._metric_step_count).tolist()
         )
+        self._metric_sums.zero_()
+        self._metric_step_count = 0
+        return metrics
 
     # ---- Private --------------------------------------------
 
-    def _run_learn_step(self, batch: Batch) -> torch.Tensor:  # (_STATISTIC_COUNT,)
+    def _run_learn_step(
+        self, batch: Batch
+    ) -> torch.Tensor:  # one entry per LearningMetrics field
         temperature = _read_temperature(log_temperature=self._log_temperature)
 
         target_value_batch = self._calculate_target_value(
@@ -291,8 +291,8 @@ class MopoPolicy:
 
         self._update_target_critic()
 
-        # The temperature carries a length of one, so every entry is reshaped
-        # to a plain number before they are stacked.
+        # In the order LearningMetrics lists them. The temperature carries
+        # a length of one, so every entry is reshaped to a plain number first.
         return torch.stack(
             tensors=[
                 actor_loss.detach().reshape(()),
