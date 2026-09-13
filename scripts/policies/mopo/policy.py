@@ -271,9 +271,7 @@ class MopoPolicy:
 
     # ---- Private --------------------------------------------
 
-    def _run_learn_step(
-        self, batch: Batch
-    ) -> torch.Tensor:  # one entry per LearningMetrics field
+    def _run_learn_step(self, batch: Batch) -> torch.Tensor:
         temperature = _read_temperature(log_temperature=self._log_temperature)
 
         target_value_batch = self._calculate_target_value(
@@ -304,7 +302,7 @@ class MopoPolicy:
         *,
         batch: Batch,
         temperature: torch.Tensor,  # (1,)
-    ) -> torch.Tensor:  # (batch_size, 1)
+    ) -> torch.Tensor:
         with torch.no_grad():
             next_action_batch, next_log_probability_batch = self.sample_action(
                 state_batch=batch.next_states, deterministic=False
@@ -321,7 +319,7 @@ class MopoPolicy:
                 batch.rewards
                 + self._discount_factor * (1.0 - batch.terminations) * next_value_batch
             )
-        return target_value_batch
+        return target_value_batch  # (batch_size, 1)
 
     def _update_critic(
         self,
