@@ -252,8 +252,8 @@ class Dynamics:
             )
 
             (
-                mean_batches,  # (ensemble_size, batch_size, target_dimensionality)
-                log_variance_batches,  # (ensemble_size, batch_size, target_dim.)
+                mean_batches,  # (ensemble_size, batch_size, state_dimensionality + 1)
+                log_variance_batches,  # (ensemble_size, batch_size, state_dimensionality + 1)
             ) = self.model_ensemble(input_batch)
             # sqrt(exp(v)) written as exp(v/2), which is one operation.
             standard_deviation_batches = (0.5 * log_variance_batches).exp()
@@ -262,7 +262,7 @@ class Dynamics:
                 state_batch=state_batch,
                 mean_batches=mean_batches,
                 standard_deviation_batches=standard_deviation_batches,
-            )
+            )  # (ensemble_size, batch_size, state_dimensionality + 1)
 
             batch_size = state_batch.shape[0]
             member_index_batch = self.model_ensemble.draw_elite_indices(
@@ -273,6 +273,7 @@ class Dynamics:
             ]  # (batch_size, target_dimensionality)
 
             next_state_batch = sample_batch[..., :-1]
+            reward_batch = sample_batch[..., -1:]
 
             penalty_batch = (
                 standard_deviation_batches.norm(dim=2).amax(dim=0).unsqueeze(dim=1)
@@ -280,13 +281,10 @@ class Dynamics:
 
             return ImaginedStep(
                 next_state_batch=next_state_batch,
-                reward_batch=sample_batch[..., -1:]
-                - self.penalty_coefficient * penalty_batch,
+                reward_batch=reward_batch - self.penalty_coefficient * penalty_batch,
                 termination_batch=self.termination_function(next_state_batch)
                 .reshape(-1, 1)
                 .float(),
-                # Summed rather than averaged: the caller adds the steps up and
-                # divides once, which saves waiting for the device every step.
                 penalty_sum=penalty_batch.sum(),
             )
 
@@ -294,18 +292,20 @@ class Dynamics:
 def _draw_member_samples(
     *,
     state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
-    mean_batches: torch.Tensor,  # (ensemble_size, batch_size, target_dimensionality)
-    standard_deviation_batches: torch.Tensor,  # same as mean_batches
-) -> torch.Tensor:  # (ensemble_size, batch_size, target_dimensionality)
-    """Draws one outcome from every member, as a next state and a reward."""
-    # The models predict the change, so the state is added back. The last
-    # entry is the reward and stays as predicted.
+    mean_batches: torch.Tensor,  # (ensemble_size, batch_size, state_dimensionality + 1)
+    standard_deviation_batches: torch.Tensor,  # (ensemble_size, batch_size, state_dimensionality + 1)
+) -> torch.Tensor:
+    next_state_mean_batches = (
+        mean_batches[..., :-1] + state_batch
+    )  # (ensemble_size, batch_size, state_dimensionality)
+    reward_mean_batches = mean_batches[..., -1:]  # (ensemble_size, batch_size, 1)
+
     mean_batches = torch.cat(
-        tensors=[mean_batches[..., :-1] + state_batch, mean_batches[..., -1:]], dim=-1
-    )
+        tensors=[next_state_mean_batches, reward_mean_batches], dim=-1
+    )  # (ensemble_size, batch_size, target_dimensionality)
     return (
         mean_batches + torch.randn_like(input=mean_batches) * standard_deviation_batches
-    )
+    )  # (ensemble_size, batch_size, state_dimensionality + 1)
 
 
 def _soft_clamp(
