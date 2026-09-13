@@ -268,13 +268,6 @@ class MopoPolicy:
             )
 
     def learn(self, *, batch: Batch) -> None:
-        """Runs one update and adds its losses to the running sums.
-
-        Nothing is returned, because a replayed graph overwrites whatever it
-        hands back. Read the losses through take_average_statistics instead.
-        """
-        # Summed outside the bundled step: a replayable graph may not write
-        # to anything it was handed, and an accumulator is exactly that.
         self._statistic_sums += self._learn_step(batch)
 
     def take_average_statistics(self, *, step_count: int) -> LearningStatistics:
@@ -292,11 +285,37 @@ class MopoPolicy:
     # ---- Private --------------------------------------------
 
     def _run_learn_step(self, batch: Batch) -> torch.Tensor:  # (_STATISTIC_COUNT,)
-        # Read at the top rather than carried between steps. Nothing has
-        # touched the log temperature since the last step ended, so this is
-        # the number that step left behind.
         temperature = _read_temperature(log_temperature=self.log_temperature)
 
+        target_value_batch = self._calculate_target_value(
+            batch=batch, temperature=temperature
+        )
+        critic_loss = self._update_critic(
+            batch=batch, target_value_batch=target_value_batch
+        )
+        actor_loss, temperature_loss = self._update_actor_and_temperature(
+            batch=batch, temperature=temperature
+        )
+
+        self._update_target_critic()
+
+        # The temperature carries a length of one, so every entry is reshaped
+        # to a plain number before they are stacked.
+        return torch.stack(
+            tensors=[
+                actor_loss.detach().reshape(()),
+                (critic_loss.detach() / self.critic.member_count).reshape(()),
+                temperature_loss.detach().reshape(()),
+                _read_temperature(log_temperature=self.log_temperature).reshape(()),
+            ]
+        )
+
+    def _calculate_target_value(
+        self,
+        *,
+        batch: Batch,
+        temperature: torch.Tensor,  # (1,)
+    ) -> torch.Tensor:  # (batch_size, 1)
         with torch.no_grad():
             next_action_batch, next_log_probability_batch = self.sample_action(
                 state_batch=batch.next_states, deterministic=False
@@ -313,7 +332,15 @@ class MopoPolicy:
                 batch.rewards
                 + self.discount_factor * (1.0 - batch.terminations) * next_value_batch
             )
+        return target_value_batch
 
+    def _update_critic(
+        self,
+        *,
+        batch: Batch,
+        target_value_batch: torch.Tensor,  # (batch_size, 1)
+    ) -> torch.Tensor:  # ()
+        """Moves the critic towards the mark and reports how far off it was."""
         value_batch = self.critic(
             torch.cat(tensors=[batch.states, batch.actions], dim=-1)
         )  # (member_count, batch_size, 1)
@@ -328,7 +355,19 @@ class MopoPolicy:
         self.critic_optimizer.zero_grad(set_to_none=True)
         critic_loss.backward()
         self.critic_optimizer.step()
+        return critic_loss
 
+    def _update_actor_and_temperature(
+        self,
+        *,
+        batch: Batch,
+        temperature: torch.Tensor,  # (1,)
+    ) -> tuple[torch.Tensor, torch.Tensor]:  # each ()
+        """Moves the actor and the temperature, and reports both losses.
+
+        The actor is scored on what it would do now rather than on what was
+        recorded, which is what lets it learn from data it did not produce.
+        """
         sampled_action_batch, log_probability_batch = self.sample_action(
             state_batch=batch.states, deterministic=False
         )
@@ -340,6 +379,7 @@ class MopoPolicy:
             .values.mean()
             + temperature * log_probability_batch.mean()
         )
+
         temperature_loss = -(
             self.log_temperature
             * (log_probability_batch.detach() + self.target_entropy)
@@ -351,19 +391,7 @@ class MopoPolicy:
         (actor_loss + temperature_loss).backward()
         self.actor_optimizer.step()
         self.temperature_optimizer.step()
-
-        self._update_target_critic()
-
-        # The temperature carries a length of one, so every entry is reshaped
-        # to a plain number before they are stacked.
-        return torch.stack(
-            tensors=[
-                actor_loss.detach().reshape(()),
-                (critic_loss.detach() / self.critic.member_count).reshape(()),
-                temperature_loss.detach().reshape(()),
-                _read_temperature(log_temperature=self.log_temperature).reshape(()),
-            ]
-        )
+        return actor_loss, temperature_loss
 
     def _update_target_critic(self) -> None:
         with torch.no_grad():
