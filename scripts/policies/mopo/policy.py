@@ -160,7 +160,7 @@ class MopoPolicy:
             len(fields(class_or_instance=LearningMetrics)), device=device
         )
         self._metric_step_count = 0
-        self._learn_step_function = (
+        self._learning_step_function = (
             torch.compile(model=self._run_learn_step, mode="reduce-overhead")
             if compile_learning_step
             else self._run_learn_step
@@ -261,7 +261,7 @@ class MopoPolicy:
         # backward pass is still outstanding. This step carries its own
         # backward, so the boundary has to be named.
         torch.compiler.cudagraph_mark_step_begin()
-        self._metric_sums += self._learn_step_function(batch)
+        self._metric_sums += self._learning_step_function(batch)
         self._metric_step_count += 1
 
     def get_epoch_metrics(self) -> LearningMetrics:
