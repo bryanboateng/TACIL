@@ -48,13 +48,14 @@ class EnsembleLinearLayer(torch.nn.Module):
 
     def forward(
         self,
-        value_batch: torch.Tensor,  # (batch_size, input_dimensionality) or
-        # (ensemble_size, batch_size, input_dimensionality)
+        input_batches: torch.Tensor,
+        # (ensemble_size, batch_size, input_dimensionality), or
+        # (batch_size, input_dimensionality) for one batch every member shares
     ) -> torch.Tensor:  # (ensemble_size, batch_size, output_dimensionality)
-        if value_batch.dim() == 2:
-            product = torch.einsum("ij,bjk->bik", value_batch, self.weight)
+        if input_batches.dim() == 2:
+            product = torch.einsum("ij,bjk->bik", input_batches, self.weight)
         else:
-            product = torch.einsum("bij,bjk->bik", value_batch, self.weight)
+            product = torch.einsum("bij,bjk->bik", input_batches, self.weight)
 
         return product + self.bias
 
@@ -143,20 +144,21 @@ class DynamicsModelEnsemble(torch.nn.Module):
 
     def forward(
         self,
-        input_batch: torch.Tensor,  # (batch_size, input_dimensionality) or
-        # (ensemble_size, batch_size, input_dimensionality)
+        input_batches: torch.Tensor,
+        # (ensemble_size, batch_size, input_dimensionality), or
+        # (batch_size, input_dimensionality) for one batch every member shares
     ) -> tuple[torch.Tensor, torch.Tensor]:
         # each (ensemble_size, batch_size, target_dimensionality)
-        output_batch = input_batch
+        output_batches = input_batches
         for layer in self.hidden_layers:
-            output_batch = self.activation(layer(output_batch))
+            output_batches = self.activation(layer(output_batches))
 
-        mean_batch, log_variance_batch = torch.chunk(
-            input=self.output_layer(output_batch), chunks=2, dim=-1
+        mean_batches, log_variance_batches = torch.chunk(
+            input=self.output_layer(output_batches), chunks=2, dim=-1
         )
 
-        return mean_batch, _soft_clamp(
-            value_batch=log_variance_batch,
+        return mean_batches, _soft_clamp(
+            value=log_variance_batches,
             minimum=self.minimum_log_variance,
             maximum=self.maximum_log_variance,
         )
@@ -244,46 +246,36 @@ class Dynamics:
         state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
         action_batch: torch.Tensor,  # (batch_size, action_dimensionality)
     ) -> ImaginedStep:
-        """Takes one step through the learned dynamics, penalty included.
-
-        Everything stays on the device. The models predict a change in state
-        and a reward, one draw is taken from a randomly chosen elite, and the
-        reward is lowered by how far the ensemble disagrees.
-        """
         with torch.no_grad():
             input_batch = self.input_normalizer.normalize(
                 value_batch=torch.cat(tensors=[state_batch, action_batch], dim=-1)
             )
 
-            mean_batch, log_variance_batch = self.model_ensemble(input_batch)
-            # each (ensemble_size, batch_size, target_dimensionality)
-
-            # The models predict the change, so the state is added back. The
-            # last entry is the reward and stays as predicted.
-            mean_batch = torch.cat(
-                tensors=[mean_batch[..., :-1] + state_batch, mean_batch[..., -1:]],
-                dim=-1,
-            )
+            (
+                mean_batches,  # (ensemble_size, batch_size, target_dimensionality)
+                log_variance_batches,  # (ensemble_size, batch_size, target_dim.)
+            ) = self.model_ensemble(input_batch)
             # sqrt(exp(v)) written as exp(v/2), which is one operation.
-            standard_deviation_batch = (0.5 * log_variance_batch).exp()
+            standard_deviation_batches = (0.5 * log_variance_batches).exp()
 
-            member_sample_batch = (
-                mean_batch
-                + torch.randn_like(input=mean_batch) * standard_deviation_batch
+            sample_batches = _draw_member_samples(
+                state_batch=state_batch,
+                mean_batches=mean_batches,
+                standard_deviation_batches=standard_deviation_batches,
             )
 
             batch_size = state_batch.shape[0]
             member_index_batch = self.model_ensemble.draw_elite_indices(
                 count=batch_size
             )
-            sample_batch = member_sample_batch[
+            sample_batch = sample_batches[
                 member_index_batch, torch.arange(end=batch_size, device=self.device)
             ]  # (batch_size, target_dimensionality)
 
             next_state_batch = sample_batch[..., :-1]
 
             penalty_batch = (
-                standard_deviation_batch.norm(dim=2).amax(dim=0).unsqueeze(dim=1)
+                standard_deviation_batches.norm(dim=2).amax(dim=0).unsqueeze(dim=1)
             )  # (batch_size, 1)
 
             return ImaginedStep(
@@ -299,8 +291,25 @@ class Dynamics:
             )
 
 
+def _draw_member_samples(
+    *,
+    state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
+    mean_batches: torch.Tensor,  # (ensemble_size, batch_size, target_dimensionality)
+    standard_deviation_batches: torch.Tensor,  # same as mean_batches
+) -> torch.Tensor:  # (ensemble_size, batch_size, target_dimensionality)
+    """Draws one outcome from every member, as a next state and a reward."""
+    # The models predict the change, so the state is added back. The last
+    # entry is the reward and stays as predicted.
+    mean_batches = torch.cat(
+        tensors=[mean_batches[..., :-1] + state_batch, mean_batches[..., -1:]], dim=-1
+    )
+    return (
+        mean_batches + torch.randn_like(input=mean_batches) * standard_deviation_batches
+    )
+
+
 def _soft_clamp(
-    *, value_batch: torch.Tensor, minimum: torch.Tensor, maximum: torch.Tensor
+    *, value: torch.Tensor, minimum: torch.Tensor, maximum: torch.Tensor
 ) -> torch.Tensor:
-    clamped_batch = maximum - functional.softplus(input=maximum - value_batch)
-    return minimum + functional.softplus(input=clamped_batch - minimum)
+    clamped = maximum - functional.softplus(input=maximum - value)
+    return minimum + functional.softplus(input=clamped - minimum)
