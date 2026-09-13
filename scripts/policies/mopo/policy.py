@@ -278,13 +278,7 @@ class MopoPolicy:
         """
         # Summed outside the bundled step: a replayable graph may not write
         # to anything it was handed, and an accumulator is exactly that.
-        self._statistic_sums += self._learn_step(
-            batch.states,
-            batch.actions,
-            batch.next_states,
-            batch.rewards,
-            batch.terminations,
-        )
+        self._statistic_sums += self._learn_step(batch)
 
     def take_average_statistics(self, *, step_count: int) -> LearningStatistics:
         actor_loss, critic_loss, temperature_loss, temperature = (
@@ -300,14 +294,7 @@ class MopoPolicy:
 
     # ---- Private --------------------------------------------
 
-    def _run_learn_step(
-        self,
-        state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
-        action_batch: torch.Tensor,  # (batch_size, action_dimensionality)
-        next_state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
-        reward_batch: torch.Tensor,  # (batch_size, 1)
-        termination_batch: torch.Tensor,  # (batch_size, 1)
-    ) -> torch.Tensor:  # (_STATISTIC_COUNT,)
+    def _run_learn_step(self, batch: Batch) -> torch.Tensor:  # (_STATISTIC_COUNT,)
         # Read at the top rather than carried between steps. Nothing has
         # touched the log temperature since the last step ended, so this is
         # the number that step left behind.
@@ -315,23 +302,23 @@ class MopoPolicy:
 
         with torch.no_grad():
             next_action_batch, next_log_probability_batch = self.sample_action(
-                state_batch=next_state_batch, deterministic=False
+                state_batch=batch.next_states, deterministic=False
             )
             next_value_batch = (
                 self.target_critic(
-                    torch.cat(tensors=[next_state_batch, next_action_batch], dim=-1)
+                    torch.cat(tensors=[batch.next_states, next_action_batch], dim=-1)
                 )
                 .min(dim=0)
                 .values
                 - temperature * next_log_probability_batch
             )
             target_value_batch = (
-                reward_batch
-                + self.discount_factor * (1.0 - termination_batch) * next_value_batch
+                batch.rewards
+                + self.discount_factor * (1.0 - batch.terminations) * next_value_batch
             )
 
         value_batch = self.critic(
-            torch.cat(tensors=[state_batch, action_batch], dim=-1)
+            torch.cat(tensors=[batch.states, batch.actions], dim=-1)
         )  # (member_count, batch_size, 1)
         # Averaged over the batch and summed over the members, which gives each
         # member the same gradient it would get on its own.
@@ -346,10 +333,12 @@ class MopoPolicy:
         self.critic_optimizer.step()
 
         sampled_action_batch, log_probability_batch = self.sample_action(
-            state_batch=state_batch, deterministic=False
+            state_batch=batch.states, deterministic=False
         )
         actor_loss = (
-            -self.critic(torch.cat(tensors=[state_batch, sampled_action_batch], dim=-1))
+            -self.critic(
+                torch.cat(tensors=[batch.states, sampled_action_batch], dim=-1)
+            )
             .min(dim=0)
             .values.mean()
             + temperature * log_probability_batch.mean()
