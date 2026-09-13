@@ -1,6 +1,7 @@
 import numpy as np
 import torch
 from numpy import typing as npt
+from numpy.random import Generator
 from tqdm import tqdm
 from wandb import Run
 
@@ -42,11 +43,11 @@ def train_dynamics(
         [transitions.next_states - transitions.states, transitions.rewards], axis=-1
     )  # (transition_count, target_dimensionality)
 
-    transition_count = len(input_batch)
-    holdout_count = min(int(transition_count * config.holdout_ratio), 1000)
-    shuffled_indices = generator.permutation(x=transition_count)
-    holdout_indices = shuffled_indices[:holdout_count]
-    training_indices = shuffled_indices[holdout_count:]
+    training_indices, holdout_indices = _get_split_indices(
+        transition_count=len(input_batch),
+        holdout_ratio=config.holdout_ratio,
+        generator=generator,
+    )
 
     input_normalizer = InputNormalizer(value_batch=input_batch[training_indices])
 
@@ -74,7 +75,9 @@ def train_dynamics(
     run.summary[f"{STAGE_NAME}/0_dataset/1_training_transition_count"] = len(
         training_indices
     )
-    run.summary[f"{STAGE_NAME}/0_dataset/2_holdout_transition_count"] = holdout_count
+    run.summary[f"{STAGE_NAME}/0_dataset/2_holdout_transition_count"] = len(
+        holdout_indices
+    )
 
     member_indices = generator.integers(
         low=0,
@@ -156,6 +159,16 @@ def train_dynamics(
 
 
 # ---- Private --------------------------------------------
+
+
+def _get_split_indices(
+    *, transition_count: int, holdout_ratio: float, generator: Generator
+) -> tuple[npt.NDArray[np.int64], npt.NDArray[np.int64]]:
+    holdout_count = min(int(transition_count * holdout_ratio), 1_000)
+    shuffled_indices = generator.permutation(x=transition_count)
+    holdout_indices = shuffled_indices[:holdout_count]
+    training_indices = shuffled_indices[holdout_count:]
+    return training_indices, holdout_indices
 
 
 def _train_for_one_epoch(
