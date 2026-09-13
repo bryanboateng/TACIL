@@ -62,13 +62,13 @@ def build(critic_class, compile_learning_step):
         state_dimensionality=STATE_DIMENSIONALITY,
         action_dimensionality=ACTION_DIMENSIONALITY,
         hidden_layer_dimensionalities=HIDDEN,
-    )
+    ).to(device=DEVICE)
     critic = critic_class(
         state_dimensionality=STATE_DIMENSIONALITY,
         action_dimensionality=ACTION_DIMENSIONALITY,
         hidden_layer_dimensionalities=HIDDEN,
-    )
-    log_temperature = torch.zeros(1, requires_grad=True)
+    ).to(device=DEVICE)
+    log_temperature = torch.zeros(1, requires_grad=True, device=DEVICE)
     return MopoPolicy(
         actor=actor,
         # SeparateCritics stands in for the stacked one on purpose: it answers
