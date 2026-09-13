@@ -40,7 +40,6 @@ class ReplayBuffer:
         return self._size
 
     def add(self, *, transitions: Transitions) -> None:
-        """Writes a run of transitions, wrapping around when the end is met."""
         count = len(transitions.states)
         indices = (
             torch.arange(
