@@ -3,7 +3,6 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 
-import numpy as np
 import torch
 from torch.optim import Adam
 from tqdm import tqdm
@@ -65,8 +64,6 @@ def train_mopo_policy(
         run=run,
     )
 
-    generator = np.random.default_rng(seed=seed)
-
     state_dimensionality = transitions.states.shape[1]
     action_dimensionality = transitions.actions.shape[1]
 
@@ -87,7 +84,13 @@ def train_mopo_policy(
         action_dimensionality=action_dimensionality,
         device=device,
     )
-    real_buffer.add(transitions=transitions)
+    real_buffer.add(
+        states=transitions.states,
+        actions=transitions.actions,
+        next_states=transitions.next_states,
+        rewards=transitions.rewards,
+        terminations=transitions.terminations,
+    )
 
     imagined_buffer = ReplayBuffer(
         capacity=config.rollout.start_state_count
@@ -115,14 +118,19 @@ def train_mopo_policy(
         for _ in range(config.optimization.step_count_per_epoch):
             if global_step % config.rollout.interval_step_count == 0:
                 rollout_start = time.perf_counter()
-                imagined_transitions, rollout_statistics = policy.imagine_rollout(
+                imagined_rollout, rollout_statistics = policy.imagine_rollout(
                     start_state_batch=real_buffer.sample_states(
                         count=config.rollout.start_state_count
                     ),
                     length=config.rollout.length,
-                    generator=generator,
                 )
-                imagined_buffer.add(transitions=imagined_transitions)
+                imagined_buffer.add(
+                    states=imagined_rollout.states,
+                    actions=imagined_rollout.actions,
+                    next_states=imagined_rollout.next_states,
+                    rewards=imagined_rollout.rewards,
+                    terminations=imagined_rollout.terminations,
+                )
                 rollout_seconds += time.perf_counter() - rollout_start
                 run.log(
                     data={

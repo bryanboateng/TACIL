@@ -3,11 +3,9 @@ from dataclasses import dataclass
 
 import numpy as np
 import torch
-from numpy import typing as npt
 
 from scripts.policies.mopo.buffer import Batch
 from scripts.policies.mopo.dynamics import Dynamics
-from scripts.policies.mopo.transitions import Transitions
 from scripts.shared.normalization import MinMaxNormalizer, ZScoreNormalizer
 from scripts.shared.policy_types import Policy, PolicyFactory
 
@@ -24,6 +22,15 @@ class LearningStatistics:
     critic_loss: float
     temperature_loss: float
     temperature: float
+
+
+@dataclass(frozen=True)
+class ImaginedRollout:
+    states: torch.Tensor  # (transition_count, state_dimensionality)
+    actions: torch.Tensor  # (transition_count, action_dimensionality)
+    next_states: torch.Tensor  # (transition_count, state_dimensionality)
+    rewards: torch.Tensor  # (transition_count, 1)
+    terminations: torch.Tensor  # (transition_count, 1)
 
 
 @dataclass(frozen=True)
@@ -156,9 +163,6 @@ class MopoPolicy:
 
         self.log_temperature = log_temperature
         self.target_entropy = target_entropy
-        # Held in place rather than reassigned, so a compiled learning step
-        # keeps writing to the same memory.
-        self.temperature = log_temperature.detach().exp()
 
         self.dynamics = dynamics
         self.discount_factor = discount_factor
@@ -216,35 +220,30 @@ class MopoPolicy:
     def imagine_rollout(
         self,
         *,
-        start_state_batch: npt.NDArray[np.float32],  # (start_count, state_dim)
+        start_state_batch: torch.Tensor,  # (start_count, state_dimensionality)
         length: int,
-        generator: np.random.Generator,
-    ) -> tuple[Transitions, RolloutStatistics]:
+    ) -> tuple[ImaginedRollout, RolloutStatistics]:
+        """Dreams a few steps forward from real states, and keeps what it saw.
+
+        Rollouts that ended drop out, so later steps carry fewer rows. Nothing
+        leaves the device until the statistics are read at the end.
+        """
         with torch.no_grad():
-            state_batches: list[npt.NDArray[np.float32]] = []
-            action_batches: list[npt.NDArray[np.float32]] = []
-            next_state_batches: list[npt.NDArray[np.float32]] = []
-            reward_batches: list[npt.NDArray[np.float32]] = []
-            termination_batches: list[npt.NDArray[np.float32]] = []
-            penalty_means: list[float] = []
+            state_batches: list[torch.Tensor] = []
+            action_batches: list[torch.Tensor] = []
+            next_state_batches: list[torch.Tensor] = []
+            reward_batches: list[torch.Tensor] = []
+            termination_batches: list[torch.Tensor] = []
+            penalty_sums: list[torch.Tensor] = []
 
             state_batch = start_state_batch
             for _ in range(length):
-                action_batch = (
-                    self.sample_action(
-                        state_batch=torch.as_tensor(
-                            data=state_batch, device=self.device
-                        ),
-                        deterministic=False,
-                    )[0]
-                    .cpu()
-                    .numpy()
-                )  # (active_count, action_dimensionality)
+                action_batch = self.sample_action(
+                    state_batch=state_batch, deterministic=False
+                )[0]
 
                 imagined_step = self.dynamics.imagine_step(
-                    state_batch=state_batch,
-                    action_batch=action_batch,
-                    generator=generator,
+                    state_batch=state_batch, action_batch=action_batch
                 )
 
                 state_batches.append(state_batch)
@@ -252,26 +251,30 @@ class MopoPolicy:
                 next_state_batches.append(imagined_step.next_state_batch)
                 reward_batches.append(imagined_step.reward_batch)
                 termination_batches.append(imagined_step.termination_batch)
-                penalty_means.append(imagined_step.penalty_mean)
+                penalty_sums.append(imagined_step.penalty_sum)
 
                 continuation_mask = imagined_step.termination_batch.flatten() == 0.0
-                if not continuation_mask.any():
+                # The one place the host waits for the device: whether any
+                # rollout is still alive decides whether to step again.
+                if not bool(continuation_mask.any()):
                     break
 
                 state_batch = imagined_step.next_state_batch[continuation_mask]
 
-            transitions = Transitions(
-                states=np.concatenate(state_batches, axis=0),
-                actions=np.concatenate(action_batches, axis=0),
-                next_states=np.concatenate(next_state_batches, axis=0),
-                rewards=np.concatenate(reward_batches, axis=0),
-                terminations=np.concatenate(termination_batches, axis=0),
+            rollout = ImaginedRollout(
+                states=torch.cat(tensors=state_batches, dim=0),
+                actions=torch.cat(tensors=action_batches, dim=0),
+                next_states=torch.cat(tensors=next_state_batches, dim=0),
+                rewards=torch.cat(tensors=reward_batches, dim=0),
+                terminations=torch.cat(tensors=termination_batches, dim=0),
             )
 
-            return transitions, RolloutStatistics(
-                transition_count=len(transitions.states),
-                reward_mean=float(transitions.rewards.mean()),
-                penalty_mean=float(np.mean(penalty_means)),
+            transition_count = len(rollout.states)
+            return rollout, RolloutStatistics(
+                transition_count=transition_count,
+                reward_mean=float(rollout.rewards.mean()),
+                penalty_mean=float(torch.stack(tensors=penalty_sums).sum())
+                / transition_count,
             )
 
     def learn(self, *, batch: Batch) -> None:
@@ -280,7 +283,9 @@ class MopoPolicy:
         Nothing is returned, because a replayed graph overwrites whatever it
         hands back. Read the losses through take_average_statistics instead.
         """
-        self._learn_step(
+        # Summed outside the bundled step: a replayable graph may not write
+        # to anything it was handed, and an accumulator is exactly that.
+        self._statistic_sums += self._learn_step(
             batch.states,
             batch.actions,
             batch.next_states,
@@ -309,7 +314,12 @@ class MopoPolicy:
         next_state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
         reward_batch: torch.Tensor,  # (batch_size, 1)
         termination_batch: torch.Tensor,  # (batch_size, 1)
-    ) -> None:
+    ) -> torch.Tensor:  # (_STATISTIC_COUNT,)
+        # Read at the top rather than carried between steps. Nothing has
+        # touched the log temperature since the last step ended, so this is
+        # the number that step left behind.
+        temperature = _read_temperature(log_temperature=self.log_temperature)
+
         with torch.no_grad():
             next_action_batch, next_log_probability_batch = self.sample_action(
                 state_batch=next_state_batch, deterministic=False
@@ -320,7 +330,7 @@ class MopoPolicy:
                 )
                 .min(dim=0)
                 .values
-                - self.temperature * next_log_probability_batch
+                - temperature * next_log_probability_batch
             )
             target_value_batch = (
                 reward_batch
@@ -349,7 +359,7 @@ class MopoPolicy:
             -self.critic(torch.cat(tensors=[state_batch, sampled_action_batch], dim=-1))
             .min(dim=0)
             .values.mean()
-            + self.temperature * log_probability_batch.mean()
+            + temperature * log_probability_batch.mean()
         )
         temperature_loss = -(
             self.log_temperature
@@ -363,19 +373,16 @@ class MopoPolicy:
         self.actor_optimizer.step()
         self.temperature_optimizer.step()
 
-        self.temperature.copy_(
-            other=self.log_temperature.detach().exp().clamp(min=0.0, max=1.0)
-        )
         self._update_target_critic()
 
         # The temperature carries a length of one, so every entry is reshaped
         # to a plain number before they are stacked.
-        self._statistic_sums += torch.stack(
+        return torch.stack(
             tensors=[
                 actor_loss.detach().reshape(()),
                 (critic_loss.detach() / self.critic.member_count).reshape(()),
                 temperature_loss.detach().reshape(()),
-                self.temperature.reshape(()),
+                _read_temperature(log_temperature=self.log_temperature).reshape(()),
             ]
         )
 
@@ -429,6 +436,15 @@ def create_mopo_policy_factory(
 
 
 # ---- Private --------------------------------------------
+
+
+def _read_temperature(*, log_temperature: torch.Tensor) -> torch.Tensor:  # (1,)
+    """How strongly the policy is pushed to stay random.
+
+    OfflineRL-Kit holds it at or below one, which the paper's own code does
+    not. Kept as the reference has it.
+    """
+    return log_temperature.detach().exp().clamp(min=0.0, max=1.0)
 
 
 def _calculate_log_probability(

@@ -9,16 +9,17 @@ from torch.nn import functional
 from scripts.policies.mopo.config import DynamicsConfig
 
 # Decides, from a state alone, whether the episode is over. The dynamics
-# model predicts where the robot lands but not whether it fell over.
-type TerminationFunction = Callable[[npt.NDArray[np.float32]], npt.NDArray[np.bool_]]
+# model predicts where the robot lands but not whether it fell over. It takes
+# and returns device tensors, so that a rollout never leaves the device.
+type TerminationFunction = Callable[[torch.Tensor], torch.Tensor]
 
 
 @dataclass(frozen=True)
 class ImaginedStep:
-    next_state_batch: npt.NDArray[np.float32]  # (batch_size, state_dimensionality)
-    reward_batch: npt.NDArray[np.float32]  # (batch_size, 1)
-    termination_batch: npt.NDArray[np.float32]  # (batch_size, 1)
-    penalty_mean: float
+    next_state_batch: torch.Tensor  # (batch_size, state_dimensionality)
+    reward_batch: torch.Tensor  # (batch_size, 1)
+    termination_batch: torch.Tensor  # (batch_size, 1)
+    penalty_sum: torch.Tensor  # ()
 
 
 class EnsembleLinearLayer(torch.nn.Module):
@@ -183,10 +184,15 @@ class DynamicsModelEnsemble(torch.nn.Module):
             data=member_indices, device=self.elite_indices.device
         )
 
-    def draw_elite_indices(
-        self, *, count: int, generator: np.random.Generator
-    ) -> npt.NDArray[np.int64]:  # (count,)
-        return generator.choice(a=self.elite_indices.cpu().numpy(), size=count)
+    def draw_elite_indices(self, *, count: int) -> torch.Tensor:  # (count,)
+        return self.elite_indices[
+            torch.randint(
+                low=0,
+                high=len(self.elite_indices),
+                size=(count,),
+                device=self.elite_indices.device,
+            )
+        ]
 
 
 class InputNormalizer:
@@ -227,52 +233,74 @@ class Dynamics:
         self.penalty_coefficient = penalty_coefficient
         self.device = device
 
+        # The scaler is fitted on the processor but read on the device once
+        # per imagined step, so it is copied over rather than sent each time.
+        self._input_mean = torch.as_tensor(
+            data=input_normalizer.mean, dtype=torch.float32, device=device
+        )
+        self._input_std = torch.as_tensor(
+            data=input_normalizer.std, dtype=torch.float32, device=device
+        )
+
     def imagine_step(
         self,
         *,
-        state_batch: npt.NDArray[np.float32],  # (batch_size, state_dimensionality)
-        action_batch: npt.NDArray[np.float32],  # (batch_size, action_dimensionality)
-        generator: np.random.Generator,
+        state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
+        action_batch: torch.Tensor,  # (batch_size, action_dimensionality)
     ) -> ImaginedStep:
+        """Takes one step through the learned dynamics, penalty included.
+
+        Everything stays on the device. The models predict a change in state
+        and a reward, one draw is taken from a randomly chosen elite, and the
+        reward is lowered by how far the ensemble disagrees.
+        """
         with torch.no_grad():
-            input_batch = self.input_normalizer.normalize(
-                value_batch=np.concatenate([state_batch, action_batch], axis=-1)
-            )  # (batch_size, input_dimensionality)
+            input_batch = (
+                torch.cat(tensors=[state_batch, action_batch], dim=-1)
+                - self._input_mean
+            ) / self._input_std
 
-            mean_batch, log_variance_batch = self.model_ensemble(
-                torch.as_tensor(data=input_batch, device=self.device)
-            )  # each (ensemble_size, batch_size, target_dimensionality)
+            mean_batch, log_variance_batch = self.model_ensemble(input_batch)
+            # each (ensemble_size, batch_size, target_dimensionality)
 
-            mean = mean_batch.cpu().numpy()
-            mean[..., :-1] += state_batch
-            std = np.sqrt(np.exp(log_variance_batch.cpu().numpy()))
+            # The models predict the change, so the state is added back. The
+            # last entry is the reward and stays as predicted.
+            mean_batch = torch.cat(
+                tensors=[mean_batch[..., :-1] + state_batch, mean_batch[..., -1:]],
+                dim=-1,
+            )
+            # sqrt(exp(v)) written as exp(v/2), which is one operation.
+            standard_deviation_batch = (0.5 * log_variance_batch).exp()
 
             member_sample_batch = (
-                mean + generator.normal(size=mean.shape).astype(np.float32) * std
-            )  # (ensemble_size, batch_size, target_dimensionality)
+                mean_batch
+                + torch.randn_like(input=mean_batch) * standard_deviation_batch
+            )
 
-            batch_size = len(state_batch)
+            batch_size = state_batch.shape[0]
+            member_index_batch = self.model_ensemble.draw_elite_indices(
+                count=batch_size
+            )
             sample_batch = member_sample_batch[
-                self.model_ensemble.draw_elite_indices(
-                    count=batch_size, generator=generator
-                ),
-                np.arange(batch_size),
+                member_index_batch, torch.arange(end=batch_size, device=self.device)
             ]  # (batch_size, target_dimensionality)
 
             next_state_batch = sample_batch[..., :-1]
-            reward_batch = sample_batch[..., -1:]
 
-            penalty_batch = np.amax(np.linalg.norm(std, axis=2), axis=0)[
-                :, None
-            ]  # (batch_size, 1)
+            penalty_batch = (
+                standard_deviation_batch.norm(dim=2).amax(dim=0).unsqueeze(dim=1)
+            )  # (batch_size, 1)
 
             return ImaginedStep(
                 next_state_batch=next_state_batch,
-                reward_batch=reward_batch - self.penalty_coefficient * penalty_batch,
+                reward_batch=sample_batch[..., -1:]
+                - self.penalty_coefficient * penalty_batch,
                 termination_batch=self.termination_function(next_state_batch)
                 .reshape(-1, 1)
-                .astype(np.float32),
-                penalty_mean=float(penalty_batch.mean()),
+                .float(),
+                # Summed rather than averaged: the caller adds the steps up and
+                # divides once, which saves waiting for the device every step.
+                penalty_sum=penalty_batch.sum(),
             )
 
 
