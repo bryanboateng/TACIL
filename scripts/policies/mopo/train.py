@@ -12,7 +12,7 @@ from scripts.policies.mopo.buffer import ReplayBuffer, concatenate_batches
 from scripts.policies.mopo.config import Config
 from scripts.policies.mopo.dynamics import Dynamics, TerminationFunction
 from scripts.policies.mopo.dynamics_training import train_dynamics
-from scripts.policies.mopo.policy import EnsembleCritic, GaussianActor, MopoPolicy
+from scripts.policies.mopo.policy import CriticEnsemble, GaussianActor, MopoPolicy
 from scripts.policies.mopo.transitions import Transitions
 from scripts.shared import stage_names
 from scripts.shared.log import create_logger
@@ -222,7 +222,7 @@ def _create_policy(
         action_dimensionality=action_dimensionality,
         hidden_layer_dimensionalities=config.optimization.hidden_layer_dimensionalities,
     ).to(device=device)
-    critic = EnsembleCritic(
+    critic = CriticEnsemble(
         state_dimensionality=state_dimensionality,
         action_dimensionality=action_dimensionality,
         hidden_layer_dimensionalities=config.optimization.hidden_layer_dimensionalities,

@@ -67,7 +67,7 @@ class GaussianActor(torch.nn.Module):
         )
 
 
-class EnsembleCritic(torch.nn.Module):
+class CriticEnsemble(torch.nn.Module):
     def __init__(
         self,
         *,
@@ -103,11 +103,10 @@ class EnsembleCritic(torch.nn.Module):
     ) -> torch.Tensor:  # (critic_count, batch_size, 1)
         # Every critic sees the same input, so one copy is spread across the
         # critic axis without being duplicated in memory.
-        value_batch = input_batch.unsqueeze(0).expand(self.critic_count, -1, -1)
+        value_batch = input_batch.unsqueeze(dim=0).expand(self.critic_count, -1, -1)
 
-        # baddbmm is the batched product with the bias folded in. Written as
-        # two steps it costs an extra intermediate on every layer, measured as
-        # five percent of the whole learning step.
+        # baddbmm is the batched product with the bias folded in.
+        # This is faster than having two steps because it costs an extra intermediate on every layer.
         *hidden_layers, output_layer = zip(self.weights, self.biases, strict=True)
         for weight, bias in hidden_layers:
             value_batch = torch.relu(
@@ -125,8 +124,8 @@ class MopoPolicy:
         self,
         *,
         actor: GaussianActor,
-        critic: EnsembleCritic,
-        target_critic: EnsembleCritic,
+        critic: CriticEnsemble,
+        target_critic: CriticEnsemble,
         actor_optimizer: torch.optim.Optimizer,
         temperature_optimizer: torch.optim.Optimizer,
         critic_optimizer: torch.optim.Optimizer,
