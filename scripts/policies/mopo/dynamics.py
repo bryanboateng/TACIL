@@ -196,12 +196,6 @@ class DynamicsModelEnsemble(torch.nn.Module):
 
 
 class InputNormalizer:
-    """Centres and scales the model inputs, the way the reference does.
-
-    Fitted and applied on the device, so that neither the dynamics training
-    nor an imagined step has to travel to the processor for it.
-    """
-
     def __init__(
         self,
         *,
@@ -209,8 +203,6 @@ class InputNormalizer:
     ) -> None:
         self.mean = value_batch.mean(dim=0, keepdim=True)
         standard_deviation = value_batch.std(dim=0, unbiased=False, keepdim=True)
-        # A dimension that never moves would otherwise divide by nothing. The
-        # reference uses the same bound.
         standard_deviation[standard_deviation < 1e-12] = 1.0
         self.standard_deviation = standard_deviation
 
@@ -218,8 +210,10 @@ class InputNormalizer:
         self,
         *,
         value_batch: torch.Tensor,  # (batch_size, dimensionality)
-    ) -> torch.Tensor:  # (batch_size, dimensionality)
-        return (value_batch - self.mean) / self.standard_deviation
+    ) -> torch.Tensor:
+        return (
+            value_batch - self.mean
+        ) / self.standard_deviation  # (batch_size, dimensionality)
 
 
 class Dynamics:
@@ -255,7 +249,6 @@ class Dynamics:
                 mean_batches,  # (ensemble_size, batch_size, state_dimensionality + 1)
                 log_variance_batches,  # (ensemble_size, batch_size, state_dimensionality + 1)
             ) = self.model_ensemble(input_batch)
-            # sqrt(exp(v)) written as exp(v/2), which is one operation.
             standard_deviation_batches = (0.5 * log_variance_batches).exp()
 
             sample_batches = _draw_member_samples(
