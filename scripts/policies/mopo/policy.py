@@ -146,6 +146,7 @@ class MopoPolicy:
         dynamics: Dynamics,
         discount_factor: float,
         target_update_rate: float,
+        compile_learning_step: bool,
         device: torch.device,
     ) -> None:
         self.actor = actor
@@ -170,15 +171,11 @@ class MopoPolicy:
         )
 
         self._statistic_sums = torch.zeros(_STATISTIC_COUNT, device=device)
-        self._learn_step = self._run_learn_step
-
-    def compile_learning(self) -> None:
-        """Bundles the learning step into a replayable graph.
-
-        The networks are small, so the device idles while it waits for the
-        next command. Bundling cuts the number of commands, not the work.
-        """
-        self._learn_step = torch.compile(self._run_learn_step, mode="reduce-overhead")
+        self._learn_step = (
+            torch.compile(model=self._run_learn_step, mode="reduce-overhead")
+            if compile_learning_step
+            else self._run_learn_step
+        )
 
     def train(self) -> None:
         self.actor.train()

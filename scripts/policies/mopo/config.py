@@ -81,10 +81,7 @@ class OptimizationConfig:
     real_data_ratio: float = 0.05
     epoch_count: int = 3000
     step_count_per_epoch: int = 1000
-    # The networks are small, so the device spends most of a learning step
-    # waiting for the next command. Bundling the step into one replayable
-    # graph cuts the waiting. Turn it off to read a stack trace.
-    compiled: bool = True
+    compile_learning_step: bool = True
 
     def __post_init__(self) -> None:
         for name, value in (
