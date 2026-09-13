@@ -231,11 +231,6 @@ def _create_policy(
 
     log_temperature = torch.zeros(1, requires_grad=True, device=device)
 
-    compile_learning_step = config.optimization.compile_learning_step
-    if compile_learning_step and not _supports_compilation(device=device):
-        logger.warning("Compilation is not supported.")
-        compile_learning_step = False
-
     return MopoPolicy(
         actor=actor,
         critic=critic,
@@ -260,15 +255,9 @@ def _create_policy(
         dynamics=dynamics,
         discount_factor=config.optimization.discount_factor,
         target_update_rate=config.optimization.target_update_rate,
-        compile_learning_step=compile_learning_step,
+        compile_learning_step=config.optimization.compile_learning_step,
         device=device,
     )
-
-
-def _supports_compilation(*, device: torch.device) -> bool:
-    if device.type != "cuda":
-        return True
-    return torch.cuda.get_device_capability(device=device) >= (7, 0)
 
 
 def _define_step_metrics(*, run: Run) -> None:
