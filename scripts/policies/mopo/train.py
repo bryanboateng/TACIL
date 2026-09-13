@@ -231,8 +231,8 @@ def _create_policy(
     log_temperature = torch.zeros(1, requires_grad=True, device=device)
 
     card_is_too_old_for_compilation = (
-        torch.cuda.get_device_capability(device=device) < (7, 0)
-        and device.type == "cuda"
+        device.type == "cuda"
+        and torch.cuda.get_device_capability(device=device) < (7, 0)
     )
     compile_learning_step = config.optimization.compile_learning_step
     if compile_learning_step and card_is_too_old_for_compilation:
