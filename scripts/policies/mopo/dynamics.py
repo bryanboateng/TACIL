@@ -72,7 +72,7 @@ class EnsembleLinearLayer(torch.nn.Module):
 
 
 class DynamicsModelEnsemble(torch.nn.Module):
-    elite_indices: torch.Tensor  # (elite_count,)
+    elite_member_indices: torch.Tensor  # (elite_count,)
 
     def __init__(
         self,
@@ -126,7 +126,7 @@ class DynamicsModelEnsemble(torch.nn.Module):
         )
 
         self.register_buffer(
-            name="elite_indices", tensor=torch.arange(end=config.elite_count)
+            name="elite_member_indices", tensor=torch.arange(end=config.elite_count)
         )
 
     @property
@@ -179,17 +179,17 @@ class DynamicsModelEnsemble(torch.nn.Module):
         return decay_loss
 
     def set_elites(self, *, member_indices: list[int]) -> None:
-        self.elite_indices = torch.tensor(
-            data=member_indices, device=self.elite_indices.device
+        self.elite_member_indices = torch.tensor(
+            data=member_indices, device=self.elite_member_indices.device
         )
 
     def draw_elite_indices(self, *, count: int) -> torch.Tensor:  # (count,)
-        return self.elite_indices[
+        return self.elite_member_indices[
             torch.randint(
                 low=0,
-                high=len(self.elite_indices),
+                high=len(self.elite_member_indices),
                 size=(count,),
-                device=self.elite_indices.device,
+                device=self.elite_member_indices.device,
             )
         ]
 
@@ -258,13 +258,9 @@ class Dynamics:
                 standard_deviation_batch_per_member=standard_deviation_batch_per_member,
             )  # (ensemble_size, batch_size, state_dimensionality + 1)
 
-            batch_size = state_batch.shape[0]
-            member_index_batch = self.model_ensemble.draw_elite_indices(
-                count=batch_size
-            )
-            next_state_and_reward_batch = next_state_and_reward_batch_per_member[
-                member_index_batch, torch.arange(end=batch_size, device=self.device)
-            ]  # (batch_size, target_dimensionality)
+            next_state_and_reward_batch = self._pick_from_random_elites(
+                value_batch_per_member=next_state_and_reward_batch_per_member
+            )  # (batch_size, state_dimensionality + 1)
 
             next_state_batch = next_state_and_reward_batch[..., :-1]
             reward_batch = next_state_and_reward_batch[..., -1:]
@@ -283,6 +279,19 @@ class Dynamics:
                 .float(),
                 penalty_sum=penalty_batch.sum(),
             )
+
+    # ---- Private --------------------------------------------
+
+    def _pick_from_random_elites(
+        self,
+        *,
+        value_batch_per_member: torch.Tensor,  # (ensemble_size, batch_size, value_dimensionality)
+    ) -> torch.Tensor:  # (batch_size, value_dimensionality)
+        batch_size = value_batch_per_member.shape[1]
+        member_index_batch = self.model_ensemble.draw_elite_indices(count=batch_size)
+        return value_batch_per_member[
+            member_index_batch, torch.arange(end=batch_size, device=self.device)
+        ]
 
 
 def _draw_next_state_and_reward(
