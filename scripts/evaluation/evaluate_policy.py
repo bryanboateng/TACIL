@@ -113,7 +113,7 @@ def _log_video(
     run: Run,
 ) -> None:
     fps = get_video_fps()
-    render_settings = RenderSettings(size=1_000, supersample_factor=2)
+    render_settings = RenderSettings(size=640, supersample_factor=2)
     environment = create_environment(
         condition=condition, render_settings=render_settings
     )
