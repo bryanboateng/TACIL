@@ -1,15 +1,8 @@
-"""Reads a D4RL dataset without the d4rl package.
-
-The d4rl package needs mujoco-py, which stops at Python 3.11. It is not
-needed: the datasets are plain HDF5 files, and the only field its reader
-takes from the environment is the episode length, which the files carry
-themselves as "timeouts".
-"""
-
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 
+import h5py
 import numpy as np
 from numpy import typing as npt
 from tqdm import tqdm
@@ -39,10 +32,8 @@ class Dataset:
         return self.actions.shape[1]
 
 
-def download_dataset(
-    *, task: Task, directory_path: Path = DATASET_DIRECTORY_PATH
-) -> Path:
-    """Fetches the task's HDF5 file once and returns where it landed."""
+def download_dataset(*, task: Task) -> Path:
+    directory_path = DATASET_DIRECTORY_PATH
     directory_path.mkdir(parents=True, exist_ok=True)
     file_path = directory_path / task.dataset_file_name
     if file_path.exists():
@@ -64,22 +55,11 @@ def download_dataset(
                 file.write(chunk)
                 progress_bar.update(n=len(chunk))
 
-    # Renamed only once it is whole, so an interrupted download is never
-    # mistaken for a finished one.
     partial_file_path.rename(target=file_path)
     return file_path
 
 
 def read_dataset(*, file_path: Path) -> Dataset:
-    """Builds transitions the way OfflineRL-Kit's qlearning_dataset does.
-
-    Two rules carry over from it. A step whose episode ran out of time is
-    dropped, because its recorded successor belongs to the next episode.
-    And where the file carries next_observations, that field is used rather
-    than the following row, which is what makes the dynamics model learn the
-    real step.
-    """
-    import h5py
 
     with h5py.File(file_path, mode="r") as file:
         for name in _REQUIRED_FIELDS:
@@ -102,15 +82,11 @@ def read_dataset(*, file_path: Path) -> Dataset:
             else None
         )
 
-    # The reference walks to the second to last row, so the last one is left
-    # out whether or not it ends an episode.
     transition_count = len(state_batch) - 1
     source_indices = np.arange(transition_count)
 
     keep_mask = ~timeout_batch[:transition_count]
     if recorded_next_state_batch is None:
-        # Without a recorded successor the reference also drops the steps that
-        # end an episode, because the following row starts a new one.
         keep_mask &= ~termination_batch[:transition_count]
     kept_indices = source_indices[keep_mask]
 
@@ -129,9 +105,5 @@ def read_dataset(*, file_path: Path) -> Dataset:
     )
 
 
-def load_dataset(
-    *, task: Task, directory_path: Path = DATASET_DIRECTORY_PATH
-) -> Dataset:
-    return read_dataset(
-        file_path=download_dataset(task=task, directory_path=directory_path)
-    )
+def load_dataset(*, task: Task) -> Dataset:
+    return read_dataset(file_path=download_dataset(task=task))
