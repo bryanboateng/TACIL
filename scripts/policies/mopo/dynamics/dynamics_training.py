@@ -49,15 +49,22 @@ def train_dynamics(
     )
 
     input_normalizer = InputNormalizer(value_batch=input_batch[training_indices])
-
     training_input_batch = input_normalizer.normalize(
         value_batch=input_batch[training_indices]
     )
-    training_target_batch = target_batch[training_indices]
     holdout_input_batch = input_normalizer.normalize(
         value_batch=input_batch[holdout_indices]
     )
+
+    training_target_batch = target_batch[training_indices]
     holdout_target_batch = target_batch[holdout_indices]
+
+    run.summary[f"{STAGE_NAME}/0_dataset/1_training_transition_count"] = len(
+        training_indices
+    )
+    run.summary[f"{STAGE_NAME}/0_dataset/2_holdout_transition_count"] = len(
+        holdout_indices
+    )
 
     model_ensemble = DynamicsModelEnsemble(
         config=config,
@@ -68,17 +75,7 @@ def train_dynamics(
         params=model_ensemble.parameters(), lr=config.learning_rate
     )
 
-    run.summary[f"{STAGE_NAME}/0_dataset/1_training_transition_count"] = len(
-        training_indices
-    )
-    run.summary[f"{STAGE_NAME}/0_dataset/2_holdout_transition_count"] = len(
-        holdout_indices
-    )
-
-    # One draw with replacement per member, so each model sees its own view
-    # of the data. Kept as indices rather than as gathered copies: gathering
-    # the whole thing would build several hundred megabytes every epoch.
-    member_indices = torch.randint(
+    training_index_per_member = torch.randint(
         low=0,
         high=len(training_indices),
         size=(config.ensemble_size, len(training_indices)),
@@ -98,7 +95,7 @@ def train_dynamics(
             optimizer=optimizer,
             input_batch=training_input_batch,
             target_batch=training_target_batch,
-            member_indices=member_indices,
+            training_index_per_member=training_index_per_member,
         )
         holdout_losses = _calculate_holdout_losses(
             model_ensemble=model_ensemble,
@@ -132,7 +129,9 @@ def train_dynamics(
             }
         )
 
-        member_indices = _shuffle_rows(index_batch=member_indices, generator=generator)
+        training_index_per_member = _shuffle_rows(
+            index_per_member=training_index_per_member, generator=generator
+        )
         epoch_index += 1
         progress_bar.update()
     progress_bar.close()
@@ -180,22 +179,21 @@ def _train_for_one_epoch(
     optimizer: torch.optim.Optimizer,
     input_batch: torch.Tensor,  # (sample_count, input_dimensionality)
     target_batch: torch.Tensor,  # (sample_count, target_dimensionality)
-    member_indices: torch.Tensor,  # (ensemble_size, sample_count)
+    training_index_per_member: torch.Tensor,  # (ensemble_size, sample_count)
 ) -> float:
     model_ensemble.train()
 
-    sample_count = member_indices.shape[1]
+    sample_count = training_index_per_member.shape[1]
     loss_sum = torch.zeros((), device=input_batch.device)
     batch_count = 0
 
     for start_index in range(0, sample_count, config.batch_size):
-        # Each member's own rows for this batch, picked as they are needed.
-        batch_member_indices = member_indices[
+        batch_index_per_member = training_index_per_member[
             :, start_index : start_index + config.batch_size
         ]
 
         mean_batch, log_variance_batch = model_ensemble(
-            input_batch[batch_member_indices]
+            input_batch[batch_index_per_member]
         )  # each (ensemble_size, batch_size, target_dimensionality)
 
         inverse_variance_batch = torch.exp(input=-log_variance_batch)
@@ -204,7 +202,7 @@ def _train_for_one_epoch(
         # and summed over the ensemble.
         loss = (
             (
-                (mean_batch - target_batch[batch_member_indices]).square()
+                (mean_batch - target_batch[batch_index_per_member]).square()
                 * inverse_variance_batch
             )
             .mean(dim=(1, 2))
@@ -222,8 +220,6 @@ def _train_for_one_epoch(
         loss.backward()
         optimizer.step()
 
-        # Summed on the device. Reading each batch's loss out would make the
-        # host wait for the device a few thousand times an epoch.
         loss_sum += loss.detach()
         batch_count += 1
 
@@ -248,13 +244,13 @@ def _calculate_elite_loss(*, holdout_losses: list[float], elite_count: int) -> f
 
 def _shuffle_rows(
     *,
-    index_batch: torch.Tensor,  # (ensemble_size, sample_count)
+    index_per_member: torch.Tensor,  # (ensemble_size, sample_count)
     generator: torch.Generator,
 ) -> torch.Tensor:  # (ensemble_size, sample_count)
     order = torch.rand(
-        index_batch.shape, generator=generator, device=index_batch.device
+        index_per_member.shape, generator=generator, device=index_per_member.device
     ).argsort(dim=-1)
-    return index_batch.gather(dim=-1, index=order)
+    return index_per_member.gather(dim=-1, index=order)
 
 
 def _define_epoch_metrics(*, run: Run) -> None:
