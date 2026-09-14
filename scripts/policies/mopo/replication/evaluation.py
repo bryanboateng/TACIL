@@ -1,10 +1,3 @@
-"""Runs a trained policy in the MuJoCo robot it was trained for.
-
-D4RL built its datasets on the mujoco-py environments, which stop at Python
-3.11. Gymnasium carries the same robots on the current MuJoCo bindings, and
-version 4 of each is the one that matches what D4RL recorded.
-"""
-
 from dataclasses import dataclass
 
 import gymnasium

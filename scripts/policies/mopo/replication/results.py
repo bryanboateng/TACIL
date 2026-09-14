@@ -1,12 +1,3 @@
-"""Puts the reproduced scores next to the published ones.
-
-The published spread matters as much as the published mean. OfflineRL-Kit
-averages four seeds, and on some tasks those four seeds are 40 points apart,
-so landing far from the mean says nothing there. The verdict column reports
-whether a score falls inside one published spread, which is the question a
-correctness check actually asks.
-"""
-
 import json
 from dataclasses import dataclass
 from pathlib import Path
@@ -33,7 +24,6 @@ class Config:
 def write_result(
     *, task: str, seed: int, score: float, directory_path: Path = RESULT_DIRECTORY_PATH
 ) -> Path:
-    """Records one finished run, so a later table can pick it up."""
     file_path = directory_path / f"{task}-seed{seed}.json"
     file_path.parent.mkdir(parents=True, exist_ok=True)
     with file_path.open("w") as file:

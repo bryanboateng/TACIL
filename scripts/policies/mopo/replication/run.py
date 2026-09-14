@@ -1,5 +1,3 @@
-"""Reproduces a published MOPO result on one D4RL task."""
-
 import dataclasses
 from dataclasses import asdict, dataclass
 
@@ -69,8 +67,6 @@ def _run(*, config: Config) -> None:
 
         logger.info("Stage 1/3: reading %s.", task.dataset_file_name)
         dataset = load_dataset(task=task)
-        # The file is read on the processor and moved over once. Everything
-        # after this point stays on the device.
         transitions = Transitions(
             states=torch.from_numpy(dataset.states).to(device=device),
             actions=torch.from_numpy(dataset.actions).to(device=device),
@@ -145,7 +141,6 @@ def _run(*, config: Config) -> None:
 
 
 def _build_policy_config(*, task: Task, config: Config) -> mopo_config.Config:
-    """Takes the rollout settings from the task, the rest from the defaults."""
     default = mopo_config.Config(
         dynamics=mopo_config.DynamicsConfig(),
         rollout=mopo_config.RolloutConfig(),
@@ -163,9 +158,6 @@ def _build_policy_config(*, task: Task, config: Config) -> mopo_config.Config:
         validation=mopo_config.ValidationConfig(
             interval_epoch_count=config.validation_interval_epoch_count,
             episode_count_per_condition=config.validation_episode_count,
-            # The published table reads the policy off the end of training,
-            # not off its best moment. Picking the best would report a higher
-            # number than the table it is compared against.
             kept_policy="last",
         ),
     )
