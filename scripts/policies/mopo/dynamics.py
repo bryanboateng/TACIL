@@ -250,18 +250,18 @@ class Dynamics:
                 0.5 * log_variance_batch_per_member
             ).exp()  # (ensemble_size, batch_size, state_dimensionality + 1)
 
-            next_state_and_reward_batch_per_member = _draw_next_state_and_reward(
-                state_batch=state_batch,
-                mean_batch_per_member=mean_batch_per_member,
-                standard_deviation_batch_per_member=standard_deviation_batch_per_member,
+            state_change_and_reward_batch_per_member = (
+                mean_batch_per_member
+                + torch.randn_like(input=mean_batch_per_member)
+                * standard_deviation_batch_per_member
             )  # (ensemble_size, batch_size, state_dimensionality + 1)
 
-            next_state_and_reward_batch = self._pick_from_random_elites(
-                value_batch_per_member=next_state_and_reward_batch_per_member
+            state_change_and_reward_batch = self._pick_from_random_elites(
+                value_batch_per_member=state_change_and_reward_batch_per_member
             )  # (batch_size, state_dimensionality + 1)
 
-            next_state_batch = next_state_and_reward_batch[..., :-1]
-            reward_batch = next_state_and_reward_batch[..., -1:]
+            next_state_batch = state_batch + state_change_and_reward_batch[..., :-1]
+            reward_batch = state_change_and_reward_batch[..., -1:]
 
             penalty_batch = (
                 standard_deviation_batch_per_member.norm(dim=2)
@@ -290,29 +290,6 @@ class Dynamics:
         return value_batch_per_member[
             member_index_batch, torch.arange(end=batch_size, device=self.device)
         ]
-
-
-def _draw_next_state_and_reward(
-    *,
-    state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
-    mean_batch_per_member: torch.Tensor,  # (ensemble_size, batch_size, state_dimensionality + 1)
-    standard_deviation_batch_per_member: torch.Tensor,  # (ensemble_size, batch_size, state_dimensionality + 1)
-) -> torch.Tensor:
-    next_state_mean_batch_per_member = (
-        mean_batch_per_member[..., :-1] + state_batch
-    )  # (ensemble_size, batch_size, state_dimensionality)
-    reward_mean_batch_per_member = mean_batch_per_member[
-        ..., -1:
-    ]  # (ensemble_size, batch_size, 1)
-
-    mean_batch_per_member = torch.cat(
-        tensors=[next_state_mean_batch_per_member, reward_mean_batch_per_member], dim=-1
-    )  # (ensemble_size, batch_size, target_dimensionality)
-    return (
-        mean_batch_per_member
-        + torch.randn_like(input=mean_batch_per_member)
-        * standard_deviation_batch_per_member
-    )  # (ensemble_size, batch_size, state_dimensionality + 1)
 
 
 def _soft_clamp(
