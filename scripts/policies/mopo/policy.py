@@ -4,7 +4,7 @@ import numpy as np
 import torch
 
 from scripts.policies.mopo.buffer import Batch
-from scripts.policies.mopo.dynamics import Dynamics
+from scripts.policies.mopo.dynamics.dynamics import Dynamics
 from scripts.policies.mopo.transitions import Transitions
 from scripts.shared.normalization import MinMaxNormalizer, ZScoreNormalizer
 from scripts.shared.policy_types import Policy, PolicyFactory

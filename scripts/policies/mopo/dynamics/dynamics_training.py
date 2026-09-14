@@ -4,12 +4,12 @@ from tqdm import tqdm
 from wandb import Run
 
 from scripts.policies.mopo.config import DynamicsConfig
-from scripts.policies.mopo.dynamics import (
+from scripts.policies.mopo.dynamics.dynamics import (
     Dynamics,
-    DynamicsModelEnsemble,
     InputNormalizer,
     TerminationFunction,
 )
+from scripts.policies.mopo.dynamics.dynamics_ensemble import DynamicsModelEnsemble
 from scripts.policies.mopo.transitions import Transitions
 from scripts.shared import stage_names
 

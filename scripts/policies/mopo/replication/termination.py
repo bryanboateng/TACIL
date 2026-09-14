@@ -10,7 +10,7 @@ has to travel to the processor and back.
 
 import torch
 
-from scripts.policies.mopo.dynamics import TerminationFunction
+from scripts.policies.mopo.dynamics.dynamics import TerminationFunction
 
 
 def _terminate_halfcheetah(
