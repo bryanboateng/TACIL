@@ -114,8 +114,8 @@ class DynamicsModelEnsemble(torch.nn.Module):
 
 
 class _EnsembleLinearLayer(torch.nn.Module):
-    saved_weight: torch.Tensor  # (ensemble_size, input_dim., output_dim.)
-    saved_bias: torch.Tensor  # (ensemble_size, 1, output_dimensionality)
+    best_weight: torch.Tensor  # (ensemble_size, input_dim., output_dim.)
+    best_bias: torch.Tensor  # (ensemble_size, 1, output_dimensionality)
 
     def __init__(
         self,
@@ -137,8 +137,8 @@ class _EnsembleLinearLayer(torch.nn.Module):
             tensor=self.weight, std=1.0 / (2.0 * input_dimensionality**0.5)
         )
 
-        self.register_buffer(name="saved_weight", tensor=self.weight.detach().clone())
-        self.register_buffer(name="saved_bias", tensor=self.bias.detach().clone())
+        self.register_buffer(name="best_weight", tensor=self.weight.detach().clone())
+        self.register_buffer(name="best_bias", tensor=self.bias.detach().clone())
 
         self.weight_decay = weight_decay
 
@@ -156,12 +156,12 @@ class _EnsembleLinearLayer(torch.nn.Module):
         return product + self.bias
 
     def save_members(self, *, member_indices: list[int]) -> None:
-        self.saved_weight[member_indices] = self.weight.data[member_indices]
-        self.saved_bias[member_indices] = self.bias.data[member_indices]
+        self.best_weight[member_indices] = self.weight.data[member_indices]
+        self.best_bias[member_indices] = self.bias.data[member_indices]
 
     def restore_members(self) -> None:
-        self.weight.data.copy_(other=self.saved_weight)
-        self.bias.data.copy_(other=self.saved_bias)
+        self.weight.data.copy_(other=self.best_weight)
+        self.bias.data.copy_(other=self.best_bias)
 
     def calculate_decay_loss(self) -> torch.Tensor:
         return self.weight_decay * 0.5 * self.weight.square().sum()
