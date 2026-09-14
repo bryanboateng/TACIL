@@ -4,57 +4,6 @@ from torch.nn import functional
 from scripts.policies.mopo.config import DynamicsConfig
 
 
-class EnsembleLinearLayer(torch.nn.Module):
-    def __init__(
-        self,
-        *,
-        input_dimensionality: int,
-        output_dimensionality: int,
-        weight_decay: float,
-        ensemble_size: int,
-    ) -> None:
-        super().__init__()
-
-        self.weight = torch.nn.Parameter(
-            data=torch.zeros(ensemble_size, input_dimensionality, output_dimensionality)
-        )
-        self.bias = torch.nn.Parameter(
-            data=torch.zeros(ensemble_size, 1, output_dimensionality)
-        )
-        torch.nn.init.trunc_normal_(
-            tensor=self.weight, std=1.0 / (2.0 * input_dimensionality**0.5)
-        )
-
-        self.saved_weight = torch.nn.Parameter(data=self.weight.detach().clone())
-        self.saved_bias = torch.nn.Parameter(data=self.bias.detach().clone())
-
-        self.weight_decay = weight_decay
-
-    def forward(
-        self,
-        input_batch_per_member: torch.Tensor,
-        # (ensemble_size, batch_size, input_dimensionality), or
-        # (batch_size, input_dimensionality) for one batch every member shares
-    ) -> torch.Tensor:  # (ensemble_size, batch_size, output_dimensionality)
-        if input_batch_per_member.dim() == 2:
-            product = torch.einsum("ij,bjk->bik", input_batch_per_member, self.weight)
-        else:
-            product = torch.einsum("bij,bjk->bik", input_batch_per_member, self.weight)
-
-        return product + self.bias
-
-    def save_members(self, *, member_indices: list[int]) -> None:
-        self.saved_weight.data[member_indices] = self.weight.data[member_indices]
-        self.saved_bias.data[member_indices] = self.bias.data[member_indices]
-
-    def restore_members(self) -> None:
-        self.weight.data.copy_(other=self.saved_weight.data)
-        self.bias.data.copy_(other=self.saved_bias.data)
-
-    def calculate_decay_loss(self) -> torch.Tensor:
-        return self.weight_decay * 0.5 * self.weight.square().sum()
-
-
 class DynamicsModelEnsemble(torch.nn.Module):
     elite_member_indices: torch.Tensor  # (elite_count,)
 
@@ -77,23 +26,25 @@ class DynamicsModelEnsemble(torch.nn.Module):
             state_dimensionality + action_dimensionality,
             *config.hidden_layer_dimensionalities,
         ]
-        self._hidden_layer_module_list = torch.nn.ModuleList(
-            modules=[
-                EnsembleLinearLayer(
-                    input_dimensionality=input_dimensionality,
-                    output_dimensionality=output_dimensionality,
-                    weight_decay=weight_decay,
-                    ensemble_size=config.ensemble_size,
-                )
-                for input_dimensionality, output_dimensionality, weight_decay in zip(
-                    layer_dimensionalities[:-1],
-                    layer_dimensionalities[1:],
-                    config.weight_decays[:-1],
-                    strict=True,
-                )
-            ]
-        )
-        self.output_layer = EnsembleLinearLayer(
+        hidden_layers: list[_EnsembleLinearLayer] = [
+            _EnsembleLinearLayer(
+                input_dimensionality=input_dimensionality,
+                output_dimensionality=output_dimensionality,
+                weight_decay=weight_decay,
+                ensemble_size=config.ensemble_size,
+            )
+            for input_dimensionality, output_dimensionality, weight_decay in zip(
+                layer_dimensionalities[:-1],
+                layer_dimensionalities[1:],
+                config.weight_decays[:-1],
+                strict=True,
+            )
+        ]
+        # The list registers the parameters, the tuple keeps the member type.
+        # Both hold the same layers, so nothing is registered twice.
+        self._hidden_layer_module_list = torch.nn.ModuleList(modules=hidden_layers)
+        self.hidden_layers = tuple(hidden_layers)
+        self.output_layer = _EnsembleLinearLayer(
             input_dimensionality=layer_dimensionalities[-1],
             output_dimensionality=2 * target_dimensionality,
             weight_decay=config.weight_decays[-1],
@@ -112,18 +63,6 @@ class DynamicsModelEnsemble(torch.nn.Module):
         self.register_buffer(
             name="elite_member_indices", tensor=torch.arange(end=config.elite_count)
         )
-
-    @property
-    def hidden_layers(self) -> tuple[EnsembleLinearLayer, ...]:
-        layers: list[EnsembleLinearLayer] = []
-        for module in self._hidden_layer_module_list:
-            if not isinstance(module, EnsembleLinearLayer):
-                raise TypeError(
-                    f"Expected an EnsembleLinearLayer member, got "
-                    f"{type(module).__name__}"
-                )
-            layers.append(module)
-        return tuple(layers)
 
     def forward(
         self,
@@ -176,6 +115,60 @@ class DynamicsModelEnsemble(torch.nn.Module):
                 device=self.elite_member_indices.device,
             )
         ]
+
+
+class _EnsembleLinearLayer(torch.nn.Module):
+    saved_weight: torch.Tensor  # (ensemble_size, input_dim., output_dim.)
+    saved_bias: torch.Tensor  # (ensemble_size, 1, output_dimensionality)
+
+    def __init__(
+        self,
+        *,
+        input_dimensionality: int,
+        output_dimensionality: int,
+        weight_decay: float,
+        ensemble_size: int,
+    ) -> None:
+        super().__init__()
+
+        self.weight = torch.nn.Parameter(
+            data=torch.zeros(ensemble_size, input_dimensionality, output_dimensionality)
+        )
+        self.bias = torch.nn.Parameter(
+            data=torch.zeros(ensemble_size, 1, output_dimensionality)
+        )
+        torch.nn.init.trunc_normal_(
+            tensor=self.weight, std=1.0 / (2.0 * input_dimensionality**0.5)
+        )
+
+        self.register_buffer(name="saved_weight", tensor=self.weight.detach().clone())
+        self.register_buffer(name="saved_bias", tensor=self.bias.detach().clone())
+
+        self.weight_decay = weight_decay
+
+    def forward(
+        self,
+        input_batch_per_member: torch.Tensor,
+        # (ensemble_size, batch_size, input_dimensionality), or
+        # (batch_size, input_dimensionality)
+    ) -> torch.Tensor:  # (ensemble_size, batch_size, output_dimensionality)
+        if input_batch_per_member.dim() == 2:
+            product = torch.einsum("ij,bjk->bik", input_batch_per_member, self.weight)
+        else:
+            product = torch.einsum("bij,bjk->bik", input_batch_per_member, self.weight)
+
+        return product + self.bias
+
+    def save_members(self, *, member_indices: list[int]) -> None:
+        self.saved_weight[member_indices] = self.weight.data[member_indices]
+        self.saved_bias[member_indices] = self.bias.data[member_indices]
+
+    def restore_members(self) -> None:
+        self.weight.data.copy_(other=self.saved_weight)
+        self.bias.data.copy_(other=self.saved_bias)
+
+    def calculate_decay_loss(self) -> torch.Tensor:
+        return self.weight_decay * 0.5 * self.weight.square().sum()
 
 
 def _soft_clamp(
