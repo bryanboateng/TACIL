@@ -101,19 +101,23 @@ class CriticEnsemble(torch.nn.Module):
     ) -> torch.Tensor:  # (critic_count, batch_size, 1)
         # Every critic sees the same input, so one copy is spread across the
         # critic axis without being duplicated in memory.
-        value_batches = input_batch.unsqueeze(dim=0).expand(self.critic_count, -1, -1)
+        value_batch_per_critic = input_batch.unsqueeze(dim=0).expand(
+            self.critic_count, -1, -1
+        )
 
         # baddbmm is the batched product with the bias folded in.
         # This is faster than having two steps because it costs an extra intermediate on every layer.
         *hidden_layers, output_layer = zip(self.weights, self.biases, strict=True)
         for weight, bias in hidden_layers:
-            value_batches = torch.relu(
-                input=torch.baddbmm(input=bias, batch1=value_batches, batch2=weight)
+            value_batch_per_critic = torch.relu(
+                input=torch.baddbmm(
+                    input=bias, batch1=value_batch_per_critic, batch2=weight
+                )
             )
 
         output_weight, output_bias = output_layer
         return torch.baddbmm(
-            input=output_bias, batch1=value_batches, batch2=output_weight
+            input=output_bias, batch1=value_batch_per_critic, batch2=output_weight
         )
 
 
@@ -325,20 +329,22 @@ class MopoPolicy:
         batch: Batch,
         target_value_batch: torch.Tensor,  # (batch_size, 1)
     ) -> torch.Tensor:
-        value_batches = self._critic(
+        value_batch_per_critic = self._critic(
             torch.cat(tensors=[batch.states, batch.actions], dim=-1)
         )  # (critic_count, batch_size, 1)
 
         # One number per critic
-        critic_losses = (
-            (value_batches - target_value_batch.unsqueeze(0)).square().mean(dim=(1, 2))
+        loss_per_critic = (
+            (value_batch_per_critic - target_value_batch.unsqueeze(0))
+            .square()
+            .mean(dim=(1, 2))
         )  # (critic_count,)
 
         self._critic_optimizer.zero_grad(set_to_none=True)
-        critic_losses.sum().backward()
+        loss_per_critic.sum().backward()
         self._critic_optimizer.step()
 
-        return critic_losses.detach().mean()
+        return loss_per_critic.detach().mean()
 
     def _update_actor_and_temperature(
         self,

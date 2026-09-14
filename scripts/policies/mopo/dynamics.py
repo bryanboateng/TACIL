@@ -48,14 +48,14 @@ class EnsembleLinearLayer(torch.nn.Module):
 
     def forward(
         self,
-        input_batches: torch.Tensor,
+        input_batch_per_member: torch.Tensor,
         # (ensemble_size, batch_size, input_dimensionality), or
         # (batch_size, input_dimensionality) for one batch every member shares
     ) -> torch.Tensor:  # (ensemble_size, batch_size, output_dimensionality)
-        if input_batches.dim() == 2:
-            product = torch.einsum("ij,bjk->bik", input_batches, self.weight)
+        if input_batch_per_member.dim() == 2:
+            product = torch.einsum("ij,bjk->bik", input_batch_per_member, self.weight)
         else:
-            product = torch.einsum("bij,bjk->bik", input_batches, self.weight)
+            product = torch.einsum("bij,bjk->bik", input_batch_per_member, self.weight)
 
         return product + self.bias
 
@@ -143,21 +143,21 @@ class DynamicsModelEnsemble(torch.nn.Module):
 
     def forward(
         self,
-        input_batches: torch.Tensor,
+        input_batch_per_member: torch.Tensor,
         # (ensemble_size, batch_size, input_dimensionality), or
         # (batch_size, input_dimensionality) for one batch every member shares
     ) -> tuple[torch.Tensor, torch.Tensor]:
         # each (ensemble_size, batch_size, target_dimensionality)
-        output_batches = input_batches
+        output_batch_per_member = input_batch_per_member
         for layer in self.hidden_layers:
-            output_batches = self.activation(layer(output_batches))
+            output_batch_per_member = self.activation(layer(output_batch_per_member))
 
-        mean_batches, log_variance_batches = torch.chunk(
-            input=self.output_layer(output_batches), chunks=2, dim=-1
+        mean_batch_per_member, log_variance_batch_per_member = torch.chunk(
+            input=self.output_layer(output_batch_per_member), chunks=2, dim=-1
         )
 
-        return mean_batches, _soft_clamp(
-            value=log_variance_batches,
+        return mean_batch_per_member, _soft_clamp(
+            value=log_variance_batch_per_member,
             minimum=self.minimum_log_variance,
             maximum=self.maximum_log_variance,
         )
@@ -245,30 +245,34 @@ class Dynamics:
             )
 
             (
-                mean_batches,  # (ensemble_size, batch_size, state_dimensionality + 1)
-                log_variance_batches,  # (ensemble_size, batch_size, state_dimensionality + 1)
+                mean_batch_per_member,  # (ensemble_size, batch_size, state_dimensionality + 1)
+                log_variance_batch_per_member,  # (ensemble_size, batch_size, state_dimensionality + 1)
             ) = self.model_ensemble(input_batch)
-            standard_deviation_batches = (0.5 * log_variance_batches).exp()
+            standard_deviation_batch_per_member = (
+                0.5 * log_variance_batch_per_member
+            ).exp()  # (ensemble_size, batch_size, state_dimensionality + 1)
 
-            sample_batches = _draw_member_samples(
+            next_state_and_reward_batch_per_member = _draw_next_states_and_rewards(
                 state_batch=state_batch,
-                mean_batches=mean_batches,
-                standard_deviation_batches=standard_deviation_batches,
+                mean_batch_per_member=mean_batch_per_member,
+                standard_deviation_batch_per_member=standard_deviation_batch_per_member,
             )  # (ensemble_size, batch_size, state_dimensionality + 1)
 
             batch_size = state_batch.shape[0]
             member_index_batch = self.model_ensemble.draw_elite_indices(
                 count=batch_size
             )
-            sample_batch = sample_batches[
+            next_state_and_reward_batch = next_state_and_reward_batch_per_member[
                 member_index_batch, torch.arange(end=batch_size, device=self.device)
             ]  # (batch_size, target_dimensionality)
 
-            next_state_batch = sample_batch[..., :-1]
-            reward_batch = sample_batch[..., -1:]
+            next_state_batch = next_state_and_reward_batch[..., :-1]
+            reward_batch = next_state_and_reward_batch[..., -1:]
 
             penalty_batch = (
-                standard_deviation_batches.norm(dim=2).amax(dim=0).unsqueeze(dim=1)
+                standard_deviation_batch_per_member.norm(dim=2)
+                .amax(dim=0)
+                .unsqueeze(dim=1)
             )  # (batch_size, 1)
 
             return ImaginedStep(
@@ -281,22 +285,26 @@ class Dynamics:
             )
 
 
-def _draw_member_samples(
+def _draw_next_states_and_rewards(
     *,
     state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
-    mean_batches: torch.Tensor,  # (ensemble_size, batch_size, state_dimensionality + 1)
-    standard_deviation_batches: torch.Tensor,  # (ensemble_size, batch_size, state_dimensionality + 1)
+    mean_batch_per_member: torch.Tensor,  # (ensemble_size, batch_size, state_dimensionality + 1)
+    standard_deviation_batch_per_member: torch.Tensor,  # (ensemble_size, batch_size, state_dimensionality + 1)
 ) -> torch.Tensor:
-    next_state_mean_batches = (
-        mean_batches[..., :-1] + state_batch
+    next_state_mean_batch_per_member = (
+        mean_batch_per_member[..., :-1] + state_batch
     )  # (ensemble_size, batch_size, state_dimensionality)
-    reward_mean_batches = mean_batches[..., -1:]  # (ensemble_size, batch_size, 1)
+    reward_mean_batch_per_member = mean_batch_per_member[
+        ..., -1:
+    ]  # (ensemble_size, batch_size, 1)
 
-    mean_batches = torch.cat(
-        tensors=[next_state_mean_batches, reward_mean_batches], dim=-1
+    mean_batch_per_member = torch.cat(
+        tensors=[next_state_mean_batch_per_member, reward_mean_batch_per_member], dim=-1
     )  # (ensemble_size, batch_size, target_dimensionality)
     return (
-        mean_batches + torch.randn_like(input=mean_batches) * standard_deviation_batches
+        mean_batch_per_member
+        + torch.randn_like(input=mean_batch_per_member)
+        * standard_deviation_batch_per_member
     )  # (ensemble_size, batch_size, state_dimensionality + 1)
 
 
