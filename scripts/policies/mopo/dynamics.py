@@ -252,7 +252,7 @@ class Dynamics:
                 0.5 * log_variance_batch_per_member
             ).exp()  # (ensemble_size, batch_size, state_dimensionality + 1)
 
-            next_state_and_reward_batch_per_member = _draw_next_states_and_rewards(
+            next_state_and_reward_batch_per_member = _draw_next_state_and_reward(
                 state_batch=state_batch,
                 mean_batch_per_member=mean_batch_per_member,
                 standard_deviation_batch_per_member=standard_deviation_batch_per_member,
@@ -285,7 +285,7 @@ class Dynamics:
             )
 
 
-def _draw_next_states_and_rewards(
+def _draw_next_state_and_reward(
     *,
     state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
     mean_batch_per_member: torch.Tensor,  # (ensemble_size, batch_size, state_dimensionality + 1)
