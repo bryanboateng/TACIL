@@ -220,14 +220,12 @@ class Dynamics:
         self,
         *,
         model_ensemble: DynamicsModelEnsemble,
-        optimizer: torch.optim.Optimizer,
         input_normalizer: InputNormalizer,
         termination_function: TerminationFunction,
         penalty_coefficient: float,
         device: torch.device,
     ) -> None:
         self.model_ensemble = model_ensemble
-        self.optimizer = optimizer
         self.input_normalizer = input_normalizer
         self.termination_function = termination_function
         self.penalty_coefficient = penalty_coefficient

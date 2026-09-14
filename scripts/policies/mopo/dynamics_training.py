@@ -151,7 +151,6 @@ def train_dynamics(
 
     return Dynamics(
         model_ensemble=model_ensemble,
-        optimizer=optimizer,
         input_normalizer=input_normalizer,
         termination_function=termination_function,
         penalty_coefficient=rollout_penalty_coefficient,
