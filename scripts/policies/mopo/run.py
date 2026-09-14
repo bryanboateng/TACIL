@@ -150,18 +150,6 @@ def _calculate_termination(
     normalized_state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
     state_normalizer: ZScoreNormalizer,
 ) -> torch.Tensor:  # (batch_size,)
-    """Ends an imagined rollout on success, or on a state that cannot happen.
-
-    The dynamics model may predict anything, and over several imagined steps
-    it can drift far off the board. Without this, such a state stays in the
-    buffer and the policy learns from it.
-
-    A whole arena of slack on each side keeps real overshoots at the wall.
-    Beyond that no state describes anything the blocks could do.
-
-    The coverage runs on the processor, because it walks polygon corners, so
-    this is the one rule that has to leave the device.
-    """
     state_batch = (
         state_normalizer.denormalize(value_batch=normalized_state_batch.cpu())
         .numpy()
@@ -176,9 +164,6 @@ def _calculate_termination(
     )
 
     termination_batch = ~plausible_batch
-    # The coverage is the costly part, so it only runs on states that could
-    # have happened at all. It also cannot take an empty batch, which is what
-    # a wholly derailed rollout would hand it.
     if plausible_batch.any():
         termination_batch[plausible_batch] = calculate_termination(
             state_batch=state_batch[plausible_batch]
