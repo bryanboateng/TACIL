@@ -16,9 +16,6 @@ class DynamicsModelEnsemble(torch.nn.Module):
     ) -> None:
         super().__init__()
 
-        self.ensemble_size = config.ensemble_size
-        self.elite_count = config.elite_count
-
         # state change and reward
         target_dimensionality = state_dimensionality + 1
 
@@ -26,7 +23,7 @@ class DynamicsModelEnsemble(torch.nn.Module):
             state_dimensionality + action_dimensionality,
             *config.hidden_layer_dimensionalities,
         ]
-        hidden_layers: list[_EnsembleLinearLayer] = [
+        self.hidden_layers = torch.nn.ModuleList(
             _EnsembleLinearLayer(
                 input_dimensionality=input_dimensionality,
                 output_dimensionality=output_dimensionality,
@@ -39,11 +36,7 @@ class DynamicsModelEnsemble(torch.nn.Module):
                 config.weight_decays[:-1],
                 strict=True,
             )
-        ]
-        # The list registers the parameters, the tuple keeps the member type.
-        # Both hold the same layers, so nothing is registered twice.
-        self._hidden_layer_module_list = torch.nn.ModuleList(modules=hidden_layers)
-        self.hidden_layers = tuple(hidden_layers)
+        )
         self.output_layer = _EnsembleLinearLayer(
             input_dimensionality=layer_dimensionalities[-1],
             output_dimensionality=2 * target_dimensionality,
@@ -87,17 +80,20 @@ class DynamicsModelEnsemble(torch.nn.Module):
 
     def save_members(self, *, member_indices: list[int]) -> None:
         for layer in self.hidden_layers:
+            assert isinstance(layer, _EnsembleLinearLayer)
             layer.save_members(member_indices=member_indices)
         self.output_layer.save_members(member_indices=member_indices)
 
     def restore_members(self) -> None:
         for layer in self.hidden_layers:
+            assert isinstance(layer, _EnsembleLinearLayer)
             layer.restore_members()
         self.output_layer.restore_members()
 
     def calculate_decay_loss(self) -> torch.Tensor:
         decay_loss = self.output_layer.calculate_decay_loss()
         for layer in self.hidden_layers:
+            assert isinstance(layer, _EnsembleLinearLayer)
             decay_loss = decay_loss + layer.calculate_decay_loss()
         return decay_loss
 
