@@ -79,7 +79,9 @@ def main() -> None:
 
 
 def format_summary(*, ccil_output_directory_path: Path) -> str:
-    seed_means = _read_seed_means(directory_path=OUTPUT_DIRECTORY_PATH / "replication")
+    seed_means = _read_seed_means(
+        directory_path=OUTPUT_DIRECTORY_PATH / "replication" / "ccil"
+    )
 
     their_seed_means = _read_their_seed_means(directory_path=ccil_output_directory_path)
 

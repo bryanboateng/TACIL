@@ -55,7 +55,7 @@ class Config:
     ccil_directory_path: Path
     wandb_project: str
 
-    output_directory_path: Path = OUTPUT_DIRECTORY_PATH / "replication"
+    output_directory_path: Path = OUTPUT_DIRECTORY_PATH / "replication" / "ccil"
 
     # The tasks that mujoco.sh and metaworld.sh cover.
     tasks: tuple[str, ...] = (
