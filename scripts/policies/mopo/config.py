@@ -47,7 +47,7 @@ class DynamicsConfig:
 
 @dataclass(frozen=True)
 class RolloutConfig:
-    interval_step_count: int = 1000
+    interval_step_count: int = 1_000
     start_state_count: int = 50_000
     length: int = 1
     penalty_coefficient: float = 2.5
