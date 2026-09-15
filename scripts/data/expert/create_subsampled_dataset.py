@@ -103,12 +103,7 @@ def _subsample_episodes(
     subsampled_episode_end_indices = []
     cumulative_transition_count = 0
 
-    for selected_episode_index in selected_episode_indices:
-        if not isinstance(selected_episode_index, int):
-            raise TypeError(
-                f"Expected int, got {type(selected_episode_index).__name__}"
-            )
-
+    for selected_episode_index in selected_episode_indices.tolist():
         start_index: int = episode_start_indices[selected_episode_index]
         end_index: int = episode_store.episode_end_indices[selected_episode_index]
 
