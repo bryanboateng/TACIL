@@ -4,7 +4,6 @@ from pathlib import Path
 import numpy as np
 import zarr
 from numpy import typing as npt
-from wandb import Run
 from zarr import Array, Group
 
 
@@ -13,14 +12,6 @@ class EpisodeStore:
     states: npt.NDArray[np.float32]  # (total_timestep_count, state_dimensionality)
     actions: npt.NDArray[np.float32]  # (total_timestep_count, action_dimensionality)
     episode_end_indices: npt.NDArray[np.int64]  # (episode_count,)
-
-
-def download_episode_store(*, artifact_name: str, run: Run) -> EpisodeStore:
-    return read_episode_store(
-        episode_file_path=Path(
-            run.use_artifact(artifact_or_name=artifact_name).download()
-        )
-    )
 
 
 def read_episode_store(*, episode_file_path: Path) -> EpisodeStore:

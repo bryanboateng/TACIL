@@ -18,6 +18,7 @@ from scripts.evaluation.core.video import (
 )
 from scripts.policies.gpi import config as gpi
 from scripts.policies.gpi.policy import create_geometric_policy_factory
+from scripts.shared.dataset_artifact import DATASET_PROJECT
 from scripts.shared.episode_store import read_episode_store
 from scripts.shared.log import create_logger, log_device_info
 from scripts.shared.policy_types import PolicyFactory
@@ -83,7 +84,7 @@ def _create_policy_factory(config: gpi.Config) -> PolicyFactory:
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     log_device_info(device=device, logger=logger)
 
-    dataset_artifact = "datasets/dataset-100:latest"
+    dataset_artifact = f"{DATASET_PROJECT}/dataset-PushT-206-of-206:latest"
     return create_geometric_policy_factory(
         episode_store=read_episode_store(
             episode_file_path=(

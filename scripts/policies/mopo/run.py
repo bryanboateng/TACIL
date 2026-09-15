@@ -17,7 +17,8 @@ from scripts.policies.mopo.policy import MopoPolicy, create_mopo_policy_factory
 from scripts.policies.mopo.train import ValidationScore, train_mopo_policy
 from scripts.policies.mopo.transitions import Transitions
 from scripts.policies.shared.run_config import RunConfig
-from scripts.shared.episode_store import EpisodeStore, download_episode_store
+from scripts.shared.dataset_artifact import download_episode_store
+from scripts.shared.episode_store import EpisodeStore
 from scripts.shared.log import create_logger, log_device_info
 from scripts.shared.normalization import MinMaxNormalizer, ZScoreNormalizer
 from scripts.shared.paths import OUTPUT_DIRECTORY_PATH

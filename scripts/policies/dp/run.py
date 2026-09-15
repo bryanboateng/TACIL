@@ -13,7 +13,7 @@ from scripts.policies.dp import config as policy_config
 from scripts.policies.dp.policy import create_diffusion_policy_factory
 from scripts.policies.dp.train import train_diffusion_policy
 from scripts.policies.shared.run_config import RunConfig
-from scripts.shared.episode_store import download_episode_store
+from scripts.shared.dataset_artifact import download_episode_store
 from scripts.shared.log import create_logger, log_device_info
 from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
 

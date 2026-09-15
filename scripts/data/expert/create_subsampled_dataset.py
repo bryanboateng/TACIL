@@ -9,7 +9,12 @@ import zarr
 from rich.pretty import pretty_repr
 from wandb import Run
 
-from scripts.shared.episode_store import EpisodeStore, download_episode_store
+from scripts.shared.dataset_artifact import (
+    DATASET_PROJECT,
+    build_dataset_name,
+    download_episode_store,
+)
+from scripts.shared.episode_store import EpisodeStore
 from scripts.shared.log import create_logger
 from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
 
@@ -18,17 +23,14 @@ logger = create_logger()
 
 @dataclass
 class Config:
-    wandb_project: str
     source_dataset_artifact: str
     episode_count: int
 
     def __post_init__(self):
         if self.episode_count < 1:
-            raise ValueError("episode_count must be positive")
-
-        artifact_name = self.source_dataset_artifact.rsplit("/", 1)[-1].split(":", 1)[0]
-        if not artifact_name.endswith("-original"):
-            raise ValueError("Subsampling requires an original dataset.")
+            raise ValueError(
+                f"episode_count must be positive, but it is {self.episode_count}."
+            )
 
 
 def main():
@@ -39,7 +41,7 @@ def main():
 
 def _run(*, config: Config):
     with wandb.init(
-        project=config.wandb_project,
+        project=DATASET_PROJECT,
         job_type="dataset-subsampling",
         config=asdict(config),
         dir=OUTPUT_DIRECTORY_PATH,
@@ -47,6 +49,15 @@ def _run(*, config: Config):
         expert_episode_store = download_episode_store(
             artifact_name=config.source_dataset_artifact, run=run
         )
+
+        source_episode_count = len(expert_episode_store.episode_end_indices)
+        source_name = config.source_dataset_artifact.split(":", maxsplit=1)[0]
+
+        if not source_name.endswith(f"-of-{source_episode_count}"):
+            raise ValueError(
+                f"Subsampling needs a full dataset, but {source_name!r} holds "
+                f"{source_episode_count} episodes."
+            )
 
         subsampled_episode_store = _subsample_episodes(
             episode_store=expert_episode_store, episode_count=config.episode_count
@@ -59,7 +70,13 @@ def _run(*, config: Config):
         )
 
         _upload_episode_store(
-            subsampled_episode_store=subsampled_episode_store, run=run
+            subsampled_episode_store=subsampled_episode_store,
+            dataset_name=build_dataset_name(
+                environment=source_name.removeprefix("dataset-").split("-")[0],
+                episode_count=len(subsampled_episode_store.episode_end_indices),
+                source_episode_count=source_episode_count,
+            ),
+            run=run,
         )
 
 
@@ -143,7 +160,9 @@ def _log_dataset_statistics(
     )
 
 
-def _upload_episode_store(*, subsampled_episode_store: EpisodeStore, run: Run):
+def _upload_episode_store(
+    *, subsampled_episode_store: EpisodeStore, dataset_name: str, run: Run
+):
     with tempfile.TemporaryDirectory() as temporary_directory:
         output_zarr_path = Path(temporary_directory) / "dataset.zarr"
 
@@ -151,10 +170,7 @@ def _upload_episode_store(*, subsampled_episode_store: EpisodeStore, run: Run):
             episode_store=subsampled_episode_store, save_file_path=output_zarr_path
         )
 
-        new_artifact = wandb.Artifact(
-            name=f"dataset-{len(subsampled_episode_store.episode_end_indices)}",
-            type="dataset",
-        )
+        new_artifact = wandb.Artifact(name=dataset_name, type="dataset")
         new_artifact.add_dir(local_path=str(output_zarr_path))
         run.log_artifact(artifact_or_path=new_artifact)
 
