@@ -12,6 +12,8 @@ class RunConfig[PolicyConfigT, AugmentationT]:
     policy: PolicyConfigT
     augmentation: AugmentationT | None
 
+    record_videos: bool = True
+
     def __post_init__(self) -> None:
         for name, value in (
             ("wandb_project", self.wandb_project),

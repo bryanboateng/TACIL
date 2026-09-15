@@ -106,6 +106,7 @@ def _run(*, config: Config) -> None:
             ),
             policy_label=f"bc ({run_name})",
             seed=config.seed,
+            record_videos=config.record_videos,
             run=run,
         )
         logger.info("Stage 3/3: done.")

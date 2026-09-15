@@ -44,7 +44,12 @@ ALL_CONDITIONS_LABEL = "0_all_conditions"
 
 
 def evaluate_policy(
-    *, policy_factory: PolicyFactory, policy_label: str, seed: int, run: Run
+    *,
+    policy_factory: PolicyFactory,
+    policy_label: str,
+    seed: int,
+    record_videos: bool,
+    run: Run,
 ) -> None:
     start_episode_seed = 2_000_000 + seed * 10_000
 
@@ -67,14 +72,15 @@ def evaluate_policy(
                 reward=reward,
                 success=calculate_success_statistics(episode_records=episode_records),
             )
-            _log_video(
-                policy_label=policy_label,
-                condition=condition,
-                episode_records=pick_representative_episodes(
-                    episode_records=episode_records
-                ),
-                run=run,
-            )
+            if record_videos:
+                _log_video(
+                    policy_label=policy_label,
+                    condition=condition,
+                    episode_records=pick_representative_episodes(
+                        episode_records=episode_records
+                    ),
+                    run=run,
+                )
 
     run.summary[f"{STAGE_NAME}/{ALL_CONDITIONS_LABEL}/1_reward_mean"] = sum(
         reward_means
@@ -113,7 +119,7 @@ def _log_video(
     run: Run,
 ) -> None:
     fps = get_video_fps()
-    render_settings = RenderSettings(size=640, supersample_factor=2)
+    render_settings = RenderSettings(size=1_000, supersample_factor=2)
     environment = create_environment(
         condition=condition, render_settings=render_settings
     )
