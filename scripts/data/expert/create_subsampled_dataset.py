@@ -87,9 +87,9 @@ def _subsample_episodes(
     source_episode_count = len(episode_store.episode_end_indices)
 
     selected_episode_indices = np.sort(
-        a=np.random.default_rng(seed=42).choice(
-            a=source_episode_count, size=episode_count, replace=False
-        )
+        a=np.random.default_rng(seed=42).permutation(x=source_episode_count)[
+            :episode_count
+        ]
     )  # (selected_episode_count,)
 
     episode_start_indices = np.concatenate(
