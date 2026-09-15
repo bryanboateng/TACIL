@@ -1,7 +1,7 @@
 import pickle
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TypeAlias
+from typing import TypeAlias, get_args
 
 import numpy as np
 import torch
@@ -18,10 +18,9 @@ from scripts.data.augmentation.ccil.config import (
     DynamicsConfig,
     ForwardEulerLabels,
     LabelConfig,
-    LearnedSlack,
+    LipschitzType,
     NoisyActionLabels,
-    SoftSamplingPenalty,
-    SpectralNormalization,
+    RejectionConfig,
 )
 from scripts.policies.bc import config as bc_config
 from scripts.policies.bc.train import train_behavior_cloning_policy
@@ -229,28 +228,8 @@ def _build_ccil_config(*, task_config: dict) -> CcilConfig:
         )
 
     lipschitz_type = dynamics_section["lipschitz_type"]
-    match lipschitz_type:
-        case "soft_sampling":
-            regularization = SoftSamplingPenalty(
-                lipschitz_constraint=dynamics_section["lipschitz_constraint"],
-                penalty_weight=dynamics_section["soft_lipschitz_penalty_weight"],
-                sampling_standard_deviation=dynamics_section[
-                    "soft_lipschitz_sampling_eps"
-                ],
-                sample_count=dynamics_section["soft_lipschitz_n_samples"],
-            )
-        case "spectral_normalization":
-            regularization = SpectralNormalization(
-                lipschitz_constraint=dynamics_section["lipschitz_constraint"]
-            )
-        case "slack":
-            regularization = LearnedSlack(
-                weight=dynamics_section.get("slack_weight", 1.0)
-            )
-        case "none":
-            regularization = None
-        case _:
-            raise ValueError(f"lipschitz_type {lipschitz_type} is not ported.")
+    if lipschitz_type not in get_args(LipschitzType):
+        raise ValueError(f"lipschitz_type {lipschitz_type} is not ported.")
 
     label_section = task_config["aug"]
     label_type = label_section["type"]
@@ -277,10 +256,23 @@ def _build_ccil_config(*, task_config: dict) -> CcilConfig:
             weight_decay=dynamics_section["weight_decay"],
             batch_size=dynamics_section["batch_size"],
             epoch_count=dynamics_section["train_epochs"],
-            regularization=regularization,
+            lipschitz_type=lipschitz_type,
+            lipschitz_constraint=dynamics_section["lipschitz_constraint"],
+            soft_sampling_penalty_weight=dynamics_section[
+                "soft_lipschitz_penalty_weight"
+            ],
+            soft_sampling_standard_deviation=dynamics_section[
+                "soft_lipschitz_sampling_eps"
+            ],
+            soft_sampling_sample_count=dynamics_section["soft_lipschitz_n_samples"],
+            slack_weight=dynamics_section.get("slack_weight", 1.0),
         ),
         labels=LabelConfig(
-            generation=generation, epsilon=float(epsilon) if epsilon else None
+            generation=generation,
+            rejection=RejectionConfig(
+                rule="absolute" if epsilon else "none",
+                limit=float(epsilon) if epsilon else 0.5,
+            ),
         ),
     )
 

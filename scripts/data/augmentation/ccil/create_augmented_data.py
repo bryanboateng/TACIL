@@ -6,6 +6,7 @@ from scripts.data.augmentation.ccil.config import (
     BackwardEulerLabels,
     CcilConfig,
     ForwardEulerLabels,
+    LabelConfig,
     NoisyActionLabels,
 )
 from scripts.data.augmentation.ccil.world_model import WorldModel, fit_world_model
@@ -48,7 +49,8 @@ def create_ccil_augmented_data(
         state_dimensionality=states.shape[1],
         action_dimensionality=actions.shape[1],
         hidden_layer_sizes=config.dynamics.hidden_layer_sizes,
-        regularization=config.dynamics.regularization,
+        lipschitz_type=config.dynamics.lipschitz_type,
+        lipschitz_constraint=config.dynamics.lipschitz_constraint,
     ).to(device=device)
 
     epoch_losses = fit_world_model(
@@ -80,11 +82,8 @@ def create_ccil_augmented_data(
             )
         )
 
-    epsilon = config.labels.epsilon
-    accepted_mask = (
-        np.ones_like(label_distances, dtype=bool)
-        if epsilon is None
-        else label_distances < epsilon
+    accepted_mask = _accept_labels(
+        label_distances=label_distances, config=config.labels
     )
     label_count = label_states.shape[0]
     rejected_count = label_count - int(accepted_mask.sum())
@@ -124,6 +123,21 @@ def _define_epoch_metrics(*, run: Run) -> None:
 
 
 # ---- Private --------------------------------------------
+
+
+def _accept_labels(
+    *, label_distances: np.ndarray, config: LabelConfig
+) -> np.ndarray:  # (label_count,)
+    rejection = config.rejection
+    match rejection.rule:
+        case "none":
+            return np.ones_like(label_distances, dtype=bool)
+        case "quantile":
+            limit = float(np.quantile(a=label_distances, q=rejection.limit))
+        case "absolute":
+            limit = rejection.limit
+
+    return label_distances < limit
 
 
 def _extract_transitions(

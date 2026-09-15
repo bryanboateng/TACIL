@@ -1,56 +1,13 @@
-from dataclasses import dataclass, field
-from typing import Annotated, TypeAlias
+from dataclasses import dataclass
+from typing import Annotated, Literal, TypeAlias
 
 import tyro
 
+LipschitzType: TypeAlias = Literal[
+    "soft_sampling", "spectral_normalization", "slack", "none"
+]
 
-@dataclass(frozen=True)
-class SoftSamplingPenalty:
-    lipschitz_constraint: float = 2.0
-    penalty_weight: float = 0.001
-    sampling_standard_deviation: float = 0.0003
-    sample_count: int = 5
-
-    def __post_init__(self) -> None:
-        for name, value in (
-            ("lipschitz_constraint", self.lipschitz_constraint),
-            ("sampling_standard_deviation", self.sampling_standard_deviation),
-            ("sample_count", self.sample_count),
-        ):
-            if value <= 0:
-                raise ValueError(f"{name} must be positive, but it is {value}.")
-        if self.penalty_weight < 0:
-            raise ValueError(
-                f"penalty_weight must not be negative, but it is {self.penalty_weight}."
-            )
-
-
-@dataclass(frozen=True)
-class SpectralNormalization:
-    lipschitz_constraint: float = 2.0
-
-    def __post_init__(self) -> None:
-        if self.lipschitz_constraint <= 0:
-            raise ValueError(
-                f"lipschitz_constraint must be positive, but it is "
-                f"{self.lipschitz_constraint}."
-            )
-
-
-@dataclass(frozen=True)
-class LearnedSlack:
-    weight: float = 1.0
-
-    def __post_init__(self) -> None:
-        if self.weight <= 0:
-            raise ValueError(f"weight must be positive, but it is {self.weight}.")
-
-
-Regularization: TypeAlias = (
-    Annotated[SoftSamplingPenalty, tyro.conf.subcommand(name="soft-sampling")]
-    | Annotated[SpectralNormalization, tyro.conf.subcommand(name="spectral-norm")]
-    | Annotated[LearnedSlack, tyro.conf.subcommand(name="slack")]
-)
+RejectionRule: TypeAlias = Literal["absolute", "quantile", "none"]
 
 
 @dataclass(frozen=True)
@@ -96,6 +53,23 @@ LabelGeneration: TypeAlias = (
 
 
 @dataclass(frozen=True)
+class RejectionConfig:
+    rule: RejectionRule = "none"
+    limit: float = 0.5
+
+    def __post_init__(self) -> None:
+        if self.rule == "quantile" and not 0.0 <= self.limit <= 1.0:
+            raise ValueError(
+                f"A quantile must lie between 0 and 1, but the limit is {self.limit}."
+            )
+
+        if self.rule == "absolute" and self.limit <= 0:
+            raise ValueError(
+                f"A distance must be positive, but the limit is {self.limit}."
+            )
+
+
+@dataclass(frozen=True)
 class DynamicsConfig:
     hidden_layer_sizes: tuple[int, ...] = (512, 512)
     learning_rate: float = 1e-3
@@ -103,7 +77,16 @@ class DynamicsConfig:
     batch_size: int = 512
     epoch_count: int = 100
 
-    regularization: Regularization | None = field(default_factory=SoftSamplingPenalty)
+    lipschitz_type: LipschitzType = "soft_sampling"
+    lipschitz_constraint: float = 2.0
+
+    # Read only by soft sampling.
+    soft_sampling_penalty_weight: float = 0.001
+    soft_sampling_standard_deviation: float = 0.0003
+    soft_sampling_sample_count: int = 5
+
+    # Read only by the learned slack.
+    slack_weight: float = 1.0
 
     def __post_init__(self) -> None:
         if len(self.hidden_layer_sizes) == 0:
@@ -120,25 +103,25 @@ class DynamicsConfig:
             ("learning_rate", self.learning_rate),
             ("batch_size", self.batch_size),
             ("epoch_count", self.epoch_count),
+            ("lipschitz_constraint", self.lipschitz_constraint),
+            ("soft_sampling_standard_deviation", self.soft_sampling_standard_deviation),
+            ("soft_sampling_sample_count", self.soft_sampling_sample_count),
+            ("slack_weight", self.slack_weight),
         ):
             if value <= 0:
                 raise ValueError(f"{name} must be positive, but it is {value}.")
-        if self.weight_decay < 0:
-            raise ValueError(
-                f"weight_decay must not be negative, but it is {self.weight_decay}."
-            )
+        for name, value in (
+            ("weight_decay", self.weight_decay),
+            ("soft_sampling_penalty_weight", self.soft_sampling_penalty_weight),
+        ):
+            if value < 0:
+                raise ValueError(f"{name} must not be negative, but it is {value}.")
 
 
 @dataclass(frozen=True)
 class LabelConfig:
     generation: LabelGeneration
-    epsilon: float | None
-
-    def __post_init__(self) -> None:
-        if self.epsilon is not None and self.epsilon <= 0:
-            raise ValueError(
-                f"epsilon must be positive when it is set, but it is {self.epsilon}."
-            )
+    rejection: RejectionConfig
 
 
 @dataclass(frozen=True)
