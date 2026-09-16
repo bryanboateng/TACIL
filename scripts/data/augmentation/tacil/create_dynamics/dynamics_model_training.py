@@ -44,6 +44,7 @@ class MemberTrainingState:
     state_windows: torch.Tensor
     action_windows: torch.Tensor
     best_checkpoint: Checkpoint | None = None
+    epoch_count_without_improvement: int = 0
 
     @property
     def ema_dynamics_model(self) -> DynamicsModel:
@@ -158,15 +159,16 @@ def train_member_for_one_epoch(
             batch_size=batch_size,
         )
 
-    if (
-        training_state.best_checkpoint is None
-        or validation_loss < training_state.best_checkpoint.validation_loss
-    ):
+    best = training_state.best_checkpoint
+    if best is None or validation_loss < best.validation_loss:
         training_state.best_checkpoint = Checkpoint(
             validation_loss=validation_loss,
             epoch=epoch_index,
             state_dict=copy.deepcopy(training_state.ema_dynamics_model.state_dict()),
         )
+        training_state.epoch_count_without_improvement = 0
+    else:
+        training_state.epoch_count_without_improvement += 1
 
     with torch.no_grad():
         training_local_lipschitz_constants = _sample_local_lipschitz_constants(

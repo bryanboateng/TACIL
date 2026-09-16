@@ -117,8 +117,17 @@ def train_dynamics_model_ensemble(
     )
 
     for epoch_index in tqdm(
-        range(config.epoch_count), desc="training ensemble", unit="epoch"
+        range(config.maximum_epoch_count), desc="training ensemble", unit="epoch"
     ):
+        still_training = [
+            member_training_state
+            for member_training_state in member_training_states
+            if member_training_state.epoch_count_without_improvement
+            < config.patience_epoch_count
+        ]
+        if not still_training:
+            break
+
         log_epoch(
             epoch_index=epoch_index,
             per_member_metrics=[
@@ -127,7 +136,7 @@ def train_dynamics_model_ensemble(
                     epoch_index=epoch_index,
                     context=training_context,
                 )
-                for member_training_state in member_training_states
+                for member_training_state in still_training
             ],
             run=run,
         )

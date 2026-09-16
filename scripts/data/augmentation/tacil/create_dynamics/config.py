@@ -6,7 +6,8 @@ class DynamicsConfig:
     window_length: int
     lipschitz_limit: float | None
     ensemble_size: int = 20
-    epoch_count: int = 500
+    maximum_epoch_count: int = 500
+    patience_epoch_count: int = 50
     hidden_layer_count: int = 2
     hidden_layer_dimensionality: int = 256
 
@@ -14,7 +15,8 @@ class DynamicsConfig:
         for name, value in (
             ("window_length", self.window_length),
             ("ensemble_size", self.ensemble_size),
-            ("epoch_count", self.epoch_count),
+            ("maximum_epoch_count", self.maximum_epoch_count),
+            ("patience_epoch_count", self.patience_epoch_count),
             ("hidden_layer_count", self.hidden_layer_count),
             ("hidden_layer_dimensionality", self.hidden_layer_dimensionality),
         ):
