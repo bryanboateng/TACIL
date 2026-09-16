@@ -18,6 +18,9 @@ from scripts.shared.normalization import ZScoreNormalizer
 from scripts.shared.seeding import set_seed
 
 
+_PATIENCE_THRESHOLD = 0.001
+
+
 @dataclass
 class Checkpoint:
     validation_loss: float
@@ -44,6 +47,7 @@ class MemberTrainingState:
     state_windows: torch.Tensor
     action_windows: torch.Tensor
     best_checkpoint: Checkpoint | None = None
+    patience_loss: float | None = None
     epoch_count_without_improvement: int = 0
 
     @property
@@ -166,6 +170,13 @@ def train_member_for_one_epoch(
             epoch=epoch_index,
             state_dict=copy.deepcopy(training_state.ema_dynamics_model.state_dict()),
         )
+
+    patience_loss = training_state.patience_loss
+    if (
+        patience_loss is None
+        or (patience_loss - validation_loss) / patience_loss > _PATIENCE_THRESHOLD
+    ):
+        training_state.patience_loss = validation_loss
         training_state.epoch_count_without_improvement = 0
     else:
         training_state.epoch_count_without_improvement += 1
