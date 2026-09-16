@@ -24,7 +24,6 @@ def create_distribution_plot(*, values: np.ndarray, xlabel: str) -> wandb.Image:
         plot_area.xaxis.set_major_locator(locator=MaxNLocator(integer=True))
 
     plot_area.set_ylabel(ylabel="count")
-    plot_area.set_yscale(value="log")
     figure.tight_layout()
 
     image = wandb.Image(figure)
