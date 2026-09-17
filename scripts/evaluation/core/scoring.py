@@ -120,15 +120,11 @@ def calculate_success_statistics(
 def pick_representative_episodes(
     *, episode_records: list[EpisodeRecord]
 ) -> dict[int, EpisodeRecord]:
-    count = 9
+    percentiles = (0, 2, 5, 10, 20, 40, 50, 60, 80, 90, 95, 98, 100)
 
     sorted_records = sorted(episode_records, key=lambda record: record.reward)
     last_index = len(sorted_records) - 1
-    representative_records: dict[int, EpisodeRecord] = {}
-    for step in range(count):
-        fraction = step / (count - 1)
-        percentile = round(number=100 * fraction)
-        representative_records[percentile] = sorted_records[
-            round(number=last_index * fraction)
-        ]
-    return representative_records
+    return {
+        percentile: sorted_records[round(number=last_index * percentile / 100)]
+        for percentile in percentiles
+    }
