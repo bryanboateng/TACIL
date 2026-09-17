@@ -52,9 +52,7 @@ def run_scored_episodes_over_conditions(
         for condition_index, condition in enumerate(iterable=ALL_CONDITIONS)
         for episode_record in _run_scored_episodes(
             policy_factory=policy_factory,
-            start_episode_seed=(
-                100_000 + condition_index * episode_count_per_condition
-            ),
+            start_episode_seed=(10_000 + condition_index * episode_count_per_condition),
             episode_count=episode_count_per_condition,
             condition=condition,
         )
