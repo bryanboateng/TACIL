@@ -57,7 +57,7 @@ def _run(*, config: Config) -> None:
                 episode_store=expert_episodes, config=config.policy, device=device
             ),
             policy_label=f"gpi ({run_name})",
-            seed=config.seed,
+            config=config.evaluation,
             record_videos=config.record_videos,
             run=run,
         )

@@ -1,5 +1,7 @@
 from dataclasses import dataclass
 
+from scripts.evaluation.config import EvaluationConfig
+
 
 @dataclass(frozen=True)
 class RunConfig[PolicyConfigT, AugmentationT]:
@@ -8,6 +10,8 @@ class RunConfig[PolicyConfigT, AugmentationT]:
     wandb_project: str
 
     expert_dataset_artifact: str
+
+    evaluation: EvaluationConfig
 
     policy: PolicyConfigT
     augmentation: AugmentationT | None

@@ -183,7 +183,6 @@ def train_diffusion_policy(
                             noise_scheduler_name=config.sampler,
                             device=device,
                         ),
-                        start_episode_seed=100_000,
                         episode_count_per_condition=config.validation.episode_count_per_condition,
                     )
                 )

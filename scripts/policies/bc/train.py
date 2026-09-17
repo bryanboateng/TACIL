@@ -139,7 +139,6 @@ def train_behavior_cloning_policy(
                     policy_factory=create_behavior_cloning_policy_factory(
                         policy_model=model, device=device
                     ),
-                    start_episode_seed=100_000,
                     episode_count_per_condition=config.validation.episode_count_per_condition,
                 )
             )

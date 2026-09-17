@@ -45,10 +45,7 @@ def run_scored_episodes_per_condition(
 
 
 def run_scored_episodes_over_conditions(
-    *,
-    policy_factory: PolicyFactory,
-    start_episode_seed: int,
-    episode_count_per_condition: int,
+    *, policy_factory: PolicyFactory, episode_count_per_condition: int
 ) -> list[EpisodeRecord]:
     return [
         episode_record
@@ -56,7 +53,7 @@ def run_scored_episodes_over_conditions(
         for episode_record in _run_scored_episodes(
             policy_factory=policy_factory,
             start_episode_seed=(
-                start_episode_seed + condition_index * episode_count_per_condition
+                100_000 + condition_index * episode_count_per_condition
             ),
             episode_count=episode_count_per_condition,
             condition=condition,

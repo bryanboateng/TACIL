@@ -101,7 +101,7 @@ def _run(*, config: Config) -> None:
                 device=device,
             ),
             policy_label=f"mopo ({run_name})",
-            seed=config.seed,
+            config=config.evaluation,
             record_videos=config.record_videos,
             run=run,
         )
@@ -189,7 +189,6 @@ def _score_policy(
                 action_normalizer=action_normalizer,
                 device=device,
             ),
-            start_episode_seed=100_000,
             episode_count_per_condition=episode_count_per_condition,
         )
     )

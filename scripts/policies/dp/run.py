@@ -100,7 +100,7 @@ def _run(*, config: Config) -> None:
                 device=device,
             ),
             policy_label=f"dp ({run_name})",
-            seed=config.seed,
+            config=config.evaluation,
             record_videos=config.record_videos,
             run=run,
         )

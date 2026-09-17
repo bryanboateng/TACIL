@@ -11,6 +11,7 @@ from pygame import Surface
 from tqdm import tqdm
 from wandb import Run
 
+from scripts.evaluation.config import EvaluationConfig
 from scripts.evaluation.core.condition import Condition
 from scripts.evaluation.core.renderer import RenderSettings
 from scripts.evaluation.core.rollout import (
@@ -47,18 +48,16 @@ def evaluate_policy(
     *,
     policy_factory: PolicyFactory,
     policy_label: str,
-    seed: int,
+    config: EvaluationConfig,
     record_videos: bool,
     run: Run,
 ) -> None:
-    start_episode_seed = 2_000_000 + seed * 10_000
-
     reward_means: list[float] = []
     with torch.no_grad():
         scored_episodes_per_condition = run_scored_episodes_per_condition(
             policy_factory=policy_factory,
-            start_episode_seed=start_episode_seed,
-            episode_count_per_condition=100,
+            start_episode_seed=config.start_episode_seed,
+            episode_count_per_condition=config.episode_count_per_condition,
         )
         for condition, episode_records in scored_episodes_per_condition:
             logger.info("Scored the policy in %s.", condition.label)
