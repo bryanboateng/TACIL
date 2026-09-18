@@ -25,7 +25,7 @@ logger = create_logger()
 
 RESULT_DIRECTORY_PATH = OUTPUT_DIRECTORY_PATH / "replication" / "ccil"
 
-GROUP_LABELS = ("Ours", "Reference", "Paper")
+SOURCE_LABELS = ("Ours", "Ref.", "Paper")
 
 
 @dataclass(frozen=True)
@@ -38,6 +38,7 @@ class Config:
 PREVIEW_DOCUMENT = r"""\documentclass[a4paper,11pt]{article}
 \usepackage[margin=18mm]{geometry}
 \usepackage{booktabs}
+\usepackage{graphicx}
 \usepackage{amsmath}
 \pagestyle{empty}
 \begin{document}
@@ -129,13 +130,11 @@ def _render_table(
     seed_count = min(len(values) for values in ours.values())
     return rf"""\begin{{table}}[htbp]
   \centering
-  \caption{{CCIL on its own benchmark: episode return $\pm$ its standard deviation
-  across {seed_count} seeds, next to a rerun of the reference implementation and
-  the numbers the original paper reports.}}
+  \caption{{CCIL replication: episode return over {seed_count} seeds.}}
   \label{{tab:ccil-replication}}
   \footnotesize
-  \setlength{{\tabcolsep}}{{4pt}}
-  \begin{{tabular}}{{l{"@{\\hspace{9pt}}".join(["rrr"] * len(GROUP_LABELS))}}}
+  \setlength{{\tabcolsep}}{{3pt}}
+  \begin{{tabular}}{{l{"@{\\hspace{7pt}}".join(["rrr"] * len(VARIANT_LABELS))}}}
     \toprule
 {_render_head()}
     \midrule
@@ -150,12 +149,12 @@ def _render_head() -> str:
     group_cells = []
     rules = []
     first = 2
-    for group_label in GROUP_LABELS:
-        last = first + len(VARIANT_LABELS) - 1
-        group_cells.append(rf"\multicolumn{{{len(VARIANT_LABELS)}}}{{c}}{{{group_label}}}")
+    for _variant, label in VARIANT_LABELS:
+        last = first + len(SOURCE_LABELS) - 1
+        group_cells.append(rf"\multicolumn{{{len(SOURCE_LABELS)}}}{{c}}{{{label}}}")
         rules.append(rf"\cmidrule(lr){{{first}-{last}}}")
         first = last + 1
-    labels = " & ".join(label for _variant, label in VARIANT_LABELS * len(GROUP_LABELS))
+    labels = " & ".join(SOURCE_LABELS * len(VARIANT_LABELS))
     return (
         f"    & {' & '.join(group_cells)} \\\\\n"
         f"    {' '.join(rules)}\n"
@@ -169,18 +168,18 @@ def _render_row(
     ours: dict[tuple[str, str], list[float]],
     theirs: dict[tuple[str, str], list[float]],
 ) -> str:
-    cells = [
-        _format(values=ours.get((task, variant))) for variant, _label in VARIANT_LABELS
-    ] + [
-        _format(values=theirs.get((task, variant)))
-        for variant, _label in VARIANT_LABELS
-    ]
+    cells = []
     for variant, _label in VARIANT_LABELS:
         paper = PAPER_RESULTS.get(task, {}).get(variant)
+        cells.append(_format(values=ours.get((task, variant))))
+        cells.append(_format(values=theirs.get((task, variant))))
         cells.append(
             "--"
             if paper is None
-            else rf"${paper.mean:.0f} \pm {paper.standard_deviation:.0f}$"
+            else (
+                rf"${paper.mean:.0f}$"
+                rf"\,\scalebox{{0.8}}{{$\pm{paper.standard_deviation:.0f}$}}"
+            )
         )
     return rf"    {task.replace('_', r'\_')} & {' & '.join(cells)} \\"
 
@@ -190,7 +189,10 @@ def _format(*, values: list[float] | None) -> str:
         return "--"
     if len(values) < 2:
         return rf"${np.mean(values):.0f}$"
-    return rf"${np.mean(values):.0f} \pm {np.std(a=values, ddof=1):.0f}$"
+    return (
+        rf"${np.mean(values):.0f}$"
+        rf"\,\scalebox{{0.8}}{{$\pm{np.std(a=values, ddof=1):.0f}$}}"
+    )
 
 
 if __name__ == "__main__":

@@ -32,6 +32,7 @@ class Config:
 PREVIEW_DOCUMENT = r"""\documentclass[a4paper,11pt]{article}
 \usepackage[margin=18mm]{geometry}
 \usepackage{booktabs}
+\usepackage{graphicx}
 \usepackage{amsmath}
 \pagestyle{empty}
 \begin{document}
@@ -80,9 +81,7 @@ def _render_table(*, scores: dict[str, dict[int, float]]) -> str:
     seed_count = min(len(seed_scores) for seed_scores in scores.values())
     return rf"""\begin{{table}}[htbp]
   \centering
-  \caption{{MOPO on D4RL: normalised score $\pm$ its standard deviation across
-  {seed_count} seeds, next to the score the reference implementation reports and
-  the one the original paper reports.}}
+  \caption{{MOPO replication: normalised D4RL score over {seed_count} seeds.}}
   \label{{tab:mopo-replication}}
   \small
   \begin{{tabular}}{{lrrr}}
