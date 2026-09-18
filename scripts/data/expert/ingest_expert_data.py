@@ -5,6 +5,7 @@ import tyro
 import wandb
 from rich.pretty import pretty_repr
 
+from scripts.environments.registry import EnvironmentName
 from scripts.shared.dataset_artifact import DATASET_PROJECT, build_dataset_name
 from scripts.shared.episode_store import read_episode_store
 from scripts.shared.log import create_logger
@@ -15,7 +16,7 @@ logger = create_logger()
 
 @dataclass
 class Config:
-    environment: str
+    environment: EnvironmentName
     expert_data_file_path: Path
 
 
@@ -51,6 +52,7 @@ def _run(*, config: Config) -> None:
         run.summary["2_transition_count"] = len(episode_store.states)
         run.summary["3_state_dimensionality"] = episode_store.states.shape[1]
         run.summary["4_action_dimensionality"] = episode_store.actions.shape[1]
+        run.summary["5_carries_rewards"] = episode_store.rewards is not None
 
 
 if __name__ == "__main__":

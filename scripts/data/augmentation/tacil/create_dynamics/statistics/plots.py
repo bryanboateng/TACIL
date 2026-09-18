@@ -6,7 +6,7 @@ from matplotlib.artist import Artist
 from matplotlib.legend_handler import HandlerTuple
 from numpy import typing as npt
 
-from scripts.shared.pusht_state import ARENA_SIZE, BLOCK_ORIENTATION_INDEX
+from scripts.environments.state_picture import StatePicture
 
 matplotlib.use(backend="Agg")
 
@@ -170,12 +170,18 @@ def create_true_dynamics_vs_model_plot(
         np.floating
     ],  # (member_count, step_count + 1, state_dimensionality)
     true_trajectory: npt.NDArray[np.floating],  # (step_count + 1, state_dimensionality)
+    picture: StatePicture,
     episode_index: int,
 ) -> wandb.Image:
-    (
-        figure,
-        (agent_position_subplot, block_position_subplot, block_orientation_subplot),
-    ) = plt.subplots(nrows=1, ncols=3, figsize=(11.5, 4.5))
+    position_groups = picture.position_groups
+    orientation_groups = picture.orientation_groups
+    subplot_count = len(position_groups) + len(orientation_groups)
+
+    figure, subplots = plt.subplots(
+        nrows=1, ncols=subplot_count, figsize=(3.9 * subplot_count, 4.5), squeeze=False
+    )
+    position_subplots = subplots[0, : len(position_groups)]
+    orientation_subplots = subplots[0, len(position_groups) :]
 
     prediction_line_width = 0.8
     prediction_line_alpha = 0.5
@@ -184,22 +190,18 @@ def create_true_dynamics_vs_model_plot(
     true_line_width = 1.6
     true_line_color = "black"
 
-    for subplot, dimension_slice, title in (
-        (agent_position_subplot, slice(0, 2), "Agent Position"),
-        (block_position_subplot, slice(2, 4), "Block Position"),
-    ):
+    for subplot, position_group in zip(position_subplots, position_groups, strict=True):
         for member_index, member_trajectory in enumerate(iterable=member_trajectories):
-            path = member_trajectory[:, dimension_slice]
+            path = member_trajectory[:, position_group.entries]
             subplot.plot(
                 path[:, 0],
                 path[:, 1],
                 linewidth=prediction_line_width,
                 alpha=prediction_line_alpha,
                 color=prediction_line_color,
-                # One legend entry for all members.
                 label="model prediction" if member_index == 0 else None,
             )
-        true_path = true_trajectory[:, dimension_slice]
+        true_path = true_trajectory[:, position_group.entries]
         subplot.plot(
             true_path[:, 0],
             true_path[:, 1],
@@ -207,46 +209,51 @@ def create_true_dynamics_vs_model_plot(
             color=true_line_color,
             label="recorded episode",
         )
-        subplot.set_title(label=title)
-        subplot.set_xlabel(xlabel="x position [px]")
-        subplot.set_ylabel(ylabel="y position [px]")
-        subplot.set_xlim(left=0, right=ARENA_SIZE)
-        subplot.set_ylim(bottom=0, top=ARENA_SIZE)
+        subplot.set_title(label=position_group.label)
+        subplot.set_xlabel(xlabel=f"x position [{picture.position_unit}]")
+        subplot.set_ylabel(ylabel=f"y position [{picture.position_unit}]")
+        subplot.set_xlim(
+            left=picture.horizontal_limits[0], right=picture.horizontal_limits[1]
+        )
+        subplot.set_ylim(
+            bottom=picture.vertical_limits[0], top=picture.vertical_limits[1]
+        )
         subplot.set_aspect(aspect="equal", adjustable="box")
 
     steps = np.arange(true_trajectory.shape[0])
-    for member_trajectory in member_trajectories:
-        block_orientation_subplot.plot(
+    for subplot, orientation_group in zip(
+        orientation_subplots, orientation_groups, strict=True
+    ):
+        for member_trajectory in member_trajectories:
+            subplot.plot(
+                steps,
+                _break_at_wraps(
+                    orientation_timeline=member_trajectory[:, orientation_group.index]
+                ),
+                linewidth=prediction_line_width,
+                alpha=prediction_line_alpha,
+                color=prediction_line_color,
+            )
+        subplot.plot(
             steps,
             _break_at_wraps(
-                orientation_timeline=member_trajectory[:, BLOCK_ORIENTATION_INDEX]
+                orientation_timeline=true_trajectory[:, orientation_group.index]
             ),
-            linewidth=prediction_line_width,
-            alpha=prediction_line_alpha,
-            color=prediction_line_color,
+            linewidth=true_line_width,
+            color=true_line_color,
         )
-    block_orientation_subplot.plot(
-        steps,
-        _break_at_wraps(
-            orientation_timeline=true_trajectory[:, BLOCK_ORIENTATION_INDEX]
-        ),
-        linewidth=true_line_width,
-        color=true_line_color,
-    )
-    block_orientation_subplot.set_title(label="Block Orientation")
-    block_orientation_subplot.set_xlabel(xlabel="step")
-    block_orientation_subplot.set_ylabel(ylabel="orientation [rad]")
-    block_orientation_subplot.set_ylim(bottom=0, top=2.0 * np.pi)
-    block_orientation_subplot.yaxis.set_major_locator(
-        locator=plt.MultipleLocator(base=np.pi / 2)
-    )
-    block_orientation_subplot.yaxis.set_major_formatter(
-        formatter=plt.FuncFormatter(func=_describe_pi_multiple)
-    )
-    block_orientation_subplot.set_box_aspect(aspect=1.0)
+        subplot.set_title(label=orientation_group.label)
+        subplot.set_xlabel(xlabel="step")
+        subplot.set_ylabel(ylabel="orientation [rad]")
+        subplot.set_ylim(bottom=0, top=2.0 * np.pi)
+        subplot.yaxis.set_major_locator(locator=plt.MultipleLocator(base=np.pi / 2))
+        subplot.yaxis.set_major_formatter(
+            formatter=plt.FuncFormatter(func=_describe_pi_multiple)
+        )
+        subplot.set_box_aspect(aspect=1.0)
 
     figure.legend(
-        *agent_position_subplot.get_legend_handles_labels(), loc="lower center", ncol=2
+        *position_subplots[0].get_legend_handles_labels(), loc="lower center", ncol=2
     )
     figure.suptitle(t=f"True Dynamics vs. Model (Validation Episode {episode_index})")
     figure.tight_layout(rect=(0, 0.08, 1, 1))

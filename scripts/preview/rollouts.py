@@ -1,5 +1,6 @@
 import itertools
 import random
+from dataclasses import dataclass
 from pathlib import Path
 
 import pygame
@@ -8,14 +9,11 @@ import tyro
 import wandb
 from rich.pretty import pretty_repr
 
-from scripts.evaluation.core.condition import ALL_CONDITIONS
-from scripts.evaluation.core.renderer import RenderSettings
-from scripts.evaluation.core.rollout import create_environment, roll_out_episodes
-from scripts.evaluation.core.video import (
-    FREEZE_SECONDS,
-    get_video_fps,
-    render_episode_surfaces,
-)
+from scripts.environments.environment import Environment
+from scripts.environments.registry import EnvironmentName, create_environment
+from scripts.environments.render_settings import RenderSettings
+from scripts.evaluation.core.rollout import roll_out_episodes
+from scripts.evaluation.core.video import FREEZE_SECONDS, render_episode_surfaces
 from scripts.policies.gpi import config as gpi
 from scripts.policies.gpi.policy import create_geometric_policy_factory
 from scripts.shared.dataset_artifact import DATASET_PROJECT
@@ -29,47 +27,55 @@ RENDER_SIZE = 600
 logger = create_logger()
 
 
+@dataclass
+class Config:
+    environment: EnvironmentName
+    dataset_artifact: str
+    policy: gpi.Config
+
+
 def main() -> None:
-    config = tyro.cli(f=gpi.Config)
+    config = tyro.cli(f=Config)
     logger.info(pretty_repr(config))
     _run(config=config)
 
 
-def _run(*, config: gpi.Config) -> None:
+def _run(*, config: Config) -> None:
     pygame.init()
     screen = pygame.display.set_mode(size=(RENDER_SIZE, RENDER_SIZE))
     clock = pygame.time.Clock()
 
-    fps = get_video_fps()
-    policy_factory = _create_policy_factory(config=config)
+    environment = create_environment(name=config.environment)
+    fps = environment.video_settings.video_frames_per_second
+    policy_factory = _create_policy_factory(config=config, environment=environment)
 
-    for condition in itertools.cycle(ALL_CONDITIONS):
+    for condition in itertools.cycle(environment.conditions):
         seed = random.randint(a=0, b=2**31 - 1)
         pygame.display.set_caption(title="Preview")
 
-        environment = create_environment(
+        gym_environment = environment.create_gym_environment(
             condition=condition,
             render_settings=RenderSettings(size=RENDER_SIZE, supersample_factor=1),
         )
         try:
             with torch.no_grad():
                 (episode_record,) = roll_out_episodes(
-                    environments=[environment],
+                    environments=[gym_environment],
                     seeds=[seed],
                     policy=policy_factory(episode_seeds=[seed]),
                     render=True,
                 )
         finally:
-            environment.close()
+            gym_environment.close()
 
         surfaces = render_episode_surfaces(
             episode_record=episode_record,
-            condition=condition,
-            policy_label="dp (eternal-sweep-6)",
+            condition_description=environment.describe_condition(condition=condition),
+            video_settings=environment.video_settings,
+            policy_label="preview",
             percentile=75,
         )
 
-        # Play the episode, then hold on the final frame, matching the recorded freeze.
         freeze = [surfaces[-1]] * (fps * FREEZE_SECONDS)
         for surface in [*surfaces, *freeze]:
             if _quit_has_been_requested():
@@ -80,18 +86,24 @@ def _run(*, config: gpi.Config) -> None:
             clock.tick(fps)
 
 
-def _create_policy_factory(config: gpi.Config) -> PolicyFactory:
+def _create_policy_factory(
+    *, config: Config, environment: Environment
+) -> PolicyFactory:
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     log_device_info(device=device, logger=logger)
 
-    dataset_artifact = f"{DATASET_PROJECT}/dataset-PushT-206-of-206:latest"
     return create_geometric_policy_factory(
+        gpi_geometry=environment.gpi_geometry,
         episode_store=read_episode_store(
             episode_file_path=(
-                Path(wandb.Api().artifact(name=dataset_artifact).download())
+                Path(
+                    wandb.Api()
+                    .artifact(name=f"{DATASET_PROJECT}/{config.dataset_artifact}")
+                    .download()
+                )
             )
         ),
-        config=config,
+        config=config.policy,
         device=device,
     )
 

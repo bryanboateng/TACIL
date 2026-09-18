@@ -183,6 +183,7 @@ def _train(
         logger.info("Stage 2/3: training the policy.")
         policy_model = train_behavior_cloning_policy(
             config=policy_config,
+            environment=None,
             state_action_pairs=state_action_pairs,
             seed=seed,
             device=device,

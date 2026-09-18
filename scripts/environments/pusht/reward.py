@@ -1,14 +1,20 @@
 import numpy as np
 from gym_pusht.envs.pusht import PushTEnv
+from numpy import typing as npt
 
 from scripts.shared.convex_polygon import calculate_area, calculate_intersection_area
-from scripts.shared.pusht_state import BLOCK_ORIENTATION_INDEX, BLOCK_POSITION_SLICE
+from scripts.environments.pusht.state_space import (
+    ARENA_SIZE,
+    BLOCK_ORIENTATION_INDEX,
+    BLOCK_POSITION_SLICE,
+    POSITION_SLICE,
+)
 
 
 def calculate_reward(
     *,
-    state_batch: np.ndarray,  # (batch_size, state_dimensionality)
-) -> np.ndarray:  # (batch_size,)
+    state_batch: npt.NDArray[np.float32],  # (batch_size, state_dimensionality)
+) -> npt.NDArray[np.floating]:  # (batch_size,)
     environment = _create_environment()
     return np.clip(
         a=_calculate_coverage(state_batch=state_batch, environment=environment)
@@ -20,13 +26,27 @@ def calculate_reward(
 
 def calculate_termination(
     *,
-    state_batch: np.ndarray,  # (batch_size, state_dimensionality)
-) -> np.ndarray:  # (batch_size,)
+    state_batch: npt.NDArray[np.float32],  # (batch_size, state_dimensionality)
+) -> npt.NDArray[np.bool_]:  # (batch_size,)
+    position_batch = state_batch[:, POSITION_SLICE]  # (batch_size, 4)
+    reachable_batch: npt.NDArray[np.bool_] = np.asarray(
+        a=np.isfinite(state_batch).all(axis=-1)
+        & (position_batch > -ARENA_SIZE).all(axis=-1)
+        & (position_batch < 2 * ARENA_SIZE).all(axis=-1)
+    )  # (batch_size,)
+
+    termination_batch: npt.NDArray[np.bool_] = ~reachable_batch  # (batch_size,)
+    if not reachable_batch.any():
+        return termination_batch
+
     environment = _create_environment()
-    return (
-        _calculate_coverage(state_batch=state_batch, environment=environment)
+    termination_batch[reachable_batch] = np.asarray(
+        a=_calculate_coverage(
+            state_batch=state_batch[reachable_batch], environment=environment
+        )
         > environment.success_threshold
     )
+    return termination_batch
 
 
 # ---- Private --------------------------------------------
@@ -40,9 +60,9 @@ def _create_environment() -> PushTEnv:
 
 def _calculate_coverage(
     *,
-    state_batch: np.ndarray,  # (batch_size, state_dimensionality)
+    state_batch: npt.NDArray[np.float32],  # (batch_size, state_dimensionality)
     environment: PushTEnv,
-) -> np.ndarray:  # (batch_size,)
+) -> npt.NDArray[np.floating]:  # (batch_size,)
     block_shapes = list(environment.block.shapes)
 
     goal_body = PushTEnv.get_goal_pose_body(environment.goal_pose)

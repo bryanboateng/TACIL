@@ -24,6 +24,7 @@ def calculate_median_state_step_distance(
         distance_batch=calculate_normalized_state_distance(
             state_batch=state_batch[1:],
             other_state_batch=state_batch[:-1],
+            state_space=dynamics_model_ensemble.state_space,
             state_normalizer=dynamics_model_ensemble.state_normalizer,
         ),
         episode_end_indices=episode_store.episode_end_indices,

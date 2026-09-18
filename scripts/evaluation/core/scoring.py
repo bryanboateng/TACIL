@@ -3,12 +3,9 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from scripts.evaluation.core.condition import ALL_CONDITIONS, Condition
-from scripts.evaluation.core.rollout import (
-    EpisodeRecord,
-    create_environment,
-    roll_out_episodes,
-)
+from scripts.environments.condition import Condition
+from scripts.environments.environment import Environment
+from scripts.evaluation.core.rollout import EpisodeRecord, roll_out_episodes
 from scripts.shared.policy_types import PolicyFactory
 
 
@@ -28,14 +25,16 @@ class SuccessStatistics:
 
 def run_scored_episodes_per_condition(
     *,
+    environment: Environment,
     policy_factory: PolicyFactory,
     start_episode_seed: int,
     episode_count_per_condition: int,
 ) -> Iterator[tuple[Condition, list[EpisodeRecord]]]:
-    for condition in ALL_CONDITIONS:
+    for condition in environment.conditions:
         yield (
             condition,
             _run_scored_episodes(
+                environment=environment,
                 policy_factory=policy_factory,
                 start_episode_seed=start_episode_seed,
                 episode_count=episode_count_per_condition,
@@ -45,12 +44,16 @@ def run_scored_episodes_per_condition(
 
 
 def run_scored_episodes_over_conditions(
-    *, policy_factory: PolicyFactory, episode_count_per_condition: int
+    *,
+    environment: Environment,
+    policy_factory: PolicyFactory,
+    episode_count_per_condition: int,
 ) -> list[EpisodeRecord]:
     return [
         episode_record
-        for condition_index, condition in enumerate(iterable=ALL_CONDITIONS)
+        for condition_index, condition in enumerate(iterable=environment.conditions)
         for episode_record in _run_scored_episodes(
+            environment=environment,
             policy_factory=policy_factory,
             start_episode_seed=(10_000 + condition_index * episode_count_per_condition),
             episode_count=episode_count_per_condition,
@@ -61,25 +64,27 @@ def run_scored_episodes_over_conditions(
 
 def _run_scored_episodes(
     *,
+    environment: Environment,
     policy_factory: PolicyFactory,
     start_episode_seed: int,
     episode_count: int,
     condition: Condition,
 ) -> list[EpisodeRecord]:
     seeds = list(range(start_episode_seed, start_episode_seed + episode_count))
-    environments = [
-        create_environment(condition=condition, render_settings=None) for _ in seeds
+    gym_environments = [
+        environment.create_gym_environment(condition=condition, render_settings=None)
+        for _ in seeds
     ]
     try:
         return roll_out_episodes(
-            environments=environments,
+            environments=gym_environments,
             seeds=seeds,
             policy=policy_factory(episode_seeds=seeds),
             render=False,
         )
     finally:
-        for environment in environments:
-            environment.close()
+        for gym_environment in gym_environments:
+            gym_environment.close()
 
 
 def calculate_reward_statistics(

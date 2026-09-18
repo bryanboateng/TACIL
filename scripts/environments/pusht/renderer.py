@@ -1,5 +1,3 @@
-from dataclasses import dataclass
-
 import cv2
 import gymnasium
 import numpy as np
@@ -10,13 +8,8 @@ from gymnasium.spaces import Box
 from matplotlib import pyplot as plt
 from pymunk import Body, Vec2d
 
-from scripts.evaluation.core.disturbance import DisturbanceWrapper
-
-
-@dataclass(frozen=True)
-class RenderSettings:
-    size: int
-    supersample_factor: int
+from scripts.environments.pusht.disturbance import DisturbanceWrapper
+from scripts.environments.render_settings import RenderSettings
 
 
 class RecoloredRenderWrapper(gymnasium.Wrapper):

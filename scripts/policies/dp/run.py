@@ -8,6 +8,7 @@ from rich.pretty import pretty_repr
 
 from scripts.data.augmentation.tacil import augmentation as tacil
 from scripts.data.augmentation.tacil.augmentation import TacilConfig
+from scripts.environments.registry import create_environment
 from scripts.evaluation.evaluate_policy import evaluate_policy
 from scripts.policies.dp import config as policy_config
 from scripts.policies.dp.policy import create_diffusion_policy_factory
@@ -43,6 +44,8 @@ def _run(*, config: Config) -> None:
         if run_name is None:
             raise RuntimeError("wandb run name unexpectedly None")
 
+        environment = create_environment(name=config.environment)
+
         expert_episodes = download_episode_store(
             artifact_name=config.expert_dataset_artifact, run=run
         )
@@ -56,6 +59,7 @@ def _run(*, config: Config) -> None:
             case TacilConfig() as tacil_configuration:
                 augmented_episodes = tacil.augment(
                     config=tacil_configuration,
+                    environment=environment,
                     expert_episodes=expert_episodes,
                     # The policy trains on windows of `prediction` steps. The
                     # expert steps let the last windows run from synthetic
@@ -83,6 +87,7 @@ def _run(*, config: Config) -> None:
         logger.info("Stage 2/3: training the diffusion policy.")
         noise_prediction_network = train_diffusion_policy(
             config=config.policy,
+            environment=environment,
             expert_episodes=expert_episodes,
             augmented_episodes=augmented_episodes,
             seed=config.seed,
@@ -93,6 +98,7 @@ def _run(*, config: Config) -> None:
 
         logger.info("Stage 3/3: evaluating the policy.")
         evaluate_policy(
+            environment=environment,
             policy_factory=create_diffusion_policy_factory(
                 noise_prediction_network=noise_prediction_network,
                 horizon_lengths=config.policy.horizon_lengths,

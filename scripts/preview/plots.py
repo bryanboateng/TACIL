@@ -10,10 +10,10 @@ from scripts.data.augmentation.tacil.create_dynamics.statistics.plots import (
     create_replay_error_plot,
     create_true_dynamics_vs_model_plot,
 )
+from scripts.environments.pusht.state_space import PushTStateSpace
 from scripts.shared.distribution_plot import create_distribution_plot
 from scripts.shared.log import create_logger
 from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
-from scripts.shared.pusht_state import ARENA_SIZE, BLOCK_ORIENTATION_INDEX
 
 logger = create_logger()
 
@@ -25,7 +25,11 @@ _TRAJECTORY_DEPTH = 20
 _MEMBER_COUNT = 8
 _REPLAY_STEP_COUNT = 100
 
-_STATE_DIMENSIONALITY = 5
+_STATE_SPACE = PushTStateSpace()
+_PICTURE = _STATE_SPACE.picture
+_STATE_DIMENSIONALITY = _STATE_SPACE.dimensionality
+_ARENA_SIZE = _PICTURE.horizontal_limits[1]
+_BLOCK_ORIENTATION_INDEX = _PICTURE.orientation_groups[0].index
 
 _POINT_COUNT = 4_000
 
@@ -59,6 +63,7 @@ def main() -> None:
         "true_dynamics_vs_model_0": create_true_dynamics_vs_model_plot(
             member_trajectories=member_trajectories,
             true_trajectory=true_trajectory,
+            picture=_PICTURE,
             episode_index=0,
         ),
         "nearest_expert_state": _draw_nearest_expert_state_plot(rng=rng),
@@ -131,13 +136,13 @@ def _draw_fanning_trajectories(
     true_trajectory = np.empty(
         shape=(_REPLAY_STEP_COUNT + 1, _STATE_DIMENSIONALITY), dtype=np.float64
     )
-    true_trajectory[:, 0] = 0.25 * ARENA_SIZE + 0.45 * ARENA_SIZE * progress
-    true_trajectory[:, 1] = 0.30 * ARENA_SIZE + 0.30 * ARENA_SIZE * np.sin(
+    true_trajectory[:, 0] = 0.25 * _ARENA_SIZE + 0.45 * _ARENA_SIZE * progress
+    true_trajectory[:, 1] = 0.30 * _ARENA_SIZE + 0.30 * _ARENA_SIZE * np.sin(
         np.pi * progress
     )
-    true_trajectory[:, 2] = 0.35 * ARENA_SIZE + 0.35 * ARENA_SIZE * progress
-    true_trajectory[:, 3] = 0.45 * ARENA_SIZE + 0.20 * ARENA_SIZE * progress**2
-    true_trajectory[:, BLOCK_ORIENTATION_INDEX] = (2.5 * np.pi * progress) % (
+    true_trajectory[:, 2] = 0.35 * _ARENA_SIZE + 0.35 * _ARENA_SIZE * progress
+    true_trajectory[:, 3] = 0.45 * _ARENA_SIZE + 0.20 * _ARENA_SIZE * progress**2
+    true_trajectory[:, _BLOCK_ORIENTATION_INDEX] = (2.5 * np.pi * progress) % (
         2.0 * np.pi
     )
 
@@ -150,7 +155,7 @@ def _draw_fanning_trajectories(
     member_trajectories = (
         true_trajectory[None, :, :] + drift_scale * member_noise * drift_per_dimension
     )
-    member_trajectories[..., BLOCK_ORIENTATION_INDEX] %= 2.0 * np.pi
+    member_trajectories[..., _BLOCK_ORIENTATION_INDEX] %= 2.0 * np.pi
 
     return member_trajectories, true_trajectory
 

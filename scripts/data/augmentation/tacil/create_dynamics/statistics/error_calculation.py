@@ -103,6 +103,7 @@ def _calculate_forward(
             calculate_normalized_state_distance(
                 state_batch=current_state_batch,
                 other_state_batch=state_windows[:, step_index + 1, :],
+                state_space=dynamics_model_ensemble.state_space,
                 state_normalizer=dynamics_model_ensemble.state_normalizer,
             )
         )
@@ -159,6 +160,7 @@ def _calculate_backward(
             calculate_normalized_state_distance(
                 state_batch=current_state_batch,
                 other_state_batch=state_windows[window_indices, window_step_index, :],
+                state_space=dynamics_model_ensemble.state_space,
                 state_normalizer=dynamics_model_ensemble.state_normalizer,
             )
         )

@@ -7,6 +7,8 @@ import tyro
 import wandb
 from rich.pretty import pretty_repr
 
+from scripts.environments.environment import Environment
+from scripts.environments.registry import create_environment
 from scripts.evaluation.core.scoring import (
     calculate_reward_statistics,
     run_scored_episodes_over_conditions,
@@ -22,8 +24,6 @@ from scripts.shared.episode_store import EpisodeStore
 from scripts.shared.log import create_logger, log_device_info
 from scripts.shared.normalization import MinMaxNormalizer, ZScoreNormalizer
 from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
-from scripts.shared.pusht_reward import calculate_reward, calculate_termination
-from scripts.shared.pusht_state import ARENA_SIZE, POSITION_SLICE
 
 logger = create_logger()
 
@@ -50,6 +50,8 @@ def _run(*, config: Config) -> None:
         if run_name is None:
             raise RuntimeError("wandb run name unexpectedly None")
 
+        environment = create_environment(name=config.environment)
+
         expert_episodes = download_episode_store(
             artifact_name=config.expert_dataset_artifact, run=run
         )
@@ -62,6 +64,7 @@ def _run(*, config: Config) -> None:
             value_batch=torch.from_numpy(expert_episodes.actions).float()
         )
         transitions = _build_transitions(
+            environment=environment,
             episode_store=expert_episodes,
             state_normalizer=state_normalizer,
             action_normalizer=action_normalizer,
@@ -77,9 +80,12 @@ def _run(*, config: Config) -> None:
             config=config.policy,
             transitions=transitions,
             termination_function=lambda state_batch: _calculate_termination(
-                normalized_state_batch=state_batch, state_normalizer=state_normalizer
+                environment=environment,
+                normalized_state_batch=state_batch,
+                state_normalizer=state_normalizer,
             ),
             score_policy=lambda policy: _score_policy(
+                environment=environment,
                 policy=policy,
                 state_normalizer=state_normalizer,
                 action_normalizer=action_normalizer,
@@ -94,6 +100,7 @@ def _run(*, config: Config) -> None:
 
         logger.info("Stage 3/3: evaluating the policy.")
         evaluate_policy(
+            environment=environment,
             policy_factory=create_mopo_policy_factory(
                 policy=policy,
                 state_normalizer=state_normalizer,
@@ -113,6 +120,7 @@ def _run(*, config: Config) -> None:
 
 def _build_transitions(
     *,
+    environment: Environment,
     episode_store: EpisodeStore,
     state_normalizer: ZScoreNormalizer,
     action_normalizer: MinMaxNormalizer,
@@ -124,8 +132,6 @@ def _build_transitions(
 
     next_states = episode_store.states[source_indices + 1]
 
-    # The rewards come from the board geometry, which is worked out on the
-    # processor. Everything is moved over once, here.
     return Transitions(
         states=state_normalizer.normalize(
             value_batch=torch.from_numpy(episode_store.states[source_indices]).float()
@@ -137,10 +143,12 @@ def _build_transitions(
             value_batch=torch.from_numpy(next_states).float()
         ).to(device=device),
         rewards=torch.from_numpy(
-            calculate_reward(state_batch=next_states).astype(np.float32).reshape(-1, 1)
+            environment.calculate_transition_rewards(
+                episode_store=episode_store, transition_indices=source_indices
+            ).reshape(-1, 1)
         ).to(device=device),
         terminations=torch.from_numpy(
-            calculate_termination(state_batch=next_states)
+            environment.calculate_termination(state_batch=next_states)
             .astype(np.float32)
             .reshape(-1, 1)
         ).to(device=device),
@@ -149,6 +157,7 @@ def _build_transitions(
 
 def _calculate_termination(
     *,
+    environment: Environment,
     normalized_state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
     state_normalizer: ZScoreNormalizer,
 ) -> torch.Tensor:  # (batch_size,)
@@ -156,25 +165,16 @@ def _calculate_termination(
         state_normalizer.denormalize(value_batch=normalized_state_batch.cpu())
         .numpy()
         .astype(np.float32)
-    )
+    )  # (batch_size, state_dimensionality)
 
-    position_batch = state_batch[:, POSITION_SLICE]
-    plausible_batch = (
-        np.isfinite(state_batch).all(axis=-1)
-        & (position_batch > -ARENA_SIZE).all(axis=-1)
-        & (position_batch < 2 * ARENA_SIZE).all(axis=-1)
-    )
-
-    termination_batch = ~plausible_batch
-    if plausible_batch.any():
-        termination_batch[plausible_batch] = calculate_termination(
-            state_batch=state_batch[plausible_batch]
-        )
-    return torch.from_numpy(termination_batch).to(device=normalized_state_batch.device)
+    return torch.from_numpy(
+        environment.calculate_termination(state_batch=state_batch)
+    ).to(device=normalized_state_batch.device)
 
 
 def _score_policy(
     *,
+    environment: Environment,
     policy: MopoPolicy,
     state_normalizer: ZScoreNormalizer,
     action_normalizer: MinMaxNormalizer,
@@ -183,6 +183,7 @@ def _score_policy(
 ) -> ValidationScore:
     reward_statistics = calculate_reward_statistics(
         episode_records=run_scored_episodes_over_conditions(
+            environment=environment,
             policy_factory=create_mopo_policy_factory(
                 policy=policy,
                 state_normalizer=state_normalizer,

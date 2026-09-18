@@ -10,6 +10,7 @@ from scripts.evaluation.core.scoring import (
     calculate_reward_statistics,
     run_scored_episodes_over_conditions,
 )
+from scripts.environments.environment import Environment
 from scripts.policies.bc.config import Config
 from scripts.policies.bc.dataset import Dataset
 from scripts.policies.bc.policy import (
@@ -37,6 +38,7 @@ VALIDATION_SECTION = f"{STAGE_NAME}/2_validation"
 def train_behavior_cloning_policy(
     *,
     config: Config,
+    environment: Environment | None,
     state_action_pairs: StateActionPairs,
     seed: int,
     device: torch.device,
@@ -133,9 +135,16 @@ def train_behavior_cloning_policy(
         ):
             continue
 
+        if environment is None:
+            raise ValueError(
+                "Scoring the policy while it trains needs an environment to score "
+                "it in, but none was given."
+            )
+
         with torch.no_grad():
             validation_reward = calculate_reward_statistics(
                 episode_records=run_scored_episodes_over_conditions(
+                    environment=environment,
                     policy_factory=create_behavior_cloning_policy_factory(
                         policy_model=model, device=device
                     ),
