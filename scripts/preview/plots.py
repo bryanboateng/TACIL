@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import numpy as np
 import wandb
 from numpy import typing as npt
@@ -10,8 +12,9 @@ from scripts.data.augmentation.tacil.create_dynamics.statistics.plots import (
     create_replay_error_plot,
     create_true_dynamics_vs_model_plot,
 )
-from scripts.environments.pusht.plot_layout import create_plot_layout
-from scripts.environments.pusht.state_space import create_state_space
+from scripts.environments.plot_layout import PlotLayout
+from scripts.environments.registry import EnvironmentName, create_environment
+from scripts.environments.state_space import StateSpace
 from scripts.shared.distribution_plot import create_distribution_plot
 from scripts.shared.log import create_logger
 from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
@@ -26,55 +29,77 @@ _TRAJECTORY_DEPTH = 20
 _MEMBER_COUNT = 8
 _REPLAY_STEP_COUNT = 100
 
-_STATE_SPACE = create_state_space()
-_PLOT_LAYOUT = create_plot_layout()
-_STATE_DIMENSIONALITY = _STATE_SPACE.dimensionality
-_ARENA_SIZE = _PLOT_LAYOUT.horizontal_limits[1]
-_BLOCK_ORIENTATION_INDEX = _PLOT_LAYOUT.orientation_groups[0].index
-
 _POINT_COUNT = 4_000
+
+_FULL_TURN = 2.0 * np.pi
+
+_DRIFT_FRACTION = 0.06
 
 
 def main() -> None:
     rng = np.random.default_rng(seed=_SEED)
-
-    member_trajectories, true_trajectory = _draw_fanning_trajectories(rng=rng)
-
-    previews = {
-        "prediction_error_vs_step_count": create_prediction_error_vs_step_count_plot(
-            forward_prediction_errors_per_step_count=_draw_growing_errors(
-                rng=rng, growth_per_step=1.25
-            ),
-            backward_prediction_errors_per_step_count=_stop_walks_early(
-                prediction_errors=_draw_growing_errors(rng=rng, growth_per_step=1.6),
-                rng=rng,
-            ),
-        ),
-        "replay_error": create_replay_error_plot(
-            backward_prediction_errors_per_step_count=_stop_walks_early(
-                prediction_errors=_draw_growing_errors(rng=rng, growth_per_step=1.6),
-                rng=rng,
-            ),
-            backward_replay_errors_per_step_count=_stop_walks_early(
-                prediction_errors=0.2
-                * _draw_growing_errors(rng=rng, growth_per_step=1.35),
-                rng=rng,
-            ),
-        ),
-        "true_dynamics_vs_model_0": create_true_dynamics_vs_model_plot(
-            member_trajectories=member_trajectories,
-            true_trajectory=true_trajectory,
-            plot_layout=_PLOT_LAYOUT,
-            episode_index=0,
-        ),
-        "nearest_expert_state": _draw_nearest_expert_state_plot(rng=rng),
-        "distribution": create_distribution_plot(
-            values=rng.lognormal(mean=1.0, sigma=0.8, size=_POINT_COUNT),
-            xlabel="made-up distribution",
-        ),
-    }
-
     output_directory_path = OUTPUT_DIRECTORY_PATH / "plot_preview"
+
+    _save_previews(
+        previews={
+            "prediction_error_vs_step_count": (
+                create_prediction_error_vs_step_count_plot(
+                    forward_prediction_errors_per_step_count=_draw_growing_errors(
+                        rng=rng, growth_per_step=1.25
+                    ),
+                    backward_prediction_errors_per_step_count=_stop_walks_early(
+                        prediction_errors=_draw_growing_errors(
+                            rng=rng, growth_per_step=1.6
+                        ),
+                        rng=rng,
+                    ),
+                )
+            ),
+            "replay_error": create_replay_error_plot(
+                backward_prediction_errors_per_step_count=_stop_walks_early(
+                    prediction_errors=_draw_growing_errors(
+                        rng=rng, growth_per_step=1.6
+                    ),
+                    rng=rng,
+                ),
+                backward_replay_errors_per_step_count=_stop_walks_early(
+                    prediction_errors=0.2
+                    * _draw_growing_errors(rng=rng, growth_per_step=1.35),
+                    rng=rng,
+                ),
+            ),
+            "nearest_expert_state": _draw_nearest_expert_state_plot(rng=rng),
+            "distribution": create_distribution_plot(
+                values=rng.lognormal(mean=1.0, sigma=0.8, size=_POINT_COUNT),
+                xlabel="made-up distribution",
+            ),
+        },
+        output_directory_path=output_directory_path,
+    )
+
+    for environment_name in EnvironmentName:
+        environment = create_environment(name=environment_name)
+        member_trajectories, true_trajectory = _draw_fanning_trajectories(
+            rng=np.random.default_rng(seed=_SEED),
+            state_space=environment.state_space,
+            plot_layout=environment.plot_layout,
+        )
+        _save_previews(
+            previews={
+                "true_dynamics_vs_model_0": create_true_dynamics_vs_model_plot(
+                    member_trajectories=member_trajectories,
+                    true_trajectory=true_trajectory,
+                    plot_layout=environment.plot_layout,
+                    episode_index=0,
+                )
+            },
+            output_directory_path=output_directory_path / environment_name.value,
+        )
+
+
+def _save_previews(
+    *, previews: dict[str, wandb.Image], output_directory_path: Path
+) -> None:
     output_directory_path.mkdir(parents=True, exist_ok=True)
     for name, preview in previews.items():
         image = preview.image
@@ -126,37 +151,55 @@ def _stop_walks_early(
 
 
 def _draw_fanning_trajectories(
-    *, rng: np.random.Generator
+    *, rng: np.random.Generator, state_space: StateSpace, plot_layout: PlotLayout
 ) -> tuple[
     npt.NDArray[np.floating],  # (_MEMBER_COUNT, step_count + 1, state_dimensionality)
     npt.NDArray[np.floating],  # (step_count + 1, state_dimensionality)
 ]:
-    steps = np.arange(_REPLAY_STEP_COUNT + 1)
-    progress = steps / _REPLAY_STEP_COUNT
+    progress = np.arange(_REPLAY_STEP_COUNT + 1) / _REPLAY_STEP_COUNT
 
-    true_trajectory = np.empty(
-        shape=(_REPLAY_STEP_COUNT + 1, _STATE_DIMENSIONALITY), dtype=np.float64
+    true_trajectory = np.zeros(
+        shape=(_REPLAY_STEP_COUNT + 1, state_space.dimensionality), dtype=np.float64
     )
-    true_trajectory[:, 0] = 0.25 * _ARENA_SIZE + 0.45 * _ARENA_SIZE * progress
-    true_trajectory[:, 1] = 0.30 * _ARENA_SIZE + 0.30 * _ARENA_SIZE * np.sin(
-        np.pi * progress
-    )
-    true_trajectory[:, 2] = 0.35 * _ARENA_SIZE + 0.35 * _ARENA_SIZE * progress
-    true_trajectory[:, 3] = 0.45 * _ARENA_SIZE + 0.20 * _ARENA_SIZE * progress**2
-    true_trajectory[:, _BLOCK_ORIENTATION_INDEX] = (2.5 * np.pi * progress) % (
-        2.0 * np.pi
-    )
+    drift_per_entry = np.zeros(state_space.dimensionality)
 
-    drift_per_dimension = np.array([22.0, 22.0, 18.0, 18.0, 0.9])
-    drift_scale = progress[None, :, None] ** 1.5
-    member_noise = rng.normal(
-        loc=0.0, scale=1.0, size=(_MEMBER_COUNT, 1, _STATE_DIMENSIONALITY)
-    )
+    horizontal_start, horizontal_end = plot_layout.horizontal_limits
+    vertical_start, vertical_end = plot_layout.vertical_limits
+    horizontal_span = horizontal_end - horizontal_start
+    vertical_span = vertical_end - vertical_start
 
-    member_trajectories = (
-        true_trajectory[None, :, :] + drift_scale * member_noise * drift_per_dimension
-    )
-    member_trajectories[..., _BLOCK_ORIENTATION_INDEX] %= 2.0 * np.pi
+    for group_index, position_group in enumerate(iterable=plot_layout.position_groups):
+        phase = 0.12 * group_index
+        true_trajectory[:, position_group.entries] = np.stack(
+            arrays=[
+                horizontal_start + horizontal_span * (0.12 + 0.76 * progress),
+                vertical_start
+                + vertical_span
+                * (0.12 + 0.76 * np.sin(np.pi * (progress + phase)) ** 2),
+            ],
+            axis=-1,
+        )  # (step_count + 1, 2)
+        drift_per_entry[position_group.entries] = _DRIFT_FRACTION * np.array(
+            object=[horizontal_span, vertical_span]
+        )
+
+    for group_index, orientation_group in enumerate(
+        iterable=plot_layout.orientation_groups
+    ):
+        true_trajectory[:, orientation_group.index] = (
+            (1.25 + 0.75 * group_index) * _FULL_TURN * progress
+        ) % _FULL_TURN
+        drift_per_entry[orientation_group.index] = _DRIFT_FRACTION * _FULL_TURN
+
+    member_trajectories = true_trajectory[None] + (
+        progress[None, :, None] ** 1.5
+        * rng.normal(
+            loc=0.0, scale=1.0, size=(_MEMBER_COUNT, 1, state_space.dimensionality)
+        )
+        * drift_per_entry
+    )  # (_MEMBER_COUNT, step_count + 1, state_dimensionality)
+    for orientation_group in plot_layout.orientation_groups:
+        member_trajectories[..., orientation_group.index] %= _FULL_TURN
 
     return member_trajectories, true_trajectory
 

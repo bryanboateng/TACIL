@@ -39,7 +39,7 @@ class PushTEnvironment:
         return self._state_space
 
     @property
-    def build_network_input(self) -> NetworkInputBuilder:
+    def network_input_builder(self) -> NetworkInputBuilder:
         return build_network_input
 
     @property
