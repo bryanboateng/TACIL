@@ -41,7 +41,7 @@ class DynamicsModelEnsemble(torch.nn.Module):
         action_batch: torch.Tensor,  # (batch_size, action_dimensionality)
     ) -> torch.Tensor:  # (batch_size, state_dimensionality)
         return self.state_space.average(
-            state_batch=self._predict_next_state_per_member(
+            state_batches=self._predict_next_state_per_member(
                 state_batch=state_batch, action_batch=action_batch
             )
         )
@@ -58,7 +58,7 @@ class DynamicsModelEnsemble(torch.nn.Module):
         return self._calculate_member_spread(
             per_member_state_batch=per_member_state_batch,
             reference_state_batch=self.state_space.average(
-                state_batch=per_member_state_batch
+                state_batches=per_member_state_batch
             ),
         )
 

@@ -37,14 +37,14 @@ class StateSpace:
     def average(
         self,
         *,
-        state_batch: torch.Tensor,  # (member_count, batch_size, state_dimensionality)
+        state_batches: torch.Tensor,  # (member_count, batch_size, state_dimensionality)
     ) -> torch.Tensor:  # (batch_size, state_dimensionality)
-        average_batch = state_batch.mean(dim=0)
+        average_batch = state_batches.mean(dim=0)
         return torch.where(
             condition=self._get_angle_mask(like=average_batch),
             input=torch.atan2(
-                input=torch.sin(input=state_batch).mean(dim=0),
-                other=torch.cos(input=state_batch).mean(dim=0),
+                input=torch.sin(input=state_batches).mean(dim=0),
+                other=torch.cos(input=state_batches).mean(dim=0),
             )
             % _FULL_TURN,
             other=average_batch,
@@ -55,7 +55,7 @@ class StateSpace:
     def _get_angle_mask(
         self, *, like: torch.Tensor
     ) -> torch.Tensor:  # (state_dimensionality,)
-        if like.device not in self._angle_mask_per_device:
+        if like.device not in self._angle_mask_per_device.keys():
             self._angle_mask_per_device[like.device] = _create_angle_mask(
                 dimensionality=self.dimensionality,
                 angle_indices=self._angle_indices,
