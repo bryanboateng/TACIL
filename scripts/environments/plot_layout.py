@@ -14,7 +14,7 @@ class OrientationGroup:
 
 
 @dataclass(frozen=True)
-class StatePicture:
+class PlotLayout:
     position_groups: tuple[PositionGroup, ...]
     orientation_groups: tuple[OrientationGroup, ...]
     horizontal_limits: tuple[float, float]

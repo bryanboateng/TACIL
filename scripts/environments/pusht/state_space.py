@@ -1,10 +1,7 @@
 import torch
 
-from scripts.environments.state_picture import (
-    OrientationGroup,
-    PositionGroup,
-    StatePicture,
-)
+from scripts.environments.network_input import NetworkInput
+from scripts.environments.plot_layout import OrientationGroup, PlotLayout, PositionGroup
 from scripts.environments.state_space import StateSpace
 
 AGENT_POSITION_SLICE = slice(0, 2)
@@ -33,7 +30,7 @@ _NETWORK_INPUT_DIMENSIONALITY = (
     + _RELATIVE_ACTION_DIMENSIONALITY
 )
 
-_PICTURE = StatePicture(
+_PLOT_LAYOUT = PlotLayout(
     position_groups=(
         PositionGroup(label="Agent Position", entries=AGENT_POSITION_SLICE),
         PositionGroup(label="Block Position", entries=BLOCK_POSITION_SLICE),
@@ -50,11 +47,11 @@ _PICTURE = StatePicture(
 def create_state_space() -> StateSpace:
     return StateSpace(
         dimensionality=STATE_DIMENSIONALITY,
-        action_dimensionality=ACTION_DIMENSIONALITY,
-        network_input_dimensionality=_NETWORK_INPUT_DIMENSIONALITY,
         angle_indices=_ANGLE_INDICES,
-        picture=_PICTURE,
-        build_network_input=_build_network_input,
+        network_input=NetworkInput(
+            dimensionality=_NETWORK_INPUT_DIMENSIONALITY, builder=_build_network_input
+        ),
+        plot_layout=_PLOT_LAYOUT,
     )
 
 

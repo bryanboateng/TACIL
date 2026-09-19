@@ -6,7 +6,7 @@ from matplotlib.artist import Artist
 from matplotlib.legend_handler import HandlerTuple
 from numpy import typing as npt
 
-from scripts.environments.state_picture import StatePicture
+from scripts.environments.plot_layout import PlotLayout
 
 matplotlib.use(backend="Agg")
 
@@ -170,11 +170,11 @@ def create_true_dynamics_vs_model_plot(
         np.floating
     ],  # (member_count, step_count + 1, state_dimensionality)
     true_trajectory: npt.NDArray[np.floating],  # (step_count + 1, state_dimensionality)
-    picture: StatePicture,
+    plot_layout: PlotLayout,
     episode_index: int,
 ) -> wandb.Image:
-    position_groups = picture.position_groups
-    orientation_groups = picture.orientation_groups
+    position_groups = plot_layout.position_groups
+    orientation_groups = plot_layout.orientation_groups
     subplot_count = len(position_groups) + len(orientation_groups)
 
     figure, subplots = plt.subplots(
@@ -210,13 +210,14 @@ def create_true_dynamics_vs_model_plot(
             label="recorded episode",
         )
         subplot.set_title(label=position_group.label)
-        subplot.set_xlabel(xlabel=f"x position [{picture.position_unit}]")
-        subplot.set_ylabel(ylabel=f"y position [{picture.position_unit}]")
+        subplot.set_xlabel(xlabel=f"x position [{plot_layout.position_unit}]")
+        subplot.set_ylabel(ylabel=f"y position [{plot_layout.position_unit}]")
         subplot.set_xlim(
-            left=picture.horizontal_limits[0], right=picture.horizontal_limits[1]
+            left=plot_layout.horizontal_limits[0],
+            right=plot_layout.horizontal_limits[1],
         )
         subplot.set_ylim(
-            bottom=picture.vertical_limits[0], top=picture.vertical_limits[1]
+            bottom=plot_layout.vertical_limits[0], top=plot_layout.vertical_limits[1]
         )
         subplot.set_aspect(aspect="equal", adjustable="box")
 

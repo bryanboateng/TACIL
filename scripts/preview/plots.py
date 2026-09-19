@@ -26,10 +26,10 @@ _MEMBER_COUNT = 8
 _REPLAY_STEP_COUNT = 100
 
 _STATE_SPACE = create_state_space()
-_PICTURE = _STATE_SPACE.picture
+_PLOT_LAYOUT = _STATE_SPACE.plot_layout
 _STATE_DIMENSIONALITY = _STATE_SPACE.dimensionality
-_ARENA_SIZE = _PICTURE.horizontal_limits[1]
-_BLOCK_ORIENTATION_INDEX = _PICTURE.orientation_groups[0].index
+_ARENA_SIZE = _PLOT_LAYOUT.horizontal_limits[1]
+_BLOCK_ORIENTATION_INDEX = _PLOT_LAYOUT.orientation_groups[0].index
 
 _POINT_COUNT = 4_000
 
@@ -63,7 +63,7 @@ def main() -> None:
         "true_dynamics_vs_model_0": create_true_dynamics_vs_model_plot(
             member_trajectories=member_trajectories,
             true_trajectory=true_trajectory,
-            picture=_PICTURE,
+            plot_layout=_PLOT_LAYOUT,
             episode_index=0,
         ),
         "nearest_expert_state": _draw_nearest_expert_state_plot(rng=rng),

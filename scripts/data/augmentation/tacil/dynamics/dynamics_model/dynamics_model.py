@@ -25,7 +25,7 @@ class DynamicsModel(torch.nn.Module):
         self.state_displacement_normalizer = state_displacement_normalizer
 
         self._network = _create_network(
-            input_dimensionality=state_space.network_input_dimensionality,
+            input_dimensionality=state_space.network_input.dimensionality,
             output_dimensionality=state_space.dimensionality,
             hidden_layer_count=hidden_layer_count,
             hidden_layer_dimensionality=hidden_layer_dimensionality,
@@ -73,7 +73,7 @@ class DynamicsModel(torch.nn.Module):
         action_batch: torch.Tensor,  # (batch_size, action_dimensionality)
     ) -> torch.Tensor:  # (batch_size, network_input_dimensionality)
         return self.input_normalizer.normalize(
-            value_batch=self.state_space.create_network_input(
+            value_batch=self.state_space.network_input.build(
                 state_batch=state_batch, action_batch=action_batch
             )
         )

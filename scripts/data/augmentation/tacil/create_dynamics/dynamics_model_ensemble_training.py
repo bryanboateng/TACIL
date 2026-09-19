@@ -190,7 +190,7 @@ def _create_normalizers(
     return _Normalizers(
         state=ZScoreNormalizer(value_batch=state_batch).to(device=device),
         network_input=ZScoreNormalizer(
-            value_batch=state_space.create_network_input(
+            value_batch=state_space.network_input.build(
                 state_batch=state_batch, action_batch=action_batch
             )
         ).to(device=device),

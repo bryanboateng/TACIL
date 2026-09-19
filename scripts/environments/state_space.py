@@ -1,19 +1,8 @@
-from typing import Protocol
-
 import torch
 
 from scripts.environments import angle_arithmetic
-from scripts.environments.state_picture import StatePicture
-
-
-class NetworkInputBuilder(Protocol):
-    def __call__(
-        self,
-        *,
-        state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
-        action_batch: torch.Tensor,  # (batch_size, action_dimensionality)
-    ) -> torch.Tensor:  # (batch_size, network_input_dimensionality)
-        ...
+from scripts.environments.network_input import NetworkInput
+from scripts.environments.plot_layout import PlotLayout
 
 
 class StateSpace:
@@ -21,19 +10,15 @@ class StateSpace:
         self,
         *,
         dimensionality: int,
-        action_dimensionality: int,
-        network_input_dimensionality: int,
         angle_indices: tuple[int, ...],
-        picture: StatePicture,
-        build_network_input: NetworkInputBuilder,
+        network_input: NetworkInput,
+        plot_layout: PlotLayout,
     ) -> None:
         self.dimensionality = dimensionality
-        self.action_dimensionality = action_dimensionality
-        self.network_input_dimensionality = network_input_dimensionality
-        self.picture = picture
+        self.network_input = network_input
+        self.plot_layout = plot_layout
 
         self._angle_indices = angle_indices
-        self._build_network_input = build_network_input
         self._angle_mask_per_device: dict[torch.device, torch.Tensor] = {}
 
     def add(
@@ -67,16 +52,6 @@ class StateSpace:
     ) -> torch.Tensor:  # (batch_size, state_dimensionality)
         return angle_arithmetic.average(
             state_batch=state_batch, angle_mask=self._angle_mask(like=state_batch)
-        )
-
-    def create_network_input(
-        self,
-        *,
-        state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
-        action_batch: torch.Tensor,  # (batch_size, action_dimensionality)
-    ) -> torch.Tensor:  # (batch_size, network_input_dimensionality)
-        return self._build_network_input(
-            state_batch=state_batch, action_batch=action_batch
         )
 
     # ---- Private --------------------------------------------

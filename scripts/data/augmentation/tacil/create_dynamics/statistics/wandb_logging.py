@@ -243,7 +243,7 @@ def _create_replay_panels(
             plots.create_true_dynamics_vs_model_plot(
                 member_trajectories=(forward_member_trajectories.cpu().numpy()),
                 true_trajectory=true_trajectory,
-                picture=dynamics_model_ensemble.state_space.picture,
+                plot_layout=dynamics_model_ensemble.state_space.plot_layout,
                 episode_index=episode_index,
             )
         )

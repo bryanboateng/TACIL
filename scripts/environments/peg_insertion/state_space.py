@@ -15,11 +15,8 @@ from scripts.environments.peg_insertion.observation import (
     PEG_POSITION_SLICE,
     STATE_DIMENSIONALITY,
 )
-from scripts.environments.state_picture import (
-    OrientationGroup,
-    PositionGroup,
-    StatePicture,
-)
+from scripts.environments.network_input import NetworkInput
+from scripts.environments.plot_layout import OrientationGroup, PlotLayout, PositionGroup
 from scripts.environments.state_space import StateSpace
 
 _ARM_JOINT_SLICE = slice(0, ARM_JOINT_COUNT)
@@ -45,7 +42,7 @@ def _horizontal_plane(*, entries: slice) -> slice:
     return slice(entries.start, entries.start + 2)
 
 
-_PICTURE = StatePicture(
+_PLOT_LAYOUT = PlotLayout(
     position_groups=(
         PositionGroup(
             label="Gripper Position",
@@ -72,11 +69,11 @@ _PICTURE = StatePicture(
 def create_state_space() -> StateSpace:
     return StateSpace(
         dimensionality=STATE_DIMENSIONALITY,
-        action_dimensionality=ACTION_DIMENSIONALITY,
-        network_input_dimensionality=_NETWORK_INPUT_DIMENSIONALITY,
         angle_indices=ANGLE_INDICES,
-        picture=_PICTURE,
-        build_network_input=_build_network_input,
+        network_input=NetworkInput(
+            dimensionality=_NETWORK_INPUT_DIMENSIONALITY, builder=_build_network_input
+        ),
+        plot_layout=_PLOT_LAYOUT,
     )
 
 
