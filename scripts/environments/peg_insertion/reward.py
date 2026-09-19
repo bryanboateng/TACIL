@@ -2,7 +2,6 @@ import numpy as np
 from numpy import typing as npt
 
 from scripts.environments.peg_insertion.observation import (
-    GRIPPER_POSITION_SLICE,
     HOLE_ORIENTATION_INDEX,
     HOLE_POSITION_SLICE,
     HOLE_RADIUS_INDEX,
@@ -12,24 +11,6 @@ from scripts.environments.peg_insertion.observation import (
 )
 
 _INSERTION_DEPTH = 0.015
-
-_REACHABLE_POSITION_LIMIT = 2.0
-
-
-def calculate_termination(
-    *,
-    state_batch: npt.NDArray[np.float32],  # (batch_size, state_dimensionality)
-) -> npt.NDArray[np.bool_]:  # (batch_size,)
-    reachable_batch = _calculate_reachable(state_batch=state_batch)  # (batch_size,)
-
-    termination_batch = ~reachable_batch  # (batch_size,)
-    if not reachable_batch.any():
-        return termination_batch
-
-    termination_batch[reachable_batch] = calculate_success(
-        state_batch=state_batch[reachable_batch]
-    )
-    return termination_batch
 
 
 def calculate_success(
@@ -85,27 +66,6 @@ def calculate_peg_head_offset(
 
 
 # ---- Private --------------------------------------------
-
-
-def _calculate_reachable(
-    *,
-    state_batch: npt.NDArray[np.float32],  # (batch_size, state_dimensionality)
-) -> npt.NDArray[np.bool_]:  # (batch_size,)
-    position_batch = np.concatenate(
-        [
-            state_batch[:, GRIPPER_POSITION_SLICE],
-            state_batch[:, PEG_POSITION_SLICE],
-            state_batch[:, HOLE_POSITION_SLICE],
-        ],
-        axis=-1,
-    )  # (batch_size, 9)
-
-    return (
-        np.isfinite(state_batch).all(axis=-1)
-        & (np.abs(position_batch) < _REACHABLE_POSITION_LIMIT).all(axis=-1)
-        & (state_batch[:, HOLE_RADIUS_INDEX] > 0.0)
-        & (state_batch[:, PEG_HALF_SIZE_SLICE][:, 0] > 0.0)
-    )
 
 
 def _create_yaw_rotations(

@@ -130,7 +130,16 @@ class PegInsertionEnvironment:
         *,
         state_batch: npt.NDArray[np.float32],  # (batch_size, state_dimensionality)
     ) -> npt.NDArray[np.bool_]:  # (batch_size,)
-        return reward.calculate_termination(state_batch=state_batch)
+        inside_batch = self._state_space.contains(
+            state_batch=state_batch
+        )  # (batch_size,)
+
+        termination_batch = ~inside_batch  # (batch_size,)
+        if inside_batch.any():
+            termination_batch[inside_batch] = reward.calculate_success(
+                state_batch=state_batch[inside_batch]
+            )
+        return termination_batch
 
 
 # ---- Private --------------------------------------------
