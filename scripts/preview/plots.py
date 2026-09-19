@@ -10,7 +10,7 @@ from scripts.data.augmentation.tacil.create_dynamics.statistics.plots import (
     create_replay_error_plot,
     create_true_dynamics_vs_model_plot,
 )
-from scripts.environments.pusht.state_space import PushTStateSpace
+from scripts.environments.pusht.state_space import create_state_space
 from scripts.shared.distribution_plot import create_distribution_plot
 from scripts.shared.log import create_logger
 from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
@@ -25,7 +25,7 @@ _TRAJECTORY_DEPTH = 20
 _MEMBER_COUNT = 8
 _REPLAY_STEP_COUNT = 100
 
-_STATE_SPACE = PushTStateSpace()
+_STATE_SPACE = create_state_space()
 _PICTURE = _STATE_SPACE.picture
 _STATE_DIMENSIONALITY = _STATE_SPACE.dimensionality
 _ARENA_SIZE = _PICTURE.horizontal_limits[1]

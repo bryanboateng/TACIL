@@ -1,11 +1,11 @@
 import torch
 
-from scripts.environments import angle_arithmetic
 from scripts.environments.state_picture import (
     OrientationGroup,
     PositionGroup,
     StatePicture,
 )
+from scripts.environments.state_space import StateSpace
 
 AGENT_POSITION_SLICE = slice(0, 2)
 BLOCK_POSITION_SLICE = slice(2, 4)
@@ -47,82 +47,36 @@ _PICTURE = StatePicture(
 )
 
 
-class PushTStateSpace:
-    @property
-    def dimensionality(self) -> int:
-        return STATE_DIMENSIONALITY
+def create_state_space() -> StateSpace:
+    return StateSpace(
+        dimensionality=STATE_DIMENSIONALITY,
+        action_dimensionality=ACTION_DIMENSIONALITY,
+        network_input_dimensionality=_NETWORK_INPUT_DIMENSIONALITY,
+        angle_indices=_ANGLE_INDICES,
+        picture=_PICTURE,
+        build_network_input=_build_network_input,
+    )
 
-    @property
-    def action_dimensionality(self) -> int:
-        return ACTION_DIMENSIONALITY
 
-    @property
-    def network_input_dimensionality(self) -> int:
-        return _NETWORK_INPUT_DIMENSIONALITY
+# ---- Private --------------------------------------------
 
-    @property
-    def picture(self) -> StatePicture:
-        return _PICTURE
 
-    def add(
-        self,
-        *,
-        first_addend_batch: torch.Tensor,  # (batch_size, state_dimensionality)
-        second_addend_batch: torch.Tensor,  # (batch_size, state_dimensionality)
-    ) -> torch.Tensor:  # (batch_size, state_dimensionality)
-        return angle_arithmetic.add(
-            first_addend_batch=first_addend_batch,
-            second_addend_batch=second_addend_batch,
-            angle_mask=self._angle_mask(like=first_addend_batch),
-        )
-
-    def subtract(
-        self,
-        *,
-        minuend_batch: torch.Tensor,  # (batch_size, state_dimensionality)
-        subtrahend_batch: torch.Tensor,  # (batch_size, state_dimensionality)
-    ) -> torch.Tensor:  # (batch_size, state_dimensionality)
-        return angle_arithmetic.subtract(
-            minuend_batch=minuend_batch,
-            subtrahend_batch=subtrahend_batch,
-            angle_mask=self._angle_mask(like=minuend_batch),
-        )
-
-    def average(
-        self,
-        *,
-        state_batch: torch.Tensor,  # (member_count, batch_size, state_dimensionality)
-    ) -> torch.Tensor:  # (batch_size, state_dimensionality)
-        return angle_arithmetic.average(
-            state_batch=state_batch, angle_mask=self._angle_mask(like=state_batch)
-        )
-
-    def create_network_input(
-        self,
-        *,
-        state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
-        action_batch: torch.Tensor,  # (batch_size, action_dimensionality)
-    ) -> torch.Tensor:  # (batch_size, network_input_dimensionality)
-        block_orientation_batch = state_batch[
-            ..., BLOCK_ORIENTATION_INDEX : BLOCK_ORIENTATION_INDEX + 1
-        ]  # (batch_size, 1)
-        agent_position_batch = state_batch[..., AGENT_POSITION_SLICE]  # (batch_size, 2)
-        return torch.cat(
-            tensors=[
-                agent_position_batch,
-                torch.sin(block_orientation_batch),
-                torch.cos(block_orientation_batch),
-                state_batch[..., BLOCK_POSITION_SLICE] - agent_position_batch,
-                action_batch - agent_position_batch,
-            ],
-            dim=-1,
-        )
-
-    # ---- Private --------------------------------------------
-
-    def _angle_mask(
-        self, *, like: torch.Tensor
-    ) -> torch.Tensor:  # (state_dimensionality,)
-        return angle_arithmetic.create_mask(
-            dimensionality=STATE_DIMENSIONALITY, angle_indices=_ANGLE_INDICES, like=like
-        )
+def _build_network_input(
+    *,
+    state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
+    action_batch: torch.Tensor,  # (batch_size, action_dimensionality)
+) -> torch.Tensor:  # (batch_size, network_input_dimensionality)
+    block_orientation_batch = state_batch[
+        ..., BLOCK_ORIENTATION_INDEX : BLOCK_ORIENTATION_INDEX + 1
+    ]  # (batch_size, 1)
+    agent_position_batch = state_batch[..., AGENT_POSITION_SLICE]  # (batch_size, 2)
+    return torch.cat(
+        tensors=[
+            agent_position_batch,
+            torch.sin(block_orientation_batch),
+            torch.cos(block_orientation_batch),
+            state_batch[..., BLOCK_POSITION_SLICE] - agent_position_batch,
+            action_batch - agent_position_batch,
+        ],
+        dim=-1,
+    )

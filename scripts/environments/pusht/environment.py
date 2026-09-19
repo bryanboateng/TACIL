@@ -10,8 +10,9 @@ from scripts.environments.pusht.condition import ALL_CONDITIONS, SETTINGS_BY_CON
 from scripts.environments.pusht.disturbance import DisturbanceWrapper
 from scripts.environments.pusht.gpi_geometry import PushTGpiGeometry
 from scripts.environments.pusht.renderer import RecoloredRenderWrapper
-from scripts.environments.pusht.state_space import PushTStateSpace
+from scripts.environments.pusht.state_space import create_state_space
 from scripts.environments.render_settings import RenderSettings
+from scripts.environments.state_space import StateSpace
 from scripts.environments.video_settings import VideoSettings
 from scripts.shared.episode_store import EpisodeStore
 
@@ -20,11 +21,11 @@ _VIDEO_SETTINGS = VideoSettings(frames_per_second=10, playback_speed=3.5)
 
 class PushTEnvironment:
     def __init__(self) -> None:
-        self._state_space = PushTStateSpace()
+        self._state_space = create_state_space()
         self._gpi_geometry = PushTGpiGeometry()
 
     @property
-    def state_space(self) -> PushTStateSpace:
+    def state_space(self) -> StateSpace:
         return self._state_space
 
     @property

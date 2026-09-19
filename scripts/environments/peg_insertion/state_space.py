@@ -1,6 +1,5 @@
 import torch
 
-from scripts.environments import angle_arithmetic
 from scripts.environments.peg_insertion.observation import (
     ACTION_DIMENSIONALITY,
     ANGLE_INDICES,
@@ -21,6 +20,7 @@ from scripts.environments.state_picture import (
     PositionGroup,
     StatePicture,
 )
+from scripts.environments.state_space import StateSpace
 
 _ARM_JOINT_SLICE = slice(0, ARM_JOINT_COUNT)
 _ARM_ACTION_SLICE = slice(0, ARM_JOINT_COUNT)
@@ -69,98 +69,49 @@ _PICTURE = StatePicture(
 )
 
 
-class PegInsertionStateSpace:
-    @property
-    def dimensionality(self) -> int:
-        return STATE_DIMENSIONALITY
+def create_state_space() -> StateSpace:
+    return StateSpace(
+        dimensionality=STATE_DIMENSIONALITY,
+        action_dimensionality=ACTION_DIMENSIONALITY,
+        network_input_dimensionality=_NETWORK_INPUT_DIMENSIONALITY,
+        angle_indices=ANGLE_INDICES,
+        picture=_PICTURE,
+        build_network_input=_build_network_input,
+    )
 
-    @property
-    def action_dimensionality(self) -> int:
-        return ACTION_DIMENSIONALITY
 
-    @property
-    def network_input_dimensionality(self) -> int:
-        return _NETWORK_INPUT_DIMENSIONALITY
+# ---- Private --------------------------------------------
 
-    @property
-    def picture(self) -> StatePicture:
-        return _PICTURE
 
-    def add(
-        self,
-        *,
-        first_addend_batch: torch.Tensor,  # (batch_size, state_dimensionality)
-        second_addend_batch: torch.Tensor,  # (batch_size, state_dimensionality)
-    ) -> torch.Tensor:  # (batch_size, state_dimensionality)
-        return angle_arithmetic.add(
-            first_addend_batch=first_addend_batch,
-            second_addend_batch=second_addend_batch,
-            angle_mask=self._angle_mask(like=first_addend_batch),
-        )
+def _build_network_input(
+    *,
+    state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
+    action_batch: torch.Tensor,  # (batch_size, action_dimensionality)
+) -> torch.Tensor:  # (batch_size, network_input_dimensionality)
+    gripper_position_batch = state_batch[..., GRIPPER_POSITION_SLICE]  # (batch_size, 3)
+    peg_position_batch = state_batch[..., PEG_POSITION_SLICE]  # (batch_size, 3)
+    peg_orientation_batch = state_batch[
+        ..., PEG_ORIENTATION_INDEX : PEG_ORIENTATION_INDEX + 1
+    ]  # (batch_size, 1)
+    hole_orientation_batch = state_batch[
+        ..., HOLE_ORIENTATION_INDEX : HOLE_ORIENTATION_INDEX + 1
+    ]  # (batch_size, 1)
 
-    def subtract(
-        self,
-        *,
-        minuend_batch: torch.Tensor,  # (batch_size, state_dimensionality)
-        subtrahend_batch: torch.Tensor,  # (batch_size, state_dimensionality)
-    ) -> torch.Tensor:  # (batch_size, state_dimensionality)
-        return angle_arithmetic.subtract(
-            minuend_batch=minuend_batch,
-            subtrahend_batch=subtrahend_batch,
-            angle_mask=self._angle_mask(like=minuend_batch),
-        )
-
-    def average(
-        self,
-        *,
-        state_batch: torch.Tensor,  # (member_count, batch_size, state_dimensionality)
-    ) -> torch.Tensor:  # (batch_size, state_dimensionality)
-        return angle_arithmetic.average(
-            state_batch=state_batch, angle_mask=self._angle_mask(like=state_batch)
-        )
-
-    def create_network_input(
-        self,
-        *,
-        state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
-        action_batch: torch.Tensor,  # (batch_size, action_dimensionality)
-    ) -> torch.Tensor:  # (batch_size, network_input_dimensionality)
-        gripper_position_batch = state_batch[
-            ..., GRIPPER_POSITION_SLICE
-        ]  # (batch_size, 3)
-        peg_position_batch = state_batch[..., PEG_POSITION_SLICE]  # (batch_size, 3)
-        peg_orientation_batch = state_batch[
-            ..., PEG_ORIENTATION_INDEX : PEG_ORIENTATION_INDEX + 1
-        ]  # (batch_size, 1)
-        hole_orientation_batch = state_batch[
-            ..., HOLE_ORIENTATION_INDEX : HOLE_ORIENTATION_INDEX + 1
-        ]  # (batch_size, 1)
-
-        return torch.cat(
-            tensors=[
-                state_batch[..., JOINT_ANGLE_SLICE],
-                state_batch[..., JOINT_VELOCITY_SLICE],
-                gripper_position_batch,
-                peg_position_batch - gripper_position_batch,
-                state_batch[..., HOLE_POSITION_SLICE] - peg_position_batch,
-                torch.sin(peg_orientation_batch),
-                torch.cos(peg_orientation_batch),
-                torch.sin(hole_orientation_batch),
-                torch.cos(hole_orientation_batch),
-                state_batch[..., PEG_HALF_SIZE_SLICE],
-                state_batch[..., HOLE_RADIUS_INDEX : HOLE_RADIUS_INDEX + 1],
-                action_batch[..., _ARM_ACTION_SLICE]
-                - state_batch[..., _ARM_JOINT_SLICE],
-                action_batch[..., _GRIPPER_ACTION_SLICE],
-            ],
-            dim=-1,
-        )
-
-    # ---- Private --------------------------------------------
-
-    def _angle_mask(
-        self, *, like: torch.Tensor
-    ) -> torch.Tensor:  # (state_dimensionality,)
-        return angle_arithmetic.create_mask(
-            dimensionality=STATE_DIMENSIONALITY, angle_indices=ANGLE_INDICES, like=like
-        )
+    return torch.cat(
+        tensors=[
+            state_batch[..., JOINT_ANGLE_SLICE],
+            state_batch[..., JOINT_VELOCITY_SLICE],
+            gripper_position_batch,
+            peg_position_batch - gripper_position_batch,
+            state_batch[..., HOLE_POSITION_SLICE] - peg_position_batch,
+            torch.sin(peg_orientation_batch),
+            torch.cos(peg_orientation_batch),
+            torch.sin(hole_orientation_batch),
+            torch.cos(hole_orientation_batch),
+            state_batch[..., PEG_HALF_SIZE_SLICE],
+            state_batch[..., HOLE_RADIUS_INDEX : HOLE_RADIUS_INDEX + 1],
+            action_batch[..., _ARM_ACTION_SLICE] - state_batch[..., _ARM_JOINT_SLICE],
+            action_batch[..., _GRIPPER_ACTION_SLICE],
+        ],
+        dim=-1,
+    )

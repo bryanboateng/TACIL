@@ -18,8 +18,9 @@ from scripts.environments.peg_insertion.observation import (
     STATE_DIMENSIONALITY,
     convert_observations,
 )
-from scripts.environments.peg_insertion.state_space import PegInsertionStateSpace
+from scripts.environments.peg_insertion.state_space import create_state_space
 from scripts.environments.render_settings import RenderSettings
+from scripts.environments.state_space import StateSpace
 from scripts.environments.video_settings import VideoSettings
 from scripts.shared.episode_store import EpisodeStore
 
@@ -40,11 +41,11 @@ _VIDEO_SETTINGS = VideoSettings(frames_per_second=20, playback_speed=2.0)
 
 class PegInsertionEnvironment:
     def __init__(self) -> None:
-        self._state_space = PegInsertionStateSpace()
+        self._state_space = create_state_space()
         self._gpi_geometry = PegInsertionGpiGeometry()
 
     @property
-    def state_space(self) -> PegInsertionStateSpace:
+    def state_space(self) -> StateSpace:
         return self._state_space
 
     @property
