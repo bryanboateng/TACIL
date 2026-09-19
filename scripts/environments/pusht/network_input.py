@@ -1,36 +1,13 @@
 import torch
 
-from scripts.environments.network_input import NetworkInput
 from scripts.environments.pusht.observation import (
-    ACTION_DIMENSIONALITY,
     AGENT_POSITION_SLICE,
     BLOCK_ORIENTATION_INDEX,
     BLOCK_POSITION_SLICE,
 )
 
-_AGENT_POSITION_DIMENSIONALITY = AGENT_POSITION_SLICE.stop - AGENT_POSITION_SLICE.start
-_BLOCK_ORIENTATION_DIMENSIONALITY = 2
-_RELATIVE_BLOCK_POSITION_DIMENSIONALITY = (
-    BLOCK_POSITION_SLICE.stop - BLOCK_POSITION_SLICE.start
-)
-_RELATIVE_ACTION_DIMENSIONALITY = ACTION_DIMENSIONALITY
 
-_DIMENSIONALITY = (
-    _AGENT_POSITION_DIMENSIONALITY
-    + _BLOCK_ORIENTATION_DIMENSIONALITY
-    + _RELATIVE_BLOCK_POSITION_DIMENSIONALITY
-    + _RELATIVE_ACTION_DIMENSIONALITY
-)
-
-
-def create_network_input() -> NetworkInput:
-    return NetworkInput(dimensionality=_DIMENSIONALITY, builder=_build)
-
-
-# ---- Private --------------------------------------------
-
-
-def _build(
+def build_network_input(
     *,
     state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
     action_batch: torch.Tensor,  # (batch_size, action_dimensionality)

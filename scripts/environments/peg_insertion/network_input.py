@@ -1,6 +1,5 @@
 import torch
 
-from scripts.environments.network_input import NetworkInput
 from scripts.environments.peg_insertion.observation import (
     ACTION_DIMENSIONALITY,
     ARM_JOINT_COUNT,
@@ -19,29 +18,8 @@ _ARM_JOINT_SLICE = slice(0, ARM_JOINT_COUNT)
 _ARM_ACTION_SLICE = slice(0, ARM_JOINT_COUNT)
 _GRIPPER_ACTION_SLICE = slice(ARM_JOINT_COUNT, ACTION_DIMENSIONALITY)
 
-_DIMENSIONALITY = (
-    (JOINT_ANGLE_SLICE.stop - JOINT_ANGLE_SLICE.start)
-    + (JOINT_VELOCITY_SLICE.stop - JOINT_VELOCITY_SLICE.start)
-    + 3
-    + 3
-    + 3
-    + 2
-    + 2
-    + (PEG_HALF_SIZE_SLICE.stop - PEG_HALF_SIZE_SLICE.start)
-    + 1
-    + ARM_JOINT_COUNT
-    + (ACTION_DIMENSIONALITY - ARM_JOINT_COUNT)
-)
 
-
-def create_network_input() -> NetworkInput:
-    return NetworkInput(dimensionality=_DIMENSIONALITY, builder=_build)
-
-
-# ---- Private --------------------------------------------
-
-
-def _build(
+def build_network_input(
     *,
     state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
     action_batch: torch.Tensor,  # (batch_size, action_dimensionality)

@@ -32,7 +32,7 @@ from scripts.data.augmentation.tacil.dynamics.dynamics_model.dynamics_model impo
 from scripts.data.augmentation.tacil.dynamics.dynamics_model_ensemble import (
     DynamicsModelEnsemble,
 )
-from scripts.environments.network_input import NetworkInput
+from scripts.environments.network_input import NetworkInputBuilder
 from scripts.environments.plot_layout import PlotLayout
 from scripts.environments.state_space import StateSpace
 from scripts.shared.episode_store import EpisodeStore
@@ -44,7 +44,7 @@ def train_dynamics_model_ensemble(
     *,
     config: DynamicsConfig,
     state_space: StateSpace,
-    network_input: NetworkInput,
+    build_network_input: NetworkInputBuilder,
     plot_layout: PlotLayout,
     episode_store: EpisodeStore,
     seed: int,
@@ -72,7 +72,7 @@ def train_dynamics_model_ensemble(
     normalizers = _create_normalizers(
         transitions=training_transitions,
         state_space=state_space,
-        network_input=network_input,
+        build_network_input=build_network_input,
         device=device,
     )
 
@@ -110,7 +110,7 @@ def train_dynamics_model_ensemble(
                 member_seed=int(member_seed),
                 config=config,
                 state_space=state_space,
-                network_input=network_input,
+                build_network_input=build_network_input,
                 network_input_normalizer=normalizers.network_input,
                 state_displacement_normalizer=normalizers.state_displacement,
                 state_windows=torch.from_numpy(member_state_windows).to(device=device),
@@ -188,7 +188,7 @@ def _create_normalizers(
     *,
     transitions: TransitionTriples,
     state_space: StateSpace,
-    network_input: NetworkInput,
+    build_network_input: NetworkInputBuilder,
     device: torch.device,
 ) -> _Normalizers:
     state_batch = torch.from_numpy(transitions.states).to(
@@ -203,7 +203,7 @@ def _create_normalizers(
     return _Normalizers(
         state=ZScoreNormalizer(value_batch=state_batch).to(device=device),
         network_input=ZScoreNormalizer(
-            value_batch=network_input.build(
+            value_batch=build_network_input(
                 state_batch=state_batch, action_batch=action_batch
             )
         ).to(device=device),

@@ -18,12 +18,12 @@ from scripts.environments.peg_insertion.observation import (
     STATE_DIMENSIONALITY,
     convert_observations,
 )
-from scripts.environments.peg_insertion.network_input import create_network_input
+from scripts.environments.peg_insertion.network_input import build_network_input
 from scripts.environments.peg_insertion.plot_layout import create_plot_layout
 from scripts.environments.peg_insertion.state_bounds import create_bounds
 from scripts.environments.peg_insertion.state_space import create_state_space
 from scripts.environments.render_settings import RenderSettings
-from scripts.environments.network_input import NetworkInput
+from scripts.environments.network_input import NetworkInputBuilder
 from scripts.environments.plot_layout import PlotLayout
 from scripts.environments import state_bounds
 from scripts.environments.state_space import StateSpace
@@ -49,7 +49,7 @@ class PegInsertionEnvironment:
     def __init__(self) -> None:
         self._state_space = create_state_space()
         self._state_bounds = create_bounds()
-        self._network_input = create_network_input()
+
         self._plot_layout = create_plot_layout()
         self._gpi_geometry = PegInsertionGpiGeometry()
 
@@ -58,8 +58,8 @@ class PegInsertionEnvironment:
         return self._state_space
 
     @property
-    def network_input(self) -> NetworkInput:
-        return self._network_input
+    def build_network_input(self) -> NetworkInputBuilder:
+        return build_network_input
 
     @property
     def plot_layout(self) -> PlotLayout:

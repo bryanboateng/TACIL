@@ -6,7 +6,7 @@ from numpy import typing as npt
 
 from scripts.environments.condition import Condition
 from scripts.environments.gpi_geometry import GpiGeometry
-from scripts.environments.network_input import NetworkInput
+from scripts.environments.network_input import NetworkInputBuilder
 from scripts.environments.plot_layout import PlotLayout
 from scripts.environments.render_settings import RenderSettings
 from scripts.environments.state_space import StateSpace
@@ -19,7 +19,7 @@ class Environment(Protocol):
     def state_space(self) -> StateSpace: ...
 
     @property
-    def network_input(self) -> NetworkInput: ...
+    def build_network_input(self) -> NetworkInputBuilder: ...
 
     @property
     def plot_layout(self) -> PlotLayout: ...

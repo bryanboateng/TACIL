@@ -3,7 +3,7 @@ import torch
 from scripts.data.augmentation.tacil.dynamics.dynamics_model.lipschitz_constrained_linear import (
     LipschitzConstrainedLinear,
 )
-from scripts.environments.network_input import NetworkInput
+from scripts.environments.network_input import NetworkInputBuilder
 from scripts.environments.state_space import StateSpace
 from scripts.shared.normalization import ZScoreNormalizer
 
@@ -13,7 +13,7 @@ class DynamicsModel(torch.nn.Module):
         self,
         *,
         state_space: StateSpace,
-        network_input: NetworkInput,
+        build_network_input: NetworkInputBuilder,
         hidden_layer_count: int,
         hidden_layer_dimensionality: int,
         lipschitz_limit: float | None,
@@ -23,12 +23,12 @@ class DynamicsModel(torch.nn.Module):
         super().__init__()
 
         self.state_space = state_space
-        self.network_input = network_input
+        self.build_network_input = build_network_input
         self.input_normalizer = input_normalizer
         self.state_displacement_normalizer = state_displacement_normalizer
 
         self._network = _create_network(
-            input_dimensionality=network_input.dimensionality,
+            input_dimensionality=input_normalizer.mean.shape[0],
             output_dimensionality=state_space.dimensionality,
             hidden_layer_count=hidden_layer_count,
             hidden_layer_dimensionality=hidden_layer_dimensionality,
@@ -76,7 +76,7 @@ class DynamicsModel(torch.nn.Module):
         action_batch: torch.Tensor,  # (batch_size, action_dimensionality)
     ) -> torch.Tensor:  # (batch_size, network_input_dimensionality)
         return self.input_normalizer.normalize(
-            value_batch=self.network_input.build(
+            value_batch=self.build_network_input(
                 state_batch=state_batch, action_batch=action_batch
             )
         )

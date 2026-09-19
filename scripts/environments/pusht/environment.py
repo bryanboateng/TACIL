@@ -10,12 +10,12 @@ from scripts.environments.pusht.condition import ALL_CONDITIONS, SETTINGS_BY_CON
 from scripts.environments.pusht.disturbance import DisturbanceWrapper
 from scripts.environments.pusht.gpi_geometry import PushTGpiGeometry
 from scripts.environments.pusht.renderer import RecoloredRenderWrapper
-from scripts.environments.pusht.network_input import create_network_input
+from scripts.environments.pusht.network_input import build_network_input
 from scripts.environments.pusht.plot_layout import create_plot_layout
 from scripts.environments.pusht.state_bounds import create_bounds
 from scripts.environments.pusht.state_space import create_state_space
 from scripts.environments.render_settings import RenderSettings
-from scripts.environments.network_input import NetworkInput
+from scripts.environments.network_input import NetworkInputBuilder
 from scripts.environments.plot_layout import PlotLayout
 from scripts.environments import state_bounds
 from scripts.environments.state_space import StateSpace
@@ -30,7 +30,7 @@ class PushTEnvironment:
         self._state_space = create_state_space()
         self._state_bounds = create_bounds()
         self._reward_environment = reward.create_environment()
-        self._network_input = create_network_input()
+
         self._plot_layout = create_plot_layout()
         self._gpi_geometry = PushTGpiGeometry()
 
@@ -39,8 +39,8 @@ class PushTEnvironment:
         return self._state_space
 
     @property
-    def network_input(self) -> NetworkInput:
-        return self._network_input
+    def build_network_input(self) -> NetworkInputBuilder:
+        return build_network_input
 
     @property
     def plot_layout(self) -> PlotLayout:

@@ -14,7 +14,7 @@ from scripts.data.augmentation.tacil.create_dynamics.loss_calculation import (
 from scripts.data.augmentation.tacil.dynamics.dynamics_model.dynamics_model import (
     DynamicsModel,
 )
-from scripts.environments.network_input import NetworkInput
+from scripts.environments.network_input import NetworkInputBuilder
 from scripts.environments.state_space import StateSpace
 from scripts.shared.normalization import ZScoreNormalizer
 from scripts.shared.seeding import set_seed
@@ -80,7 +80,7 @@ def create_member_training_state(
     member_seed: int,
     config: DynamicsConfig,
     state_space: StateSpace,
-    network_input: NetworkInput,
+    build_network_input: NetworkInputBuilder,
     network_input_normalizer: ZScoreNormalizer,
     state_displacement_normalizer: ZScoreNormalizer,
     state_windows: torch.Tensor,
@@ -93,7 +93,7 @@ def create_member_training_state(
 
     dynamics_model = DynamicsModel(
         state_space=state_space,
-        network_input=network_input,
+        build_network_input=build_network_input,
         hidden_layer_count=config.hidden_layer_count,
         hidden_layer_dimensionality=config.hidden_layer_dimensionality,
         lipschitz_limit=config.lipschitz_limit,
