@@ -44,7 +44,7 @@ def train_dynamics_model_ensemble(
     *,
     config: DynamicsConfig,
     state_space: StateSpace,
-    build_network_input: NetworkInputBuilder,
+    network_input_builder: NetworkInputBuilder,
     plot_layout: PlotLayout,
     episode_store: EpisodeStore,
     seed: int,
@@ -72,7 +72,7 @@ def train_dynamics_model_ensemble(
     normalizers = _create_normalizers(
         transitions=training_transitions,
         state_space=state_space,
-        build_network_input=build_network_input,
+        network_input_builder=network_input_builder,
         device=device,
     )
 
@@ -110,7 +110,7 @@ def train_dynamics_model_ensemble(
                 member_seed=int(member_seed),
                 config=config,
                 state_space=state_space,
-                build_network_input=build_network_input,
+                network_input_builder=network_input_builder,
                 network_input_normalizer=normalizers.network_input,
                 state_displacement_normalizer=normalizers.state_displacement,
                 state_windows=torch.from_numpy(member_state_windows).to(device=device),
@@ -188,7 +188,7 @@ def _create_normalizers(
     *,
     transitions: TransitionTriples,
     state_space: StateSpace,
-    build_network_input: NetworkInputBuilder,
+    network_input_builder: NetworkInputBuilder,
     device: torch.device,
 ) -> _Normalizers:
     state_batch = torch.from_numpy(transitions.states).to(
@@ -203,7 +203,7 @@ def _create_normalizers(
     return _Normalizers(
         state=ZScoreNormalizer(value_batch=state_batch).to(device=device),
         network_input=ZScoreNormalizer(
-            value_batch=build_network_input(
+            value_batch=network_input_builder(
                 state_batch=state_batch, action_batch=action_batch
             )
         ).to(device=device),

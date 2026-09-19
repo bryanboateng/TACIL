@@ -19,7 +19,6 @@ from scripts.environments.state_space import StateSpace
 from scripts.shared.normalization import ZScoreNormalizer
 from scripts.shared.seeding import set_seed
 
-
 _PATIENCE_THRESHOLD = 0.001
 
 
@@ -80,7 +79,7 @@ def create_member_training_state(
     member_seed: int,
     config: DynamicsConfig,
     state_space: StateSpace,
-    build_network_input: NetworkInputBuilder,
+    network_input_builder: NetworkInputBuilder,
     network_input_normalizer: ZScoreNormalizer,
     state_displacement_normalizer: ZScoreNormalizer,
     state_windows: torch.Tensor,
@@ -93,7 +92,7 @@ def create_member_training_state(
 
     dynamics_model = DynamicsModel(
         state_space=state_space,
-        build_network_input=build_network_input,
+        network_input_builder=network_input_builder,
         hidden_layer_count=config.hidden_layer_count,
         hidden_layer_dimensionality=config.hidden_layer_dimensionality,
         lipschitz_limit=config.lipschitz_limit,
