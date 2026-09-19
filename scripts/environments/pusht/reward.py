@@ -9,11 +9,17 @@ from scripts.environments.pusht.observation import (
 )
 
 
+def create_environment() -> PushTEnv:
+    environment = PushTEnv()
+    environment.reset()
+    return environment
+
+
 def calculate_reward(
     *,
     state_batch: npt.NDArray[np.float32],  # (batch_size, state_dimensionality)
+    environment: PushTEnv,
 ) -> npt.NDArray[np.floating]:  # (batch_size,)
-    environment = _create_environment()
     return np.clip(
         a=_calculate_coverage(state_batch=state_batch, environment=environment)
         / environment.success_threshold,
@@ -25,8 +31,8 @@ def calculate_reward(
 def calculate_success(
     *,
     state_batch: npt.NDArray[np.float32],  # (batch_size, state_dimensionality)
+    environment: PushTEnv,
 ) -> npt.NDArray[np.bool_]:  # (batch_size,)
-    environment = _create_environment()
     return np.asarray(
         a=_calculate_coverage(state_batch=state_batch, environment=environment)
         > environment.success_threshold
@@ -34,12 +40,6 @@ def calculate_success(
 
 
 # ---- Private --------------------------------------------
-
-
-def _create_environment() -> PushTEnv:
-    environment = PushTEnv()
-    environment.reset()
-    return environment
 
 
 def _calculate_coverage(

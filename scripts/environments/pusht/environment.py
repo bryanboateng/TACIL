@@ -29,6 +29,7 @@ class PushTEnvironment:
     def __init__(self) -> None:
         self._state_space = create_state_space()
         self._state_bounds = create_bounds()
+        self._reward_environment = reward.create_environment()
         self._network_input = create_network_input()
         self._plot_layout = create_plot_layout()
         self._gpi_geometry = PushTGpiGeometry()
@@ -92,7 +93,8 @@ class PushTEnvironment:
         transition_indices: npt.NDArray[np.int64],  # (transition_count,)
     ) -> npt.NDArray[np.float32]:  # (transition_count,)
         return reward.calculate_reward(
-            state_batch=episode_store.states[transition_indices + 1]
+            state_batch=episode_store.states[transition_indices + 1],
+            environment=self._reward_environment,
         ).astype(np.float32)
 
     def calculate_termination(
@@ -107,6 +109,7 @@ class PushTEnvironment:
         termination_batch = ~inside_batch  # (batch_size,)
         if inside_batch.any():
             termination_batch[inside_batch] = reward.calculate_success(
-                state_batch=state_batch[inside_batch]
+                state_batch=state_batch[inside_batch],
+                environment=self._reward_environment,
             )
         return termination_batch
