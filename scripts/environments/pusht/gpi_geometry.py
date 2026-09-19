@@ -1,6 +1,6 @@
 import torch
 
-from scripts.environments.pusht.state_space import (
+from scripts.environments.pusht.observation import (
     ACTION_DIMENSIONALITY,
     AGENT_POSITION_SLICE,
     BLOCK_ORIENTATION_INDEX,

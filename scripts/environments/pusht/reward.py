@@ -3,7 +3,7 @@ from gym_pusht.envs.pusht import PushTEnv
 from numpy import typing as npt
 
 from scripts.shared.convex_polygon import calculate_area, calculate_intersection_area
-from scripts.environments.pusht.state_space import (
+from scripts.environments.pusht.observation import (
     ARENA_SIZE,
     BLOCK_ORIENTATION_INDEX,
     BLOCK_POSITION_SLICE,

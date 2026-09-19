@@ -1,5 +1,5 @@
 from scripts.environments.plot_layout import OrientationGroup, PlotLayout, PositionGroup
-from scripts.environments.pusht.state_space import (
+from scripts.environments.pusht.observation import (
     AGENT_POSITION_SLICE,
     ARENA_SIZE,
     BLOCK_ORIENTATION_INDEX,
