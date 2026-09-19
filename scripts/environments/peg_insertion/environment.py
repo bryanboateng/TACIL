@@ -20,10 +20,12 @@ from scripts.environments.peg_insertion.observation import (
 )
 from scripts.environments.peg_insertion.network_input import create_network_input
 from scripts.environments.peg_insertion.plot_layout import create_plot_layout
+from scripts.environments.peg_insertion.state_bounds import create_bounds
 from scripts.environments.peg_insertion.state_space import create_state_space
 from scripts.environments.render_settings import RenderSettings
 from scripts.environments.network_input import NetworkInput
 from scripts.environments.plot_layout import PlotLayout
+from scripts.environments import state_bounds
 from scripts.environments.state_space import StateSpace
 from scripts.environments.video_settings import VideoSettings
 from scripts.shared.episode_store import EpisodeStore
@@ -46,6 +48,7 @@ _VIDEO_SETTINGS = VideoSettings(frames_per_second=20, playback_speed=2.0)
 class PegInsertionEnvironment:
     def __init__(self) -> None:
         self._state_space = create_state_space()
+        self._state_bounds = create_bounds()
         self._network_input = create_network_input()
         self._plot_layout = create_plot_layout()
         self._gpi_geometry = PegInsertionGpiGeometry()
@@ -130,8 +133,8 @@ class PegInsertionEnvironment:
         *,
         state_batch: npt.NDArray[np.float32],  # (batch_size, state_dimensionality)
     ) -> npt.NDArray[np.bool_]:  # (batch_size,)
-        inside_batch = self._state_space.contains(
-            state_batch=state_batch
+        inside_batch = state_bounds.contains(
+            state_batch=state_batch, bounds=self._state_bounds
         )  # (batch_size,)
 
         termination_batch = ~inside_batch  # (batch_size,)
