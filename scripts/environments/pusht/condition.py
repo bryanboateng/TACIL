@@ -34,42 +34,54 @@ class Settings:
 
 
 SETTINGS_BY_CONDITION: dict[Condition, Settings] = {
-    PushTCondition(FloorCondition.GRIPPY, None): Settings(
+    PushTCondition(
+        floor_condition=FloorCondition.GRIPPY, disturbance_level=None
+    ): Settings(
         label="1_grippy_undisturbed",
         description="floor: grippy   disturbance: none",
         damping=0.0,
         colormap="Blues",
         disturbance_magnitude=None,
     ),
-    PushTCondition(FloorCondition.GRIPPY, DisturbanceLevel.LOW): Settings(
+    PushTCondition(
+        floor_condition=FloorCondition.GRIPPY, disturbance_level=DisturbanceLevel.LOW
+    ): Settings(
         label="2_grippy_low_disturbance",
         description="floor: grippy   disturbance: low",
         damping=0.0,
         colormap="Blues",
         disturbance_magnitude=1_500.0,
     ),
-    PushTCondition(FloorCondition.GRIPPY, DisturbanceLevel.HIGH): Settings(
+    PushTCondition(
+        floor_condition=FloorCondition.GRIPPY, disturbance_level=DisturbanceLevel.HIGH
+    ): Settings(
         label="3_grippy_high_disturbance",
         description="floor: grippy   disturbance: high",
         damping=0.0,
         colormap="Blues",
         disturbance_magnitude=4_500.0,
     ),
-    PushTCondition(FloorCondition.SLIPPERY, None): Settings(
+    PushTCondition(
+        floor_condition=FloorCondition.SLIPPERY, disturbance_level=None
+    ): Settings(
         label="4_slippery_undisturbed",
         description="floor: slippery   disturbance: none",
         damping=0.2,
         colormap="Oranges",
         disturbance_magnitude=None,
     ),
-    PushTCondition(FloorCondition.SLIPPERY, DisturbanceLevel.LOW): Settings(
+    PushTCondition(
+        floor_condition=FloorCondition.SLIPPERY, disturbance_level=DisturbanceLevel.LOW
+    ): Settings(
         label="5_slippery_low_disturbance",
         description="floor: slippery   disturbance: low",
         damping=0.2,
         colormap="Oranges",
         disturbance_magnitude=24.0,
     ),
-    PushTCondition(FloorCondition.SLIPPERY, DisturbanceLevel.HIGH): Settings(
+    PushTCondition(
+        floor_condition=FloorCondition.SLIPPERY, disturbance_level=DisturbanceLevel.HIGH
+    ): Settings(
         label="6_slippery_high_disturbance",
         description="floor: slippery   disturbance: high",
         damping=0.2,
