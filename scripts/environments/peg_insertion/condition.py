@@ -44,7 +44,4 @@ SETTINGS_BY_CONDITION: dict[Condition, Settings] = {
 
 UNDISTURBED_CONDITION: Condition = PegInsertionCondition(DisturbanceLevel.NONE)
 
-ALL_CONDITIONS: tuple[Condition, ...] = (
-    PegInsertionCondition(DisturbanceLevel.LOW),
-    PegInsertionCondition(DisturbanceLevel.HIGH),
-)
+ALL_CONDITIONS: tuple[Condition, ...] = tuple(SETTINGS_BY_CONDITION)
