@@ -32,6 +32,8 @@ from scripts.data.augmentation.tacil.dynamics.dynamics_model.dynamics_model impo
 from scripts.data.augmentation.tacil.dynamics.dynamics_model_ensemble import (
     DynamicsModelEnsemble,
 )
+from scripts.environments.network_input import NetworkInput
+from scripts.environments.plot_layout import PlotLayout
 from scripts.environments.state_space import StateSpace
 from scripts.shared.episode_store import EpisodeStore
 from scripts.shared.normalization import ZScoreNormalizer
@@ -42,6 +44,8 @@ def train_dynamics_model_ensemble(
     *,
     config: DynamicsConfig,
     state_space: StateSpace,
+    network_input: NetworkInput,
+    plot_layout: PlotLayout,
     episode_store: EpisodeStore,
     seed: int,
     device: torch.device,
@@ -66,7 +70,10 @@ def train_dynamics_model_ensemble(
     ) = build_windows(episodes=validation_episodes, window_length=config.window_length)
 
     normalizers = _create_normalizers(
-        transitions=training_transitions, state_space=state_space, device=device
+        transitions=training_transitions,
+        state_space=state_space,
+        network_input=network_input,
+        device=device,
     )
 
     training_context = TrainingContext(
@@ -103,6 +110,7 @@ def train_dynamics_model_ensemble(
                 member_seed=int(member_seed),
                 config=config,
                 state_space=state_space,
+                network_input=network_input,
                 network_input_normalizer=normalizers.network_input,
                 state_displacement_normalizer=normalizers.state_displacement,
                 state_windows=torch.from_numpy(member_state_windows).to(device=device),
@@ -157,6 +165,7 @@ def train_dynamics_model_ensemble(
     with torch.no_grad():
         log_ensemble_statistics(
             dynamics_model_ensemble=dynamics_model_ensemble,
+            plot_layout=plot_layout,
             validation_episodes=validation_episodes,
             episode_store=episode_store,
             run=run,
@@ -176,7 +185,11 @@ class _Normalizers:
 
 
 def _create_normalizers(
-    *, transitions: TransitionTriples, state_space: StateSpace, device: torch.device
+    *,
+    transitions: TransitionTriples,
+    state_space: StateSpace,
+    network_input: NetworkInput,
+    device: torch.device,
 ) -> _Normalizers:
     state_batch = torch.from_numpy(transitions.states).to(
         device=device
@@ -190,7 +203,7 @@ def _create_normalizers(
     return _Normalizers(
         state=ZScoreNormalizer(value_batch=state_batch).to(device=device),
         network_input=ZScoreNormalizer(
-            value_batch=state_space.network_input.build(
+            value_batch=network_input.build(
                 state_batch=state_batch, action_batch=action_batch
             )
         ).to(device=device),

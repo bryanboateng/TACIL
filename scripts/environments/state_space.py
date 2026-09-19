@@ -1,22 +1,11 @@
 import torch
 
 from scripts.environments import angle_arithmetic
-from scripts.environments.network_input import NetworkInput
-from scripts.environments.plot_layout import PlotLayout
 
 
 class StateSpace:
-    def __init__(
-        self,
-        *,
-        dimensionality: int,
-        angle_indices: tuple[int, ...],
-        network_input: NetworkInput,
-        plot_layout: PlotLayout,
-    ) -> None:
+    def __init__(self, *, dimensionality: int, angle_indices: tuple[int, ...]) -> None:
         self.dimensionality = dimensionality
-        self.network_input = network_input
-        self.plot_layout = plot_layout
 
         self._angle_indices = angle_indices
         self._angle_mask_per_device: dict[torch.device, torch.Tensor] = {}

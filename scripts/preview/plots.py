@@ -10,6 +10,7 @@ from scripts.data.augmentation.tacil.create_dynamics.statistics.plots import (
     create_replay_error_plot,
     create_true_dynamics_vs_model_plot,
 )
+from scripts.environments.pusht.plot_layout import create_plot_layout
 from scripts.environments.pusht.state_space import create_state_space
 from scripts.shared.distribution_plot import create_distribution_plot
 from scripts.shared.log import create_logger
@@ -26,7 +27,7 @@ _MEMBER_COUNT = 8
 _REPLAY_STEP_COUNT = 100
 
 _STATE_SPACE = create_state_space()
-_PLOT_LAYOUT = _STATE_SPACE.plot_layout
+_PLOT_LAYOUT = create_plot_layout()
 _STATE_DIMENSIONALITY = _STATE_SPACE.dimensionality
 _ARENA_SIZE = _PLOT_LAYOUT.horizontal_limits[1]
 _BLOCK_ORIENTATION_INDEX = _PLOT_LAYOUT.orientation_groups[0].index

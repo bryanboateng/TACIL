@@ -6,6 +6,8 @@ from numpy import typing as npt
 
 from scripts.environments.condition import Condition
 from scripts.environments.gpi_geometry import GpiGeometry
+from scripts.environments.network_input import NetworkInput
+from scripts.environments.plot_layout import PlotLayout
 from scripts.environments.render_settings import RenderSettings
 from scripts.environments.state_space import StateSpace
 from scripts.environments.video_settings import VideoSettings
@@ -15,6 +17,12 @@ from scripts.shared.episode_store import EpisodeStore
 class Environment(Protocol):
     @property
     def state_space(self) -> StateSpace: ...
+
+    @property
+    def network_input(self) -> NetworkInput: ...
+
+    @property
+    def plot_layout(self) -> PlotLayout: ...
 
     @property
     def gpi_geometry(self) -> GpiGeometry: ...

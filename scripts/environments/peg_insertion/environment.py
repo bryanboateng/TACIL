@@ -18,8 +18,12 @@ from scripts.environments.peg_insertion.observation import (
     STATE_DIMENSIONALITY,
     convert_observations,
 )
+from scripts.environments.peg_insertion.network_input import create_network_input
+from scripts.environments.peg_insertion.plot_layout import create_plot_layout
 from scripts.environments.peg_insertion.state_space import create_state_space
 from scripts.environments.render_settings import RenderSettings
+from scripts.environments.network_input import NetworkInput
+from scripts.environments.plot_layout import PlotLayout
 from scripts.environments.state_space import StateSpace
 from scripts.environments.video_settings import VideoSettings
 from scripts.shared.episode_store import EpisodeStore
@@ -42,11 +46,21 @@ _VIDEO_SETTINGS = VideoSettings(frames_per_second=20, playback_speed=2.0)
 class PegInsertionEnvironment:
     def __init__(self) -> None:
         self._state_space = create_state_space()
+        self._network_input = create_network_input()
+        self._plot_layout = create_plot_layout()
         self._gpi_geometry = PegInsertionGpiGeometry()
 
     @property
     def state_space(self) -> StateSpace:
         return self._state_space
+
+    @property
+    def network_input(self) -> NetworkInput:
+        return self._network_input
+
+    @property
+    def plot_layout(self) -> PlotLayout:
+        return self._plot_layout
 
     @property
     def gpi_geometry(self) -> PegInsertionGpiGeometry:
