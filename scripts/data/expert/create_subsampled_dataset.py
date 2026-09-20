@@ -1,6 +1,4 @@
-import tempfile
 from dataclasses import asdict, dataclass
-from pathlib import Path
 
 import numpy as np
 import tyro
@@ -13,8 +11,9 @@ from scripts.shared.dataset_artifact import (
     build_dataset_name,
     download_rewarded_episode_store,
     read_environment_name,
+    upload_episode_store,
 )
-from scripts.shared.episode_store import RewardedEpisodeStore, write_episode_store
+from scripts.shared.episode_store import RewardedEpisodeStore
 from scripts.shared.log import create_logger
 from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
 
@@ -69,8 +68,8 @@ def _run(*, config: Config):
             run=run,
         )
 
-        _upload_episode_store(
-            subsampled_episode_store=subsampled_episode_store,
+        upload_episode_store(
+            episode_store=subsampled_episode_store,
             dataset_name=build_dataset_name(
                 environment=read_environment_name(dataset_name=source_name),
                 episode_count=len(subsampled_episode_store.episode_end_indices),
@@ -152,21 +151,6 @@ def _log_dataset_statistics(
     run.summary["2_subsampled_dataset/4_transition_fraction_of_source"] = (
         selected_transition_count / expert_transition_count
     )
-
-
-def _upload_episode_store(
-    *, subsampled_episode_store: RewardedEpisodeStore, dataset_name: str, run: Run
-):
-    with tempfile.TemporaryDirectory() as temporary_directory:
-        output_zarr_path = Path(temporary_directory) / "dataset.zarr"
-
-        write_episode_store(
-            episode_store=subsampled_episode_store, save_file_path=output_zarr_path
-        )
-
-        new_artifact = wandb.Artifact(name=dataset_name, type="dataset")
-        new_artifact.add_dir(local_path=str(output_zarr_path))
-        run.log_artifact(artifact_or_path=new_artifact)
 
 
 if __name__ == "__main__":

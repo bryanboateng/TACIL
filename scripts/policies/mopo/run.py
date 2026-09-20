@@ -56,7 +56,6 @@ def _run(*, config: Config) -> None:
             artifact_name=config.expert_dataset_artifact, run=run
         )
 
-        logger.info("Stage 1/3: building the training data.")
         state_normalizer = ZScoreNormalizer(
             value_batch=torch.from_numpy(expert_episodes.states).float()
         )
@@ -70,12 +69,9 @@ def _run(*, config: Config) -> None:
             action_normalizer=action_normalizer,
             device=device,
         )
-        run.summary["0_transitions/1_count"] = len(transitions.states)
-        run.summary["0_transitions/2_reward_mean"] = float(transitions.rewards.mean())
-        run.summary["0_transitions/3_reward_max"] = float(transitions.rewards.max())
-        logger.info("Stage 1/3: done.")
 
-        logger.info("Stage 2/3: training the MOPO policy.")
+        logger.info("Stage 1/2: training the MOPO policy.")
+
         policy = train_mopo_policy(
             config=config.policy,
             transitions=transitions,
@@ -96,9 +92,9 @@ def _run(*, config: Config) -> None:
             device=device,
             run=run,
         )
-        logger.info("Stage 2/3: done.")
+        logger.info("Stage 1/2: done.")
 
-        logger.info("Stage 3/3: evaluating the policy.")
+        logger.info("Stage 2/2: evaluating the policy.")
         evaluate_policy(
             environment=environment,
             policy_factory=create_mopo_policy_factory(
@@ -112,7 +108,7 @@ def _run(*, config: Config) -> None:
             record_videos=config.record_videos,
             run=run,
         )
-        logger.info("Stage 3/3: done.")
+        logger.info("Stage 2/2: done.")
 
 
 # ---- Private --------------------------------------------

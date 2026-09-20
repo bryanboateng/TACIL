@@ -1,4 +1,3 @@
-import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -10,8 +9,13 @@ from wandb import Run
 
 from scripts.data.expert.ingest import peg_insertion, pusht
 from scripts.environments.registry import EnvironmentName
-from scripts.shared.dataset_artifact import DATASET_PROJECT, build_dataset_name
-from scripts.shared.episode_store import RewardedEpisodeStore, write_episode_store
+from scripts.shared.dataset_artifact import (
+    DATASET_PROJECT,
+    build_dataset_name,
+    upload_episode_store,
+)
+from scripts.shared.distribution_summary import summarize_distribution
+from scripts.shared.episode_store import RewardedEpisodeStore
 from scripts.shared.log import create_logger
 from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
 
@@ -31,12 +35,14 @@ def main() -> None:
 
 
 def _run(*, config: Config) -> None:
-    module = _select_module(environment=config.environment)
-
-    logger.info("Reading %s", module.describe_source(source_path=config.source_path))
+    match config.environment:
+        case EnvironmentName.PUSHT:
+            module = pusht
+        case EnvironmentName.PEG_INSERTION:
+            module = peg_insertion
 
     episode_store = module.build_episode_store(source_path=config.source_path)
-    _log_episode_store(episode_store=episode_store)
+    _check_rewards(episode_store=episode_store)
 
     episode_count = len(episode_store.episode_end_indices)
 
@@ -45,7 +51,7 @@ def _run(*, config: Config) -> None:
         job_type="expert-data-ingestion",
         dir=OUTPUT_DIRECTORY_PATH,
     ) as run:
-        _upload_episode_store(
+        upload_episode_store(
             episode_store=episode_store,
             dataset_name=build_dataset_name(
                 environment=config.environment,
@@ -55,68 +61,33 @@ def _run(*, config: Config) -> None:
             run=run,
         )
 
-        run.summary["1_episode_count"] = episode_count
-        run.summary["2_transition_count"] = len(episode_store.states)
-        run.summary["3_state_dimensionality"] = episode_store.states.shape[1]
-        run.summary["4_action_dimensionality"] = episode_store.actions.shape[1]
+        _record_statistics(episode_store=episode_store, run=run)
 
 
 # ---- Private --------------------------------------------
 
 
-def _select_module(*, environment: EnvironmentName):
-    match environment:
-        case EnvironmentName.PUSHT:
-            return pusht
-        case EnvironmentName.PEG_INSERTION:
-            return peg_insertion
+def _check_rewards(*, episode_store: RewardedEpisodeStore) -> None:
+    if np.isnan(episode_store.rewards[episode_store.indices_with_successor]).any():
+        raise ValueError("There are some rewards missing.")
 
 
-def _log_episode_store(*, episode_store: RewardedEpisodeStore) -> None:
-    episode_lengths = episode_store.episode_lengths  # (episode_count,)
-    rewards = episode_store.rewards[
-        episode_store.indices_with_successor
-    ]  # (transition_count,)
+def _record_statistics(*, episode_store: RewardedEpisodeStore, run: Run) -> None:
+    run.summary["1_episode_count"] = len(episode_store.episode_end_indices)
+    run.summary["2_transition_count"] = len(episode_store.states)
 
-    logger.info(
-        "Built %d episodes, %d transitions, state %d, action %d",
-        len(episode_store.episode_end_indices),
-        len(episode_store.states),
-        episode_store.states.shape[1],
-        episode_store.actions.shape[1],
-    )
-    logger.info(
-        "Episode length: min %d, max %d, mean %.1f",
-        episode_lengths.min(),
-        episode_lengths.max(),
-        episode_lengths.mean(),
-    )
-    logger.info(
-        "Reward: min %.3f, max %.3f, mean %.3f",
-        rewards.min(),
-        rewards.max(),
-        rewards.mean(),
-    )
+    for label, value in summarize_distribution(
+        values=episode_store.episode_lengths
+    ).items():
+        run.summary[f"3_episode_length/{label}"] = value
 
-    if np.isnan(rewards).any():
-        raise ValueError(
-            "Rewards are missing for transitions that have a successor state."
-        )
+    for label, value in summarize_distribution(
+        values=episode_store.rewards[episode_store.indices_with_successor]
+    ).items():
+        run.summary[f"4_reward/{label}"] = value
 
-
-def _upload_episode_store(
-    *, episode_store: RewardedEpisodeStore, dataset_name: str, run: Run
-) -> None:
-    with tempfile.TemporaryDirectory() as temporary_directory:
-        output_zarr_path = Path(temporary_directory) / "dataset.zarr"
-
-        write_episode_store(
-            episode_store=episode_store, save_file_path=output_zarr_path
-        )
-
-        artifact = wandb.Artifact(name=dataset_name, type="dataset")
-        artifact.add_dir(local_path=str(output_zarr_path))
-        run.log_artifact(artifact_or_path=artifact)
+    run.summary["5_state_dimensionality"] = episode_store.states.shape[1]
+    run.summary["6_action_dimensionality"] = episode_store.actions.shape[1]
 
 
 if __name__ == "__main__":

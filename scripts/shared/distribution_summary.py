@@ -10,8 +10,10 @@ def summarize_distribution(
     return {
         label: float(np.percentile(a=values, q=percentile))
         for label, percentile in {
-            "1_p10": 10.0,
-            "2_median": 50.0,
-            "3_p90": 90.0,
+            "1_min": 0.0,
+            "2_p10": 10.0,
+            "3_median": 50.0,
+            "4_p90": 90.0,
+            "5_max": 100.0,
         }.items()
     }

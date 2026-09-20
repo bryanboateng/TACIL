@@ -84,10 +84,6 @@ def build_episode_store(*, source_path: Path) -> RewardedEpisodeStore:
     )
 
 
-def describe_source(*, source_path: Path) -> str:
-    return f"{TASK_ID} demonstrations at {source_path}"
-
-
 # ---- Private --------------------------------------------
 
 
