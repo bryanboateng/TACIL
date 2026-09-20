@@ -18,6 +18,9 @@ _FORWARD_COLOR = "tab:red"
 _BACKWARD_COLOR = "tab:blue"
 _REPLAY_ERROR_COLOR = "tab:green"
 
+_PANEL_WIDTH = 3.9
+_PANEL_HEIGHT = 4.5
+
 
 def create_prediction_error_vs_step_count_plot(
     *,
@@ -177,8 +180,24 @@ def create_true_dynamics_vs_model_plot(
     orientation_groups = plot_layout.orientation_groups
     subplot_count = len(position_groups) + len(orientation_groups)
 
+    position_scale = plot_layout.position_unit.scale
+    horizontal_limits = plot_layout.horizontal_limits
+    vertical_limits = plot_layout.vertical_limits
+
+    position_width_ratio = (horizontal_limits[1] - horizontal_limits[0]) / (
+        vertical_limits[1] - vertical_limits[0]
+    )
+    width_ratios = [position_width_ratio] * len(position_groups) + [1.0] * len(
+        orientation_groups
+    )
+
     figure, subplots = plt.subplots(
-        nrows=1, ncols=subplot_count, figsize=(3.9 * subplot_count, 4.5), squeeze=False
+        nrows=1,
+        ncols=subplot_count,
+        figsize=(_PANEL_WIDTH * sum(width_ratios), _PANEL_HEIGHT),
+        squeeze=False,
+        gridspec_kw={"width_ratios": width_ratios},
+        layout="constrained",
     )
     position_subplots = subplots[0, : len(position_groups)]
     orientation_subplots = subplots[0, len(position_groups) :]
@@ -192,7 +211,7 @@ def create_true_dynamics_vs_model_plot(
 
     for subplot, position_group in zip(position_subplots, position_groups, strict=True):
         for member_index, member_trajectory in enumerate(iterable=member_trajectories):
-            path = member_trajectory[:, position_group.entries]
+            path = member_trajectory[:, position_group.entries] * position_scale
             subplot.plot(
                 path[:, 0],
                 path[:, 1],
@@ -201,7 +220,7 @@ def create_true_dynamics_vs_model_plot(
                 color=prediction_line_color,
                 label="model prediction" if member_index == 0 else None,
             )
-        true_path = true_trajectory[:, position_group.entries]
+        true_path = true_trajectory[:, position_group.entries] * position_scale
         subplot.plot(
             true_path[:, 0],
             true_path[:, 1],
@@ -210,15 +229,10 @@ def create_true_dynamics_vs_model_plot(
             label="recorded episode",
         )
         subplot.set_title(label=position_group.label)
-        subplot.set_xlabel(xlabel=f"x position [{plot_layout.position_unit}]")
-        subplot.set_ylabel(ylabel=f"y position [{plot_layout.position_unit}]")
-        subplot.set_xlim(
-            left=plot_layout.horizontal_limits[0],
-            right=plot_layout.horizontal_limits[1],
-        )
-        subplot.set_ylim(
-            bottom=plot_layout.vertical_limits[0], top=plot_layout.vertical_limits[1]
-        )
+        subplot.set_xlabel(xlabel=f"x position [{plot_layout.position_unit.label}]")
+        subplot.set_ylabel(ylabel=f"y position [{plot_layout.position_unit.label}]")
+        subplot.set_xlim(left=horizontal_limits[0], right=horizontal_limits[1])
+        subplot.set_ylim(bottom=vertical_limits[0], top=vertical_limits[1])
         subplot.set_aspect(aspect="equal", adjustable="box")
 
     steps = np.arange(true_trajectory.shape[0])
@@ -254,10 +268,11 @@ def create_true_dynamics_vs_model_plot(
         subplot.set_box_aspect(aspect=1.0)
 
     figure.legend(
-        *position_subplots[0].get_legend_handles_labels(), loc="lower center", ncol=2
+        *position_subplots[0].get_legend_handles_labels(),
+        loc="outside lower center",
+        ncol=2,
     )
     figure.suptitle(t=f"True Dynamics vs. Model (Validation Episode {episode_index})")
-    figure.tight_layout(rect=(0, 0.08, 1, 1))
 
     image = wandb.Image(data_or_path=figure)
     plt.close(fig=figure)

@@ -1,4 +1,9 @@
-from scripts.environments.plot_layout import OrientationGroup, PlotLayout, PositionGroup
+from scripts.environments.plot_layout import (
+    OrientationGroup,
+    PlotLayout,
+    PositionGroup,
+    PositionUnit,
+)
 from scripts.environments.pusht.observation import (
     AGENT_POSITION_SLICE,
     ARENA_SIZE,
@@ -18,5 +23,5 @@ def create_plot_layout() -> PlotLayout:
         ),
         horizontal_limits=(0.0, float(ARENA_SIZE)),
         vertical_limits=(0.0, float(ARENA_SIZE)),
-        position_unit="px",
+        position_unit=PositionUnit(label="px", scale=1.0),
     )

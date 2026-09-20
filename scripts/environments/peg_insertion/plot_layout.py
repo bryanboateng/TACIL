@@ -5,7 +5,12 @@ from scripts.environments.peg_insertion.observation import (
     PEG_ORIENTATION_INDEX,
     PEG_POSITION_SLICE,
 )
-from scripts.environments.plot_layout import OrientationGroup, PlotLayout, PositionGroup
+from scripts.environments.plot_layout import (
+    OrientationGroup,
+    PlotLayout,
+    PositionGroup,
+    PositionUnit,
+)
 
 
 def create_plot_layout() -> PlotLayout:
@@ -28,9 +33,9 @@ def create_plot_layout() -> PlotLayout:
             OrientationGroup(label="Peg Orientation", index=PEG_ORIENTATION_INDEX),
             OrientationGroup(label="Hole Orientation", index=HOLE_ORIENTATION_INDEX),
         ),
-        horizontal_limits=(-0.25, 0.25),
-        vertical_limits=(-0.45, 0.45),
-        position_unit="m",
+        horizontal_limits=(-200.0, 180.0),
+        vertical_limits=(-370.0, 420.0),
+        position_unit=PositionUnit(label="mm", scale=1000.0),
     )
 
 
