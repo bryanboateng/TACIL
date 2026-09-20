@@ -11,7 +11,6 @@ from scripts.environments.plot_layout import PlotLayout
 from scripts.environments.render_settings import RenderSettings
 from scripts.environments.state_space import StateSpace
 from scripts.environments.video_settings import VideoSettings
-from scripts.shared.episode_store import EpisodeStore
 
 
 class Environment(Protocol):
@@ -38,14 +37,6 @@ class Environment(Protocol):
     def create_gym_environment(
         self, *, condition: Condition, render_settings: RenderSettings | None
     ) -> Env: ...
-
-    def calculate_transition_rewards(
-        self,
-        *,
-        episode_store: EpisodeStore,
-        transition_indices: npt.NDArray[np.int64],  # (transition_count,)
-    ) -> npt.NDArray[np.float32]:  # (transition_count,)
-        ...
 
     def calculate_termination(
         self,

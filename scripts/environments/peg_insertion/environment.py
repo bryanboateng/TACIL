@@ -28,7 +28,6 @@ from scripts.environments.plot_layout import PlotLayout
 from scripts.environments import state_bounds
 from scripts.environments.state_space import StateSpace
 from scripts.environments.video_settings import VideoSettings
-from scripts.shared.episode_store import EpisodeStore
 
 TASK_ID = "PegInsertionSide-v1"
 
@@ -81,7 +80,11 @@ class PegInsertionEnvironment:
         return SETTINGS_BY_CONDITION[condition].description
 
     def create_gym_environment(
-        self, *, condition: Condition, render_settings: RenderSettings | None
+        self,
+        *,
+        condition: Condition,
+        render_settings: RenderSettings | None,
+        max_episode_steps: int = MAX_EPISODE_STEPS,
     ) -> Env:
         environment: Env = _SelectedObservationWrapper(
             environment=CPUGymWrapper(
@@ -93,7 +96,7 @@ class PegInsertionEnvironment:
                     sim_backend=_SIM_BACKEND,
                     render_backend=_RENDER_BACKEND,
                     render_mode="rgb_array" if render_settings is not None else None,
-                    max_episode_steps=MAX_EPISODE_STEPS,
+                    max_episode_steps=max_episode_steps,
                     human_render_camera_configs=(
                         {}
                         if render_settings is None
@@ -113,20 +116,6 @@ class PegInsertionEnvironment:
         return DisturbanceWrapper(
             environment=environment, magnitude=disturbance_impulse
         )
-
-    def calculate_transition_rewards(
-        self,
-        *,
-        episode_store: EpisodeStore,
-        transition_indices: npt.NDArray[np.int64],  # (transition_count,)
-    ) -> npt.NDArray[np.float32]:  # (transition_count,)
-        if episode_store.rewards is None:
-            raise ValueError(
-                f"{TASK_ID} takes its rewards from the recorded episodes, but the "
-                f"dataset carries none. Convert the demonstrations again so that "
-                f"the reward of every transition is stored alongside it."
-            )
-        return episode_store.rewards[transition_indices].astype(np.float32)
 
     def calculate_termination(
         self,

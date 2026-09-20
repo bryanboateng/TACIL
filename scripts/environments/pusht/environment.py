@@ -20,7 +20,6 @@ from scripts.environments.plot_layout import PlotLayout
 from scripts.environments import state_bounds
 from scripts.environments.state_space import StateSpace
 from scripts.environments.video_settings import VideoSettings
-from scripts.shared.episode_store import EpisodeStore
 
 _VIDEO_SETTINGS = VideoSettings(frames_per_second=10, playback_speed=3.5)
 
@@ -85,17 +84,6 @@ class PushTEnvironment:
             )
 
         return environment
-
-    def calculate_transition_rewards(
-        self,
-        *,
-        episode_store: EpisodeStore,
-        transition_indices: npt.NDArray[np.int64],  # (transition_count,)
-    ) -> npt.NDArray[np.float32]:  # (transition_count,)
-        return reward.calculate_reward(
-            state_batch=episode_store.states[transition_indices + 1],
-            environment=self._reward_environment,
-        ).astype(np.float32)
 
     def calculate_termination(
         self,

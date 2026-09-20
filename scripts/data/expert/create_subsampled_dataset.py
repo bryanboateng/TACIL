@@ -11,10 +11,10 @@ from wandb import Run
 from scripts.shared.dataset_artifact import (
     DATASET_PROJECT,
     build_dataset_name,
-    download_episode_store,
+    download_rewarded_episode_store,
     read_environment_name,
 )
-from scripts.shared.episode_store import EpisodeStore, write_episode_store
+from scripts.shared.episode_store import RewardedEpisodeStore, write_episode_store
 from scripts.shared.log import create_logger
 from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
 
@@ -46,7 +46,7 @@ def _run(*, config: Config):
         config=asdict(config),
         dir=OUTPUT_DIRECTORY_PATH,
     ) as run:
-        expert_episode_store = download_episode_store(
+        expert_episode_store = download_rewarded_episode_store(
             artifact_name=config.source_dataset_artifact, run=run
         )
 
@@ -81,8 +81,8 @@ def _run(*, config: Config):
 
 
 def _subsample_episodes(
-    *, episode_store: EpisodeStore, episode_count: int
-) -> EpisodeStore:
+    *, episode_store: RewardedEpisodeStore, episode_count: int
+) -> RewardedEpisodeStore:
 
     source_episode_count = len(episode_store.episode_end_indices)
 
@@ -92,19 +92,13 @@ def _subsample_episodes(
         ]
     )  # (selected_episode_count,)
 
-    episode_start_indices = np.concatenate(
-        (
-            np.zeros(shape=1, dtype=episode_store.episode_end_indices.dtype),
-            episode_store.episode_end_indices[:-1],
-        )
-    )  # (episode_count,)
-
+    # (episode_count,)
     selected_transition_indices_list = []
     subsampled_episode_end_indices = []
     cumulative_transition_count = 0
 
     for selected_episode_index in selected_episode_indices.tolist():
-        start_index: int = episode_start_indices[selected_episode_index]
+        start_index: int = episode_store.episode_start_indices[selected_episode_index]
         end_index: int = episode_store.episode_end_indices[selected_episode_index]
 
         episode_transition_indices = np.arange(
@@ -120,28 +114,26 @@ def _subsample_episodes(
         selected_transition_indices_list
     )  # (selected_transition_count,)
 
-    return EpisodeStore(
+    return RewardedEpisodeStore(
         states=episode_store.states[
             selected_transition_indices_np_array
         ],  # (selected_transition_count, state_dimensionality)
         actions=episode_store.actions[
             selected_transition_indices_np_array
         ],  # (selected_transition_count, action_dimensionality)
+        rewards=episode_store.rewards[
+            selected_transition_indices_np_array
+        ],  # (selected_transition_count,)
         episode_end_indices=np.asarray(
-            subsampled_episode_end_indices
+            a=subsampled_episode_end_indices, dtype=np.int64
         ),  # (selected_episode_count,)
-        rewards=(
-            None
-            if episode_store.rewards is None
-            else episode_store.rewards[
-                selected_transition_indices_np_array
-            ]  # (selected_transition_count,)
-        ),
     )
 
 
 def _log_dataset_statistics(
-    expert_episode_store: EpisodeStore, subsampled_episode_store: EpisodeStore, run: Run
+    expert_episode_store: RewardedEpisodeStore,
+    subsampled_episode_store: RewardedEpisodeStore,
+    run: Run,
 ):
     expert_episode_count = len(expert_episode_store.episode_end_indices)
     expert_transition_count = len(expert_episode_store.states)
@@ -163,7 +155,7 @@ def _log_dataset_statistics(
 
 
 def _upload_episode_store(
-    *, subsampled_episode_store: EpisodeStore, dataset_name: str, run: Run
+    *, subsampled_episode_store: RewardedEpisodeStore, dataset_name: str, run: Run
 ):
     with tempfile.TemporaryDirectory() as temporary_directory:
         output_zarr_path = Path(temporary_directory) / "dataset.zarr"

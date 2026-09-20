@@ -19,8 +19,8 @@ from scripts.policies.mopo.policy import MopoPolicy, create_mopo_policy_factory
 from scripts.policies.mopo.train import ValidationScore, train_mopo_policy
 from scripts.policies.mopo.transitions import Transitions
 from scripts.policies.shared.run_config import RunConfig
-from scripts.shared.dataset_artifact import download_episode_store
-from scripts.shared.episode_store import EpisodeStore
+from scripts.shared.dataset_artifact import download_rewarded_episode_store
+from scripts.shared.episode_store import RewardedEpisodeStore
 from scripts.shared.log import create_logger, log_device_info
 from scripts.shared.normalization import MinMaxNormalizer, ZScoreNormalizer
 from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
@@ -52,7 +52,7 @@ def _run(*, config: Config) -> None:
 
         environment = create_environment(name=config.environment)
 
-        expert_episodes = download_episode_store(
+        expert_episodes = download_rewarded_episode_store(
             artifact_name=config.expert_dataset_artifact, run=run
         )
 
@@ -121,31 +121,31 @@ def _run(*, config: Config) -> None:
 def _build_transitions(
     *,
     environment: Environment,
-    episode_store: EpisodeStore,
+    episode_store: RewardedEpisodeStore,
     state_normalizer: ZScoreNormalizer,
     action_normalizer: MinMaxNormalizer,
     device: torch.device,
 ) -> Transitions:
-    has_successor = np.ones(shape=len(episode_store.states), dtype=np.bool_)
-    has_successor[episode_store.episode_end_indices - 1] = False
-    source_indices = np.flatnonzero(has_successor)
+    indices_with_successor = episode_store.indices_with_successor
 
-    next_states = episode_store.states[source_indices + 1]
+    next_states = episode_store.states[indices_with_successor + 1]
 
     return Transitions(
         states=state_normalizer.normalize(
-            value_batch=torch.from_numpy(episode_store.states[source_indices]).float()
+            value_batch=torch.from_numpy(
+                episode_store.states[indices_with_successor]
+            ).float()
         ).to(device=device),
         actions=action_normalizer.normalize(
-            value_batch=torch.from_numpy(episode_store.actions[source_indices]).float()
+            value_batch=torch.from_numpy(
+                episode_store.actions[indices_with_successor]
+            ).float()
         ).to(device=device),
         next_states=state_normalizer.normalize(
             value_batch=torch.from_numpy(next_states).float()
         ).to(device=device),
         rewards=torch.from_numpy(
-            environment.calculate_transition_rewards(
-                episode_store=episode_store, transition_indices=source_indices
-            ).reshape(-1, 1)
+            episode_store.rewards[indices_with_successor].reshape(-1, 1)
         ).to(device=device),
         terminations=torch.from_numpy(
             environment.calculate_termination(state_batch=next_states)
