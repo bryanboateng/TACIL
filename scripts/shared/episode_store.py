@@ -58,7 +58,7 @@ def read_rewarded_episode_store(*, episode_file_path: Path) -> RewardedEpisodeSt
     reader = _Reader(episode_file_path=episode_file_path)
 
     if _REWARD_KEY not in reader.store:
-        raise KeyError("Dataset has no rewards. Only datasets.")
+        raise KeyError(f"The dataset at {episode_file_path} has no rewards.")
 
     return RewardedEpisodeStore(
         states=reader.read(key=_STATE_KEY, dtype=np.float32),

@@ -17,12 +17,9 @@ from scripts.environments.peg_insertion.environment import (
 from scripts.environments.peg_insertion.observation import ACTION_DIMENSIONALITY
 from scripts.shared.episode_store import RewardedEpisodeStore
 
-_TRAJECTORY_FILE_NAME = "trajectory.h5"
-_METADATA_FILE_NAME = "trajectory.json"
-
 
 def build_episode_store(*, source_path: Path) -> RewardedEpisodeStore:
-    metadata = json.loads(s=(source_path / _METADATA_FILE_NAME).read_text())
+    metadata = json.loads(s=(source_path / "trajectory.json").read_text())
     _check_metadata(metadata=metadata)
 
     recorded_episodes = metadata["episodes"]
@@ -33,7 +30,7 @@ def build_episode_store(*, source_path: Path) -> RewardedEpisodeStore:
     episode_end_indices: list[int] = []
     cumulative_transition_count = 0
 
-    with h5py.File(name=source_path / _TRAJECTORY_FILE_NAME, mode="r") as trajectory:
+    with h5py.File(name=source_path / "trajectory.h5", mode="r") as trajectory:
         recorded_action_arrays = [
             np.asarray(
                 a=trajectory[f"traj_{recorded_episode['episode_id']}"]["actions"],
@@ -98,16 +95,15 @@ def _check_metadata(*, metadata: dict) -> None:
     environment_info = metadata["env_info"]
     if environment_info["env_id"] != TASK_ID:
         raise ValueError(
-            f"The demonstrations were recorded for "
-            f"{environment_info['env_id']!r}, not {TASK_ID!r}."
+            f"The demonstrations were recorded for {environment_info['env_id']!r}, "
+            f"not {TASK_ID!r}."
         )
 
     recorded_control_mode = environment_info["env_kwargs"].get("control_mode")
     if recorded_control_mode != CONTROL_MODE:
         raise ValueError(
-            f"The demonstrations were recorded under {recorded_control_mode!r}, but "
-            f"the pipeline drives {TASK_ID} with {CONTROL_MODE!r}. Replaying them "
-            f"would not reproduce the recorded motion."
+            f"The demonstrations were recorded under {recorded_control_mode!r}, "
+            f"not {CONTROL_MODE!r}."
         )
 
 
@@ -120,8 +116,8 @@ def _replay_episode(
 ) -> _ReplayedEpisode:
     if recorded_actions.shape[1] != ACTION_DIMENSIONALITY:
         raise ValueError(
-            f"The demonstration holds {recorded_actions.shape[1]}-entry actions, but "
-            f"{TASK_ID} under {CONTROL_MODE} takes {ACTION_DIMENSIONALITY} entries."
+            f"The demonstration holds {recorded_actions.shape[1]}-entry actions, "
+            f"not {ACTION_DIMENSIONALITY}."
         )
 
     state, _ = gym_environment.reset(seed=seed)
@@ -140,8 +136,7 @@ def _replay_episode(
     if not solved:
         raise RuntimeError(
             f"Replaying demonstration {episode_id} never solved {TASK_ID}, although "
-            f"every recorded demonstration ends in success. The replay no longer "
-            f"reproduces the recording."
+            f"every recorded demonstration ends in success."
         )
 
     rewards[-1] = float("nan")
