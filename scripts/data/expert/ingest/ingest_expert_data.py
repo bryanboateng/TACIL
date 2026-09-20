@@ -22,7 +22,6 @@ logger = create_logger()
 class Config:
     environment: EnvironmentName
     source_path: Path
-    episode_count: int | None = None
 
 
 def main() -> None:
@@ -36,9 +35,7 @@ def _run(*, config: Config) -> None:
 
     logger.info("Reading %s", module.describe_source(source_path=config.source_path))
 
-    episode_store = module.build_episode_store(
-        source_path=config.source_path, episode_count=config.episode_count
-    )
+    episode_store = module.build_episode_store(source_path=config.source_path)
     _log_episode_store(episode_store=episode_store)
 
     episode_count = len(episode_store.episode_end_indices)

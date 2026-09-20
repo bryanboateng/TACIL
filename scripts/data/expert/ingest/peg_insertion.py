@@ -21,15 +21,11 @@ _TRAJECTORY_FILE_NAME = "trajectory.h5"
 _METADATA_FILE_NAME = "trajectory.json"
 
 
-def build_episode_store(
-    *, source_path: Path, episode_count: int | None
-) -> RewardedEpisodeStore:
+def build_episode_store(*, source_path: Path) -> RewardedEpisodeStore:
     metadata = json.loads(s=(source_path / _METADATA_FILE_NAME).read_text())
     _check_metadata(metadata=metadata)
 
     recorded_episodes = metadata["episodes"]
-    if episode_count is not None:
-        recorded_episodes = recorded_episodes[:episode_count]
 
     state_arrays: list[npt.NDArray[np.float32]] = []
     action_arrays: list[npt.NDArray[np.float32]] = []

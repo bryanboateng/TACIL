@@ -13,9 +13,7 @@ _ACTION_KEY = "data/action"
 _EPISODE_END_KEY = "meta/episode_ends"
 
 
-def build_episode_store(
-    *, source_path: Path, episode_count: int | None
-) -> RewardedEpisodeStore:
+def build_episode_store(*, source_path: Path) -> RewardedEpisodeStore:
     store = zarr.open(store=source_path, mode="r")
 
     if not isinstance(store, Group):
@@ -32,11 +30,6 @@ def build_episode_store(
     episode_end_indices = _read(store=store, key=_EPISODE_END_KEY).astype(
         np.int64
     )  # (episode_count,)
-
-    if episode_count is not None:
-        episode_end_indices = episode_end_indices[:episode_count]
-        states = states[: episode_end_indices[-1]]
-        actions = actions[: episode_end_indices[-1]]
 
     episodes = EpisodeStore(
         states=states, actions=actions, episode_end_indices=episode_end_indices
