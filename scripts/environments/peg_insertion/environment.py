@@ -94,7 +94,9 @@ class PegInsertionEnvironment:
                     control_mode=CONTROL_MODE,
                     reward_mode=_REWARD_MODE,
                     sim_backend=_SIM_BACKEND,
-                    render_backend=_RENDER_BACKEND,
+                    render_backend=(
+                        _RENDER_BACKEND if render_settings is not None else "none"
+                    ),
                     render_mode="rgb_array" if render_settings is not None else None,
                     max_episode_steps=max_episode_steps,
                     human_render_camera_configs=(
