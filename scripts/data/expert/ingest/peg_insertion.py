@@ -1,10 +1,10 @@
 import json
 from dataclasses import dataclass
-from pathlib import Path
 
 import h5py
 import numpy as np
 from gymnasium import Env
+from mani_skill.utils.download_demo import DATASET_SOURCES
 from numpy import typing as npt
 from tqdm import tqdm
 
@@ -15,10 +15,17 @@ from scripts.environments.peg_insertion.environment import (
     PegInsertionEnvironment,
 )
 from scripts.environments.peg_insertion.observation import ACTION_DIMENSIONALITY
+from scripts.shared.download import download_and_extract_zip
 from scripts.shared.episode_store import RewardedEpisodeStore
 
 
-def build_episode_store(*, source_path: Path) -> RewardedEpisodeStore:
+def build_episode_store() -> RewardedEpisodeStore:
+    source_path = (
+        download_and_extract_zip(url=DATASET_SOURCES[TASK_ID].raw_dataset_url)
+        / TASK_ID
+        / "motionplanning"
+    )
+
     metadata = json.loads(s=(source_path / "trajectory.json").read_text())
     _check_metadata(metadata=metadata)
 
@@ -30,10 +37,10 @@ def build_episode_store(*, source_path: Path) -> RewardedEpisodeStore:
     episode_end_indices: list[int] = []
     cumulative_transition_count = 0
 
-    with h5py.File(name=source_path / "trajectory.h5", mode="r") as trajectory:
+    with h5py.File(name=source_path / "trajectory.h5", mode="r") as trajectory_file:
         recorded_action_arrays = [
             np.asarray(
-                a=trajectory[f"traj_{recorded_episode['episode_id']}"]["actions"],
+                a=trajectory_file[f"traj_{recorded_episode['episode_id']}"]["actions"],
                 dtype=np.float32,
             )  # (recorded_length, action_dimensionality)
             for recorded_episode in recorded_episodes

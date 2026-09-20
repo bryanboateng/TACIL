@@ -1,19 +1,22 @@
-from pathlib import Path
-
 import numpy as np
 import zarr
 from numpy import typing as npt
 from zarr import Array, Group
 
 from scripts.environments.pusht import reward
+from scripts.shared.download import download_and_extract_zip
 from scripts.shared.episode_store import EpisodeStore, RewardedEpisodeStore
 
-_STATE_KEY = "data/state"
-_ACTION_KEY = "data/action"
-_EPISODE_END_KEY = "meta/episode_ends"
 
+def build_episode_store() -> RewardedEpisodeStore:
+    source_path = (
+        download_and_extract_zip(
+            url="https://diffusion-policy.cs.columbia.edu/data/training/pusht.zip"
+        )
+        / "pusht"
+        / "pusht_cchi_v7_replay.zarr"
+    )
 
-def build_episode_store(*, source_path: Path) -> RewardedEpisodeStore:
     store = zarr.open(store=source_path, mode="r")
 
     if not isinstance(store, Group):
@@ -21,13 +24,13 @@ def build_episode_store(*, source_path: Path) -> RewardedEpisodeStore:
             f"Expected zarr.Group at {source_path}, got {type(store).__name__}"
         )
 
-    states = _read(store=store, key=_STATE_KEY).astype(
+    states = _read(store=store, key="data/state").astype(
         np.float32
     )  # (total_timestep_count, state_dimensionality)
-    actions = _read(store=store, key=_ACTION_KEY).astype(
+    actions = _read(store=store, key="data/action").astype(
         np.float32
     )  # (total_timestep_count, action_dimensionality)
-    episode_end_indices = _read(store=store, key=_EPISODE_END_KEY).astype(
+    episode_end_indices = _read(store=store, key="meta/episode_ends").astype(
         np.int64
     )  # (episode_count,)
 

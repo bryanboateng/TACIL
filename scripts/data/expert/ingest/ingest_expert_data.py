@@ -1,5 +1,4 @@
 from dataclasses import dataclass
-from pathlib import Path
 
 import numpy as np
 import tyro
@@ -25,7 +24,6 @@ logger = create_logger()
 @dataclass
 class Config:
     environment: EnvironmentName
-    source_path: Path
 
 
 def main() -> None:
@@ -36,12 +34,12 @@ def main() -> None:
 
 def _run(*, config: Config) -> None:
     match config.environment:
-        case EnvironmentName.PUSHT:
+        case EnvironmentName.PUSH_T:
             module = pusht
         case EnvironmentName.PEG_INSERTION:
             module = peg_insertion
 
-    episode_store = module.build_episode_store(source_path=config.source_path)
+    episode_store = module.build_episode_store()
     _check_rewards(episode_store=episode_store)
 
     episode_count = len(episode_store.episode_end_indices)

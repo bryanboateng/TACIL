@@ -4,13 +4,13 @@ from scripts.environments.environment import Environment
 
 
 class EnvironmentName(StrEnum):
-    PUSHT = "PushT"
+    PUSH_T = "PushT"
     PEG_INSERTION = "PegInsertionSide"
 
 
 def create_environment(*, name: EnvironmentName) -> Environment:
     match name:
-        case EnvironmentName.PUSHT:
+        case EnvironmentName.PUSH_T:
             from scripts.environments.pusht.environment import PushTEnvironment
 
             return PushTEnvironment()
