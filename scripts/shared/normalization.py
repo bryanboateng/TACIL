@@ -1,6 +1,6 @@
 import torch
 
-_CONSTANT_DIMENSION_THRESHOLD = 1e-4
+_CONSTANT_DIMENSION_THRESHOLD = 1e-12
 
 
 class MinMaxNormalizer(torch.nn.Module):
