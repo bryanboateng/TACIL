@@ -191,11 +191,11 @@ def _build_episode(*, gym_environment: Env, group: h5py.Group, seed: int) -> _Ep
     for step_index in range(len(actions)):
         peg_insertion_side_env.set_state_dict(
             state={
-                state_name: {
-                    name: values[step_index][None]
-                    for name, values in state_values.items()
+                state_category_name: {
+                    state_name: state_over_time[step_index][None]
+                    for state_name, state_over_time in states_by_name.items()
                 }
-                for state_name, state_values in simulator_states.items()
+                for state_category_name, states_by_name in simulator_states.items()
             }
         )
         states.append(
@@ -214,7 +214,10 @@ def _build_episode(*, gym_environment: Env, group: h5py.Group, seed: int) -> _Ep
 def _get_simulator_states(*, group: h5py.Group) -> SimulatorStates:
     env_states = group["env_states"]
     simulator_states = {
-        state_name: {name: np.asarray(dataset) for name, dataset in state_group.items()}
-        for state_name, state_group in env_states.items()
+        state_category_name: {
+            state_name: np.asarray(dataset)
+            for state_name, dataset in state_group.items()
+        }
+        for state_category_name, state_group in env_states.items()
     }
     return simulator_states
