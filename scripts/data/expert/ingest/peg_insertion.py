@@ -98,6 +98,7 @@ def _get_dataset(*, dataset_directory_path: Path) -> Path:
             max_retry=4,
             record_rewards=True,
             reward_mode=REWARD_MODE,
+            render_mode="none",
         )
     )
 
