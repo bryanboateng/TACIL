@@ -11,12 +11,17 @@ from scripts.environments.pusht import reward
 from scripts.environments.pusht.condition import ALL_CONDITIONS, SETTINGS_BY_CONDITION
 from scripts.environments.pusht.disturbance import DisturbanceWrapper
 from scripts.environments.pusht.gpi_geometry import PushTGpiGeometry
+from scripts.environments.pusht.observation import (
+    ANGLE_INDICES,
+    ARENA_SIZE,
+    POSITION_SLICE,
+    STATE_DIMENSIONALITY,
+)
 from scripts.environments.pusht.plot_layout import create_plot_layout
 from scripts.environments.pusht.renderer import RecoloredRenderWrapper
-from scripts.environments.pusht.state_bounds import create_bounds
-from scripts.environments.pusht.state_space import create_state_space
 from scripts.environments.pusht.tacil_network_input import build_network_input
 from scripts.environments.render_settings import RenderSettings
+from scripts.environments.state_bounds import Bound
 from scripts.environments.state_space import StateSpace
 from scripts.environments.tacil_network_input import TacilNetworkInputBuilder
 from scripts.environments.video_settings import VideoSettings
@@ -26,8 +31,16 @@ _VIDEO_SETTINGS = VideoSettings(frames_per_second=10, playback_speed=3.5)
 
 class PushTEnvironment:
     def __init__(self) -> None:
-        self._state_space = create_state_space()
-        self._state_bounds = create_bounds()
+        self._state_space = StateSpace(
+            dimensionality=STATE_DIMENSIONALITY, angle_indices=ANGLE_INDICES
+        )
+        self._state_bounds = (
+            Bound(
+                entries=POSITION_SLICE,
+                minimum=-float(ARENA_SIZE),
+                maximum=2.0 * ARENA_SIZE,
+            ),
+        )
         self._reward_environment = reward.create_environment()
 
         self._plot_layout = create_plot_layout()

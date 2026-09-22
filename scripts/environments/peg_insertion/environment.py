@@ -16,14 +16,19 @@ from scripts.environments.peg_insertion.condition import (
 from scripts.environments.peg_insertion.disturbance import DisturbanceWrapper
 from scripts.environments.peg_insertion.gpi_geometry import PegInsertionGpiGeometry
 from scripts.environments.peg_insertion.observation import (
+    HOLE_POSITION_SLICE,
+    HOLE_RADIUS_INDEX,
+    PEG_HALF_SIZE_SLICE,
+    PEG_POSITION_SLICE,
     STATE_DIMENSIONALITY,
+    TCP_POSITION_SLICE,
     extract_state_from_environment,
 )
 from scripts.environments.peg_insertion.plot_layout import create_plot_layout
-from scripts.environments.peg_insertion.state_bounds import create_bounds
 from scripts.environments.peg_insertion.tacil_network_input import build_network_input
 from scripts.environments.plot_layout import PlotLayout
 from scripts.environments.render_settings import RenderSettings
+from scripts.environments.state_bounds import Bound
 from scripts.environments.state_space import StateSpace
 from scripts.environments.tacil_network_input import TacilNetworkInputBuilder
 from scripts.environments.video_settings import VideoSettings
@@ -62,7 +67,26 @@ class PegInsertionEnvironment:
         self._state_space = StateSpace(
             dimensionality=STATE_DIMENSIONALITY, angle_indices=()
         )
-        self._state_bounds = create_bounds()
+        self._state_bounds = (
+            *(
+                Bound(entries=entries, minimum=-2.0, maximum=2.0)
+                for entries in (
+                    TCP_POSITION_SLICE,
+                    PEG_POSITION_SLICE,
+                    HOLE_POSITION_SLICE,
+                )
+            ),
+            Bound(
+                entries=slice(HOLE_RADIUS_INDEX, HOLE_RADIUS_INDEX + 1),
+                minimum=0.0,
+                maximum=float("inf"),
+            ),
+            Bound(
+                entries=slice(PEG_HALF_SIZE_SLICE.start, PEG_HALF_SIZE_SLICE.start + 1),
+                minimum=0.0,
+                maximum=float("inf"),
+            ),
+        )
 
         self._plot_layout = create_plot_layout()
         self._gpi_geometry = PegInsertionGpiGeometry()
