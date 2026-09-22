@@ -1,8 +1,11 @@
 import json
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import gymnasium
 import h5py
 import mani_skill.envs  # noqa: F401
 import numpy as np
@@ -75,6 +78,22 @@ class _Episode:
     rewards: npt.NDArray[np.float32]  # (episode_length,)
 
 
+@contextmanager
+def _headless_replay_environment() -> Iterator[None]:
+    original_make = gymnasium.make
+
+    def _make(id: str, **kwargs: Any) -> Any:
+        kwargs["render_backend"] = "none"
+        kwargs["render_mode"] = None
+        return original_make(id, **kwargs)
+
+    gymnasium.make = _make
+    try:
+        yield
+    finally:
+        gymnasium.make = original_make
+
+
 def _get_dataset(*, dataset_directory_path: Path) -> Path:
     logger.info("Retrieving dataset at %s.", dataset_directory_path)
 
@@ -89,18 +108,19 @@ def _get_dataset(*, dataset_directory_path: Path) -> Path:
         return converted_dataset_path
 
     logger.info("Converting demonstrations to %s.", CONTROL_MODE)
-    replay_trajectory(
-        ReplayArgs(
-            traj_path=str(joint_control_dataset_path),
-            obs_mode="none",
-            target_control_mode=CONTROL_MODE,
-            save_traj=True,
-            max_retry=4,
-            record_rewards=True,
-            reward_mode=REWARD_MODE,
-            render_mode="none",
+    with _headless_replay_environment():
+        replay_trajectory(
+            ReplayArgs(
+                traj_path=str(joint_control_dataset_path),
+                obs_mode="none",
+                target_control_mode=CONTROL_MODE,
+                save_traj=True,
+                max_retry=4,
+                record_rewards=True,
+                reward_mode=REWARD_MODE,
+                render_mode=None,
+            )
         )
-    )
 
     converted_dataset_path = _find_converted_dataset(
         dataset_directory_path=dataset_directory_path
