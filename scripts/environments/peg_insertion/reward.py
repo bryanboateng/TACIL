@@ -2,7 +2,7 @@ import numpy as np
 from numpy import typing as npt
 
 from scripts.environments.peg_insertion.observation import (
-    HOLE_ORIENTATION_INDEX,
+    HOLE_ORIENTATION_SLICE,
     HOLE_POSITION_SLICE,
     HOLE_RADIUS_INDEX,
     PEG_HALF_SIZE_SLICE,
@@ -36,8 +36,8 @@ def calculate_peg_head_offset(
     peg_forward_axis_batch = state_batch[:, PEG_FORWARD_AXIS_SLICE].astype(
         np.float64
     )  # (batch_size, 3)
-    hole_rotation_batch = _create_yaw_rotations(
-        yaw_batch=state_batch[:, HOLE_ORIENTATION_INDEX].astype(np.float64)
+    hole_rotation_batch = _create_rotations(
+        orientation_batch=state_batch[:, HOLE_ORIENTATION_SLICE].astype(np.float64)
     )  # (batch_size, 3, 3)
 
     half_length_batch = state_batch[:, PEG_HALF_SIZE_SLICE][:, 0].astype(
@@ -59,19 +59,15 @@ def calculate_peg_head_offset(
 # ---- Private --------------------------------------------
 
 
-def _create_yaw_rotations(
+def _create_rotations(
     *,
-    yaw_batch: npt.NDArray[np.float64],  # (batch_size,)
+    orientation_batch: npt.NDArray[np.float64],  # (batch_size, 6)
 ) -> npt.NDArray[np.float64]:  # (batch_size, 3, 3)
-    cosine_batch = np.cos(yaw_batch)  # (batch_size,)
-    sine_batch = np.sin(yaw_batch)  # (batch_size,)
-    zero_batch = np.zeros_like(a=yaw_batch)  # (batch_size,)
-    one_batch = np.ones_like(a=yaw_batch)  # (batch_size,)
+    first_column_batch = orientation_batch[:, :3]  # (batch_size, 3)
+    second_column_batch = orientation_batch[:, 3:]  # (batch_size, 3)
+    third_column_batch = np.cross(
+        a=first_column_batch, b=second_column_batch
+    )  # (batch_size, 3)
     return np.stack(
-        arrays=[
-            np.stack(arrays=[cosine_batch, -sine_batch, zero_batch], axis=-1),
-            np.stack(arrays=[sine_batch, cosine_batch, zero_batch], axis=-1),
-            np.stack(arrays=[zero_batch, zero_batch, one_batch], axis=-1),
-        ],
-        axis=-2,
+        arrays=[first_column_batch, second_column_batch, third_column_batch], axis=-1
     )  # (batch_size, 3, 3)

@@ -20,7 +20,9 @@ from scripts.environments.peg_insertion.environment import (
     TASK_ID,
     create_base_environment,
 )
-from scripts.environments.peg_insertion.observation import observe_state
+from scripts.environments.peg_insertion.observation import (
+    extract_state_from_environment,
+)
 from scripts.shared.download import download_and_extract_zip
 from scripts.shared.episode_store import RewardedEpisodeStore
 from scripts.shared.log import create_logger
@@ -196,7 +198,11 @@ def _build_episode(*, gym_environment: Env, group: h5py.Group, seed: int) -> _Ep
                 for state_name, state_values in simulator_states.items()
             }
         )
-        states.append(observe_state(task=peg_insertion_side_env))
+        states.append(
+            extract_state_from_environment(
+                peg_insertion_side_env=peg_insertion_side_env
+            )
+        )
 
     return _Episode(
         states=np.stack(arrays=states).astype(np.float32),

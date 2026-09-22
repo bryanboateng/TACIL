@@ -4,7 +4,7 @@ from scripts.environments.peg_insertion.observation import (
     ACTION_DIMENSIONALITY,
     ARM_ACTION_COUNT,
     GRIPPER_OPENING_INDEX,
-    HOLE_ORIENTATION_INDEX,
+    HOLE_ORIENTATION_SLICE,
     HOLE_POSITION_SLICE,
     HOLE_RADIUS_INDEX,
     PEG_ANGULAR_VELOCITY_SLICE,
@@ -29,10 +29,6 @@ def build_network_input(
 ) -> torch.Tensor:  # (batch_size, network_input_dimensionality)
     tcp_position_batch = state_batch[..., TCP_POSITION_SLICE]  # (batch_size, 3)
     peg_position_batch = state_batch[..., PEG_POSITION_SLICE]  # (batch_size, 3)
-    hole_orientation_batch = state_batch[
-        ..., HOLE_ORIENTATION_INDEX : HOLE_ORIENTATION_INDEX + 1
-    ]  # (batch_size, 1)
-
     return torch.cat(
         tensors=[
             tcp_position_batch,
@@ -45,8 +41,7 @@ def build_network_input(
             state_batch[..., PEG_LINEAR_VELOCITY_SLICE],
             state_batch[..., PEG_ANGULAR_VELOCITY_SLICE],
             state_batch[..., HOLE_POSITION_SLICE] - peg_position_batch,
-            torch.sin(hole_orientation_batch),
-            torch.cos(hole_orientation_batch),
+            state_batch[..., HOLE_ORIENTATION_SLICE],
             state_batch[..., PEG_HALF_SIZE_SLICE],
             state_batch[..., HOLE_RADIUS_INDEX : HOLE_RADIUS_INDEX + 1],
             action_batch[..., _ARM_ACTION_SLICE],

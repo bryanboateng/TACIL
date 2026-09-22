@@ -14,11 +14,7 @@ def create_bounds() -> tuple[Bound, ...]:
     return (
         *(
             Bound(entries=entries, minimum=-_POSITION_LIMIT, maximum=_POSITION_LIMIT)
-            for entries in (
-                TCP_POSITION_SLICE,
-                PEG_POSITION_SLICE,
-                HOLE_POSITION_SLICE,
-            )
+            for entries in (TCP_POSITION_SLICE, PEG_POSITION_SLICE, HOLE_POSITION_SLICE)
         ),
         Bound(
             entries=slice(HOLE_RADIUS_INDEX, HOLE_RADIUS_INDEX + 1),

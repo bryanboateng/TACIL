@@ -1,5 +1,6 @@
 import numpy as np
-from mani_skill import PegInsertionSideEnv
+from mani_skill.envs.tasks.tabletop.peg_insertion_side import PegInsertionSideEnv
+from mani_skill.utils.structs import Actor, Link, Pose
 from numpy import typing as npt
 
 TCP_POSITION_SLICE = slice(0, 3)
@@ -14,71 +15,89 @@ PEG_LINEAR_VELOCITY_SLICE = slice(25, 28)
 PEG_ANGULAR_VELOCITY_SLICE = slice(28, 31)
 PEG_HALF_SIZE_SLICE = slice(31, 34)
 HOLE_POSITION_SLICE = slice(34, 37)
-HOLE_ORIENTATION_INDEX = 37
-HOLE_RADIUS_INDEX = 38
+HOLE_ORIENTATION_SLICE = slice(37, 43)  # (6,) 6D
+HOLE_RADIUS_INDEX = 43
 
-STATE_DIMENSIONALITY = 39
+STATE_DIMENSIONALITY = 44
 
 ACTION_DIMENSIONALITY = 7  # (7,) 6 EE deltas + 1 gripper
 ARM_ACTION_COUNT = 6
 
-ANGLE_INDICES = (HOLE_ORIENTATION_INDEX,)
-
-_FULL_TURN = 2.0 * np.pi
+ANGLE_INDICES = ()
 
 
-def observe_state(
-    task: PegInsertionSideEnv,  # mani_skill PegInsertionSideEnv (unwrapped)
+def extract_state_from_environment(
+    *, peg_insertion_side_env: PegInsertionSideEnv
 ) -> npt.NDArray[np.float32]:  # (STATE_DIMENSIONALITY,)
-    tcp = task.agent.tcp
-    tcp_pos = tcp.pose.p.cpu().numpy().reshape(3)
-    tcp_quat = tcp.pose.q.cpu().numpy().reshape(4)  # (4,) w,x,y,z
-    tcp_lin_vel = tcp.get_linear_velocity().cpu().numpy().reshape(3)
-    tcp_ang_vel = tcp.get_angular_velocity().cpu().numpy().reshape(3)
+    tcp_pose_and_velocity = _extract_pose_and_velocity(
+        body=peg_insertion_side_env.agent.tcp
+    )  # (15,)
+    gripper_opening = (
+        peg_insertion_side_env.agent.robot.get_qpos().cpu().numpy().reshape(-1)[7:8]
+    )  # (1,)
 
-    gripper_opening = task.agent.robot.get_qpos().cpu().numpy().reshape(-1)[7:8]  # (1,)
+    peg_pose_and_velocity = _extract_pose_and_velocity(
+        body=peg_insertion_side_env.peg
+    )  # (15,)
+    peg_half_size = (
+        peg_insertion_side_env.peg_half_sizes.cpu().numpy().reshape(3)
+    )  # (3,)
 
-    peg = task.peg
-    peg_pos = peg.pose.p.cpu().numpy().reshape(3)
-    peg_quat = peg.pose.q.cpu().numpy().reshape(4)  # (4,) w,x,y,z
-    peg_lin_vel = peg.get_linear_velocity().cpu().numpy().reshape(3)
-    peg_ang_vel = peg.get_angular_velocity().cpu().numpy().reshape(3)
+    hole_pose = _extract_pose(pose=peg_insertion_side_env.box_hole_pose)  # (9,)
+    hole_radius = peg_insertion_side_env.box_hole_radii.cpu().numpy().reshape(1)  # (1,)
 
-    peg_half_size = task.peg_half_sizes.cpu().numpy().reshape(3)
-
-    hole_pose = task.box_hole_pose
-    hole_pos = hole_pose.p.cpu().numpy().reshape(3)
-    hole_quat = hole_pose.q.cpu().numpy().reshape(4)  # (4,) w,x,y,z
-
-    hole_radius = task.box_hole_radii.cpu().numpy().reshape(1)
-
-    return np.concatenate(
+    state = np.concatenate(
         [
-            tcp_pos,
-            quaternion_to_6d(quaternion=tcp_quat),
-            tcp_lin_vel,
-            tcp_ang_vel,
+            tcp_pose_and_velocity,
             gripper_opening,
-            peg_pos,
-            quaternion_to_6d(quaternion=peg_quat),
-            peg_lin_vel,
-            peg_ang_vel,
+            peg_pose_and_velocity,
             peg_half_size,
-            hole_pos,
-            calculate_yaw(quaternion=hole_quat),
+            hole_pose,
             hole_radius,
         ],
         dtype=np.float32,
     )
 
+    if len(state) != STATE_DIMENSIONALITY:
+        raise ValueError(
+            f"Assembled {len(state)} state entries, "
+            f"but the layout declares {STATE_DIMENSIONALITY}."
+        )
 
-def quaternion_to_6d(
+    return state
+
+
+# ---- Private --------------------------------------------
+
+
+def _extract_pose(*, pose: Pose) -> npt.NDArray[np.float32]:  # (9,)
+    position = pose.p.cpu().numpy().reshape(3)  # (3,)
+    quaternion = pose.q.cpu().numpy().reshape(4)  # (4,) w,x,y,z
+
+    return np.concatenate(
+        [position, _quaternion_to_6d(quaternion=quaternion)], dtype=np.float32
+    )
+
+
+def _extract_pose_and_velocity(
+    *, body: Actor | Link
+) -> npt.NDArray[np.float32]:  # (15,)
+    linear_velocity = body.get_linear_velocity().cpu().numpy().reshape(3)  # (3,)
+    angular_velocity = body.get_angular_velocity().cpu().numpy().reshape(3)  # (3,)
+
+    return np.concatenate(
+        [_extract_pose(pose=body.pose), linear_velocity, angular_velocity],
+        dtype=np.float32,
+    )
+
+
+def _quaternion_to_6d(
     *,
     quaternion: npt.NDArray[np.floating],  # (4,) w,x,y,z
 ) -> npt.NDArray[np.floating]:  # (6,)
     w, x, y, z = quaternion
     return np.array(
-        [
+        object=[
             1 - 2 * (y * y + z * z),
             2 * (x * y + w * z),
             2 * (x * z - w * y),
@@ -87,12 +106,3 @@ def quaternion_to_6d(
             2 * (y * z + w * x),
         ]
     )
-
-
-def calculate_yaw(
-    *,
-    quaternion: npt.NDArray[np.floating],  # (4,) w,x,y,z
-) -> npt.NDArray[np.floating]:  # (1,)
-    w, x, y, z = quaternion
-    yaw = np.arctan2(2.0 * (x * y + w * z), 1.0 - 2.0 * (y * y + z * z))
-    return np.array([yaw % _FULL_TURN])

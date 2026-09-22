@@ -19,11 +19,10 @@ from scripts.environments.peg_insertion.gpi_geometry import PegInsertionGpiGeome
 from scripts.environments.peg_insertion.network_input import build_network_input
 from scripts.environments.peg_insertion.observation import (
     STATE_DIMENSIONALITY,
-    observe_state,
+    extract_state_from_environment,
 )
 from scripts.environments.peg_insertion.plot_layout import create_plot_layout
 from scripts.environments.peg_insertion.state_bounds import create_bounds
-from scripts.environments.peg_insertion.state_space import create_state_space
 from scripts.environments.plot_layout import PlotLayout
 from scripts.environments.render_settings import RenderSettings
 from scripts.environments.state_space import StateSpace
@@ -60,7 +59,9 @@ def create_base_environment(
 
 class PegInsertionEnvironment:
     def __init__(self) -> None:
-        self._state_space = create_state_space()
+        self._state_space = StateSpace(
+            dimensionality=STATE_DIMENSIONALITY, angle_indices=()
+        )
         self._state_bounds = create_bounds()
 
         self._plot_layout = create_plot_layout()
@@ -142,4 +143,4 @@ class _SelectedObservationWrapper(gymnasium.ObservationWrapper):
     def observation(
         self, observation: npt.NDArray[np.float32]
     ) -> npt.NDArray[np.float32]:  # (STATE_DIMENSIONALITY,)
-        return observe_state(task=self.env.unwrapped)
+        return extract_state_from_environment(peg_insertion_side_env=self.env.unwrapped)
