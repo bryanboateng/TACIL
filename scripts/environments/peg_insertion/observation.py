@@ -60,8 +60,7 @@ def extract_state_from_environment(
 
     if len(state) != STATE_DIMENSIONALITY:
         raise ValueError(
-            f"Assembled {len(state)} state entries, "
-            f"but the layout declares {STATE_DIMENSIONALITY}."
+            f"Wrong state dimensionality. Expected {STATE_DIMENSIONALITY}, got {len(state)}"
         )
 
     return state
