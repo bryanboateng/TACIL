@@ -1,9 +1,8 @@
 from scripts.environments.peg_insertion.observation import (
-    GRIPPER_POSITION_SLICE,
     HOLE_ORIENTATION_INDEX,
     HOLE_POSITION_SLICE,
-    PEG_ORIENTATION_INDEX,
     PEG_POSITION_SLICE,
+    TCP_POSITION_SLICE,
 )
 from scripts.environments.plot_layout import (
     OrientationGroup,
@@ -17,8 +16,8 @@ def create_plot_layout() -> PlotLayout:
     return PlotLayout(
         position_groups=(
             PositionGroup(
-                label="Gripper Position",
-                entries=_horizontal_plane(entries=GRIPPER_POSITION_SLICE),
+                label="TCP Position",
+                entries=_horizontal_plane(entries=TCP_POSITION_SLICE),
             ),
             PositionGroup(
                 label="Peg Position",
@@ -30,7 +29,6 @@ def create_plot_layout() -> PlotLayout:
             ),
         ),
         orientation_groups=(
-            OrientationGroup(label="Peg Orientation", index=PEG_ORIENTATION_INDEX),
             OrientationGroup(label="Hole Orientation", index=HOLE_ORIENTATION_INDEX),
         ),
         horizontal_limits=(-200.0, 180.0),

@@ -6,7 +6,9 @@ from gymnasium.spaces import Box
 from mani_skill.utils.wrappers import CPUGymWrapper
 from numpy import typing as npt
 
+from scripts.environments import state_bounds
 from scripts.environments.condition import Condition
+from scripts.environments.network_input import NetworkInputBuilder
 from scripts.environments.peg_insertion import reward
 from scripts.environments.peg_insertion.condition import (
     ALL_CONDITIONS,
@@ -14,34 +16,46 @@ from scripts.environments.peg_insertion.condition import (
 )
 from scripts.environments.peg_insertion.disturbance import DisturbanceWrapper
 from scripts.environments.peg_insertion.gpi_geometry import PegInsertionGpiGeometry
+from scripts.environments.peg_insertion.network_input import build_network_input
 from scripts.environments.peg_insertion.observation import (
     STATE_DIMENSIONALITY,
-    convert_observations,
+    observe_state,
 )
-from scripts.environments.peg_insertion.network_input import build_network_input
 from scripts.environments.peg_insertion.plot_layout import create_plot_layout
 from scripts.environments.peg_insertion.state_bounds import create_bounds
 from scripts.environments.peg_insertion.state_space import create_state_space
-from scripts.environments.render_settings import RenderSettings
-from scripts.environments.network_input import NetworkInputBuilder
 from scripts.environments.plot_layout import PlotLayout
-from scripts.environments import state_bounds
+from scripts.environments.render_settings import RenderSettings
 from scripts.environments.state_space import StateSpace
 from scripts.environments.video_settings import VideoSettings
 
 TASK_ID = "PegInsertionSide-v1"
 
-CONTROL_MODE = "pd_joint_pos"
+CONTROL_MODE = "pd_ee_delta_pose"
+REWARD_MODE = "normalized_dense"
+SIMULATION_BACKEND = "physx_cpu"
 
-MAX_EPISODE_STEPS = 300
 
-_REWARD_MODE = "normalized_dense"
-
-_SIM_BACKEND = "physx_cpu"
-
-_RENDER_BACKEND = "cpu"
-
-_VIDEO_SETTINGS = VideoSettings(frames_per_second=20, playback_speed=2.0)
+def create_base_environment(
+    *, max_episode_steps: int, render_settings: RenderSettings | None = None
+) -> Env:
+    return CPUGymWrapper(
+        gymnasium.make(
+            id=TASK_ID,
+            obs_mode="none",
+            control_mode=CONTROL_MODE,
+            reward_mode=REWARD_MODE,
+            sim_backend=SIMULATION_BACKEND,
+            render_backend="cpu" if render_settings is not None else "none",
+            render_mode="rgb_array" if render_settings is not None else None,
+            max_episode_steps=max_episode_steps,
+            human_render_camera_configs=(
+                {}
+                if render_settings is None
+                else {"width": render_settings.size, "height": render_settings.size}
+            ),
+        )
+    )
 
 
 class PegInsertionEnvironment:
@@ -74,40 +88,19 @@ class PegInsertionEnvironment:
 
     @property
     def video_settings(self) -> VideoSettings:
-        return _VIDEO_SETTINGS
+        return VideoSettings(frames_per_second=20, playback_speed=2.0)
 
     def describe_condition(self, *, condition: Condition) -> str:
         return SETTINGS_BY_CONDITION[condition].description
 
     def create_gym_environment(
-        self,
-        *,
-        condition: Condition,
-        render_settings: RenderSettings | None,
-        max_episode_steps: int = MAX_EPISODE_STEPS,
+        self, *, condition: Condition, render_settings: RenderSettings | None
     ) -> Env:
         environment: Env = _SelectedObservationWrapper(
-            environment=CPUGymWrapper(
-                gymnasium.make(
-                    id=TASK_ID,
-                    obs_mode="state",
-                    control_mode=CONTROL_MODE,
-                    reward_mode=_REWARD_MODE,
-                    sim_backend=_SIM_BACKEND,
-                    render_backend=(
-                        _RENDER_BACKEND if render_settings is not None else "none"
-                    ),
-                    render_mode="rgb_array" if render_settings is not None else None,
-                    max_episode_steps=max_episode_steps,
-                    human_render_camera_configs=(
-                        {}
-                        if render_settings is None
-                        else {
-                            "width": render_settings.size,
-                            "height": render_settings.size,
-                        }
-                    ),
-                )
+            environment=create_base_environment(
+                # The converted demonstrations need about 105-423 steps so 450 is a good limit.
+                max_episode_steps=450,
+                render_settings=render_settings,
             )
         )
 
@@ -122,7 +115,7 @@ class PegInsertionEnvironment:
     def calculate_termination(
         self,
         *,
-        state_batch: npt.NDArray[np.float32],  # (batch_size, state_dimensionality)
+        state_batch: npt.NDArray[np.float32],  # (batch_size, STATE_DIMENSIONALITY)
     ) -> npt.NDArray[np.bool_]:  # (batch_size,)
         inside_batch = state_bounds.contains(
             state_batch=state_batch, bounds=self._state_bounds
@@ -148,9 +141,5 @@ class _SelectedObservationWrapper(gymnasium.ObservationWrapper):
 
     def observation(
         self, observation: npt.NDArray[np.float32]
-    ) -> npt.NDArray[np.float32]:  # (state_dimensionality,)
-        return convert_observations(
-            raw_observation_batch=np.asarray(a=observation, dtype=np.float32).reshape(
-                1, -1
-            )
-        )[0]
+    ) -> npt.NDArray[np.float32]:  # (STATE_DIMENSIONALITY,)
+        return observe_state(task=self.env.unwrapped)

@@ -1,9 +1,9 @@
 from scripts.environments.peg_insertion.observation import (
-    GRIPPER_POSITION_SLICE,
     HOLE_POSITION_SLICE,
     HOLE_RADIUS_INDEX,
     PEG_HALF_SIZE_SLICE,
     PEG_POSITION_SLICE,
+    TCP_POSITION_SLICE,
 )
 from scripts.environments.state_bounds import Bound
 
@@ -15,7 +15,7 @@ def create_bounds() -> tuple[Bound, ...]:
         *(
             Bound(entries=entries, minimum=-_POSITION_LIMIT, maximum=_POSITION_LIMIT)
             for entries in (
-                GRIPPER_POSITION_SLICE,
+                TCP_POSITION_SLICE,
                 PEG_POSITION_SLICE,
                 HOLE_POSITION_SLICE,
             )

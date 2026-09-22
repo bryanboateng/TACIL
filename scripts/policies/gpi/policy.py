@@ -177,6 +177,8 @@ def _calculate_agent_target_position(
     progression_weight: float,
     attraction_weight: float,
 ) -> torch.Tensor:  # (position_dimensionality,)
+    # TODO: assumes the action is an absolute target. Wrong for delta-action
+    # environments - see the TODO in environments/peg_insertion/gpi_geometry.py.
     progression_flow = recorded_action - recorded_position
     attraction_flow = recorded_position - current_position
     return (
