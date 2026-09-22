@@ -1,4 +1,5 @@
 import numpy as np
+from mani_skill import PegInsertionSideEnv
 from numpy import typing as npt
 
 TCP_POSITION_SLICE = slice(0, 3)
@@ -27,7 +28,7 @@ _FULL_TURN = 2.0 * np.pi
 
 
 def observe_state(
-    task,  # mani_skill PegInsertionSideEnv (unwrapped)
+    task: PegInsertionSideEnv,  # mani_skill PegInsertionSideEnv (unwrapped)
 ) -> npt.NDArray[np.float32]:  # (STATE_DIMENSIONALITY,)
     tcp = task.agent.tcp
     tcp_pos = tcp.pose.p.cpu().numpy().reshape(3)

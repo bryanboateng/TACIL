@@ -1,11 +1,13 @@
 import json
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import h5py
 import mani_skill.envs  # noqa: F401
 import numpy as np
 from gymnasium import Env
+from mani_skill import PegInsertionSideEnv
 from mani_skill.trajectory.replay_trajectory import Args as ReplayArgs
 from mani_skill.trajectory.replay_trajectory import main as replay_trajectory
 from mani_skill.utils.download_demo import DATASET_SOURCES
@@ -24,6 +26,8 @@ from scripts.shared.episode_store import RewardedEpisodeStore
 from scripts.shared.log import create_logger
 
 logger = create_logger()
+
+SimulatorStates = dict[str, dict[str, npt.NDArray[Any]]]
 
 
 def build_episode_store() -> RewardedEpisodeStore:
@@ -105,7 +109,7 @@ def _get_dataset(*, dataset_directory_path: Path) -> Path:
     return converted_dataset_path
 
 
-def _check_metadata(*, metadata: dict) -> None:
+def _check_metadata(*, metadata: dict[str, Any]) -> None:
     environment_info = metadata["env_info"]
     environment_id = environment_info["env_id"]
     if environment_id != TASK_ID:
@@ -172,31 +176,39 @@ def _build_episode(*, gym_environment: Env, group: h5py.Group, seed: int) -> _Ep
     )  # (episode_length, ACTION_DIMENSIONALITY)
     rewards = np.asarray(a=group["rewards"], dtype=np.float32)  # (episode_length,)
 
-    simulator_states = {
-        group_name: {
-            name: np.asarray(a=entry)
-            for name, entry in group["env_states"][group_name].items()
-        }
-        for group_name in group["env_states"]
-    }
+    simulator_states = _get_simulator_states(group=group)
 
     gym_environment.reset(seed=seed)
-    task = gym_environment.unwrapped
+    peg_insertion_side_env = gym_environment.unwrapped
+    if not isinstance(peg_insertion_side_env, PegInsertionSideEnv):
+        raise TypeError(
+            f"Expected PegInsertionSideEnv, got {type(peg_insertion_side_env).__name__}"
+        )
 
-    states = []
+    states: list[npt.NDArray[np.float32]] = []
     for step_index in range(len(actions)):
-        task.set_state_dict(
-            {
-                group_name: {
-                    name: entry[step_index][None] for name, entry in group_data.items()
+        peg_insertion_side_env.set_state_dict(
+            state={
+                state_name: {
+                    name: values[step_index][None]
+                    for name, values in state_values.items()
                 }
-                for group_name, group_data in simulator_states.items()
+                for state_name, state_values in simulator_states.items()
             }
         )
-        states.append(observe_state(task=task))
+        states.append(observe_state(task=peg_insertion_side_env))
 
     return _Episode(
         states=np.stack(arrays=states).astype(np.float32),
         actions=actions,
         rewards=rewards,
     )
+
+
+def _get_simulator_states(*, group: h5py.Group) -> SimulatorStates:
+    env_states = group["env_states"]
+    simulator_states = {
+        state_name: {name: np.asarray(dataset) for name, dataset in state_group.items()}
+        for state_name, state_group in env_states.items()
+    }
+    return simulator_states
