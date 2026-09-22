@@ -150,7 +150,7 @@ def _build_episodes(
         gym_environment = create_base_environment(max_episode_steps=max_steps + 1)
         try:
             for metadata in tqdm(
-                iterable=episode_metadata, desc="Building", unit="episode"
+                iterable=episode_metadata, desc="Building episodes", unit="episode"
             ):
                 episodes.append(
                     _build_episode(
@@ -167,9 +167,10 @@ def _build_episodes(
 
 
 def _build_episode(*, gym_environment: Env, group: h5py.Group, seed: int) -> _Episode:
-    actions = np.asarray(a=group["actions"], dtype=np.float32)  # (T, 7)
-    rewards = np.asarray(a=group["rewards"], dtype=np.float32)  # (T,)
-    rewards[-1] = np.nan
+    actions = np.asarray(
+        a=group["actions"], dtype=np.float32
+    )  # (episode_length, ACTION_DIMENSIONALITY)
+    rewards = np.asarray(a=group["rewards"], dtype=np.float32)  # (episode_length,)
 
     simulator_states = {
         group_name: {

@@ -40,7 +40,7 @@ def create_base_environment(
     *, max_episode_steps: int, render_settings: RenderSettings | None = None
 ) -> Env:
     return CPUGymWrapper(
-        gymnasium.make(
+        env=gymnasium.make(
             id=TASK_ID,
             obs_mode="none",
             control_mode=CONTROL_MODE,
