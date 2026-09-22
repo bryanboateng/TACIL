@@ -11,14 +11,9 @@ from scripts.data.augmentation.tacil.create_dynamics.statistics.plots import (
     create_prediction_error_vs_step_count_plot,
     create_replay_error_plot,
 )
-from scripts.environments.pusht.observation import (
-    AGENT_POSITION_SLICE,
-    BLOCK_POSITION_SLICE,
-    BLOCK_ORIENTATION_INDEX,
-    ARENA_SIZE,
-)
+from scripts.environments.peg_insertion import plot_preview as peg_insertion_preview
+from scripts.environments.pusht import plot_preview as pusht_preview
 from scripts.environments.registry import EnvironmentName, create_environment
-from scripts.environments.state_space import StateSpace
 from scripts.shared.distribution_plot import create_distribution_plot
 from scripts.shared.log import create_logger
 from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
@@ -34,10 +29,6 @@ _MEMBER_COUNT = 8
 _REPLAY_STEP_COUNT = 100
 
 _POINT_COUNT = 4_000
-
-_FULL_TURN = 2.0 * np.pi
-
-_DRIFT_FRACTION = 0.06
 
 
 def main() -> None:
@@ -83,21 +74,17 @@ def main() -> None:
 
     for environment_name in EnvironmentName:
         environment = create_environment(name=environment_name)
-        if environment_name == EnvironmentName.PEG_INSERTION:
-            from scripts.environments.peg_insertion.plot_preview import (
-                draw_trajectories,
-            )
+        match environment_name:
+            case EnvironmentName.PUSH_T:
+                draw_trajectories = pusht_preview.draw_trajectories
+            case EnvironmentName.PEG_INSERTION:
+                draw_trajectories = peg_insertion_preview.draw_trajectories
 
-            member_trajectories, true_trajectory = draw_trajectories(
-                rng=np.random.default_rng(seed=_SEED),
-                step_count=_REPLAY_STEP_COUNT + 1,
-                member_count=_MEMBER_COUNT,
-            )
-        else:
-            member_trajectories, true_trajectory = _draw_fanning_trajectories(
-                rng=np.random.default_rng(seed=_SEED),
-                state_space=environment.state_space,
-            )
+        member_trajectories, true_trajectory = draw_trajectories(
+            rng=np.random.default_rng(seed=_SEED),
+            step_count=_REPLAY_STEP_COUNT + 1,
+            member_count=_MEMBER_COUNT,
+        )
         _save_previews(
             previews=environment.tacil_dynamics_plotter(
                 member_trajectories=member_trajectories,
@@ -159,49 +146,6 @@ def _stop_walks_early(
 
     stopped_mask = depths > survived_depths[:, None]
     return np.where(stopped_mask, np.nan, prediction_errors)
-
-
-def _draw_fanning_trajectories(
-    *, rng: np.random.Generator, state_space: StateSpace
-) -> tuple[
-    npt.NDArray[np.floating],  # (_MEMBER_COUNT, step_count + 1, state_dimensionality)
-    npt.NDArray[np.floating],  # (step_count + 1, state_dimensionality)
-]:
-    progress = np.arange(_REPLAY_STEP_COUNT + 1) / _REPLAY_STEP_COUNT
-
-    true_trajectory = np.zeros(
-        shape=(_REPLAY_STEP_COUNT + 1, state_space.dimensionality), dtype=np.float64
-    )
-    drift_per_entry = np.zeros(state_space.dimensionality)
-
-    for group_index, entries in enumerate((AGENT_POSITION_SLICE, BLOCK_POSITION_SLICE)):
-        phase = 0.12 * group_index
-        true_trajectory[:, entries] = np.stack(
-            arrays=[
-                ARENA_SIZE * (0.12 + 0.76 * progress),
-                ARENA_SIZE * (0.12 + 0.76 * np.sin(np.pi * (progress + phase)) ** 2),
-            ],
-            axis=-1,
-        )  # (step_count + 1, 2)
-        drift_per_entry[entries] = _DRIFT_FRACTION * np.array(
-            object=[ARENA_SIZE, ARENA_SIZE]
-        )
-
-    true_trajectory[:, BLOCK_ORIENTATION_INDEX] = (
-        1.25 * _FULL_TURN * progress
-    ) % _FULL_TURN
-    drift_per_entry[BLOCK_ORIENTATION_INDEX] = _DRIFT_FRACTION * _FULL_TURN
-
-    member_trajectories = true_trajectory[None] + (
-        progress[None, :, None] ** 1.5
-        * rng.normal(
-            loc=0.0, scale=1.0, size=(_MEMBER_COUNT, 1, state_space.dimensionality)
-        )
-        * drift_per_entry
-    )  # (_MEMBER_COUNT, step_count + 1, state_dimensionality)
-    member_trajectories[..., BLOCK_ORIENTATION_INDEX] %= _FULL_TURN
-
-    return member_trajectories, true_trajectory
 
 
 if __name__ == "__main__":
