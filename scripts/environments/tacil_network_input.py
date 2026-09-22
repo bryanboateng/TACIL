@@ -3,7 +3,7 @@ from typing import Protocol
 import torch
 
 
-class NetworkInputBuilder(Protocol):
+class TacilNetworkInputBuilder(Protocol):
     def __call__(
         self,
         *,

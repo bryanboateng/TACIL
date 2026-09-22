@@ -32,7 +32,7 @@ from scripts.data.augmentation.tacil.dynamics.dynamics_model.dynamics_model impo
 from scripts.data.augmentation.tacil.dynamics.dynamics_model_ensemble import (
     DynamicsModelEnsemble,
 )
-from scripts.environments.network_input import NetworkInputBuilder
+from scripts.environments.tacil_network_input import TacilNetworkInputBuilder
 from scripts.environments.plot_layout import PlotLayout
 from scripts.environments.state_space import StateSpace
 from scripts.shared.episode_store import EpisodeStore
@@ -44,7 +44,7 @@ def train_dynamics_model_ensemble(
     *,
     config: DynamicsConfig,
     state_space: StateSpace,
-    network_input_builder: NetworkInputBuilder,
+    network_input_builder: TacilNetworkInputBuilder,
     plot_layout: PlotLayout,
     episode_store: EpisodeStore,
     seed: int,
@@ -188,7 +188,7 @@ def _create_normalizers(
     *,
     transitions: TransitionTriples,
     state_space: StateSpace,
-    network_input_builder: NetworkInputBuilder,
+    network_input_builder: TacilNetworkInputBuilder,
     device: torch.device,
 ) -> _Normalizers:
     state_batch = torch.from_numpy(transitions.states).to(

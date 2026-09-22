@@ -3,7 +3,7 @@ import torch
 from scripts.data.augmentation.tacil.dynamics.dynamics_model.lipschitz_constrained_linear import (
     LipschitzConstrainedLinear,
 )
-from scripts.environments.network_input import NetworkInputBuilder
+from scripts.environments.tacil_network_input import TacilNetworkInputBuilder
 from scripts.environments.state_space import StateSpace
 from scripts.shared.normalization import ZScoreNormalizer
 
@@ -13,7 +13,7 @@ class DynamicsModel(torch.nn.Module):
         self,
         *,
         state_space: StateSpace,
-        network_input_builder: NetworkInputBuilder,
+        network_input_builder: TacilNetworkInputBuilder,
         hidden_layer_count: int,
         hidden_layer_dimensionality: int,
         lipschitz_limit: float | None,

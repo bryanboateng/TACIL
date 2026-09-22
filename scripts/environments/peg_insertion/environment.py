@@ -8,7 +8,6 @@ from numpy import typing as npt
 
 from scripts.environments import state_bounds
 from scripts.environments.condition import Condition
-from scripts.environments.network_input import NetworkInputBuilder
 from scripts.environments.peg_insertion import reward
 from scripts.environments.peg_insertion.condition import (
     ALL_CONDITIONS,
@@ -16,16 +15,17 @@ from scripts.environments.peg_insertion.condition import (
 )
 from scripts.environments.peg_insertion.disturbance import DisturbanceWrapper
 from scripts.environments.peg_insertion.gpi_geometry import PegInsertionGpiGeometry
-from scripts.environments.peg_insertion.network_input import build_network_input
 from scripts.environments.peg_insertion.observation import (
     STATE_DIMENSIONALITY,
     extract_state_from_environment,
 )
 from scripts.environments.peg_insertion.plot_layout import create_plot_layout
 from scripts.environments.peg_insertion.state_bounds import create_bounds
+from scripts.environments.peg_insertion.tacil_network_input import build_network_input
 from scripts.environments.plot_layout import PlotLayout
 from scripts.environments.render_settings import RenderSettings
 from scripts.environments.state_space import StateSpace
+from scripts.environments.tacil_network_input import TacilNetworkInputBuilder
 from scripts.environments.video_settings import VideoSettings
 
 TASK_ID = "PegInsertionSide-v1"
@@ -72,7 +72,7 @@ class PegInsertionEnvironment:
         return self._state_space
 
     @property
-    def network_input_builder(self) -> NetworkInputBuilder:
+    def tacil_network_input_builder(self) -> TacilNetworkInputBuilder:
         return build_network_input
 
     @property

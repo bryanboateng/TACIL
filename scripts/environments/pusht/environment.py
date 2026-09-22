@@ -4,21 +4,21 @@ import numpy as np
 from gymnasium import Env
 from numpy import typing as npt
 
+from scripts.environments import state_bounds
 from scripts.environments.condition import Condition
+from scripts.environments.plot_layout import PlotLayout
 from scripts.environments.pusht import reward
 from scripts.environments.pusht.condition import ALL_CONDITIONS, SETTINGS_BY_CONDITION
 from scripts.environments.pusht.disturbance import DisturbanceWrapper
 from scripts.environments.pusht.gpi_geometry import PushTGpiGeometry
-from scripts.environments.pusht.renderer import RecoloredRenderWrapper
-from scripts.environments.pusht.network_input import build_network_input
 from scripts.environments.pusht.plot_layout import create_plot_layout
+from scripts.environments.pusht.renderer import RecoloredRenderWrapper
 from scripts.environments.pusht.state_bounds import create_bounds
 from scripts.environments.pusht.state_space import create_state_space
+from scripts.environments.pusht.tacil_network_input import build_network_input
 from scripts.environments.render_settings import RenderSettings
-from scripts.environments.network_input import NetworkInputBuilder
-from scripts.environments.plot_layout import PlotLayout
-from scripts.environments import state_bounds
 from scripts.environments.state_space import StateSpace
+from scripts.environments.tacil_network_input import TacilNetworkInputBuilder
 from scripts.environments.video_settings import VideoSettings
 
 _VIDEO_SETTINGS = VideoSettings(frames_per_second=10, playback_speed=3.5)
@@ -38,7 +38,7 @@ class PushTEnvironment:
         return self._state_space
 
     @property
-    def network_input_builder(self) -> NetworkInputBuilder:
+    def tacil_network_input_builder(self) -> TacilNetworkInputBuilder:
         return build_network_input
 
     @property

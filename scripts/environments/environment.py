@@ -6,10 +6,10 @@ from numpy import typing as npt
 
 from scripts.environments.condition import Condition
 from scripts.environments.gpi_geometry import GpiGeometry
-from scripts.environments.network_input import NetworkInputBuilder
 from scripts.environments.plot_layout import PlotLayout
 from scripts.environments.render_settings import RenderSettings
 from scripts.environments.state_space import StateSpace
+from scripts.environments.tacil_network_input import TacilNetworkInputBuilder
 from scripts.environments.video_settings import VideoSettings
 
 
@@ -18,7 +18,7 @@ class Environment(Protocol):
     def state_space(self) -> StateSpace: ...
 
     @property
-    def network_input_builder(self) -> NetworkInputBuilder: ...
+    def tacil_network_input_builder(self) -> TacilNetworkInputBuilder: ...
 
     @property
     def plot_layout(self) -> PlotLayout: ...

@@ -34,7 +34,7 @@ def augment(
     dynamics_model_ensemble = train_dynamics_model_ensemble(
         config=config.dynamics,
         state_space=environment.state_space,
-        network_input_builder=environment.network_input_builder,
+        network_input_builder=environment.tacil_network_input_builder,
         plot_layout=environment.plot_layout,
         episode_store=expert_episodes,
         seed=seed,
