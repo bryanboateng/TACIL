@@ -6,7 +6,7 @@ from numpy import typing as npt
 
 from scripts.environments import state_bounds
 from scripts.environments.condition import Condition
-from scripts.environments.plot_layout import PlotLayout
+from scripts.environments.tacil_dynamics_plotter import TacilDynamicsPlotter
 from scripts.environments.pusht import reward
 from scripts.environments.pusht.condition import ALL_CONDITIONS, SETTINGS_BY_CONDITION
 from scripts.environments.pusht.disturbance import DisturbanceWrapper
@@ -17,7 +17,7 @@ from scripts.environments.pusht.observation import (
     POSITION_SLICE,
     STATE_DIMENSIONALITY,
 )
-from scripts.environments.pusht.plot_layout import create_plot_layout
+from scripts.environments.pusht.plots import create_dynamics_plots
 from scripts.environments.pusht.renderer import RecoloredRenderWrapper
 from scripts.environments.pusht.tacil_network_input import build_network_input
 from scripts.environments.render_settings import RenderSettings
@@ -43,7 +43,6 @@ class PushTEnvironment:
         )
         self._reward_environment = reward.create_environment()
 
-        self._plot_layout = create_plot_layout()
         self._gpi_geometry = PushTGpiGeometry()
 
     @property
@@ -55,8 +54,8 @@ class PushTEnvironment:
         return build_network_input
 
     @property
-    def plot_layout(self) -> PlotLayout:
-        return self._plot_layout
+    def tacil_dynamics_plotter(self) -> TacilDynamicsPlotter:
+        return create_dynamics_plots
 
     @property
     def gpi_geometry(self) -> PushTGpiGeometry:

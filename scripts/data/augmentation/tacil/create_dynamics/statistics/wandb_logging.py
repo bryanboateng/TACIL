@@ -19,7 +19,7 @@ from scripts.data.augmentation.tacil.create_dynamics.statistics.error_calculatio
 from scripts.data.augmentation.tacil.dynamics.dynamics_model_ensemble import (
     DynamicsModelEnsemble,
 )
-from scripts.environments.plot_layout import PlotLayout
+from scripts.environments.tacil_dynamics_plotter import TacilDynamicsPlotter
 from scripts.shared import stage_names
 from scripts.shared.distribution_summary import summarize_distribution
 from scripts.shared.episode_store import EpisodeStore
@@ -125,7 +125,7 @@ def log_window_counts(
 def log_ensemble_statistics(
     *,
     dynamics_model_ensemble: DynamicsModelEnsemble,
-    plot_layout: PlotLayout,
+    dynamics_plotter: TacilDynamicsPlotter,
     validation_episodes: list[TransitionTriples],
     episode_store: EpisodeStore,
     run: Run,
@@ -187,7 +187,7 @@ def log_ensemble_statistics(
             ),
             **_create_replay_panels(
                 dynamics_model_ensemble=dynamics_model_ensemble,
-                plot_layout=plot_layout,
+                dynamics_plotter=dynamics_plotter,
                 validation_episodes=validation_episodes,
             ),
         }
@@ -220,7 +220,7 @@ def _log_errors_per_step_count(
 def _create_replay_panels(
     *,
     dynamics_model_ensemble: DynamicsModelEnsemble,
-    plot_layout: PlotLayout,
+    dynamics_plotter: TacilDynamicsPlotter,
     validation_episodes: list[TransitionTriples],
 ) -> dict[str, wandb.Image]:
     device = next(dynamics_model_ensemble.parameters()).device
@@ -243,14 +243,15 @@ def _create_replay_panels(
             actions=actions,
         )
 
-        replay_panels[f"{STAGE_NAME}/8_replay/episode_{episode_index}"] = (
-            plots.create_true_dynamics_vs_model_plot(
-                member_trajectories=(forward_member_trajectories.cpu().numpy()),
-                true_trajectory=true_trajectory,
-                plot_layout=plot_layout,
-                episode_index=episode_index,
-            )
+        episode_plots = dynamics_plotter(
+            member_trajectories=forward_member_trajectories.cpu().numpy(),
+            true_trajectory=true_trajectory,
+            episode_index=episode_index,
         )
+        for name, image in episode_plots.items():
+            replay_panels[f"{STAGE_NAME}/8_replay/episode_{episode_index}/{name}"] = (
+                image
+            )
     return replay_panels
 
 

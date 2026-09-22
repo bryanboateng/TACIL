@@ -35,7 +35,7 @@ def augment(
         config=config.dynamics,
         state_space=environment.state_space,
         network_input_builder=environment.tacil_network_input_builder,
-        plot_layout=environment.plot_layout,
+        dynamics_plotter=environment.tacil_dynamics_plotter,
         episode_store=expert_episodes,
         seed=seed,
         device=device,

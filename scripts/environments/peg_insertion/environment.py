@@ -24,9 +24,9 @@ from scripts.environments.peg_insertion.observation import (
     TCP_POSITION_SLICE,
     extract_state_from_environment,
 )
-from scripts.environments.peg_insertion.plot_layout import create_plot_layout
+from scripts.environments.peg_insertion.plots import create_dynamics_plots
 from scripts.environments.peg_insertion.tacil_network_input import build_network_input
-from scripts.environments.plot_layout import PlotLayout
+from scripts.environments.tacil_dynamics_plotter import TacilDynamicsPlotter
 from scripts.environments.render_settings import RenderSettings
 from scripts.environments.state_bounds import Bound
 from scripts.environments.state_space import StateSpace
@@ -88,7 +88,6 @@ class PegInsertionEnvironment:
             ),
         )
 
-        self._plot_layout = create_plot_layout()
         self._gpi_geometry = PegInsertionGpiGeometry()
 
     @property
@@ -100,8 +99,8 @@ class PegInsertionEnvironment:
         return build_network_input
 
     @property
-    def plot_layout(self) -> PlotLayout:
-        return self._plot_layout
+    def tacil_dynamics_plotter(self) -> TacilDynamicsPlotter:
+        return create_dynamics_plots
 
     @property
     def gpi_geometry(self) -> PegInsertionGpiGeometry:

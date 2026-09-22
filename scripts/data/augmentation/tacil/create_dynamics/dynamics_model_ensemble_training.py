@@ -32,9 +32,9 @@ from scripts.data.augmentation.tacil.dynamics.dynamics_model.dynamics_model impo
 from scripts.data.augmentation.tacil.dynamics.dynamics_model_ensemble import (
     DynamicsModelEnsemble,
 )
-from scripts.environments.tacil_network_input import TacilNetworkInputBuilder
-from scripts.environments.plot_layout import PlotLayout
 from scripts.environments.state_space import StateSpace
+from scripts.environments.tacil_dynamics_plotter import TacilDynamicsPlotter
+from scripts.environments.tacil_network_input import TacilNetworkInputBuilder
 from scripts.shared.episode_store import EpisodeStore
 from scripts.shared.normalization import ZScoreNormalizer
 from scripts.shared.seeding import set_seed
@@ -45,7 +45,7 @@ def train_dynamics_model_ensemble(
     config: DynamicsConfig,
     state_space: StateSpace,
     network_input_builder: TacilNetworkInputBuilder,
-    plot_layout: PlotLayout,
+    dynamics_plotter: TacilDynamicsPlotter,
     episode_store: EpisodeStore,
     seed: int,
     device: torch.device,
@@ -165,7 +165,7 @@ def train_dynamics_model_ensemble(
     with torch.no_grad():
         log_ensemble_statistics(
             dynamics_model_ensemble=dynamics_model_ensemble,
-            plot_layout=plot_layout,
+            dynamics_plotter=dynamics_plotter,
             validation_episodes=validation_episodes,
             episode_store=episode_store,
             run=run,

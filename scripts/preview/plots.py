@@ -10,9 +10,13 @@ from scripts.data.augmentation.tacil.create_data.nearest_expert_state_plot impor
 from scripts.data.augmentation.tacil.create_dynamics.statistics.plots import (
     create_prediction_error_vs_step_count_plot,
     create_replay_error_plot,
-    create_true_dynamics_vs_model_plot,
 )
-from scripts.environments.plot_layout import PlotLayout
+from scripts.environments.pusht.observation import (
+    AGENT_POSITION_SLICE,
+    BLOCK_POSITION_SLICE,
+    BLOCK_ORIENTATION_INDEX,
+    ARENA_SIZE,
+)
 from scripts.environments.registry import EnvironmentName, create_environment
 from scripts.environments.state_space import StateSpace
 from scripts.shared.distribution_plot import create_distribution_plot
@@ -79,20 +83,27 @@ def main() -> None:
 
     for environment_name in EnvironmentName:
         environment = create_environment(name=environment_name)
-        member_trajectories, true_trajectory = _draw_fanning_trajectories(
-            rng=np.random.default_rng(seed=_SEED),
-            state_space=environment.state_space,
-            plot_layout=environment.plot_layout,
-        )
+        if environment_name == EnvironmentName.PEG_INSERTION:
+            from scripts.environments.peg_insertion.plot_preview import (
+                draw_trajectories,
+            )
+
+            member_trajectories, true_trajectory = draw_trajectories(
+                rng=np.random.default_rng(seed=_SEED),
+                step_count=_REPLAY_STEP_COUNT + 1,
+                member_count=_MEMBER_COUNT,
+            )
+        else:
+            member_trajectories, true_trajectory = _draw_fanning_trajectories(
+                rng=np.random.default_rng(seed=_SEED),
+                state_space=environment.state_space,
+            )
         _save_previews(
-            previews={
-                "true_dynamics_vs_model_0": create_true_dynamics_vs_model_plot(
-                    member_trajectories=member_trajectories,
-                    true_trajectory=true_trajectory,
-                    plot_layout=environment.plot_layout,
-                    episode_index=0,
-                )
-            },
+            previews=environment.tacil_dynamics_plotter(
+                member_trajectories=member_trajectories,
+                true_trajectory=true_trajectory,
+                episode_index=0,
+            ),
             output_directory_path=output_directory_path / environment_name.value,
         )
 
@@ -151,7 +162,7 @@ def _stop_walks_early(
 
 
 def _draw_fanning_trajectories(
-    *, rng: np.random.Generator, state_space: StateSpace, plot_layout: PlotLayout
+    *, rng: np.random.Generator, state_space: StateSpace
 ) -> tuple[
     npt.NDArray[np.floating],  # (_MEMBER_COUNT, step_count + 1, state_dimensionality)
     npt.NDArray[np.floating],  # (step_count + 1, state_dimensionality)
@@ -163,33 +174,23 @@ def _draw_fanning_trajectories(
     )
     drift_per_entry = np.zeros(state_space.dimensionality)
 
-    horizontal_start, horizontal_end = plot_layout.horizontal_limits
-    vertical_start, vertical_end = plot_layout.vertical_limits
-    horizontal_span = horizontal_end - horizontal_start
-    vertical_span = vertical_end - vertical_start
-
-    for group_index, position_group in enumerate(iterable=plot_layout.position_groups):
+    for group_index, entries in enumerate((AGENT_POSITION_SLICE, BLOCK_POSITION_SLICE)):
         phase = 0.12 * group_index
-        true_trajectory[:, position_group.entries] = np.stack(
+        true_trajectory[:, entries] = np.stack(
             arrays=[
-                horizontal_start + horizontal_span * (0.12 + 0.76 * progress),
-                vertical_start
-                + vertical_span
-                * (0.12 + 0.76 * np.sin(np.pi * (progress + phase)) ** 2),
+                ARENA_SIZE * (0.12 + 0.76 * progress),
+                ARENA_SIZE * (0.12 + 0.76 * np.sin(np.pi * (progress + phase)) ** 2),
             ],
             axis=-1,
         )  # (step_count + 1, 2)
-        drift_per_entry[position_group.entries] = _DRIFT_FRACTION * np.array(
-            object=[horizontal_span, vertical_span]
+        drift_per_entry[entries] = _DRIFT_FRACTION * np.array(
+            object=[ARENA_SIZE, ARENA_SIZE]
         )
 
-    for group_index, orientation_group in enumerate(
-        iterable=plot_layout.orientation_groups
-    ):
-        true_trajectory[:, orientation_group.index] = (
-            (1.25 + 0.75 * group_index) * _FULL_TURN * progress
-        ) % _FULL_TURN
-        drift_per_entry[orientation_group.index] = _DRIFT_FRACTION * _FULL_TURN
+    true_trajectory[:, BLOCK_ORIENTATION_INDEX] = (
+        1.25 * _FULL_TURN * progress
+    ) % _FULL_TURN
+    drift_per_entry[BLOCK_ORIENTATION_INDEX] = _DRIFT_FRACTION * _FULL_TURN
 
     member_trajectories = true_trajectory[None] + (
         progress[None, :, None] ** 1.5
@@ -198,8 +199,7 @@ def _draw_fanning_trajectories(
         )
         * drift_per_entry
     )  # (_MEMBER_COUNT, step_count + 1, state_dimensionality)
-    for orientation_group in plot_layout.orientation_groups:
-        member_trajectories[..., orientation_group.index] %= _FULL_TURN
+    member_trajectories[..., BLOCK_ORIENTATION_INDEX] %= _FULL_TURN
 
     return member_trajectories, true_trajectory
 

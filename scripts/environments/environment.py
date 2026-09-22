@@ -6,7 +6,7 @@ from numpy import typing as npt
 
 from scripts.environments.condition import Condition
 from scripts.environments.gpi_geometry import GpiGeometry
-from scripts.environments.plot_layout import PlotLayout
+from scripts.environments.tacil_dynamics_plotter import TacilDynamicsPlotter
 from scripts.environments.render_settings import RenderSettings
 from scripts.environments.state_space import StateSpace
 from scripts.environments.tacil_network_input import TacilNetworkInputBuilder
@@ -21,7 +21,7 @@ class Environment(Protocol):
     def tacil_network_input_builder(self) -> TacilNetworkInputBuilder: ...
 
     @property
-    def plot_layout(self) -> PlotLayout: ...
+    def tacil_dynamics_plotter(self) -> TacilDynamicsPlotter: ...
 
     @property
     def gpi_geometry(self) -> GpiGeometry: ...
