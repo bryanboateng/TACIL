@@ -1,15 +1,8 @@
 """Exercise scoring workers without training a policy or connecting to W&B."""
 
-import cProfile
-import os
-import platform
-import pstats
-import tempfile
 from collections.abc import Callable
 from dataclasses import dataclass
 from functools import partial
-from importlib.metadata import version
-from pathlib import Path
 from time import perf_counter
 
 import gymnasium as gym
@@ -19,10 +12,6 @@ import tyro
 from scripts.environments.registry import EnvironmentName, create_environment
 from scripts.evaluation.config import VALIDATION_START_SEED
 from scripts.evaluation.core.parallel import ParallelEnvironmentPool
-from scripts.evaluation.core.reset_diagnostics import (
-    ResetLineProfiler,
-    print_reset_line_profiles,
-)
 from scripts.shared.log import create_logger
 from scripts.shared.policy_types import Policy
 
@@ -36,11 +25,7 @@ class Config:
     episode_count_per_condition: int = 50
     step_count: int = 3
     repetition_count: int = 2
-    # Limit a diagnostic run without changing normal validation.
     condition_count: int | None = None
-    # Save worker reset profiles and print the combined timing breakdown.
-    profile_directory: Path | None = None
-    trace_reset: bool = False
 
     def __post_init__(self) -> None:
         for name in (
@@ -55,43 +40,8 @@ class Config:
             raise ValueError("condition_count must be positive")
 
 
-class _ProfiledReset(gym.Wrapper):
-    def __init__(self, environment: gym.Env, path: Path, trace_reset: bool) -> None:
-        super().__init__(environment)
-        self._profile = cProfile.Profile()
-        self._line_profile = ResetLineProfiler() if trace_reset else None
-        self._path = path
-
-    def reset(self, **kwargs):
-        try:
-            if self._line_profile is not None:
-                return self._line_profile.run(self.env.reset, **kwargs)
-            return self._profile.runcall(self.env.reset, **kwargs)
-        finally:
-            # Save after each reset so profiles survive later worker failures.
-            if self._line_profile is not None:
-                self._line_profile.save(self._path.with_suffix(".json"))
-            else:
-                self._profile.dump_stats(str(self._path))
-
-
-def _short_environment(
-    *,
-    factory: Callable[[], gym.Env],
-    step_count: int,
-    profile_directory: Path | None,
-    condition_index: int,
-    trace_reset: bool,
-) -> gym.Env:
-    environment = gym.wrappers.TimeLimit(factory(), max_episode_steps=step_count)
-    if profile_directory is not None:
-        environment = _ProfiledReset(
-            environment,
-            profile_directory
-            / f"worker-{os.getpid()}-condition-{condition_index}.prof",
-            trace_reset,
-        )
-    return environment
+def _short_environment(*, factory: Callable[[], gym.Env], step_count: int) -> gym.Env:
+    return gym.wrappers.TimeLimit(factory(), max_episode_steps=step_count)
 
 
 def _policy_factory(*, action: np.ndarray, episode_seeds: list[int]) -> Policy:
@@ -105,40 +55,8 @@ def _policy_factory(*, action: np.ndarray, episode_seeds: list[int]) -> Policy:
 
 def main() -> None:
     config = tyro.cli(Config)
-    logger.info(
-        "Python %s; packages: %s",
-        platform.python_version(),
-        {name: version(name) for name in ("sapien", "mani-skill", "torch", "numpy")},
-    )
-    logger.info(
-        "CPU affinity: %s; load averages: %s",
-        sorted(os.sched_getaffinity(0)),
-        os.getloadavg(),
-    )
-    for path in ("/proc/meminfo", "/sys/fs/cgroup/cpu.max", "/sys/fs/cgroup/cpu.stat"):
-        try:
-            lines = Path(path).read_text().splitlines()
-            if path.endswith("meminfo"):
-                lines = [
-                    line
-                    for line in lines
-                    if line.startswith(("MemAvailable:", "SwapFree:", "SwapTotal:"))
-                ]
-            logger.info("%s: %s", path, "; ".join(lines))
-        except OSError:
-            pass
     environment = create_environment(name=config.environment)
     conditions = environment.conditions[: config.condition_count]
-    profile_directory = None
-    requested_directory = config.profile_directory or (
-        Path("output/reset-trace") if config.trace_reset else None
-    )
-    if requested_directory is not None:
-        requested_directory.mkdir(parents=True, exist_ok=True)
-        profile_directory = Path(
-            tempfile.mkdtemp(prefix="reset-", dir=requested_directory)
-        )
-        logger.info("Saving reset profiles to %s", profile_directory)
     action = (
         np.zeros(7, dtype=np.float32)
         if config.environment == EnvironmentName.PEG_INSERTION
@@ -163,11 +81,8 @@ def main() -> None:
                     render_settings=None,
                 ),
                 step_count=config.step_count,
-                profile_directory=profile_directory,
-                condition_index=i,
-                trace_reset=config.trace_reset,
             )
-            for i, condition in enumerate(conditions)
+            for condition in conditions
         ],
         worker_count=min(
             config.parallel_environment_count, config.episode_count_per_condition
@@ -208,18 +123,6 @@ def main() -> None:
                     np.testing.assert_array_equal(original.rewards, repeated.rewards)
                 logger.info("Repeated observations and rewards match exactly")
     logger.info("Worker check passed")
-    if profile_directory is not None:
-        if config.trace_reset:
-            print_reset_line_profiles(profile_directory)
-        profiles = sorted(profile_directory.glob("*.prof"))
-        if profiles:
-            logger.info(
-                "Reset timings summed across workers (not elapsed wall time). "
-                "First table: total time including callees; second: time inside each function."
-            )
-            stats = pstats.Stats(*(str(path) for path in profiles)).strip_dirs()
-            stats.sort_stats("cumulative").print_stats(25)
-            stats.sort_stats("tottime").print_stats(25)
 
 
 if __name__ == "__main__":

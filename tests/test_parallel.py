@@ -5,7 +5,7 @@ from unittest.mock import Mock, patch
 from scripts.evaluation.core.parallel import _receive
 
 
-class WorkerDiagnosticsTests(unittest.TestCase):
+class ParallelPoolTests(unittest.TestCase):
     def test_status_is_not_returned_as_an_observation(self):
         parent, child = multiprocessing.Pipe()
         try:

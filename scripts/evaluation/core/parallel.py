@@ -119,7 +119,7 @@ class ParallelEnvironmentPool:
             )
             for i, connection in enumerate(connections)
         ]
-        logger.info(
+        logger.debug(
             "Prepared/reset %d scoring environments in %.2fs (first use includes creation).",
             len(seeds),
             monotonic() - reset_start,

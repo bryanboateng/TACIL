@@ -1,4 +1,12 @@
-"""Integration checks against ManiSkill's original scene reconstruction."""
+"""Integration checks against ManiSkill's original scene reconstruction.
+
+ReusablePegInsertionSideEnv._load_objects mirrors PegInsertionSideEnv._load_scene,
+omitting only the unchanged table and the render materials and visual meshes that a
+headless run never draws. Editing it must preserve the order of the episode RNG draws
+and every collision shape, or seeded episodes silently stop matching upstream physics.
+These tests are what enforce that: they compare the built bodies directly and replay
+seeded rollouts against the original environment step by step.
+"""
 
 import unittest
 from contextlib import ExitStack
