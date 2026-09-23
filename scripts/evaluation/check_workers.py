@@ -1,8 +1,13 @@
 """Exercise scoring workers without training a policy or connecting to W&B."""
 
+import cProfile
+import os
+import pstats
+import tempfile
 from collections.abc import Callable
 from dataclasses import dataclass
 from functools import partial
+from pathlib import Path
 from time import perf_counter
 
 import gymnasium as gym
@@ -25,6 +30,10 @@ class Config:
     episode_count_per_condition: int = 50
     step_count: int = 3
     repetition_count: int = 2
+    # Limit a diagnostic run without changing normal validation.
+    condition_count: int | None = None
+    # Save worker reset profiles and print the combined timing breakdown.
+    profile_directory: Path | None = None
 
     def __post_init__(self) -> None:
         for name in (
@@ -35,10 +44,39 @@ class Config:
         ):
             if getattr(self, name) < 1:
                 raise ValueError(f"{name} must be positive")
+        if self.condition_count is not None and self.condition_count < 1:
+            raise ValueError("condition_count must be positive")
 
 
-def _short_environment(*, factory: Callable[[], gym.Env], step_count: int) -> gym.Env:
-    return gym.wrappers.TimeLimit(factory(), max_episode_steps=step_count)
+class _ProfiledReset(gym.Wrapper):
+    def __init__(self, environment: gym.Env, path: Path) -> None:
+        super().__init__(environment)
+        self._profile = cProfile.Profile()
+        self._path = path
+
+    def reset(self, **kwargs):
+        try:
+            return self._profile.runcall(self.env.reset, **kwargs)
+        finally:
+            # Save after each reset so profiles survive later worker failures.
+            self._profile.dump_stats(str(self._path))
+
+
+def _short_environment(
+    *,
+    factory: Callable[[], gym.Env],
+    step_count: int,
+    profile_directory: Path | None,
+    condition_index: int,
+) -> gym.Env:
+    environment = gym.wrappers.TimeLimit(factory(), max_episode_steps=step_count)
+    if profile_directory is not None:
+        environment = _ProfiledReset(
+            environment,
+            profile_directory
+            / f"worker-{os.getpid()}-condition-{condition_index}.prof",
+        )
+    return environment
 
 
 def _policy_factory(*, action: np.ndarray, episode_seeds: list[int]) -> Policy:
@@ -53,6 +91,14 @@ def _policy_factory(*, action: np.ndarray, episode_seeds: list[int]) -> Policy:
 def main() -> None:
     config = tyro.cli(Config)
     environment = create_environment(name=config.environment)
+    conditions = environment.conditions[: config.condition_count]
+    profile_directory = None
+    if config.profile_directory is not None:
+        config.profile_directory.mkdir(parents=True, exist_ok=True)
+        profile_directory = Path(
+            tempfile.mkdtemp(prefix="reset-", dir=config.profile_directory)
+        )
+        logger.info("Saving reset profiles to %s", profile_directory)
     action = (
         np.zeros(7, dtype=np.float32)
         if config.environment == EnvironmentName.PEG_INSERTION
@@ -77,8 +123,10 @@ def main() -> None:
                     render_settings=None,
                 ),
                 step_count=config.step_count,
+                profile_directory=profile_directory,
+                condition_index=i,
             )
-            for condition in environment.conditions
+            for i, condition in enumerate(conditions)
         ],
         worker_count=min(
             config.parallel_environment_count, config.episode_count_per_condition
@@ -87,7 +135,7 @@ def main() -> None:
         for repetition in range(config.repetition_count):
             start = perf_counter()
             records = []
-            for i, condition in enumerate(environment.conditions):
+            for i, condition in enumerate(conditions):
                 logger.info("Checking condition %s", condition.label)
                 first_seed = (
                     VALIDATION_START_SEED + i * config.episode_count_per_condition
@@ -119,6 +167,16 @@ def main() -> None:
                     np.testing.assert_array_equal(original.rewards, repeated.rewards)
                 logger.info("Repeated observations and rewards match exactly")
     logger.info("Worker check passed")
+    if profile_directory is not None:
+        profiles = sorted(profile_directory.glob("*.prof"))
+        if profiles:
+            logger.info(
+                "Reset timings summed across workers (not elapsed wall time). "
+                "First table: total time including callees; second: time inside each function."
+            )
+            stats = pstats.Stats(*(str(path) for path in profiles)).strip_dirs()
+            stats.sort_stats("cumulative").print_stats(25)
+            stats.sort_stats("tottime").print_stats(25)
 
 
 if __name__ == "__main__":
