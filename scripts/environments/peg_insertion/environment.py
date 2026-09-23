@@ -1,8 +1,11 @@
+from typing import Literal
+
 import gymnasium
 import mani_skill.envs  # noqa: F401
 import numpy as np
 from gymnasium import Env
 from gymnasium.spaces import Box
+from mani_skill.envs.tasks.tabletop.peg_insertion_side import PegInsertionSideEnv
 from mani_skill.utils.wrappers import CPUGymWrapper
 from numpy import typing as npt
 
@@ -26,10 +29,10 @@ from scripts.environments.peg_insertion.observation import (
 )
 from scripts.environments.peg_insertion.plots import create_dynamics_plots
 from scripts.environments.peg_insertion.tacil_network_input import build_network_input
-from scripts.environments.tacil_dynamics_plotter import TacilDynamicsPlotter
 from scripts.environments.render_settings import RenderSettings
 from scripts.environments.state_bounds import Bound
 from scripts.environments.state_space import StateSpace
+from scripts.environments.tacil_dynamics_plotter import TacilDynamicsPlotter
 from scripts.environments.tacil_network_input import TacilNetworkInputBuilder
 from scripts.environments.video_settings import VideoSettings
 
@@ -111,6 +114,10 @@ class PegInsertionEnvironment:
         return ALL_CONDITIONS
 
     @property
+    def checkpoint_selection_metric(self) -> Literal["reward", "success_then_reward"]:
+        return "success_then_reward"
+
+    @property
     def video_settings(self) -> VideoSettings:
         return VideoSettings(frames_per_second=20, playback_speed=2.0)
 
@@ -160,6 +167,10 @@ class PegInsertionEnvironment:
 class _SelectedObservationWrapper(gymnasium.ObservationWrapper):
     def __init__(self, *, environment: gymnasium.Env) -> None:
         super().__init__(env=environment)
+        task = environment.unwrapped
+        if not isinstance(task, PegInsertionSideEnv):
+            raise TypeError(f"Expected PegInsertionSideEnv, got {type(task).__name__}")
+        self._task = task
         self.observation_space = Box(
             low=-np.inf, high=np.inf, shape=(STATE_DIMENSIONALITY,), dtype=np.float32
         )
@@ -167,4 +178,4 @@ class _SelectedObservationWrapper(gymnasium.ObservationWrapper):
     def observation(
         self, observation: npt.NDArray[np.float32]
     ) -> npt.NDArray[np.float32]:  # (STATE_DIMENSIONALITY,)
-        return extract_state_from_environment(peg_insertion_side_env=self.env.unwrapped)
+        return extract_state_from_environment(peg_insertion_side_env=self._task)

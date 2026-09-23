@@ -6,8 +6,9 @@ import numpy as np
 
 from scripts.environments.condition import Condition
 from scripts.environments.environment import Environment
-from scripts.evaluation.core.rollout import EpisodeRecord, roll_out_episodes
+from scripts.evaluation.config import VALIDATION_START_SEED
 from scripts.evaluation.core.parallel import ParallelEnvironmentPool
+from scripts.evaluation.core.rollout import EpisodeRecord, roll_out_episodes
 from scripts.shared.policy_types import PolicyFactory
 
 
@@ -60,7 +61,9 @@ def run_scored_episodes_over_conditions(
         for episode_record in _run_scored_episodes(
             environment=environment,
             policy_factory=policy_factory,
-            start_episode_seed=(10_000 + condition_index * episode_count_per_condition),
+            start_episode_seed=(
+                VALIDATION_START_SEED + condition_index * episode_count_per_condition
+            ),
             episode_count=episode_count_per_condition,
             condition=condition,
             parallel_environment_count=parallel_environment_count,

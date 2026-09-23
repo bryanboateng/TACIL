@@ -20,9 +20,7 @@ class OptimizationConfig:
 @dataclass(frozen=True)
 class ValidationConfig:
     interval_epoch_count: int = 40
-    # CPU simulator rollouts dominate runtime; use a small checkpoint-selection
-    # set and reserve the larger episode budget for final evaluation.
-    episode_count_per_condition: int = 5
+    episode_count_per_condition: int = 50
     parallel_environment_count: int = 4
 
     def __post_init__(self) -> None:

@@ -6,19 +6,22 @@ from torch.optim import Adam
 from tqdm.auto import tqdm
 from wandb import Run
 
+from scripts.environments.environment import Environment
 from scripts.evaluation.core.scoring import (
     calculate_reward_statistics,
     calculate_success_statistics,
     run_scored_episodes_over_conditions,
 )
-from scripts.environments.environment import Environment
 from scripts.policies.bc.config import Config
 from scripts.policies.bc.dataset import Dataset
 from scripts.policies.bc.policy import (
     BehaviorCloningPolicyModel,
     create_behavior_cloning_policy_factory,
 )
-from scripts.policies.shared.checkpoint import Checkpoint
+from scripts.policies.shared.checkpoint import (
+    Checkpoint,
+    calculate_checkpoint_selection_key,
+)
 from scripts.shared import stage_names
 from scripts.shared.log import create_logger
 from scripts.shared.normalization import MinMaxNormalizer, ZScoreNormalizer
@@ -159,27 +162,35 @@ def train_behavior_cloning_policy(
             validation_reward = calculate_reward_statistics(
                 episode_records=episode_records
             )
+        validation_success = calculate_success_statistics(
+            episode_records=episode_records
+        ).rate
         run.log(
             data={
                 f"{VALIDATION_SECTION}/1_reward_mean": validation_reward.mean,
                 f"{VALIDATION_SECTION}/2_reward_std": validation_reward.std,
-                f"{VALIDATION_SECTION}/3_success_rate": calculate_success_statistics(
-                    episode_records=episode_records
-                ).rate,
+                f"{VALIDATION_SECTION}/3_success_rate": validation_success,
                 f"{VALIDATION_SECTION}/4_seconds": perf_counter() - validation_start,
                 EPOCH_METRIC_NAME: epoch_index,
                 STEP_METRIC_NAME: global_step,
             }
         )
 
-        if (
-            best_checkpoint is None
-            or validation_reward.mean > best_checkpoint.validation_reward_mean
+        if best_checkpoint is None or calculate_checkpoint_selection_key(
+            selection_metric=environment.checkpoint_selection_metric,
+            validation_reward_mean=validation_reward.mean,
+            validation_success_rate=validation_success,
+        ) > calculate_checkpoint_selection_key(
+            selection_metric=environment.checkpoint_selection_metric,
+            validation_reward_mean=best_checkpoint.validation_reward_mean,
+            validation_success_rate=best_checkpoint.validation_success_rate,
         ):
             best_checkpoint = Checkpoint(
                 validation_reward_mean=validation_reward.mean,
                 validation_reward_std=validation_reward.std,
+                validation_success_rate=validation_success,
                 epoch=epoch_index,
+                step=global_step,
                 state_dict=copy.deepcopy(model.state_dict()),
             )
 
@@ -189,6 +200,7 @@ def train_behavior_cloning_policy(
     if best_checkpoint is None:
         raise ValueError("No checkpoint was recorded")
 
+    assert environment is not None
     run.summary[f"{STAGE_NAME}/3_best_checkpoint/1_epoch"] = best_checkpoint.epoch
     run.summary[f"{STAGE_NAME}/3_best_checkpoint/2_validation_reward_mean"] = (
         best_checkpoint.validation_reward_mean
@@ -196,6 +208,21 @@ def train_behavior_cloning_policy(
     run.summary[f"{STAGE_NAME}/3_best_checkpoint/3_validation_reward_std"] = (
         best_checkpoint.validation_reward_std
     )
+    run.summary[f"{STAGE_NAME}/3_best_checkpoint/4_validation_success_rate"] = (
+        best_checkpoint.validation_success_rate
+    )
+    run.summary[f"{STAGE_NAME}/3_best_checkpoint/5_training_step"] = (
+        best_checkpoint.step
+    )
+    run.summary[f"{STAGE_NAME}/3_best_checkpoint/6_completed_epoch_count"] = (
+        best_checkpoint.epoch + 1
+    )
+    run.summary[f"{STAGE_NAME}/3_best_checkpoint/7_selection_metric"] = (
+        environment.checkpoint_selection_metric
+    )
+    run.summary[f"{STAGE_NAME}/3_best_checkpoint/8_validation_conditions"] = [
+        condition.label for condition in environment.conditions
+    ]
 
     model.load_state_dict(state_dict=best_checkpoint.state_dict)
     return model

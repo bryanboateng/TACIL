@@ -1,4 +1,4 @@
-from typing import Protocol
+from typing import Literal, Protocol
 
 import numpy as np
 from gymnasium import Env
@@ -6,9 +6,9 @@ from numpy import typing as npt
 
 from scripts.environments.condition import Condition
 from scripts.environments.gpi_geometry import GpiGeometry
-from scripts.environments.tacil_dynamics_plotter import TacilDynamicsPlotter
 from scripts.environments.render_settings import RenderSettings
 from scripts.environments.state_space import StateSpace
+from scripts.environments.tacil_dynamics_plotter import TacilDynamicsPlotter
 from scripts.environments.tacil_network_input import TacilNetworkInputBuilder
 from scripts.environments.video_settings import VideoSettings
 
@@ -28,6 +28,11 @@ class Environment(Protocol):
 
     @property
     def conditions(self) -> tuple[Condition, ...]: ...
+
+    @property
+    def checkpoint_selection_metric(
+        self,
+    ) -> Literal["reward", "success_then_reward"]: ...
 
     @property
     def video_settings(self) -> VideoSettings: ...

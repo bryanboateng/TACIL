@@ -10,18 +10,21 @@ from torch import nn as nn
 from tqdm.auto import tqdm
 from wandb import Run
 
+from scripts.environments.environment import Environment
 from scripts.evaluation.core.scoring import (
     calculate_reward_statistics,
     calculate_success_statistics,
     run_scored_episodes_over_conditions,
 )
-from scripts.environments.environment import Environment
 from scripts.policies.dp.config import Config
 from scripts.policies.dp.dataset import Dataset
 from scripts.policies.dp.network import ConditionalUnet1d
 from scripts.policies.dp.noise_scheduler import create_forward_noise_scheduler
 from scripts.policies.dp.policy import create_diffusion_policy_factory
-from scripts.policies.shared.checkpoint import Checkpoint
+from scripts.policies.shared.checkpoint import (
+    Checkpoint,
+    calculate_checkpoint_selection_key,
+)
 from scripts.policies.shared.observation_noise import disturb_half_of_the_batch
 from scripts.shared import stage_names
 from scripts.shared.episode_store import EpisodeStore
@@ -198,27 +201,35 @@ def train_diffusion_policy(
             noise_prediction_network_ema.restore(
                 parameters=noise_prediction_network.parameters()
             )
+        validation_success = calculate_success_statistics(
+            episode_records=episode_records
+        ).rate
         run.log(
             data={
                 f"{VALIDATION_SECTION}/1_reward_mean": validation_reward.mean,
                 f"{VALIDATION_SECTION}/2_reward_std": validation_reward.std,
-                f"{VALIDATION_SECTION}/3_success_rate": calculate_success_statistics(
-                    episode_records=episode_records
-                ).rate,
+                f"{VALIDATION_SECTION}/3_success_rate": validation_success,
                 f"{VALIDATION_SECTION}/4_seconds": perf_counter() - validation_start,
                 EPOCH_METRIC_NAME: epoch_index,
                 STEP_METRIC_NAME: global_step,
             }
         )
 
-        if (
-            best_checkpoint is None
-            or validation_reward.mean > best_checkpoint.validation_reward_mean
+        if best_checkpoint is None or calculate_checkpoint_selection_key(
+            selection_metric=environment.checkpoint_selection_metric,
+            validation_reward_mean=validation_reward.mean,
+            validation_success_rate=validation_success,
+        ) > calculate_checkpoint_selection_key(
+            selection_metric=environment.checkpoint_selection_metric,
+            validation_reward_mean=best_checkpoint.validation_reward_mean,
+            validation_success_rate=best_checkpoint.validation_success_rate,
         ):
             best_checkpoint = Checkpoint(
                 validation_reward_mean=validation_reward.mean,
                 validation_reward_std=validation_reward.std,
+                validation_success_rate=validation_success,
                 epoch=epoch_index,
+                step=global_step,
                 state_dict=ema_state_dict,
             )
 
@@ -232,6 +243,21 @@ def train_diffusion_policy(
     run.summary[f"{STAGE_NAME}/3_best_checkpoint/3_validation_reward_std"] = (
         best_checkpoint.validation_reward_std
     )
+    run.summary[f"{STAGE_NAME}/3_best_checkpoint/4_validation_success_rate"] = (
+        best_checkpoint.validation_success_rate
+    )
+    run.summary[f"{STAGE_NAME}/3_best_checkpoint/5_training_step"] = (
+        best_checkpoint.step
+    )
+    run.summary[f"{STAGE_NAME}/3_best_checkpoint/6_completed_epoch_count"] = (
+        best_checkpoint.epoch + 1
+    )
+    run.summary[f"{STAGE_NAME}/3_best_checkpoint/7_selection_metric"] = (
+        environment.checkpoint_selection_metric
+    )
+    run.summary[f"{STAGE_NAME}/3_best_checkpoint/8_validation_conditions"] = [
+        condition.label for condition in environment.conditions
+    ]
 
     noise_prediction_network.load_state_dict(best_checkpoint.state_dict)
     return noise_prediction_network

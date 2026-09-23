@@ -67,7 +67,7 @@ class OptimizationConfig:
 @dataclass(frozen=True)
 class ValidationConfig:
     interval_epoch_count: int = 75
-    episode_count_per_condition: int = 5
+    episode_count_per_condition: int = 50
     parallel_environment_count: int = 4
 
     def __post_init__(self) -> None:
