@@ -1,8 +1,10 @@
+from functools import cache
 from typing import Literal
 
 import gymnasium
 import mani_skill.envs  # noqa: F401
 import numpy as np
+import sapien
 from gymnasium import Env
 from gymnasium.spaces import Box
 from mani_skill.envs.tasks.tabletop.peg_insertion_side import PegInsertionSideEnv
@@ -28,9 +30,6 @@ from scripts.environments.peg_insertion.observation import (
     extract_state_from_environment,
 )
 from scripts.environments.peg_insertion.plots import create_dynamics_plots
-from scripts.environments.peg_insertion.headless_scene import (
-    TASK_ID as HEADLESS_TASK_ID,
-)
 from scripts.environments.peg_insertion.tacil_network_input import build_network_input
 from scripts.environments.render_settings import RenderSettings
 from scripts.environments.state_bounds import Bound
@@ -44,24 +43,36 @@ TASK_ID = "PegInsertionSide-v1"
 CONTROL_MODE = "pd_ee_delta_pose"
 REWARD_MODE = "normalized_dense"
 SIMULATION_BACKEND = "physx_cpu"
+RENDER_DEVICE = "cpu"
+
+
+@cache
+def keep_sapien_renderer_alive() -> sapien.render.SapienRenderer:
+    """Hold SAPIEN's renderer for the lifetime of the process.
+
+    ManiSkill builds render materials before it checks whether anything can be
+    rendered, which starts the renderer even under render_backend="none", and
+    PegInsertionSide rebuilds the whole scene on every reset. Without this
+    reference the renderer is torn down and started again for every episode,
+    which makes resets roughly three times slower without changing any result.
+    The device has to match the one the recorded videos render on, or SAPIEN
+    refuses to create the rendering environment later in the same process.
+    """
+    return sapien.render.SapienRenderer(sapien.Device(RENDER_DEVICE))
 
 
 def create_base_environment(
-    *,
-    max_episode_steps: int,
-    render_settings: RenderSettings | None = None,
-    skip_unused_visuals: bool = True,
+    *, max_episode_steps: int, render_settings: RenderSettings | None = None
 ) -> Env:
+    keep_sapien_renderer_alive()
     return CPUGymWrapper(
         env=gymnasium.make(
-            id=HEADLESS_TASK_ID
-            if skip_unused_visuals and render_settings is None
-            else TASK_ID,
+            id=TASK_ID,
             obs_mode="none",
             control_mode=CONTROL_MODE,
             reward_mode=REWARD_MODE,
             sim_backend=SIMULATION_BACKEND,
-            render_backend="cpu" if render_settings is not None else "none",
+            render_backend=RENDER_DEVICE if render_settings is not None else "none",
             render_mode="rgb_array" if render_settings is not None else None,
             max_episode_steps=max_episode_steps,
             human_render_camera_configs=(
