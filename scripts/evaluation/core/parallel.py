@@ -1,10 +1,11 @@
 """CPU simulation workers with batched policy inference in the parent process."""
 
+import faulthandler
 import logging
 import multiprocessing
 import traceback
-from collections.abc import Callable
-from contextlib import ExitStack
+from collections.abc import Callable, Iterator
+from contextlib import ExitStack, contextmanager
 from multiprocessing.connection import Connection
 from multiprocessing.process import BaseProcess
 from time import monotonic
@@ -19,6 +20,8 @@ from scripts.evaluation.core.rollout import EpisodeRecord
 from scripts.shared.policy_types import PolicyFactory
 
 _WORKER_TIMEOUT_SECONDS = 120.0
+_WORKER_WARNING_SECONDS = 30.0
+_WORKER_TRACEBACK_SECONDS = 60.0
 logger = logging.getLogger(__name__)
 
 
@@ -43,8 +46,10 @@ class ParallelEnvironmentPool:
                 finally:
                     child.close()
                 self._workers.append(worker)
-            for connection in self._connections:
-                _receive(connection)
+            for connection, worker in zip(
+                self._connections, self._workers, strict=True
+            ):
+                _receive(connection, worker=worker, operation="starting worker")
             logger.info(
                 "Started %d scoring workers in %.2fs (reused across conditions).",
                 worker_count,
@@ -106,7 +111,14 @@ class ParallelEnvironmentPool:
         reset_start = monotonic()
         for connection, seed in zip(connections, seeds, strict=True):
             connection.send(("reset", (condition_index, seed)))
-        observations = [_receive(connection) for connection in connections]
+        observations = [
+            _receive(
+                connection,
+                worker=self._workers[i],
+                operation=f"preparing condition={condition_index}, seed={seeds[i]}",
+            )
+            for i, connection in enumerate(connections)
+        ]
         logger.info(
             "Prepared/reset %d scoring environments in %.2fs (first use includes creation).",
             len(seeds),
@@ -127,7 +139,11 @@ class ParallelEnvironmentPool:
                     connections[i].send(("step", action_batch[i]))
                 still_running = []
                 for i in running:
-                    observation, reward, done, truncated = _receive(connections[i])
+                    observation, reward, done, truncated = _receive(
+                        connections[i],
+                        worker=self._workers[i],
+                        operation=f"stepping condition={condition_index}, seed={seeds[i]}",
+                    )
                     observations[i] = observation
                     actions[i].append(action_batch[i])
                     rewards[i].append(float(reward))
@@ -150,16 +166,59 @@ class ParallelEnvironmentPool:
         ]
 
 
-def _receive(connection: Connection) -> Any:
-    if not connection.poll(_WORKER_TIMEOUT_SECONDS):
-        raise RuntimeError("CPU environment worker timed out")
+def _receive(
+    connection: Connection,
+    *,
+    worker: BaseProcess | None = None,
+    operation: str = "waiting for result",
+    timeout_seconds: float = _WORKER_TIMEOUT_SECONDS,
+) -> Any:
+    start = monotonic()
+    deadline = start + timeout_seconds
+    identity = (
+        f"CPU environment worker pid={worker.pid}"
+        if worker
+        else "CPU environment worker"
+    )
+    while True:
+        remaining = deadline - monotonic()
+        if remaining <= 0:
+            raise RuntimeError(
+                f"{identity} timed out after {timeout_seconds:g}s while {operation}. "
+                f"Exit code: {worker.exitcode if worker else 'unknown'}. "
+                "Slow environment creation/reset prints worker tracebacks to stderr."
+            )
+        if not connection.poll(min(remaining, _WORKER_WARNING_SECONDS)):
+            logger.warning(
+                "%s still %s after %.1fs", identity, operation, monotonic() - start
+            )
+            continue
+        try:
+            success, result = connection.recv()
+        except (EOFError, OSError) as error:
+            raise RuntimeError(
+                f"{identity} exited unexpectedly while {operation} "
+                f"(exit code: {worker.exitcode if worker else 'unknown'})"
+            ) from error
+        if success == "status":
+            # Status updates must not extend the deadline for a stuck reset.
+            operation = result
+            continue
+        if not success:
+            raise RuntimeError(f"{identity} failed while {operation}:\n{result}")
+        return result
+
+
+@contextmanager
+def _worker_operation(connection: Connection, operation: str) -> Iterator[None]:
+    connection.send(("status", operation))
+    # The watchdog runs in native code, so it can expose a blocked simulator
+    # call even when Python is unable to service another command from the parent.
+    faulthandler.dump_traceback_later(_WORKER_TRACEBACK_SECONDS, repeat=True)
     try:
-        success, result = connection.recv()
-    except (EOFError, OSError) as error:
-        raise RuntimeError("CPU environment worker exited unexpectedly") from error
-    if not success:
-        raise RuntimeError(f"CPU environment worker failed:\n{result}")
-    return result
+        yield
+    finally:
+        faulthandler.cancel_dump_traceback_later()
 
 
 def _worker(connection: Connection, factories: list[Callable[[], Env]]) -> None:
@@ -177,10 +236,18 @@ def _worker(connection: Connection, factories: list[Callable[[], Env]]) -> None:
             if command == "reset":
                 condition_index, seed = payload
                 if condition_index not in environments:
-                    environments[condition_index] = factories[condition_index]()
+                    with _worker_operation(
+                        connection,
+                        f"creating environment condition={condition_index}, seed={seed}",
+                    ):
+                        environments[condition_index] = factories[condition_index]()
                     resources.callback(environments[condition_index].close)
                 environment = environments[condition_index]
-                observation, _ = environment.reset(seed=seed)
+                with _worker_operation(
+                    connection,
+                    f"resetting environment condition={condition_index}, seed={seed}",
+                ):
+                    observation, _ = environment.reset(seed=seed)
                 environment.observation_space.seed(seed)
                 environment.action_space.seed(seed)
                 connection.send((True, observation))
