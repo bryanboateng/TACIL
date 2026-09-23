@@ -1,4 +1,5 @@
 import copy
+from contextlib import ExitStack
 from time import perf_counter
 
 import torch
@@ -8,9 +9,9 @@ from wandb import Run
 
 from scripts.environments.environment import Environment
 from scripts.evaluation.core.scoring import (
+    ScoringSession,
     calculate_reward_statistics,
     calculate_success_statistics,
-    run_scored_episodes_over_conditions,
 )
 from scripts.policies.bc.config import Config
 from scripts.policies.bc.dataset import Dataset
@@ -78,121 +79,130 @@ def train_behavior_cloning_policy(
     best_checkpoint: Checkpoint | None = None
     global_step = 0
 
-    for epoch_index in tqdm(
-        iterable=range(config.optimization.epoch_count), desc="Epoch", unit="epoch"
-    ):
-        model.train()
-        training_start = perf_counter()
-        epoch_loss = torch.zeros((), device=device)
-        permutation = torch.randperm(len(dataset), device=device)
-        for batch_index, batch_indices in enumerate(
-            permutation.split(config.optimization.batch_size)
+    with ExitStack() as scoring_resources:
+        scoring_session: ScoringSession | None = None
+        for epoch_index in tqdm(
+            iterable=range(config.optimization.epoch_count), desc="Epoch", unit="epoch"
         ):
-            observation_batch = states[batch_indices]
-            target_action_batch = actions[batch_indices]
+            model.train()
+            training_start = perf_counter()
+            epoch_loss = torch.zeros((), device=device)
+            permutation = torch.randperm(len(dataset), device=device)
+            for batch_index, batch_indices in enumerate(
+                permutation.split(config.optimization.batch_size)
+            ):
+                observation_batch = states[batch_indices]
+                target_action_batch = actions[batch_indices]
 
-            optimizer.zero_grad()
+                optimizer.zero_grad()
 
-            predicted_action_batch = model(
-                observation_batch, config.observation_noise
-            )  # (batch_size, action_dimensionality)
+                predicted_action_batch = model(
+                    observation_batch, config.observation_noise
+                )  # (batch_size, action_dimensionality)
 
-            loss = loss_function(
-                input=model.action_normalizer.normalize(
-                    value_batch=predicted_action_batch
-                ),
-                target=model.action_normalizer.normalize(
-                    value_batch=target_action_batch
-                ),
+                loss = loss_function(
+                    input=model.action_normalizer.normalize(
+                        value_batch=predicted_action_batch
+                    ),
+                    target=model.action_normalizer.normalize(
+                        value_batch=target_action_batch
+                    ),
+                )
+
+                loss.backward()
+
+                # A gradient snapshot per epoch avoids thousands of small kernels
+                # and device synchronizations solely for telemetry.
+                if batch_index == 0:
+                    gradient_norm = torch.norm(
+                        input=torch.stack(
+                            tensors=[
+                                parameter.grad.norm()
+                                for parameter in model.parameters()
+                                if parameter.grad is not None
+                            ]
+                        )
+                    )
+
+                optimizer.step()
+
+                epoch_loss += loss.detach() * len(batch_indices)
+                global_step += 1
+
+            mean_loss = (epoch_loss / len(dataset)).item()
+            run.log(
+                data={
+                    f"{TRAINING_SECTION}/1_loss": mean_loss,
+                    f"{TRAINING_SECTION}/2_gradient_norm": gradient_norm.item(),
+                    f"{TRAINING_SECTION}/3_seconds": perf_counter() - training_start,
+                    EPOCH_METRIC_NAME: epoch_index,
+                    STEP_METRIC_NAME: global_step,
+                }
             )
 
-            loss.backward()
+            if (
+                config.validation is None
+                or (epoch_index + 1) % config.validation.interval_epoch_count != 0
+            ):
+                continue
 
-            # A gradient snapshot per epoch avoids thousands of small kernels
-            # and device synchronizations solely for telemetry.
-            if batch_index == 0:
-                gradient_norm = torch.norm(
-                    input=torch.stack(
-                        tensors=[
-                            parameter.grad.norm()
-                            for parameter in model.parameters()
-                            if parameter.grad is not None
-                        ]
+            if environment is None:
+                raise ValueError(
+                    "Scoring the policy while it trains needs an environment to score "
+                    "it in, but none was given."
+                )
+
+            if scoring_session is None:
+                scoring_session = scoring_resources.enter_context(
+                    ScoringSession(
+                        environment=environment,
+                        parallel_environment_count=config.validation.parallel_environment_count,
                     )
                 )
 
-            optimizer.step()
-
-            epoch_loss += loss.detach() * len(batch_indices)
-            global_step += 1
-
-        mean_loss = (epoch_loss / len(dataset)).item()
-        run.log(
-            data={
-                f"{TRAINING_SECTION}/1_loss": mean_loss,
-                f"{TRAINING_SECTION}/2_gradient_norm": gradient_norm.item(),
-                f"{TRAINING_SECTION}/3_seconds": perf_counter() - training_start,
-                EPOCH_METRIC_NAME: epoch_index,
-                STEP_METRIC_NAME: global_step,
-            }
-        )
-
-        if (
-            config.validation is None
-            or (epoch_index + 1) % config.validation.interval_epoch_count != 0
-        ):
-            continue
-
-        if environment is None:
-            raise ValueError(
-                "Scoring the policy while it trains needs an environment to score "
-                "it in, but none was given."
-            )
-
-        validation_start = perf_counter()
-        with torch.no_grad():
-            episode_records = run_scored_episodes_over_conditions(
-                environment=environment,
-                policy_factory=create_behavior_cloning_policy_factory(
-                    policy_model=model, device=device
-                ),
-                episode_count_per_condition=config.validation.episode_count_per_condition,
-                parallel_environment_count=config.validation.parallel_environment_count,
-            )
-            validation_reward = calculate_reward_statistics(
+            validation_start = perf_counter()
+            with torch.no_grad():
+                episode_records = scoring_session.run_over_conditions(
+                    policy_factory=create_behavior_cloning_policy_factory(
+                        policy_model=model, device=device
+                    ),
+                    episode_count_per_condition=config.validation.episode_count_per_condition,
+                )
+                validation_reward = calculate_reward_statistics(
+                    episode_records=episode_records
+                )
+            validation_success = calculate_success_statistics(
                 episode_records=episode_records
+            ).rate
+            run.log(
+                data={
+                    f"{VALIDATION_SECTION}/1_reward_mean": validation_reward.mean,
+                    f"{VALIDATION_SECTION}/2_reward_std": validation_reward.std,
+                    f"{VALIDATION_SECTION}/3_success_rate": validation_success,
+                    f"{VALIDATION_SECTION}/4_seconds": perf_counter()
+                    - validation_start,
+                    EPOCH_METRIC_NAME: epoch_index,
+                    STEP_METRIC_NAME: global_step,
+                }
             )
-        validation_success = calculate_success_statistics(
-            episode_records=episode_records
-        ).rate
-        run.log(
-            data={
-                f"{VALIDATION_SECTION}/1_reward_mean": validation_reward.mean,
-                f"{VALIDATION_SECTION}/2_reward_std": validation_reward.std,
-                f"{VALIDATION_SECTION}/3_success_rate": validation_success,
-                f"{VALIDATION_SECTION}/4_seconds": perf_counter() - validation_start,
-                EPOCH_METRIC_NAME: epoch_index,
-                STEP_METRIC_NAME: global_step,
-            }
-        )
 
-        if best_checkpoint is None or calculate_checkpoint_selection_key(
-            selection_metric=environment.checkpoint_selection_metric,
-            validation_reward_mean=validation_reward.mean,
-            validation_success_rate=validation_success,
-        ) > calculate_checkpoint_selection_key(
-            selection_metric=environment.checkpoint_selection_metric,
-            validation_reward_mean=best_checkpoint.validation_reward_mean,
-            validation_success_rate=best_checkpoint.validation_success_rate,
-        ):
-            best_checkpoint = Checkpoint(
+            if best_checkpoint is None or calculate_checkpoint_selection_key(
+                selection_metric=environment.checkpoint_selection_metric,
                 validation_reward_mean=validation_reward.mean,
-                validation_reward_std=validation_reward.std,
                 validation_success_rate=validation_success,
-                epoch=epoch_index,
-                step=global_step,
-                state_dict=copy.deepcopy(model.state_dict()),
-            )
+            ) > calculate_checkpoint_selection_key(
+                selection_metric=environment.checkpoint_selection_metric,
+                validation_reward_mean=best_checkpoint.validation_reward_mean,
+                validation_success_rate=best_checkpoint.validation_success_rate,
+            ):
+                best_checkpoint = Checkpoint(
+                    validation_reward_mean=validation_reward.mean,
+                    validation_reward_std=validation_reward.std,
+                    validation_success_rate=validation_success,
+                    epoch=epoch_index,
+                    step=global_step,
+                    state_dict=copy.deepcopy(model.state_dict()),
+                )
 
     if config.validation is None:
         return model

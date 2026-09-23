@@ -1,4 +1,5 @@
 import tempfile
+from contextlib import closing
 from pathlib import Path
 from time import perf_counter
 
@@ -57,37 +58,40 @@ def evaluate_policy(
             parallel_environment_count=config.parallel_environment_count,
         )
         scoring_start = perf_counter()
-        for condition, episode_records in scored_episodes_per_condition:
-            run.summary[f"{STAGE_NAME}/{condition.label}/8_scoring_seconds"] = (
-                perf_counter() - scoring_start
-            )
-            logger.info("Scored the policy in %s.", condition.label)
+        with closing(scored_episodes_per_condition):
+            for condition, episode_records in scored_episodes_per_condition:
+                run.summary[f"{STAGE_NAME}/{condition.label}/8_scoring_seconds"] = (
+                    perf_counter() - scoring_start
+                )
+                logger.info("Scored the policy in %s.", condition.label)
 
-            reward = calculate_reward_statistics(episode_records=episode_records)
-            reward_means.append(reward.mean)
+                reward = calculate_reward_statistics(episode_records=episode_records)
+                reward_means.append(reward.mean)
 
-            _write_summary(
-                run=run,
-                condition=condition,
-                reward=reward,
-                success=calculate_success_statistics(episode_records=episode_records),
-            )
-            if record_videos:
-                video_start = perf_counter()
-                _log_video(
-                    environment=environment,
-                    policy_label=policy_label,
-                    condition=condition,
-                    episode_records=pick_representative_episodes(
-                        episode_records=episode_records,
-                        maximum_episode_count=config.video_episode_count,
-                    ),
+                _write_summary(
                     run=run,
+                    condition=condition,
+                    reward=reward,
+                    success=calculate_success_statistics(
+                        episode_records=episode_records
+                    ),
                 )
-                run.summary[f"{STAGE_NAME}/{condition.label}/9_video_seconds"] = (
-                    perf_counter() - video_start
-                )
-            scoring_start = perf_counter()
+                if record_videos:
+                    video_start = perf_counter()
+                    _log_video(
+                        environment=environment,
+                        policy_label=policy_label,
+                        condition=condition,
+                        episode_records=pick_representative_episodes(
+                            episode_records=episode_records,
+                            maximum_episode_count=config.video_episode_count,
+                        ),
+                        run=run,
+                    )
+                    run.summary[f"{STAGE_NAME}/{condition.label}/9_video_seconds"] = (
+                        perf_counter() - video_start
+                    )
+                scoring_start = perf_counter()
 
     run.summary[f"{STAGE_NAME}/{ALL_CONDITIONS_LABEL}/1_reward_mean"] = sum(
         reward_means

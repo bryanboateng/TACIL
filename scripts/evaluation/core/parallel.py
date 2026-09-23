@@ -1,8 +1,10 @@
 """CPU simulation workers with batched policy inference in the parent process."""
 
+import logging
 import multiprocessing
 import traceback
 from collections.abc import Callable
+from contextlib import ExitStack
 from multiprocessing.connection import Connection
 from multiprocessing.process import BaseProcess
 from time import monotonic
@@ -17,12 +19,16 @@ from scripts.evaluation.core.rollout import EpisodeRecord
 from scripts.shared.policy_types import PolicyFactory
 
 _WORKER_TIMEOUT_SECONDS = 120.0
+logger = logging.getLogger(__name__)
 
 
 class ParallelEnvironmentPool:
-    def __init__(self, *, factory: Callable[[], Env], worker_count: int) -> None:
+    def __init__(
+        self, *, factories: list[Callable[[], Env]], worker_count: int
+    ) -> None:
         if worker_count < 1:
             raise ValueError("worker_count must be positive")
+        startup_start = monotonic()
         # Never fork a process that has already initialized CUDA for training.
         context = multiprocessing.get_context("spawn")
         self._connections: list[Connection] = []
@@ -30,7 +36,7 @@ class ParallelEnvironmentPool:
         try:
             for _ in range(worker_count):
                 parent, child = context.Pipe()
-                worker = context.Process(target=_worker, args=(child, factory))
+                worker = context.Process(target=_worker, args=(child, factories))
                 self._connections.append(parent)
                 try:
                     worker.start()
@@ -39,6 +45,11 @@ class ParallelEnvironmentPool:
                 self._workers.append(worker)
             for connection in self._connections:
                 _receive(connection)
+            logger.info(
+                "Started %d scoring workers in %.2fs (reused across conditions).",
+                worker_count,
+                monotonic() - startup_start,
+            )
         except BaseException:
             self.close()
             raise
@@ -73,24 +84,34 @@ class ParallelEnvironmentPool:
         self._workers.clear()
 
     def roll_out(
-        self, *, seeds: list[int], policy_factory: PolicyFactory
+        self, *, seeds: list[int], policy_factory: PolicyFactory, condition_index: int
     ) -> list[EpisodeRecord]:
         records: list[EpisodeRecord] = []
         batch_size = len(self._connections)
         for start in range(0, len(seeds), batch_size):
             batch_seeds = seeds[start : start + batch_size]
             records.extend(
-                self._roll_out_batch(seeds=batch_seeds, policy_factory=policy_factory)
+                self._roll_out_batch(
+                    seeds=batch_seeds,
+                    policy_factory=policy_factory,
+                    condition_index=condition_index,
+                )
             )
         return records
 
     def _roll_out_batch(
-        self, *, seeds: list[int], policy_factory: PolicyFactory
+        self, *, seeds: list[int], policy_factory: PolicyFactory, condition_index: int
     ) -> list[EpisodeRecord]:
         connections = self._connections[: len(seeds)]
+        reset_start = monotonic()
         for connection, seed in zip(connections, seeds, strict=True):
-            connection.send(("reset", seed))
+            connection.send(("reset", (condition_index, seed)))
         observations = [_receive(connection) for connection in connections]
+        logger.info(
+            "Prepared/reset %d scoring environments in %.2fs (first use includes creation).",
+            len(seeds),
+            monotonic() - reset_start,
+        )
         actions: list[list[np.ndarray]] = [[] for _ in seeds]
         rewards: list[list[float]] = [[] for _ in seeds]
         terminated = [False for _ in seeds]
@@ -141,23 +162,31 @@ def _receive(connection: Connection) -> Any:
     return result
 
 
-def _worker(connection: Connection, factory: Callable[[], Env]) -> None:
+def _worker(connection: Connection, factories: list[Callable[[], Env]]) -> None:
     environment: Env | None = None
+    environments: dict[int, Env] = {}
+    resources = ExitStack()
     try:
         # Avoid multiplying PyTorch's CPU thread count by the number of workers.
         torch.set_num_threads(1)
-        environment = factory()
         connection.send((True, None))
         while True:
             command, payload = connection.recv()
             if command == "close":
                 break
             if command == "reset":
-                observation, _ = environment.reset(seed=payload)
-                environment.observation_space.seed(payload)
-                environment.action_space.seed(payload)
+                condition_index, seed = payload
+                if condition_index not in environments:
+                    environments[condition_index] = factories[condition_index]()
+                    resources.callback(environments[condition_index].close)
+                environment = environments[condition_index]
+                observation, _ = environment.reset(seed=seed)
+                environment.observation_space.seed(seed)
+                environment.action_space.seed(seed)
                 connection.send((True, observation))
             elif command == "step":
+                if environment is None:
+                    raise RuntimeError("Reset the environment before stepping")
                 observation, reward, terminated, truncated, _ = environment.step(
                     payload
                 )
@@ -173,7 +202,6 @@ def _worker(connection: Connection, factory: Callable[[], Env]) -> None:
             pass
     finally:
         try:
-            if environment is not None:
-                environment.close()
+            resources.close()
         finally:
             connection.close()

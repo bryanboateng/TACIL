@@ -1,6 +1,7 @@
-from collections.abc import Iterator
+from collections.abc import Generator
 from dataclasses import dataclass
 from functools import partial
+from typing import Self
 
 import numpy as np
 
@@ -26,6 +27,91 @@ class SuccessStatistics:
     standard_error: float
 
 
+class ScoringSession:
+    """Own one lazy CPU pool for a complete evaluation or training run.
+
+    Workers cache one environment per condition, but reset every episode with
+    its original seed. Policies stay in the parent and are rebuilt per batch,
+    so validation always uses the current model and fresh policy state.
+    """
+
+    def __init__(
+        self, *, environment: Environment, parallel_environment_count: int = 1
+    ) -> None:
+        if parallel_environment_count < 1:
+            raise ValueError("parallel_environment_count must be positive")
+        self.environment = environment
+        self._parallel_environment_count = parallel_environment_count
+        self._pool: ParallelEnvironmentPool | None = None
+        self._closed = False
+
+    def __enter__(self) -> Self:
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        self.close()
+
+    def close(self) -> None:
+        self._closed = True
+        if self._pool is not None:
+            self._pool.close()
+            self._pool = None
+
+    def run_over_conditions(
+        self, *, policy_factory: PolicyFactory, episode_count_per_condition: int
+    ) -> list[EpisodeRecord]:
+        return [
+            record
+            for condition_index in range(len(self.environment.conditions))
+            for record in self.run_condition(
+                condition_index=condition_index,
+                policy_factory=policy_factory,
+                start_episode_seed=(
+                    VALIDATION_START_SEED
+                    + condition_index * episode_count_per_condition
+                ),
+                episode_count=episode_count_per_condition,
+            )
+        ]
+
+    def run_condition(
+        self,
+        *,
+        condition_index: int,
+        policy_factory: PolicyFactory,
+        start_episode_seed: int,
+        episode_count: int,
+    ) -> list[EpisodeRecord]:
+        if self._closed:
+            raise RuntimeError("Scoring session is closed")
+        condition = self.environment.conditions[condition_index]
+        seeds = list(range(start_episode_seed, start_episode_seed + episode_count))
+        if self._parallel_environment_count > 1 and seeds:
+            if self._pool is None:
+                self._pool = ParallelEnvironmentPool(
+                    factories=[
+                        partial(
+                            self.environment.create_gym_environment,
+                            condition=item,
+                            render_settings=None,
+                        )
+                        for item in self.environment.conditions
+                    ],
+                    worker_count=min(self._parallel_environment_count, len(seeds)),
+                )
+            return self._pool.roll_out(
+                seeds=seeds,
+                policy_factory=policy_factory,
+                condition_index=condition_index,
+            )
+        return _run_sequential_episodes(
+            environment=self.environment,
+            condition=condition,
+            seeds=seeds,
+            policy_factory=policy_factory,
+        )
+
+
 def run_scored_episodes_per_condition(
     *,
     environment: Environment,
@@ -33,19 +119,20 @@ def run_scored_episodes_per_condition(
     start_episode_seed: int,
     episode_count_per_condition: int,
     parallel_environment_count: int = 1,
-) -> Iterator[tuple[Condition, list[EpisodeRecord]]]:
-    for condition in environment.conditions:
-        yield (
-            condition,
-            _run_scored_episodes(
-                environment=environment,
-                policy_factory=policy_factory,
-                start_episode_seed=start_episode_seed,
-                episode_count=episode_count_per_condition,
-                condition=condition,
-                parallel_environment_count=parallel_environment_count,
-            ),
-        )
+) -> Generator[tuple[Condition, list[EpisodeRecord]], None, None]:
+    with ScoringSession(
+        environment=environment, parallel_environment_count=parallel_environment_count
+    ) as session:
+        for condition_index, condition in enumerate(environment.conditions):
+            yield (
+                condition,
+                session.run_condition(
+                    condition_index=condition_index,
+                    policy_factory=policy_factory,
+                    start_episode_seed=start_episode_seed,
+                    episode_count=episode_count_per_condition,
+                ),
+            )
 
 
 def run_scored_episodes_over_conditions(
@@ -55,49 +142,30 @@ def run_scored_episodes_over_conditions(
     episode_count_per_condition: int,
     parallel_environment_count: int = 1,
 ) -> list[EpisodeRecord]:
-    return [
-        episode_record
-        for condition_index, condition in enumerate(iterable=environment.conditions)
-        for episode_record in _run_scored_episodes(
-            environment=environment,
+    with ScoringSession(
+        environment=environment, parallel_environment_count=parallel_environment_count
+    ) as session:
+        return session.run_over_conditions(
             policy_factory=policy_factory,
-            start_episode_seed=(
-                VALIDATION_START_SEED + condition_index * episode_count_per_condition
-            ),
-            episode_count=episode_count_per_condition,
-            condition=condition,
-            parallel_environment_count=parallel_environment_count,
+            episode_count_per_condition=episode_count_per_condition,
         )
-    ]
 
 
-def _run_scored_episodes(
+def _run_sequential_episodes(
     *,
     environment: Environment,
     policy_factory: PolicyFactory,
-    start_episode_seed: int,
-    episode_count: int,
+    seeds: list[int],
     condition: Condition,
-    parallel_environment_count: int = 1,
 ) -> list[EpisodeRecord]:
-    if parallel_environment_count < 1:
-        raise ValueError("parallel_environment_count must be positive")
-    seeds = list(range(start_episode_seed, start_episode_seed + episode_count))
-    if parallel_environment_count > 1 and seeds:
-        with ParallelEnvironmentPool(
-            factory=partial(
-                environment.create_gym_environment,
-                condition=condition,
-                render_settings=None,
-            ),
-            worker_count=min(parallel_environment_count, len(seeds)),
-        ) as pool:
-            return pool.roll_out(seeds=seeds, policy_factory=policy_factory)
-    gym_environments = [
-        environment.create_gym_environment(condition=condition, render_settings=None)
-        for _ in seeds
-    ]
+    gym_environments = []
     try:
+        for _ in seeds:
+            gym_environments.append(
+                environment.create_gym_environment(
+                    condition=condition, render_settings=None
+                )
+            )
         return roll_out_episodes(
             environments=gym_environments,
             seeds=seeds,
