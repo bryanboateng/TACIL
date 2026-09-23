@@ -20,12 +20,16 @@ class OptimizationConfig:
 @dataclass(frozen=True)
 class ValidationConfig:
     interval_epoch_count: int = 40
-    episode_count_per_condition: int = 20
+    # CPU simulator rollouts dominate runtime; use a small checkpoint-selection
+    # set and reserve the larger episode budget for final evaluation.
+    episode_count_per_condition: int = 5
+    parallel_environment_count: int = 4
 
     def __post_init__(self) -> None:
         for name, value in (
             ("interval_epoch_count", self.interval_epoch_count),
             ("episode_count_per_condition", self.episode_count_per_condition),
+            ("parallel_environment_count", self.parallel_environment_count),
         ):
             if value <= 0:
                 raise ValueError(f"{name} must be positive, but it is {value}.")
@@ -39,8 +43,13 @@ class Config:
     hidden_layer_dimensionality: int = 256
 
     observation_noise: float | None = None
+    # Zero-based coordinates masked in both training and inference. Peg-insertion
+    # TCP velocities are 9–14; peg velocities are 25–30. Empty uses all inputs.
+    excluded_observation_indices: tuple[int, ...] = ()
 
     def __post_init__(self) -> None:
+        if any(index < 0 for index in self.excluded_observation_indices):
+            raise ValueError("excluded_observation_indices must be non-negative")
         if self.hidden_layer_dimensionality <= 0:
             raise ValueError(
                 f"hidden_layer_dimensionality must be positive, but it is "

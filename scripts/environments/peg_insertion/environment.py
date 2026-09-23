@@ -117,8 +117,9 @@ class PegInsertionEnvironment:
     def describe_condition(self, *, condition: Condition) -> str:
         return SETTINGS_BY_CONDITION[condition].description
 
+    @staticmethod
     def create_gym_environment(
-        self, *, condition: Condition, render_settings: RenderSettings | None
+        *, condition: Condition, render_settings: RenderSettings | None
     ) -> Env:
         environment: Env = _SelectedObservationWrapper(
             environment=create_base_environment(

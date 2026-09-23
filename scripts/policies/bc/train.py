@@ -1,13 +1,14 @@
 import copy
+from time import perf_counter
 
 import torch
 from torch.optim import Adam
-from torch.utils.data import DataLoader
 from tqdm.auto import tqdm
 from wandb import Run
 
 from scripts.evaluation.core.scoring import (
     calculate_reward_statistics,
+    calculate_success_statistics,
     run_scored_episodes_over_conditions,
 )
 from scripts.environments.environment import Environment
@@ -55,23 +56,18 @@ def train_behavior_cloning_policy(
 
     dataset = Dataset(state_action_pairs=state_action_pairs)
 
-    data_loader = DataLoader(
-        dataset=dataset,
-        batch_size=config.optimization.batch_size,
-        shuffle=True,
-        pin_memory=device.type == "cuda",
-    )
+    # These low-dimensional datasets are small enough to batch directly on the
+    # training device, without fetching and collating each individual sample.
+    states = dataset.states.to(device=device)
+    actions = dataset.actions.to(device=device)
 
     model = BehaviorCloningPolicyModel(
         observation_dimensionality=state_action_pairs.states.shape[1],
         action_dimensionality=state_action_pairs.actions.shape[1],
         hidden_layer_dimensionality=config.hidden_layer_dimensionality,
-        observation_normalizer=ZScoreNormalizer(
-            value_batch=dataset.states.to(device=device)
-        ),
-        action_normalizer=MinMaxNormalizer(
-            value_batch=dataset.actions.to(device=device)
-        ),
+        observation_normalizer=ZScoreNormalizer(value_batch=states),
+        action_normalizer=MinMaxNormalizer(value_batch=actions),
+        excluded_observation_indices=config.excluded_observation_indices,
     ).to(device=device)
 
     optimizer = Adam(params=model.parameters(), lr=config.optimization.learning_rate)
@@ -83,13 +79,14 @@ def train_behavior_cloning_policy(
         iterable=range(config.optimization.epoch_count), desc="Epoch", unit="epoch"
     ):
         model.train()
-        for observation_batch, target_action_batch in data_loader:
-            observation_batch = observation_batch.to(
-                device=device
-            )  # (batch_size, observation_dimensionality)
-            target_action_batch = target_action_batch.to(
-                device=device
-            )  # (batch_size, action_dimensionality)
+        training_start = perf_counter()
+        epoch_loss = torch.zeros((), device=device)
+        permutation = torch.randperm(len(dataset), device=device)
+        for batch_index, batch_indices in enumerate(
+            permutation.split(config.optimization.batch_size)
+        ):
+            observation_batch = states[batch_indices]
+            target_action_batch = actions[batch_indices]
 
             optimizer.zero_grad()
 
@@ -108,26 +105,34 @@ def train_behavior_cloning_policy(
 
             loss.backward()
 
-            gradient_norm = torch.norm(
-                input=torch.stack(
-                    tensors=[
-                        parameter.grad.norm()
-                        for parameter in model.parameters()
-                        if parameter.grad is not None
-                    ]
+            # A gradient snapshot per epoch avoids thousands of small kernels
+            # and device synchronizations solely for telemetry.
+            if batch_index == 0:
+                gradient_norm = torch.norm(
+                    input=torch.stack(
+                        tensors=[
+                            parameter.grad.norm()
+                            for parameter in model.parameters()
+                            if parameter.grad is not None
+                        ]
+                    )
                 )
-            )
 
             optimizer.step()
 
-            run.log(
-                data={
-                    f"{TRAINING_SECTION}/1_loss": loss.item(),
-                    f"{TRAINING_SECTION}/2_gradient_norm": gradient_norm.item(),
-                    STEP_METRIC_NAME: global_step,
-                }
-            )
+            epoch_loss += loss.detach() * len(batch_indices)
             global_step += 1
+
+        mean_loss = (epoch_loss / len(dataset)).item()
+        run.log(
+            data={
+                f"{TRAINING_SECTION}/1_loss": mean_loss,
+                f"{TRAINING_SECTION}/2_gradient_norm": gradient_norm.item(),
+                f"{TRAINING_SECTION}/3_seconds": perf_counter() - training_start,
+                EPOCH_METRIC_NAME: epoch_index,
+                STEP_METRIC_NAME: global_step,
+            }
+        )
 
         if (
             config.validation is None
@@ -141,20 +146,27 @@ def train_behavior_cloning_policy(
                 "it in, but none was given."
             )
 
+        validation_start = perf_counter()
         with torch.no_grad():
+            episode_records = run_scored_episodes_over_conditions(
+                environment=environment,
+                policy_factory=create_behavior_cloning_policy_factory(
+                    policy_model=model, device=device
+                ),
+                episode_count_per_condition=config.validation.episode_count_per_condition,
+                parallel_environment_count=config.validation.parallel_environment_count,
+            )
             validation_reward = calculate_reward_statistics(
-                episode_records=run_scored_episodes_over_conditions(
-                    environment=environment,
-                    policy_factory=create_behavior_cloning_policy_factory(
-                        policy_model=model, device=device
-                    ),
-                    episode_count_per_condition=config.validation.episode_count_per_condition,
-                )
+                episode_records=episode_records
             )
         run.log(
             data={
                 f"{VALIDATION_SECTION}/1_reward_mean": validation_reward.mean,
                 f"{VALIDATION_SECTION}/2_reward_std": validation_reward.std,
+                f"{VALIDATION_SECTION}/3_success_rate": calculate_success_statistics(
+                    episode_records=episode_records
+                ).rate,
+                f"{VALIDATION_SECTION}/4_seconds": perf_counter() - validation_start,
                 EPOCH_METRIC_NAME: epoch_index,
                 STEP_METRIC_NAME: global_step,
             }

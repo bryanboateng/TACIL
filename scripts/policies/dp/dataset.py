@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from collections.abc import Iterator
 
 import numpy as np
 import numpy.typing as npt
@@ -64,6 +65,22 @@ class Dataset(torch.utils.data.Dataset[tuple[torch.Tensor, torch.Tensor]]):
     def __len__(self) -> int:
         return len(self._windows.actions)
 
+    def to(self, *, device: torch.device) -> None:
+        self._windows = _Windows(
+            observations=self._windows.observations.to(device=device),
+            actions=self._windows.actions.to(device=device),
+        )
+
+    def batches(
+        self, *, batch_size: int
+    ) -> Iterator[tuple[torch.Tensor, torch.Tensor]]:
+        indices = torch.randperm(len(self), device=self._windows.actions.device)
+        for batch_indices in indices.split(batch_size):
+            yield (
+                self._windows.observations[batch_indices],
+                self._windows.actions[batch_indices],
+            )
+
     def __getitem__(self, index: int) -> tuple[torch.Tensor, torch.Tensor]:
         return (
             self._windows.observations[
@@ -93,11 +110,13 @@ def _create_normalizers(
 ) -> tuple[MinMaxNormalizer, MinMaxNormalizer]:
     return (
         MinMaxNormalizer(
+            # Simulator round-off in constant orientations is not a feature.
+            minimum_range=1e-6,
             value_batch=torch.from_numpy(
                 np.concatenate(
                     [episode_store.states for episode_store in episode_stores], axis=0
                 )
-            ).float()
+            ).float(),
         ),
         MinMaxNormalizer(
             value_batch=torch.from_numpy(

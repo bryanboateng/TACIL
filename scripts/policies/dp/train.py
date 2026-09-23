@@ -1,4 +1,6 @@
 import copy
+import math
+from time import perf_counter
 
 import torch
 from diffusers.optimization import get_scheduler
@@ -10,6 +12,7 @@ from wandb import Run
 
 from scripts.evaluation.core.scoring import (
     calculate_reward_statistics,
+    calculate_success_statistics,
     run_scored_episodes_over_conditions,
 )
 from scripts.environments.environment import Environment
@@ -62,6 +65,10 @@ def train_diffusion_policy(
     )
 
     run.summary[f"{STAGE_NAME}/0_dataset/2_training_window_count"] = len(dataset)
+    if len(dataset) == 0:
+        raise ValueError("The dataset contains no complete training windows")
+    if config.optimization.cache_dataset_on_device:
+        dataset.to(device=device)
 
     noise_prediction_network = ConditionalUnet1d(
         action_dimensionality=expert_episodes.actions.shape[1],
@@ -88,20 +95,13 @@ def train_diffusion_policy(
         weight_decay=config.optimization.weight_decay,
     )
 
-    dataloader = torch.utils.data.DataLoader(
-        dataset=dataset,
-        batch_size=config.optimization.batch_size,
-        shuffle=True,
-        pin_memory=(device.type == "cuda"),
-        num_workers=1,
-        persistent_workers=True,
-    )
+    batch_count = math.ceil(len(dataset) / config.optimization.batch_size)
 
     learning_rate_scheduler = get_scheduler(
         name="cosine",
         optimizer=optimizer,
         num_warmup_steps=config.optimization.learning_rate_warmup_step_count,
-        num_training_steps=len(dataloader) * config.optimization.epoch_count,
+        num_training_steps=batch_count * config.optimization.epoch_count,
     )
 
     global_step = 0
@@ -116,15 +116,12 @@ def train_diffusion_policy(
         position=0,
     ):
         noise_prediction_network.train()
-
-        for training_batch in tqdm(
-            iterable=dataloader,
-            desc="Batch",
-            unit="batch",
-            leave=False,
-            dynamic_ncols=True,
-            position=1,
+        training_start = perf_counter()
+        epoch_loss = torch.zeros((), device=device)
+        for batch_index, training_batch in enumerate(
+            dataset.batches(batch_size=config.optimization.batch_size)
         ):
+            optimizer.zero_grad(set_to_none=True)
             loss = _calculate_denoising_loss(
                 noise_prediction_network=noise_prediction_network,
                 training_batch=training_batch,
@@ -136,36 +133,42 @@ def train_diffusion_policy(
 
             loss.backward()
 
-            gradient_norm = torch.norm(
-                input=torch.stack(
-                    tensors=[
-                        parameter.grad.norm()
-                        for parameter in noise_prediction_network.parameters()
-                        if parameter.grad is not None
-                    ]
+            if batch_index == 0:
+                gradient_norm = torch.norm(
+                    input=torch.stack(
+                        tensors=[
+                            parameter.grad.norm()
+                            for parameter in noise_prediction_network.parameters()
+                            if parameter.grad is not None
+                        ]
+                    )
                 )
-            )
 
             optimizer.step()
-            optimizer.zero_grad()
             learning_rate_scheduler.step()
             noise_prediction_network_ema.step(noise_prediction_network.parameters())
 
-            run.log(
-                data={
-                    f"{TRAINING_SECTION}/1_loss": loss.item(),
-                    f"{TRAINING_SECTION}/3_learning_rate": (
-                        learning_rate_scheduler.get_last_lr()[0]
-                    ),
-                    f"{TRAINING_SECTION}/2_gradient_norm": gradient_norm.item(),
-                    STEP_METRIC_NAME: global_step,
-                }
-            )
+            epoch_loss += loss.detach() * training_batch[0].shape[0]
             global_step += 1
+
+        mean_loss = (epoch_loss / len(dataset)).item()
+        run.log(
+            data={
+                f"{TRAINING_SECTION}/1_loss": mean_loss,
+                f"{TRAINING_SECTION}/2_gradient_norm": gradient_norm.item(),
+                f"{TRAINING_SECTION}/3_learning_rate": learning_rate_scheduler.get_last_lr()[
+                    0
+                ],
+                f"{TRAINING_SECTION}/4_seconds": perf_counter() - training_start,
+                EPOCH_METRIC_NAME: epoch_index,
+                STEP_METRIC_NAME: global_step,
+            }
+        )
 
         if (epoch_index + 1) % config.validation.interval_epoch_count != 0:
             continue
 
+        validation_start = perf_counter()
         # What gets scored are the averaged weights, so they move into the
         # network for the duration of the validation and are taken out again.
         noise_prediction_network_ema.store(
@@ -177,17 +180,19 @@ def train_diffusion_policy(
         try:
             ema_state_dict = copy.deepcopy(noise_prediction_network.state_dict())
             with torch.no_grad():
+                episode_records = run_scored_episodes_over_conditions(
+                    environment=environment,
+                    policy_factory=create_diffusion_policy_factory(
+                        noise_prediction_network=noise_prediction_network,
+                        horizon_lengths=config.horizon_lengths,
+                        noise_scheduler_name=config.sampler,
+                        device=device,
+                    ),
+                    episode_count_per_condition=config.validation.episode_count_per_condition,
+                    parallel_environment_count=config.validation.parallel_environment_count,
+                )
                 validation_reward = calculate_reward_statistics(
-                    episode_records=run_scored_episodes_over_conditions(
-                        environment=environment,
-                        policy_factory=create_diffusion_policy_factory(
-                            noise_prediction_network=noise_prediction_network,
-                            horizon_lengths=config.horizon_lengths,
-                            noise_scheduler_name=config.sampler,
-                            device=device,
-                        ),
-                        episode_count_per_condition=config.validation.episode_count_per_condition,
-                    )
+                    episode_records=episode_records
                 )
         finally:
             noise_prediction_network_ema.restore(
@@ -197,6 +202,10 @@ def train_diffusion_policy(
             data={
                 f"{VALIDATION_SECTION}/1_reward_mean": validation_reward.mean,
                 f"{VALIDATION_SECTION}/2_reward_std": validation_reward.std,
+                f"{VALIDATION_SECTION}/3_success_rate": calculate_success_statistics(
+                    episode_records=episode_records
+                ).rate,
+                f"{VALIDATION_SECTION}/4_seconds": perf_counter() - validation_start,
                 EPOCH_METRIC_NAME: epoch_index,
                 STEP_METRIC_NAME: global_step,
             }

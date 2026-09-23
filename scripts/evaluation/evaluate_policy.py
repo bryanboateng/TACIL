@@ -1,5 +1,6 @@
 import tempfile
 from pathlib import Path
+from time import perf_counter
 
 import numpy as np
 import pygame
@@ -53,8 +54,13 @@ def evaluate_policy(
             policy_factory=policy_factory,
             start_episode_seed=config.start_episode_seed,
             episode_count_per_condition=config.episode_count_per_condition,
+            parallel_environment_count=config.parallel_environment_count,
         )
+        scoring_start = perf_counter()
         for condition, episode_records in scored_episodes_per_condition:
+            run.summary[f"{STAGE_NAME}/{condition.label}/8_scoring_seconds"] = (
+                perf_counter() - scoring_start
+            )
             logger.info("Scored the policy in %s.", condition.label)
 
             reward = calculate_reward_statistics(episode_records=episode_records)
@@ -67,15 +73,21 @@ def evaluate_policy(
                 success=calculate_success_statistics(episode_records=episode_records),
             )
             if record_videos:
+                video_start = perf_counter()
                 _log_video(
                     environment=environment,
                     policy_label=policy_label,
                     condition=condition,
                     episode_records=pick_representative_episodes(
-                        episode_records=episode_records
+                        episode_records=episode_records,
+                        maximum_episode_count=config.video_episode_count,
                     ),
                     run=run,
                 )
+                run.summary[f"{STAGE_NAME}/{condition.label}/9_video_seconds"] = (
+                    perf_counter() - video_start
+                )
+            scoring_start = perf_counter()
 
     run.summary[f"{STAGE_NAME}/{ALL_CONDITIONS_LABEL}/1_reward_mean"] = sum(
         reward_means

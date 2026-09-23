@@ -1,11 +1,13 @@
 from collections.abc import Iterator
 from dataclasses import dataclass
+from functools import partial
 
 import numpy as np
 
 from scripts.environments.condition import Condition
 from scripts.environments.environment import Environment
 from scripts.evaluation.core.rollout import EpisodeRecord, roll_out_episodes
+from scripts.evaluation.core.parallel import ParallelEnvironmentPool
 from scripts.shared.policy_types import PolicyFactory
 
 
@@ -29,6 +31,7 @@ def run_scored_episodes_per_condition(
     policy_factory: PolicyFactory,
     start_episode_seed: int,
     episode_count_per_condition: int,
+    parallel_environment_count: int = 1,
 ) -> Iterator[tuple[Condition, list[EpisodeRecord]]]:
     for condition in environment.conditions:
         yield (
@@ -39,6 +42,7 @@ def run_scored_episodes_per_condition(
                 start_episode_seed=start_episode_seed,
                 episode_count=episode_count_per_condition,
                 condition=condition,
+                parallel_environment_count=parallel_environment_count,
             ),
         )
 
@@ -48,6 +52,7 @@ def run_scored_episodes_over_conditions(
     environment: Environment,
     policy_factory: PolicyFactory,
     episode_count_per_condition: int,
+    parallel_environment_count: int = 1,
 ) -> list[EpisodeRecord]:
     return [
         episode_record
@@ -58,6 +63,7 @@ def run_scored_episodes_over_conditions(
             start_episode_seed=(10_000 + condition_index * episode_count_per_condition),
             episode_count=episode_count_per_condition,
             condition=condition,
+            parallel_environment_count=parallel_environment_count,
         )
     ]
 
@@ -69,8 +75,21 @@ def _run_scored_episodes(
     start_episode_seed: int,
     episode_count: int,
     condition: Condition,
+    parallel_environment_count: int = 1,
 ) -> list[EpisodeRecord]:
+    if parallel_environment_count < 1:
+        raise ValueError("parallel_environment_count must be positive")
     seeds = list(range(start_episode_seed, start_episode_seed + episode_count))
+    if parallel_environment_count > 1 and seeds:
+        with ParallelEnvironmentPool(
+            factory=partial(
+                environment.create_gym_environment,
+                condition=condition,
+                render_settings=None,
+            ),
+            worker_count=min(parallel_environment_count, len(seeds)),
+        ) as pool:
+            return pool.roll_out(seeds=seeds, policy_factory=policy_factory)
     gym_environments = [
         environment.create_gym_environment(condition=condition, render_settings=None)
         for _ in seeds
@@ -123,13 +142,28 @@ def calculate_success_statistics(
 
 
 def pick_representative_episodes(
-    *, episode_records: list[EpisodeRecord]
+    *, episode_records: list[EpisodeRecord], maximum_episode_count: int | None = None
 ) -> dict[int, EpisodeRecord]:
+    if not episode_records:
+        return {}
+    if maximum_episode_count is not None and maximum_episode_count <= 0:
+        raise ValueError("maximum_episode_count must be positive")
     percentiles = (0, 2, 5, 10, 20, 40, 50, 60, 80, 90, 95, 98, 100)
+    if maximum_episode_count is not None:
+        count = min(maximum_episode_count, len(episode_records))
+        percentiles = (
+            (50,)
+            if count == 1
+            else tuple(np.linspace(0, 100, count).round().astype(int))
+        )
 
     sorted_records = sorted(episode_records, key=lambda record: record.reward)
     last_index = len(sorted_records) - 1
-    return {
-        percentile: sorted_records[round(number=last_index * percentile / 100)]
-        for percentile in percentiles
-    }
+    selected: dict[int, EpisodeRecord] = {}
+    selected_indices: set[int] = set()
+    for percentile in percentiles:
+        index = round(number=last_index * percentile / 100)
+        if index not in selected_indices:
+            selected[percentile] = sorted_records[index]
+            selected_indices.add(index)
+    return selected

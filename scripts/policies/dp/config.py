@@ -43,6 +43,8 @@ class OptimizationConfig:
     weight_decay: float = 1e-6
     learning_rate_warmup_step_count: int = 500
     ema_power: float = 0.75
+    # Cache sequence tensors on the training device; disable for large datasets.
+    cache_dataset_on_device: bool = True
 
     def __post_init__(self) -> None:
         for name, value in (
@@ -65,12 +67,14 @@ class OptimizationConfig:
 @dataclass(frozen=True)
 class ValidationConfig:
     interval_epoch_count: int = 75
-    episode_count_per_condition: int = 20
+    episode_count_per_condition: int = 5
+    parallel_environment_count: int = 4
 
     def __post_init__(self) -> None:
         for name, value in (
             ("interval_epoch_count", self.interval_epoch_count),
             ("episode_count_per_condition", self.episode_count_per_condition),
+            ("parallel_environment_count", self.parallel_environment_count),
         ):
             if value <= 0:
                 raise ValueError(f"{name} must be positive, but it is {value}.")
