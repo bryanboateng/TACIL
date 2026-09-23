@@ -28,6 +28,9 @@ from scripts.environments.peg_insertion.observation import (
     extract_state_from_environment,
 )
 from scripts.environments.peg_insertion.plots import create_dynamics_plots
+from scripts.environments.peg_insertion.reusable_scene import (
+    TASK_ID as REUSABLE_TASK_ID,
+)
 from scripts.environments.peg_insertion.tacil_network_input import build_network_input
 from scripts.environments.render_settings import RenderSettings
 from scripts.environments.state_bounds import Bound
@@ -44,11 +47,14 @@ SIMULATION_BACKEND = "physx_cpu"
 
 
 def create_base_environment(
-    *, max_episode_steps: int, render_settings: RenderSettings | None = None
+    *,
+    max_episode_steps: int,
+    render_settings: RenderSettings | None = None,
+    reuse_scene: bool = True,
 ) -> Env:
     return CPUGymWrapper(
         env=gymnasium.make(
-            id=TASK_ID,
+            id=REUSABLE_TASK_ID if reuse_scene and render_settings is None else TASK_ID,
             obs_mode="none",
             control_mode=CONTROL_MODE,
             reward_mode=REWARD_MODE,
