@@ -2,8 +2,10 @@
 
 import unittest
 from contextlib import ExitStack
+from unittest.mock import patch
 
 import numpy as np
+import sapien
 import torch
 
 from scripts.environments.peg_insertion.disturbance import DisturbanceWrapper
@@ -14,6 +16,48 @@ from scripts.environments.peg_insertion.observation import (
 
 
 class ReusablePegSceneTests(unittest.TestCase):
+    def test_collision_geometry_matches_without_creating_render_materials(self):
+        with ExitStack() as resources:
+            original = create_base_environment(max_episode_steps=450, reuse_scene=False)
+            resources.callback(original.close)
+            reused = create_base_environment(max_episode_steps=450)
+            resources.callback(reused.close)
+            for seed in (10000, 10001):
+                original.reset(seed=seed)
+                with patch(
+                    "sapien.render.RenderMaterial",
+                    side_effect=AssertionError(
+                        "Headless reset created a render material"
+                    ),
+                ):
+                    reused.reset(seed=seed)
+                for name in ("peg", "box"):
+                    bodies = [
+                        getattr(env.unwrapped, name)
+                        ._objs[0]
+                        .find_component_by_type(sapien.physx.PhysxRigidDynamicComponent)
+                        for env in (original, reused)
+                    ]
+                    self.assertEqual(bodies[0].mass, bodies[1].mass)
+                    for a, b in zip(
+                        bodies[0].get_collision_shapes(),
+                        bodies[1].get_collision_shapes(),
+                        strict=True,
+                    ):
+                        self.assertEqual(type(a), type(b))
+                        np.testing.assert_array_equal(a.half_size, b.half_size)
+                        np.testing.assert_array_equal(a.local_pose.p, b.local_pose.p)
+                        np.testing.assert_array_equal(a.local_pose.q, b.local_pose.q)
+                        for property_name in (
+                            "static_friction",
+                            "dynamic_friction",
+                            "restitution",
+                        ):
+                            self.assertEqual(
+                                getattr(a.physical_material, property_name),
+                                getattr(b.physical_material, property_name),
+                            )
+
     def assert_state_equal(self, original, reused):
         if isinstance(original, dict):
             self.assertEqual(original.keys(), reused.keys())

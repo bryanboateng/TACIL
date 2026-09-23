@@ -3,11 +3,8 @@
 import numpy as np
 import sapien
 import torch
-from mani_skill.envs.tasks.tabletop.peg_insertion_side import (
-    PegInsertionSideEnv,
-    _build_box_with_hole,
-)
-from mani_skill.utils import common, sapien_utils
+from mani_skill.envs.tasks.tabletop.peg_insertion_side import PegInsertionSideEnv
+from mani_skill.utils import common
 from mani_skill.utils.registration import register_env
 from mani_skill.utils.structs import Actor, Pose
 
@@ -43,7 +40,7 @@ class ReusablePegInsertionSideEnv(PegInsertionSideEnv):
 
     def _load_objects(self):
         # Mirrors ManiSkill's PegInsertionSideEnv._load_scene geometry, omitting
-        # only TableSceneBuilder.build. Keep RNG draw order and collision shapes
+        # the unchanged table and unused visuals. Keep RNG draw order and collision shapes
         # identical; integration tests compare the full state against upstream.
         with torch.device(self.device):
             lengths = np.asarray(self._batched_episode_rng.uniform(0.085, 0.125))
@@ -75,28 +72,6 @@ class ReusablePegInsertionSideEnv(PegInsertionSideEnv):
                 radius = radii[i]
                 builder = self.scene.create_actor_builder()
                 builder.add_box_collision(half_size=[length, radius, radius])
-                # peg head
-                mat = sapien.render.RenderMaterial(
-                    base_color=sapien_utils.hex2rgba("#EC7357"),
-                    roughness=0.5,
-                    specular=0.5,
-                )
-                builder.add_box_visual(
-                    sapien.Pose([length / 2, 0, 0]),
-                    half_size=[length / 2, radius, radius],
-                    material=mat,
-                )
-                # peg tail
-                mat = sapien.render.RenderMaterial(
-                    base_color=sapien_utils.hex2rgba("#EDF6F9"),
-                    roughness=0.5,
-                    specular=0.5,
-                )
-                builder.add_box_visual(
-                    sapien.Pose([-length / 2, 0, 0]),
-                    half_size=[length / 2, radius, radius],
-                    material=mat,
-                )
                 builder.initial_pose = sapien.Pose(p=[0, 0, 0.1])
                 builder.set_scene_idxs(scene_idxs)
                 peg = builder.build(f"peg_{i}")
@@ -108,7 +83,7 @@ class ReusablePegInsertionSideEnv(PegInsertionSideEnv):
                     length,
                     length,
                 )
-                builder = _build_box_with_hole(
+                builder = _build_collision_box_with_hole(
                     self.scene, inner_radius, outer_radius, depth, center=centers[i]
                 )
                 builder.initial_pose = sapien.Pose(p=[0, 1, 0.1])
@@ -124,3 +99,26 @@ class ReusablePegInsertionSideEnv(PegInsertionSideEnv):
             # of the parallel actors
             self.add_to_state_dict_registry(self.peg)
             self.add_to_state_dict_registry(self.box)
+
+
+def _build_collision_box_with_hole(scene, inner_radius, outer_radius, depth, center):
+    """Same four collision boxes as ManiSkill, without unused render materials."""
+    builder = scene.create_actor_builder()
+    thickness = (outer_radius - inner_radius) * 0.5
+    half_center = [x * 0.5 for x in center]
+    half_sizes = [
+        [depth, thickness - half_center[0], outer_radius],
+        [depth, thickness + half_center[0], outer_radius],
+        [depth, outer_radius, thickness - half_center[1]],
+        [depth, outer_radius, thickness + half_center[1]],
+    ]
+    offset = thickness + inner_radius
+    poses = [
+        sapien.Pose([0, offset + half_center[0], 0]),
+        sapien.Pose([0, -offset + half_center[0], 0]),
+        sapien.Pose([0, 0, offset + half_center[1]]),
+        sapien.Pose([0, 0, -offset + half_center[1]]),
+    ]
+    for half_size, pose in zip(half_sizes, poses, strict=True):
+        builder.add_box_collision(pose, half_size)
+    return builder
