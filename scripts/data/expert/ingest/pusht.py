@@ -3,26 +3,25 @@ import zarr
 from numpy import typing as npt
 from zarr import Array, Group
 
-from scripts.environments.pusht import reward
+from scripts.environments.pusht.reward import calculate_reward, create_environment
 from scripts.shared.download import download_and_extract_zip
 from scripts.shared.episode_store import EpisodeStore, RewardedEpisodeStore
 
 
 def build_episode_store() -> RewardedEpisodeStore:
-    source_path = (
-        download_and_extract_zip(
-            url="https://diffusion-policy.cs.columbia.edu/data/training/pusht.zip"
-        )
-        / "pusht"
-        / "pusht_cchi_v7_replay.zarr"
+    store = zarr.open(
+        store=(
+            download_and_extract_zip(
+                url="https://diffusion-policy.cs.columbia.edu/data/training/pusht.zip"
+            )
+            / "pusht"
+            / "pusht_cchi_v7_replay.zarr"
+        ),
+        mode="r",
     )
 
-    store = zarr.open(store=source_path, mode="r")
-
     if not isinstance(store, Group):
-        raise TypeError(
-            f"Expected zarr.Group at {source_path}, got {type(store).__name__}"
-        )
+        raise TypeError(f"Expected zarr.Group, got {type(store).__name__}")
 
     states = _read(store=store, key="data/state").astype(
         np.float32
@@ -52,11 +51,11 @@ def build_episode_store() -> RewardedEpisodeStore:
 def _read(*, store: Group, key: str) -> np.ndarray:
     try:
         group_member = store[key]
-    except KeyError as exc:
-        raise KeyError(f"{key!r} is missing from the PushT dataset") from exc
+    except KeyError as key_error:
+        raise KeyError(f"Key '{key}' is missing from the PushT dataset") from key_error
 
     if not isinstance(group_member, Array):
-        raise TypeError(f"{key!r} is not a zarr.Array")
+        raise TypeError(f"'{key}' is not a zarr.Array")
 
     return np.asarray(a=group_member[:])
 
@@ -64,13 +63,13 @@ def _read(*, store: Group, key: str) -> np.ndarray:
 def _calculate_rewards(
     *, episodes: EpisodeStore
 ) -> npt.NDArray[np.float32]:  # (total_timestep_count,)
-    source_indices = episodes.indices_with_successor  # (transition_count,)
+    indices_with_successor = episodes.indices_with_successor  # (transition_count,)
 
     rewards = np.full(
         shape=len(episodes.states), fill_value=np.nan, dtype=np.float32
     )  # (total_timestep_count,)
-    rewards[source_indices] = reward.calculate_reward(
-        state_batch=episodes.states[source_indices + 1],
-        environment=reward.create_environment(),
+    rewards[indices_with_successor] = calculate_reward(
+        state_batch=episodes.states[indices_with_successor + 1],
+        environment=create_environment(),
     ).astype(np.float32)
     return rewards

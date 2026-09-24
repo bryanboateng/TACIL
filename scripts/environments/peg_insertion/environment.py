@@ -13,7 +13,7 @@ from numpy import typing as npt
 
 from scripts.environments import state_bounds
 from scripts.environments.condition import Condition
-from scripts.environments.peg_insertion import reward
+from scripts.environments.peg_insertion.reward import calculate_success
 from scripts.environments.peg_insertion.condition import (
     ALL_CONDITIONS,
     SETTINGS_BY_CONDITION,
@@ -174,7 +174,7 @@ class PegInsertionEnvironment:
 
         termination_batch = ~inside_batch  # (batch_size,)
         if inside_batch.any():
-            termination_batch[inside_batch] = reward.calculate_success(
+            termination_batch[inside_batch] = calculate_success(
                 state_batch=state_batch[inside_batch]
             )
         return termination_batch

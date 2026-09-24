@@ -8,7 +8,7 @@ from numpy import typing as npt
 
 from scripts.environments import state_bounds
 from scripts.environments.condition import Condition
-from scripts.environments.pusht import reward
+from scripts.environments.pusht.reward import calculate_success, create_environment
 from scripts.environments.pusht.condition import ALL_CONDITIONS, SETTINGS_BY_CONDITION
 from scripts.environments.pusht.disturbance import DisturbanceWrapper
 from scripts.environments.pusht.gpi_geometry import PushTGpiGeometry
@@ -43,7 +43,7 @@ class PushTEnvironment:
                 maximum=2.0 * ARENA_SIZE,
             ),
         )
-        self._reward_environment = reward.create_environment()
+        self._reward_environment = create_environment()
 
         self._gpi_geometry = PushTGpiGeometry()
 
@@ -115,7 +115,7 @@ class PushTEnvironment:
 
         termination_batch = ~inside_batch  # (batch_size,)
         if inside_batch.any():
-            termination_batch[inside_batch] = reward.calculate_success(
+            termination_batch[inside_batch] = calculate_success(
                 state_batch=state_batch[inside_batch],
                 environment=self._reward_environment,
             )
