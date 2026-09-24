@@ -213,21 +213,11 @@ def calculate_success_statistics(
 
 
 def pick_representative_episodes(
-    *, episode_records: list[EpisodeRecord], maximum_episode_count: int | None = None
+    *, episode_records: list[EpisodeRecord]
 ) -> dict[int, EpisodeRecord]:
     if not episode_records:
         return {}
-    if maximum_episode_count is not None and maximum_episode_count <= 0:
-        raise ValueError("maximum_episode_count must be positive")
     percentiles = (0, 2, 5, 10, 20, 40, 50, 60, 80, 90, 95, 98, 100)
-    if maximum_episode_count is not None:
-        count = min(maximum_episode_count, len(episode_records))
-        percentiles = (
-            (50,)
-            if count == 1
-            else tuple(np.linspace(0, 100, count).round().astype(int))
-        )
-
     sorted_records = sorted(episode_records, key=lambda record: record.reward)
     last_index = len(sorted_records) - 1
     selected: dict[int, EpisodeRecord] = {}

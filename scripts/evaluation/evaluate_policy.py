@@ -95,8 +95,7 @@ def evaluate_policy(
                         policy_label=policy_label,
                         condition=condition,
                         episode_records=pick_representative_episodes(
-                            episode_records=episode_records,
-                            maximum_episode_count=config.video_episode_count,
+                            episode_records=episode_records
                         ),
                         run=run,
                     )

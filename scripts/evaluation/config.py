@@ -14,15 +14,12 @@ class EvaluationStage(Enum):
 @dataclass(frozen=True)
 class EvaluationConfig:
     stage: EvaluationStage
-    # Maximum unique episodes to replay for each condition's video.
-    video_episode_count: int = 3
     # CPU simulation processes; 1 uses the sequential rollout path.
     parallel_environment_count: int = 4
 
     def __post_init__(self) -> None:
-        for name, value in (
-            ("video_episode_count", self.video_episode_count),
-            ("parallel_environment_count", self.parallel_environment_count),
-        ):
-            if value <= 0:
-                raise ValueError(f"{name} must be positive, but it is {value}.")
+        if self.parallel_environment_count <= 0:
+            raise ValueError(
+                "parallel_environment_count must be positive, but it is "
+                f"{self.parallel_environment_count}."
+            )
