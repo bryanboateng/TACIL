@@ -91,7 +91,7 @@ def _get_dataset(*, dataset_directory_path: Path) -> Path:
 
     logger.info("Converting demonstrations to %s.", CONTROL_MODE)
     replay_trajectory(
-        ReplayArgs(
+        args=ReplayArgs(
             traj_path=str(joint_control_dataset_path),
             obs_mode="none",
             target_control_mode=CONTROL_MODE,
