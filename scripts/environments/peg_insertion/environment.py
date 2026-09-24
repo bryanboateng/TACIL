@@ -62,7 +62,7 @@ def keep_sapien_renderer_alive() -> sapien.render.SapienRenderer:
 
 
 def create_base_environment(
-    *, max_episode_steps: int, render_settings: RenderSettings | None = None
+    *, episode_step_limit: int, render_settings: RenderSettings | None = None
 ) -> Env:
     keep_sapien_renderer_alive()
     return CPUGymWrapper(
@@ -74,7 +74,7 @@ def create_base_environment(
             sim_backend=SIMULATION_BACKEND,
             render_backend=RENDER_DEVICE if render_settings is not None else "none",
             render_mode="rgb_array" if render_settings is not None else None,
-            max_episode_steps=max_episode_steps,
+            max_episode_steps=episode_step_limit,
             human_render_camera_configs=(
                 {}
                 if render_settings is None
@@ -150,7 +150,7 @@ class PegInsertionEnvironment:
         environment: Env = _SelectedObservationWrapper(
             environment=create_base_environment(
                 # The converted demonstrations need about 105-423 steps so 450 is a good limit.
-                max_episode_steps=450,
+                episode_step_limit=450,
                 render_settings=render_settings,
             )
         )

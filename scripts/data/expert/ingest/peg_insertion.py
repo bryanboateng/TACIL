@@ -29,8 +29,6 @@ from scripts.shared.log import create_logger
 
 logger = create_logger()
 
-SimulatorStates = dict[str, dict[str, npt.NDArray[Any]]]
-
 
 def build_episode_store() -> RewardedEpisodeStore:
     dataset_path = _get_dataset(
@@ -154,7 +152,7 @@ def _build_episodes(
             for metadata in episode_metadata
         )
 
-        gym_environment = create_base_environment(max_episode_steps=max_steps + 1)
+        gym_environment = create_base_environment(episode_step_limit=max_steps + 1)
         try:
             for metadata in tqdm(
                 iterable=episode_metadata, desc="Building episodes", unit="episode"
@@ -179,7 +177,7 @@ def _build_episode(*, gym_environment: Env, group: h5py.Group, seed: int) -> _Ep
     )  # (episode_length, ACTION_DIMENSIONALITY)
     rewards = np.asarray(a=group["rewards"], dtype=np.float32)  # (episode_length,)
 
-    simulator_states = _get_simulator_states(group=group)
+    environment_states = _get_environment_states(group=group)
 
     gym_environment.reset(seed=seed)
     peg_insertion_side_env = gym_environment.unwrapped
@@ -196,7 +194,7 @@ def _build_episode(*, gym_environment: Env, group: h5py.Group, seed: int) -> _Ep
                     state_name: state_over_time[step_index][None]
                     for state_name, state_over_time in states_by_name.items()
                 }
-                for state_category_name, states_by_name in simulator_states.items()
+                for state_category_name, states_by_name in environment_states.items()
             }
         )
         states.append(
@@ -206,19 +204,20 @@ def _build_episode(*, gym_environment: Env, group: h5py.Group, seed: int) -> _Ep
         )
 
     return _Episode(
-        states=np.stack(arrays=states).astype(np.float32),
+        states=np.stack(arrays=states).astype(dtype=np.float32),
         actions=actions,
         rewards=rewards,
     )
 
 
-def _get_simulator_states(*, group: h5py.Group) -> SimulatorStates:
-    env_states = group["env_states"]
-    simulator_states = {
+def _get_environment_states(
+    *, group: h5py.Group
+) -> dict[str, dict[str, npt.NDArray[Any]]]:
+    environment_states = group["env_states"]
+    return {
         state_category_name: {
             state_name: np.asarray(dataset)
             for state_name, dataset in state_group.items()
         }
-        for state_category_name, state_group in env_states.items()
+        for state_category_name, state_group in environment_states.items()
     }
-    return simulator_states

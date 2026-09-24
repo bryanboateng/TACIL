@@ -44,9 +44,9 @@ class PegSceneDeterminismTests(unittest.TestCase):
         torch.set_num_threads(1)
         try:
             with ExitStack() as resources:
-                fresh = create_base_environment(max_episode_steps=EPISODE_STEP_COUNT)
+                fresh = create_base_environment(episode_step_limit=EPISODE_STEP_COUNT)
                 resources.callback(fresh.close)
-                used = create_base_environment(max_episode_steps=EPISODE_STEP_COUNT)
+                used = create_base_environment(episode_step_limit=EPISODE_STEP_COUNT)
                 resources.callback(used.close)
 
                 for seed in PRIOR_SEEDS:
@@ -64,11 +64,11 @@ class PegSceneDeterminismTests(unittest.TestCase):
 
     def test_a_rendering_environment_still_starts_after_a_headless_one(self):
         with ExitStack() as resources:
-            headless = create_base_environment(max_episode_steps=EPISODE_STEP_COUNT)
+            headless = create_base_environment(episode_step_limit=EPISODE_STEP_COUNT)
             resources.callback(headless.close)
             headless.reset(seed=100)
             rendered = create_base_environment(
-                max_episode_steps=EPISODE_STEP_COUNT,
+                episode_step_limit=EPISODE_STEP_COUNT,
                 render_settings=RenderSettings(size=256, supersample_factor=1),
             )
             resources.callback(rendered.close)
