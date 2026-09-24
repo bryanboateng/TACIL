@@ -3,7 +3,7 @@ from dataclasses import dataclass
 import numpy as np
 from numpy import typing as npt
 
-from scripts.shared.episodes import StateActionEpisodes
+from scripts.shared.episodes import Episodes, calculate_episode_start_indices
 
 
 @dataclass
@@ -13,10 +13,10 @@ class Transitions:
     next_states: npt.NDArray[np.float32]  # (transition_count, state_dimensionality)
 
 
-def extract_transitions(*, episodes: StateActionEpisodes) -> list[Transitions]:
+def extract_transitions(*, episodes: Episodes) -> list[Transitions]:
 
-    episode_start_indices = np.concatenate(
-        [[0], episodes.episode_end_indices[:-1]]
+    episode_start_indices = calculate_episode_start_indices(
+        episode_end_indices=episodes.episode_end_indices
     )  # (episode_count,)
 
     transitions_per_episode: list[Transitions] = []

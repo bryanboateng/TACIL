@@ -13,41 +13,59 @@ _EPISODE_END_KEY = "meta/episode_ends"
 
 
 @dataclass
-class StateActionEpisodes:
+class Episodes:
     states: npt.NDArray[np.float32]  # (total_timestep_count, state_dimensionality)
     actions: npt.NDArray[np.float32]  # (total_timestep_count, action_dimensionality)
     episode_end_indices: npt.NDArray[np.int64]  # (episode_count,)
 
-    @property
-    def episode_start_indices(self) -> npt.NDArray[np.int64]:  # (episode_count,)
-        return np.concatenate(
-            (
-                np.zeros(shape=1, dtype=self.episode_end_indices.dtype),
-                self.episode_end_indices[:-1],
-            )
-        )
-
-    @property
-    def episode_lengths(self) -> npt.NDArray[np.int64]:  # (episode_count,)
-        return np.diff(a=self.episode_end_indices, prepend=0)
-
-    @property
-    def indices_with_successor(self) -> npt.NDArray[np.int64]:  # (transition_count,)
-        has_successor = np.ones(
-            shape=len(self.states), dtype=np.bool_
-        )  # (total_timestep_count,)
-        has_successor[self.episode_end_indices - 1] = False
-        return np.flatnonzero(has_successor)
-
 
 @dataclass
-class Episodes(StateActionEpisodes):
+class RewardedEpisodes:
+    states: npt.NDArray[np.float32]  # (total_timestep_count, state_dimensionality)
+    actions: npt.NDArray[np.float32]  # (total_timestep_count, action_dimensionality)
+    episode_end_indices: npt.NDArray[np.int64]  # (episode_count,)
     rewards: npt.NDArray[np.float32]  # (total_timestep_count,)
 
 
-def read_episodes(*, episode_file_path: Path) -> Episodes:
-    reader = _Reader(episode_file_path=episode_file_path)
+def calculate_episode_start_indices(
+    *,
+    episode_end_indices: npt.NDArray[np.int64],  # (episode_count,)
+) -> npt.NDArray[np.int64]:  # (episode_count,)
+    return np.concatenate(
+        (np.zeros(shape=1, dtype=episode_end_indices.dtype), episode_end_indices[:-1])
+    )
+
+
+def calculate_episode_lengths(
+    *,
+    episode_end_indices: npt.NDArray[np.int64],  # (episode_count,)
+) -> npt.NDArray[np.int64]:  # (episode_count,)
+    return np.diff(a=episode_end_indices, prepend=0)
+
+
+def calculate_indices_with_successor(
+    *,
+    episode_end_indices: npt.NDArray[np.int64],  # (episode_count,)
+    total_timestep_count: int,
+) -> npt.NDArray[np.int64]:  # (transition_count,)
+    has_successor = np.ones(
+        shape=total_timestep_count, dtype=np.bool_
+    )  # (total_timestep_count,)
+    has_successor[episode_end_indices - 1] = False
+    return np.flatnonzero(has_successor)
+
+
+def drop_rewards(*, episodes: RewardedEpisodes) -> Episodes:
     return Episodes(
+        states=episodes.states,
+        actions=episodes.actions,
+        episode_end_indices=episodes.episode_end_indices,
+    )
+
+
+def read_episodes(*, episode_file_path: Path) -> RewardedEpisodes:
+    reader = _Reader(episode_file_path=episode_file_path)
+    return RewardedEpisodes(
         states=reader.read(key=_STATE_KEY, dtype=np.float32),
         actions=reader.read(key=_ACTION_KEY, dtype=np.float32),
         episode_end_indices=reader.read(key=_EPISODE_END_KEY, dtype=np.int64),
@@ -55,7 +73,7 @@ def read_episodes(*, episode_file_path: Path) -> Episodes:
     )
 
 
-def write_episodes(*, episodes: Episodes, save_file_path: Path) -> None:
+def write_episodes(*, episodes: RewardedEpisodes, save_file_path: Path) -> None:
     root = zarr.open_group(str(save_file_path), mode="w")
 
     data_group = root.create_group("data")

@@ -20,7 +20,7 @@ from scripts.policies.bc.policy import create_behavior_cloning_policy_factory
 from scripts.policies.bc.train import train_behavior_cloning_policy
 from scripts.policies.shared.run_config import RunConfig
 from scripts.shared.dataset_artifact import download_episodes
-from scripts.shared.episodes import StateActionEpisodes
+from scripts.shared.episodes import Episodes, drop_rewards
 from scripts.shared.log import create_logger, log_device_info
 from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
 from scripts.shared.state_action_transitions import StateActionTransitions
@@ -56,8 +56,10 @@ def _run(*, config: Config) -> None:
 
         environment = create_environment(name=config.environment)
 
-        expert_episodes = download_episodes(
-            artifact_name=config.expert_dataset_artifact, run=run
+        expert_episodes = drop_rewards(
+            episodes=download_episodes(
+                artifact_name=config.expert_dataset_artifact, run=run
+            )
         )
 
         logger.info("Stage 1/3: building the training data.")
@@ -122,7 +124,7 @@ def _create_synthetic_state_action_pairs(
     *,
     augmentation_config: Augmentation,
     environment: Environment,
-    expert_episodes: StateActionEpisodes,
+    expert_episodes: Episodes,
     seed: int,
     device: torch.device,
     run: Run,

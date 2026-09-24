@@ -13,7 +13,7 @@ from scripts.shared.dataset_artifact import (
     read_environment_name,
     upload_episodes,
 )
-from scripts.shared.episodes import Episodes
+from scripts.shared.episodes import RewardedEpisodes, calculate_episode_start_indices
 from scripts.shared.log import create_logger
 from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
 
@@ -79,7 +79,9 @@ def _run(*, config: Config):
         )
 
 
-def _subsample_episodes(*, episodes: Episodes, episode_count: int) -> Episodes:
+def _subsample_episodes(
+    *, episodes: RewardedEpisodes, episode_count: int
+) -> RewardedEpisodes:
 
     source_episode_count = len(episodes.episode_end_indices)
 
@@ -89,13 +91,16 @@ def _subsample_episodes(*, episodes: Episodes, episode_count: int) -> Episodes:
         ]
     )  # (selected_episode_count,)
 
-    # (episode_count,)
+    episode_start_indices = calculate_episode_start_indices(
+        episode_end_indices=episodes.episode_end_indices
+    )  # (episode_count,)
+
     selected_transition_indices_list = []
     subsampled_episode_end_indices = []
     cumulative_transition_count = 0
 
     for selected_episode_index in selected_episode_indices.tolist():
-        start_index: int = episodes.episode_start_indices[selected_episode_index]
+        start_index: int = episode_start_indices[selected_episode_index]
         end_index: int = episodes.episode_end_indices[selected_episode_index]
 
         episode_transition_indices = np.arange(
@@ -111,7 +116,7 @@ def _subsample_episodes(*, episodes: Episodes, episode_count: int) -> Episodes:
         selected_transition_indices_list
     )  # (selected_transition_count,)
 
-    return Episodes(
+    return RewardedEpisodes(
         states=episodes.states[
             selected_transition_indices_np_array
         ],  # (selected_transition_count, state_dimensionality)
@@ -128,7 +133,7 @@ def _subsample_episodes(*, episodes: Episodes, episode_count: int) -> Episodes:
 
 
 def _log_dataset_statistics(
-    expert_episodes: Episodes, subsampled_episodes: Episodes, run: Run
+    expert_episodes: RewardedEpisodes, subsampled_episodes: RewardedEpisodes, run: Run
 ):
     expert_episode_count = len(expert_episodes.episode_end_indices)
     expert_transition_count = len(expert_episodes.states)

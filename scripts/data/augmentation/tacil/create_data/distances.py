@@ -8,11 +8,11 @@ from scripts.data.augmentation.tacil.dynamics.dynamics_model_ensemble import (
 from scripts.data.augmentation.tacil.dynamics.state_distance import (
     calculate_normalized_state_distance,
 )
-from scripts.shared.episodes import StateActionEpisodes
+from scripts.shared.episodes import Episodes
 
 
 def calculate_median_state_step_distance(
-    *, episodes: StateActionEpisodes, dynamics_model_ensemble: DynamicsModelEnsemble
+    *, episodes: Episodes, dynamics_model_ensemble: DynamicsModelEnsemble
 ) -> float:
     device = next(dynamics_model_ensemble.parameters()).device
 
@@ -31,7 +31,7 @@ def calculate_median_state_step_distance(
     )
 
 
-def calculate_median_action_step_distance(*, episodes: StateActionEpisodes) -> float:
+def calculate_median_action_step_distance(*, episodes: Episodes) -> float:
     action_batch = torch.as_tensor(
         data=episodes.actions
     )  # (total_timestep_count, action_dimensionality)

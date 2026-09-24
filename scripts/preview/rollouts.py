@@ -17,7 +17,7 @@ from scripts.evaluation.core.video import FREEZE_SECONDS, render_episode_surface
 from scripts.policies.gpi import config as gpi
 from scripts.policies.gpi.policy import create_geometric_policy_factory
 from scripts.shared.dataset_artifact import DATASET_PROJECT
-from scripts.shared.episodes import read_episodes
+from scripts.shared.episodes import drop_rewards, read_episodes
 from scripts.shared.log import create_logger, log_device_info
 from scripts.shared.policy_types import PolicyFactory
 
@@ -94,12 +94,14 @@ def _create_policy_factory(
 
     return create_geometric_policy_factory(
         gpi_geometry=environment.gpi_geometry,
-        episodes=read_episodes(
-            episode_file_path=(
-                Path(
-                    wandb.Api()
-                    .artifact(name=f"{DATASET_PROJECT}/{config.dataset_artifact}")
-                    .download()
+        episodes=drop_rewards(
+            episodes=read_episodes(
+                episode_file_path=(
+                    Path(
+                        wandb.Api()
+                        .artifact(name=f"{DATASET_PROJECT}/{config.dataset_artifact}")
+                        .download()
+                    )
                 )
             )
         ),

@@ -35,7 +35,7 @@ from scripts.data.augmentation.tacil.dynamics.dynamics_model_ensemble import (
 from scripts.environments.state_space import StateSpace
 from scripts.environments.tacil_dynamics_plotter import TacilDynamicsPlotter
 from scripts.environments.tacil_network_input import TacilNetworkInputBuilder
-from scripts.shared.episodes import StateActionEpisodes
+from scripts.shared.episodes import Episodes
 from scripts.shared.normalization import ZScoreNormalizer
 from scripts.shared.seeding import set_seed
 
@@ -46,7 +46,7 @@ def train_dynamics_model_ensemble(
     state_space: StateSpace,
     network_input_builder: TacilNetworkInputBuilder,
     dynamics_plotter: TacilDynamicsPlotter,
-    episodes: StateActionEpisodes,
+    episodes: Episodes,
     seed: int,
     device: torch.device,
     run: Run,

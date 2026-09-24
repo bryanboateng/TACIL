@@ -2,17 +2,13 @@ import numpy as np
 import torch
 
 from scripts.environments.gpi_geometry import GpiGeometry
-from scripts.shared.episodes import StateActionEpisodes
+from scripts.shared.episodes import Episodes, calculate_episode_lengths
 from scripts.shared.normalization import MinMaxNormalizer
 
 
 class Demonstrations:
     def __init__(
-        self,
-        *,
-        gpi_geometry: GpiGeometry,
-        episodes: StateActionEpisodes,
-        device: torch.device,
+        self, *, gpi_geometry: GpiGeometry, episodes: Episodes, device: torch.device
     ) -> None:
         self._gpi_geometry = gpi_geometry
 
@@ -42,7 +38,9 @@ class Demonstrations:
         self._episode_end_index_per_step = torch.from_numpy(
             np.repeat(
                 a=episodes.episode_end_indices,
-                repeats=np.diff(a=episodes.episode_end_indices, prepend=0),
+                repeats=calculate_episode_lengths(
+                    episode_end_indices=episodes.episode_end_indices
+                ),
             )
         ).to(device=device)  # (step_count,)
 

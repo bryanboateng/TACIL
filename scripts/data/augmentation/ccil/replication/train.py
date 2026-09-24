@@ -24,7 +24,7 @@ from scripts.data.augmentation.ccil.config import (
 )
 from scripts.policies.bc import config as bc_config
 from scripts.policies.bc.train import train_behavior_cloning_policy
-from scripts.shared.episodes import StateActionEpisodes
+from scripts.shared.episodes import Episodes
 from scripts.shared.log import create_logger, log_device_info
 from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
 from scripts.shared.state_action_transitions import StateActionTransitions
@@ -285,7 +285,7 @@ def _balances_data(*, task_config: dict) -> bool:
     )
 
 
-def _read_ccil_demonstrations(*, file_path: Path) -> StateActionEpisodes:
+def _read_ccil_demonstrations(*, file_path: Path) -> Episodes:
     with file_path.open("rb") as file:
         trajectories = pickle.load(file)
 
@@ -311,7 +311,7 @@ def _read_ccil_demonstrations(*, file_path: Path) -> StateActionEpisodes:
         transition_count += state_array.shape[0]
         episode_end_indices.append(transition_count)
 
-    return StateActionEpisodes(
+    return Episodes(
         states=np.concatenate(state_arrays),
         actions=np.concatenate(action_arrays),
         episode_end_indices=np.array(episode_end_indices, dtype=np.int64),
@@ -322,7 +322,7 @@ def _build_training_data(
     *,
     ccil_config: CcilConfig | None,
     task_config: dict,
-    expert_episodes: StateActionEpisodes,
+    expert_episodes: Episodes,
     seed: int,
     device: torch.device,
     run: Run,

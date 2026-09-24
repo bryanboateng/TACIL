@@ -15,6 +15,7 @@ from scripts.policies.dp.policy import create_diffusion_policy_factory
 from scripts.policies.dp.train import train_diffusion_policy
 from scripts.policies.shared.run_config import RunConfig
 from scripts.shared.dataset_artifact import download_episodes
+from scripts.shared.episodes import drop_rewards
 from scripts.shared.log import create_logger, log_device_info
 from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
 
@@ -46,8 +47,10 @@ def _run(*, config: Config) -> None:
 
         environment = create_environment(name=config.environment)
 
-        expert_episodes = download_episodes(
-            artifact_name=config.expert_dataset_artifact, run=run
+        expert_episodes = drop_rewards(
+            episodes=download_episodes(
+                artifact_name=config.expert_dataset_artifact, run=run
+            )
         )
 
         logger.info("Stage 1/3: creating the augmented episodes.")

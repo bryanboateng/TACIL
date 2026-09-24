@@ -24,13 +24,13 @@ from scripts.environments.peg_insertion.observation import (
     extract_state_from_environment,
 )
 from scripts.shared.download import download_and_extract_zip
-from scripts.shared.episodes import Episodes
+from scripts.shared.episodes import RewardedEpisodes
 from scripts.shared.log import create_logger
 
 logger = create_logger()
 
 
-def build_episodes() -> Episodes:
+def build_episodes() -> RewardedEpisodes:
     dataset_path = _get_dataset(
         dataset_directory_path=(
             download_and_extract_zip(url=DATASET_SOURCES[TASK_ID].raw_dataset_url)
@@ -46,7 +46,7 @@ def build_episodes() -> Episodes:
         dataset_path=dataset_path, episode_metadata=metadata["episodes"]
     )
 
-    return Episodes(
+    return RewardedEpisodes(
         states=np.concatenate(
             [episode.states for episode in episodes]
         ),  # (total_timestep_count, STATE_DIMENSIONALITY)

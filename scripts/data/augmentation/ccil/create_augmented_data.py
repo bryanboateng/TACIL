@@ -13,7 +13,7 @@ from scripts.data.augmentation.ccil.world_model import WorldModel, fit_world_mod
 from scripts.shared import stage_names
 from scripts.shared.distribution_plot import create_distribution_plot
 from scripts.shared.distribution_summary import summarize_distribution
-from scripts.shared.episodes import StateActionEpisodes
+from scripts.shared.episodes import Episodes
 from scripts.shared.log import create_logger
 from scripts.shared.seeding import set_seed
 from scripts.shared.state_action_transitions import StateActionTransitions
@@ -33,7 +33,7 @@ _BATCH_SIZE = 4_096
 def create_ccil_augmented_data(
     *,
     config: CcilConfig,
-    expert_episodes: StateActionEpisodes,
+    expert_episodes: Episodes,
     seed: int,
     device: torch.device,
     run: Run,
@@ -141,7 +141,7 @@ def _accept_labels(
 
 
 def _extract_transitions(
-    *, episodes: StateActionEpisodes
+    *, episodes: Episodes
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     last_timestep_indices = episodes.episode_end_indices - 1
     keep_mask = np.ones(episodes.states.shape[0], dtype=bool)

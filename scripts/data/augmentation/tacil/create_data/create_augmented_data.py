@@ -30,19 +30,19 @@ from scripts.data.augmentation.tacil.create_data.statistics_logging import (
 from scripts.data.augmentation.tacil.dynamics.dynamics_model_ensemble import (
     DynamicsModelEnsemble,
 )
-from scripts.shared.episodes import StateActionEpisodes
+from scripts.shared.episodes import Episodes
 from scripts.shared.seeding import set_seed
 
 
 def create_augmented_data(
     *,
     config: DataConfig,
-    expert_episodes: StateActionEpisodes,
+    expert_episodes: Episodes,
     dynamics_model_ensemble: DynamicsModelEnsemble,
     expert_part_length: int,
     seed: int,
     run: Run,
-) -> StateActionEpisodes:
+) -> Episodes:
     set_seed(seed=seed)
 
     device = next(dynamics_model_ensemble.parameters()).device

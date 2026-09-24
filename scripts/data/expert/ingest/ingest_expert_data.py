@@ -14,7 +14,11 @@ from scripts.shared.dataset_artifact import (
     upload_episodes,
 )
 from scripts.shared.distribution_summary import summarize_distribution
-from scripts.shared.episodes import Episodes
+from scripts.shared.episodes import (
+    RewardedEpisodes,
+    calculate_episode_lengths,
+    calculate_indices_with_successor,
+)
 from scripts.shared.log import create_logger
 from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
 
@@ -65,20 +69,31 @@ def _run(*, config: Config) -> None:
 # ---- Private --------------------------------------------
 
 
-def _check_rewards(*, episodes: Episodes) -> None:
-    if np.isnan(episodes.rewards[episodes.indices_with_successor]).any():
+def _check_rewards(*, episodes: RewardedEpisodes) -> None:
+    indices_with_successor = calculate_indices_with_successor(
+        episode_end_indices=episodes.episode_end_indices,
+        total_timestep_count=len(episodes.states),
+    )  # (transition_count,)
+    if np.isnan(episodes.rewards[indices_with_successor]).any():
         raise ValueError("There are some rewards missing.")
 
 
-def _record_statistics(*, episodes: Episodes, run: Run) -> None:
+def _record_statistics(*, episodes: RewardedEpisodes, run: Run) -> None:
     run.summary["1_episode_count"] = len(episodes.episode_end_indices)
     run.summary["2_transition_count"] = len(episodes.states)
 
-    for label, value in summarize_distribution(values=episodes.episode_lengths).items():
+    episode_lengths = calculate_episode_lengths(
+        episode_end_indices=episodes.episode_end_indices
+    )  # (episode_count,)
+    for label, value in summarize_distribution(values=episode_lengths).items():
         run.summary[f"3_episode_length/{label}"] = value
 
+    indices_with_successor = calculate_indices_with_successor(
+        episode_end_indices=episodes.episode_end_indices,
+        total_timestep_count=len(episodes.states),
+    )  # (transition_count,)
     for label, value in summarize_distribution(
-        values=episodes.rewards[episodes.indices_with_successor]
+        values=episodes.rewards[indices_with_successor]
     ).items():
         run.summary[f"4_reward/{label}"] = value
 

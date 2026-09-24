@@ -20,7 +20,7 @@ from scripts.policies.mopo.train import ValidationScore, train_mopo_policy
 from scripts.policies.mopo.transitions import Transitions
 from scripts.policies.shared.run_config import RunConfig
 from scripts.shared.dataset_artifact import download_episodes
-from scripts.shared.episodes import Episodes
+from scripts.shared.episodes import RewardedEpisodes, calculate_indices_with_successor
 from scripts.shared.log import create_logger, log_device_info
 from scripts.shared.normalization import MinMaxNormalizer, ZScoreNormalizer
 from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
@@ -116,12 +116,15 @@ def _run(*, config: Config) -> None:
 def _build_transitions(
     *,
     environment: Environment,
-    episodes: Episodes,
+    episodes: RewardedEpisodes,
     state_normalizer: ZScoreNormalizer,
     action_normalizer: MinMaxNormalizer,
     device: torch.device,
 ) -> Transitions:
-    indices_with_successor = episodes.indices_with_successor
+    indices_with_successor = calculate_indices_with_successor(
+        episode_end_indices=episodes.episode_end_indices,
+        total_timestep_count=len(episodes.states),
+    )  # (transition_count,)
 
     next_states = episodes.states[indices_with_successor + 1]
 

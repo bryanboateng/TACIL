@@ -5,7 +5,7 @@ import wandb
 from wandb import Run
 
 from scripts.environments.registry import EnvironmentName
-from scripts.shared.episodes import Episodes, read_episodes, write_episodes
+from scripts.shared.episodes import RewardedEpisodes, read_episodes, write_episodes
 
 DATASET_PROJECT = "datasets"
 
@@ -33,13 +33,13 @@ def read_environment_name(*, dataset_name: str) -> EnvironmentName:
     )
 
 
-def download_episodes(*, artifact_name: str, run: Run) -> Episodes:
+def download_episodes(*, artifact_name: str, run: Run) -> RewardedEpisodes:
     return read_episodes(
         episode_file_path=_download(artifact_name=artifact_name, run=run)
     )
 
 
-def upload_episodes(*, episodes: Episodes, dataset_name: str, run: Run) -> None:
+def upload_episodes(*, episodes: RewardedEpisodes, dataset_name: str, run: Run) -> None:
     with tempfile.TemporaryDirectory() as temporary_directory:
         output_zarr_path = Path(temporary_directory) / "dataset.zarr"
 

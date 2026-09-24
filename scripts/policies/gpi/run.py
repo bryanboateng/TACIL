@@ -13,6 +13,7 @@ from scripts.policies.gpi.policy import create_geometric_policy_factory
 from scripts.policies.shared.run_config import RunConfig
 from scripts.shared import stage_names
 from scripts.shared.dataset_artifact import download_episodes
+from scripts.shared.episodes import drop_rewards
 from scripts.shared.log import create_logger, log_device_info
 from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
 from scripts.shared.seeding import set_seed
@@ -46,8 +47,10 @@ def _run(*, config: Config) -> None:
 
         environment = create_environment(name=config.environment)
 
-        expert_episodes = download_episodes(
-            artifact_name=config.expert_dataset_artifact, run=run
+        expert_episodes = drop_rewards(
+            episodes=download_episodes(
+                artifact_name=config.expert_dataset_artifact, run=run
+            )
         )
 
         run.summary[f"{stage_names.POLICY}/0_dataset/1_transition_count"] = len(

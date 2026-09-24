@@ -22,7 +22,7 @@ from scripts.data.augmentation.tacil.dynamics.dynamics_model_ensemble import (
 from scripts.environments.tacil_dynamics_plotter import TacilDynamicsPlotter
 from scripts.shared import stage_names
 from scripts.shared.distribution_summary import summarize_distribution
-from scripts.shared.episodes import StateActionEpisodes
+from scripts.shared.episodes import Episodes
 from scripts.shared.log import create_logger
 
 logger = create_logger()
@@ -127,7 +127,7 @@ def log_ensemble_statistics(
     dynamics_model_ensemble: DynamicsModelEnsemble,
     dynamics_plotter: TacilDynamicsPlotter,
     validation_transitions_per_episode: list[Transitions],
-    episodes: StateActionEpisodes,
+    episodes: Episodes,
     run: Run,
 ) -> None:
     median_expert_state_step_distance = calculate_median_state_step_distance(

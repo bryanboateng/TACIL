@@ -6,7 +6,7 @@ import numpy.typing as npt
 import torch
 
 from scripts.policies.dp.config import HorizonLengthConfig
-from scripts.shared.episodes import StateActionEpisodes
+from scripts.shared.episodes import Episodes, calculate_episode_lengths
 from scripts.shared.normalization import MinMaxNormalizer
 
 
@@ -14,8 +14,8 @@ class Dataset(torch.utils.data.Dataset[tuple[torch.Tensor, torch.Tensor]]):
     def __init__(
         self,
         *,
-        expert_episodes: StateActionEpisodes,
-        augmented_episodes: StateActionEpisodes | None,
+        expert_episodes: Episodes,
+        augmented_episodes: Episodes | None,
         horizon_lengths: HorizonLengthConfig,
     ) -> None:
         self.observation_normalizer, self.action_normalizer = _create_normalizers(
@@ -36,8 +36,8 @@ class Dataset(torch.utils.data.Dataset[tuple[torch.Tensor, torch.Tensor]]):
         if augmented_episodes is None:
             self._windows = expert_windows
         else:
-            episode_lengths = np.diff(
-                a=augmented_episodes.episode_end_indices, prepend=0
+            episode_lengths = calculate_episode_lengths(
+                episode_end_indices=augmented_episodes.episode_end_indices
             )  # (episode_count,)
             longest_episode_length = int(episode_lengths.max())
             if longest_episode_length < horizon_lengths.prediction:
@@ -106,7 +106,7 @@ class _Windows:
 
 
 def _create_normalizers(
-    *, all_episodes: list[StateActionEpisodes]
+    *, all_episodes: list[Episodes]
 ) -> tuple[MinMaxNormalizer, MinMaxNormalizer]:
     return (
         MinMaxNormalizer(
@@ -126,7 +126,7 @@ def _create_normalizers(
 
 def _create_windows(
     *,
-    episodes: StateActionEpisodes,
+    episodes: Episodes,
     observation_normalizer: MinMaxNormalizer,
     action_normalizer: MinMaxNormalizer,
     window_length: int,

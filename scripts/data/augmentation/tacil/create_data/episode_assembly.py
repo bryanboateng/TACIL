@@ -6,7 +6,7 @@ import numpy.typing as npt
 from scripts.data.augmentation.tacil.create_data.backward_rollout import (
     SyntheticTrajectories,
 )
-from scripts.shared.episodes import StateActionEpisodes
+from scripts.shared.episodes import Episodes
 
 
 @dataclass(frozen=True)
@@ -16,7 +16,7 @@ class AugmentationResult:
         empty: int  # anchors whose first backward step already broke the budget
         accepted: int
 
-    episodes: StateActionEpisodes
+    episodes: Episodes
     trajectory_lengths: npt.NDArray[np.int64]  # (accepted_count,)
     counts: OutcomeCounts
 
@@ -24,7 +24,7 @@ class AugmentationResult:
 def create_augmented_episodes(
     *,
     synthetic_trajectories: SyntheticTrajectories,
-    expert_episodes: StateActionEpisodes,
+    expert_episodes: Episodes,
     anchor_indices: npt.NDArray[np.int64],  # (anchor_count,)
     expert_part_length: int,
 ) -> AugmentationResult:
@@ -61,13 +61,13 @@ def create_augmented_episodes(
 
 def _assemble_episodes(
     *,
-    expert_episodes: StateActionEpisodes,
+    expert_episodes: Episodes,
     synthetic_states: npt.NDArray[np.float32],  # (synthetic_step_count, state_dim)
     synthetic_actions: npt.NDArray[np.float32],  # (synthetic_step_count, action_dim)
     trajectory_lengths: npt.NDArray[np.int64],  # (anchor_count,)
     anchor_indices: npt.NDArray[np.int64],  # (anchor_count,)
     expert_part_length: int,
-) -> StateActionEpisodes:
+) -> Episodes:
     start_indices = (
         np.cumsum(trajectory_lengths) - trajectory_lengths
     )  # (anchor_count,)
@@ -110,7 +110,7 @@ def _assemble_episodes(
         )
         episode_lengths.append(int(trajectory_length) + expert_part_length)
 
-    return StateActionEpisodes(
+    return Episodes(
         states=np.concatenate(
             state_trajectories_per_episode, axis=0
         ),  # (total_timestep_count, state_dimensionality)
