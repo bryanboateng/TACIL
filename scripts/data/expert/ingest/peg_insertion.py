@@ -117,7 +117,7 @@ def _check_metadata(*, metadata: dict[str, Any]) -> None:
     environment_id = environment_info["env_id"]
     if environment_id != TASK_ID:
         raise ValueError(
-            f"Wrong task. Expected {TASK_ID!r} but got {environment_id!r}."
+            f"Wrong task. Expected '{TASK_ID}' but got '{environment_id}'."
         )
 
     env_kwargs = environment_info["env_kwargs"]
@@ -125,13 +125,13 @@ def _check_metadata(*, metadata: dict[str, Any]) -> None:
     control_mode = env_kwargs.get("control_mode")
     if control_mode != CONTROL_MODE:
         raise ValueError(
-            f"Wrong control mode. Expected {CONTROL_MODE!r} but got {control_mode!r}."
+            f"Wrong control mode. Expected '{CONTROL_MODE}' but got '{control_mode}'."
         )
 
     reward_mode = env_kwargs.get("reward_mode")
     if reward_mode != REWARD_MODE:
         raise ValueError(
-            f"Wrong reward mode. Expected {REWARD_MODE!r} but got {reward_mode!r}"
+            f"Wrong reward mode. Expected '{REWARD_MODE}' but got '{reward_mode}'"
         )
 
 
