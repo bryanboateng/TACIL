@@ -41,7 +41,7 @@ def build_episode_store() -> RewardedEpisodeStore:
         )
     )
 
-    metadata = json.loads(s=(dataset_path.with_suffix(".json")).read_text())
+    metadata = json.loads(s=(dataset_path.with_suffix(suffix=".json")).read_text())
     _check_metadata(metadata=metadata)
 
     episodes = _build_episodes(
