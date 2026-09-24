@@ -33,12 +33,13 @@ SimulatorStates = dict[str, dict[str, npt.NDArray[Any]]]
 
 
 def build_episode_store() -> RewardedEpisodeStore:
-    dataset_directory_path = (
-        download_and_extract_zip(url=DATASET_SOURCES[TASK_ID].raw_dataset_url)
-        / TASK_ID
-        / "motionplanning"
+    dataset_path = _get_dataset(
+        dataset_directory_path=(
+            download_and_extract_zip(url=DATASET_SOURCES[TASK_ID].raw_dataset_url)
+            / TASK_ID
+            / "motionplanning"
+        )
     )
-    dataset_path = _get_dataset(dataset_directory_path=dataset_directory_path)
 
     metadata = json.loads(s=(dataset_path.with_suffix(".json")).read_text())
     _check_metadata(metadata=metadata)
