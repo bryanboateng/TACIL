@@ -20,7 +20,8 @@ from scripts.evaluation.config import (
     FINAL_START_SEED,
     TUNING_START_SEED,
     EvaluationConfig,
-    EvaluationStage,
+    FinalEvaluation,
+    TuningEvaluation,
 )
 from scripts.evaluation.core.rollout import EpisodeRecord, roll_out_episodes
 from scripts.evaluation.core.scoring import (
@@ -50,17 +51,18 @@ def evaluate_policy(
     policy_factory: PolicyFactory,
     policy_label: str,
     config: EvaluationConfig,
-    record_videos: bool,
     run: Run,
 ) -> None:
     reward_means: list[float] = []
     match config.stage:
-        case EvaluationStage.TUNING:
+        case TuningEvaluation():
             start_episode_seed = TUNING_START_SEED
             episode_count_per_condition = 100
-        case EvaluationStage.FINAL:
+            record_videos = False
+        case FinalEvaluation() as final_evaluation:
             start_episode_seed = FINAL_START_SEED
             episode_count_per_condition = 200
+            record_videos = final_evaluation.record_videos
     with torch.no_grad():
         scored_episodes_per_condition = run_scored_episodes_per_condition(
             environment=environment,

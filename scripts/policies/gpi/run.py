@@ -65,7 +65,6 @@ def _run(*, config: Config) -> None:
             ),
             policy_label=f"gpi ({run_name})",
             config=config.evaluation,
-            record_videos=config.record_videos,
             run=run,
         )
         logger.info("Stage 1/1: done.")

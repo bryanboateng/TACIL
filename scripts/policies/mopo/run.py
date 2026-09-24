@@ -105,7 +105,6 @@ def _run(*, config: Config) -> None:
             ),
             policy_label=f"mopo ({run_name})",
             config=config.evaluation,
-            record_videos=config.record_videos,
             run=run,
         )
         logger.info("Stage 2/2: done.")

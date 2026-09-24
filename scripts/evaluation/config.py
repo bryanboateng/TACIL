@@ -1,14 +1,27 @@
 from dataclasses import dataclass
-from enum import Enum
+from typing import Annotated, TypeAlias
+
+import tyro
 
 VALIDATION_START_SEED = 10_000
 TUNING_START_SEED = 20_000
 FINAL_START_SEED = 30_000
 
 
-class EvaluationStage(Enum):
-    TUNING = "tuning"
-    FINAL = "final"
+@dataclass(frozen=True)
+class TuningEvaluation:
+    pass
+
+
+@dataclass(frozen=True)
+class FinalEvaluation:
+    record_videos: bool = True
+
+
+EvaluationStage: TypeAlias = (
+    Annotated[TuningEvaluation, tyro.conf.subcommand(name="tuning")]
+    | Annotated[FinalEvaluation, tyro.conf.subcommand(name="final")]
+)
 
 
 @dataclass(frozen=True)

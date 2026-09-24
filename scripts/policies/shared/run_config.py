@@ -15,12 +15,10 @@ class RunConfig[PolicyConfigT, AugmentationT]:
 
     expert_dataset_artifact: str
 
-    evaluation: EvaluationConfig
-
     policy: PolicyConfigT
     augmentation: AugmentationT | None
 
-    record_videos: bool = True
+    evaluation: EvaluationConfig
 
     def __post_init__(self) -> None:
         for name, value in (
