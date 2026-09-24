@@ -16,7 +16,12 @@ from wandb import Run
 from scripts.environments.condition import Condition
 from scripts.environments.environment import Environment
 from scripts.environments.render_settings import RenderSettings
-from scripts.evaluation.config import EvaluationConfig
+from scripts.evaluation.config import (
+    FINAL_START_SEED,
+    TUNING_START_SEED,
+    EvaluationConfig,
+    EvaluationStage,
+)
 from scripts.evaluation.core.rollout import EpisodeRecord, roll_out_episodes
 from scripts.evaluation.core.scoring import (
     RewardStatistics,
@@ -49,12 +54,19 @@ def evaluate_policy(
     run: Run,
 ) -> None:
     reward_means: list[float] = []
+    match config.stage:
+        case EvaluationStage.TUNING:
+            start_episode_seed = TUNING_START_SEED
+            episode_count_per_condition = 100
+        case EvaluationStage.FINAL:
+            start_episode_seed = FINAL_START_SEED
+            episode_count_per_condition = 200
     with torch.no_grad():
         scored_episodes_per_condition = run_scored_episodes_per_condition(
             environment=environment,
             policy_factory=policy_factory,
-            start_episode_seed=config.start_episode_seed,
-            episode_count_per_condition=config.episode_count_per_condition,
+            start_episode_seed=start_episode_seed,
+            episode_count_per_condition=episode_count_per_condition,
             parallel_environment_count=config.parallel_environment_count,
         )
         scoring_start = perf_counter()
