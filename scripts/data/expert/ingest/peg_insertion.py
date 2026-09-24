@@ -96,7 +96,7 @@ def _get_dataset(*, dataset_directory_path: Path) -> Path:
             obs_mode="none",
             target_control_mode=CONTROL_MODE,
             save_traj=True,
-            max_retry=4,
+            max_retry=2,
             record_rewards=True,
             reward_mode=REWARD_MODE,
         )
