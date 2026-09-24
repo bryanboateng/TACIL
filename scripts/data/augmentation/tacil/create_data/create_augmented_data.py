@@ -30,19 +30,19 @@ from scripts.data.augmentation.tacil.create_data.statistics_logging import (
 from scripts.data.augmentation.tacil.dynamics.dynamics_model_ensemble import (
     DynamicsModelEnsemble,
 )
-from scripts.shared.episode_store import EpisodeStore
+from scripts.shared.episodes import StateActionEpisodes
 from scripts.shared.seeding import set_seed
 
 
 def create_augmented_data(
     *,
     config: DataConfig,
-    expert_episodes: EpisodeStore,
+    expert_episodes: StateActionEpisodes,
     dynamics_model_ensemble: DynamicsModelEnsemble,
     expert_part_length: int,
     seed: int,
     run: Run,
-) -> EpisodeStore:
+) -> StateActionEpisodes:
     set_seed(seed=seed)
 
     device = next(dynamics_model_ensemble.parameters()).device
@@ -57,10 +57,10 @@ def create_augmented_data(
     )  # (action_dimensionality,)
 
     median_expert_state_step_distance = calculate_median_state_step_distance(
-        episode_store=expert_episodes, dynamics_model_ensemble=dynamics_model_ensemble
+        episodes=expert_episodes, dynamics_model_ensemble=dynamics_model_ensemble
     )
     median_expert_action_step_distance = calculate_median_action_step_distance(
-        episode_store=expert_episodes
+        episodes=expert_episodes
     )
     log_median_expert_step_distances(
         median_expert_state_step_distance=median_expert_state_step_distance,
@@ -133,7 +133,7 @@ def create_augmented_data(
         run=run,
     )
 
-    return augmentation_result.episode_store
+    return augmentation_result.episodes
 
 
 # ---- Private --------------------------------------------

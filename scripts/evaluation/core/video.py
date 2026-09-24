@@ -8,7 +8,7 @@ from pygame import Surface
 from pygame.font import Font
 
 from scripts.environments.video_settings import VideoSettings
-from scripts.evaluation.core.rollout import EpisodeRecord
+from scripts.evaluation.core.rollout import Episode
 from scripts.shared.paths import PROJECT_ROOT_DIRECTORY_PATH
 
 FREEZE_SECONDS = 2
@@ -16,7 +16,7 @@ FREEZE_SECONDS = 2
 
 def render_episode_surfaces(
     *,
-    episode_record: EpisodeRecord,
+    episode_record: Episode,
     condition_description: str,
     video_settings: VideoSettings,
     policy_label: str,

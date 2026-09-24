@@ -13,7 +13,7 @@ _EPISODE_END_KEY = "meta/episode_ends"
 
 
 @dataclass
-class EpisodeStore:
+class StateActionEpisodes:
     states: npt.NDArray[np.float32]  # (total_timestep_count, state_dimensionality)
     actions: npt.NDArray[np.float32]  # (total_timestep_count, action_dimensionality)
     episode_end_indices: npt.NDArray[np.int64]  # (episode_count,)
@@ -41,26 +41,13 @@ class EpisodeStore:
 
 
 @dataclass
-class RewardedEpisodeStore(EpisodeStore):
+class Episodes(StateActionEpisodes):
     rewards: npt.NDArray[np.float32]  # (total_timestep_count,)
 
 
-def read_episode_store(*, episode_file_path: Path) -> EpisodeStore:
+def read_episodes(*, episode_file_path: Path) -> Episodes:
     reader = _Reader(episode_file_path=episode_file_path)
-    return EpisodeStore(
-        states=reader.read(key=_STATE_KEY, dtype=np.float32),
-        actions=reader.read(key=_ACTION_KEY, dtype=np.float32),
-        episode_end_indices=reader.read(key=_EPISODE_END_KEY, dtype=np.int64),
-    )
-
-
-def read_rewarded_episode_store(*, episode_file_path: Path) -> RewardedEpisodeStore:
-    reader = _Reader(episode_file_path=episode_file_path)
-
-    if _REWARD_KEY not in reader.store:
-        raise KeyError(f"The dataset at {episode_file_path} has no rewards.")
-
-    return RewardedEpisodeStore(
+    return Episodes(
         states=reader.read(key=_STATE_KEY, dtype=np.float32),
         actions=reader.read(key=_ACTION_KEY, dtype=np.float32),
         episode_end_indices=reader.read(key=_EPISODE_END_KEY, dtype=np.int64),
@@ -68,17 +55,16 @@ def read_rewarded_episode_store(*, episode_file_path: Path) -> RewardedEpisodeSt
     )
 
 
-def write_episode_store(*, episode_store: EpisodeStore, save_file_path: Path) -> None:
+def write_episodes(*, episodes: Episodes, save_file_path: Path) -> None:
     root = zarr.open_group(str(save_file_path), mode="w")
 
     data_group = root.create_group("data")
-    data_group.create_array("state", data=episode_store.states)
-    data_group.create_array("action", data=episode_store.actions)
-    if isinstance(episode_store, RewardedEpisodeStore):
-        data_group.create_array("reward", data=episode_store.rewards)
+    data_group.create_array("state", data=episodes.states)
+    data_group.create_array("action", data=episodes.actions)
+    data_group.create_array("reward", data=episodes.rewards)
 
     meta_group = root.create_group("meta")
-    meta_group.create_array("episode_ends", data=episode_store.episode_end_indices)
+    meta_group.create_array("episode_ends", data=episodes.episode_end_indices)
 
 
 # ---- Private --------------------------------------------
@@ -94,13 +80,16 @@ class _Reader:
                 f"got {type(store).__name__}"
             )
 
+        self.episode_file_path = episode_file_path
         self.store = store
 
     def read(self, *, key: str, dtype: object) -> np.ndarray:
         try:
             group_member = self.store[key]
         except KeyError as exc:
-            raise KeyError(f"Missing dataset entry {key!r}") from exc
+            raise KeyError(
+                f"Missing dataset entry {key!r} in {self.episode_file_path}"
+            ) from exc
 
         if not isinstance(group_member, Array):
             raise TypeError(f"{key!r} is not a zarr.Array")

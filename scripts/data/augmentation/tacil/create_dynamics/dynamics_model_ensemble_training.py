@@ -8,9 +8,9 @@ from wandb import Run
 
 from scripts.data.augmentation.tacil.create_dynamics.config import DynamicsConfig
 from scripts.data.augmentation.tacil.create_dynamics.data import (
-    TransitionTriples,
+    Transitions,
     build_windows,
-    concatenate_episodes,
+    concatenate_transitions,
     extract_transitions,
 )
 from scripts.data.augmentation.tacil.create_dynamics.dynamics_model_training import (
@@ -35,7 +35,7 @@ from scripts.data.augmentation.tacil.dynamics.dynamics_model_ensemble import (
 from scripts.environments.state_space import StateSpace
 from scripts.environments.tacil_dynamics_plotter import TacilDynamicsPlotter
 from scripts.environments.tacil_network_input import TacilNetworkInputBuilder
-from scripts.shared.episode_store import EpisodeStore
+from scripts.shared.episodes import StateActionEpisodes
 from scripts.shared.normalization import ZScoreNormalizer
 from scripts.shared.seeding import set_seed
 
@@ -46,7 +46,7 @@ def train_dynamics_model_ensemble(
     state_space: StateSpace,
     network_input_builder: TacilNetworkInputBuilder,
     dynamics_plotter: TacilDynamicsPlotter,
-    episode_store: EpisodeStore,
+    episodes: StateActionEpisodes,
     seed: int,
     device: torch.device,
     run: Run,
@@ -54,20 +54,29 @@ def train_dynamics_model_ensemble(
     set_seed(seed=seed)
     define_epoch_metrics(run=run)
 
-    training_episodes, validation_episodes = train_test_split(
-        extract_transitions(episode_store=episode_store),
-        test_size=0.2,
-        random_state=seed,
-        shuffle=True,
+    training_transitions_per_episode, validation_transitions_per_episode = (
+        train_test_split(
+            extract_transitions(episodes=episodes),
+            test_size=0.2,
+            random_state=seed,
+            shuffle=True,
+        )
     )
 
-    training_transitions = concatenate_episodes(episodes=training_episodes)
-    validation_transitions = concatenate_episodes(episodes=validation_episodes)
+    training_transitions = concatenate_transitions(
+        transitions_per_episode=training_transitions_per_episode
+    )
+    validation_transitions = concatenate_transitions(
+        transitions_per_episode=validation_transitions_per_episode
+    )
 
     (
         validation_state_windows,  # (window_count, window_length + 1, state_dimensionality)
         validation_action_windows,  # (window_count, window_length, action_dimensionality)
-    ) = build_windows(episodes=validation_episodes, window_length=config.window_length)
+    ) = build_windows(
+        transitions_per_episode=validation_transitions_per_episode,
+        window_length=config.window_length,
+    )
 
     normalizers = _create_normalizers(
         transitions=training_transitions,
@@ -94,13 +103,17 @@ def train_dynamics_model_ensemble(
         n_words=config.ensemble_size
     ):
         episode_indices = np.random.default_rng(seed=int(member_seed)).integers(
-            low=0, high=len(training_episodes), size=len(training_episodes)
+            low=0,
+            high=len(training_transitions_per_episode),
+            size=len(training_transitions_per_episode),
         )  # (episode_count,)
         (
             member_state_windows,  # (window_count, window_length + 1, state_dimensionality)
             member_action_windows,  # (window_count, window_length, action_dimensionality)
         ) = build_windows(
-            episodes=[training_episodes[index] for index in episode_indices],
+            transitions_per_episode=[
+                training_transitions_per_episode[index] for index in episode_indices
+            ],
             window_length=config.window_length,
         )
         member_window_counts.append(member_action_windows.shape[0])
@@ -166,8 +179,8 @@ def train_dynamics_model_ensemble(
         log_ensemble_statistics(
             dynamics_model_ensemble=dynamics_model_ensemble,
             dynamics_plotter=dynamics_plotter,
-            validation_episodes=validation_episodes,
-            episode_store=episode_store,
+            validation_transitions_per_episode=validation_transitions_per_episode,
+            episodes=episodes,
             run=run,
         )
 
@@ -186,7 +199,7 @@ class _Normalizers:
 
 def _create_normalizers(
     *,
-    transitions: TransitionTriples,
+    transitions: Transitions,
     state_space: StateSpace,
     network_input_builder: TacilNetworkInputBuilder,
     device: torch.device,

@@ -24,13 +24,13 @@ from scripts.environments.peg_insertion.observation import (
     extract_state_from_environment,
 )
 from scripts.shared.download import download_and_extract_zip
-from scripts.shared.episode_store import RewardedEpisodeStore
+from scripts.shared.episodes import Episodes
 from scripts.shared.log import create_logger
 
 logger = create_logger()
 
 
-def build_episode_store() -> RewardedEpisodeStore:
+def build_episodes() -> Episodes:
     dataset_path = _get_dataset(
         dataset_directory_path=(
             download_and_extract_zip(url=DATASET_SOURCES[TASK_ID].raw_dataset_url)
@@ -42,11 +42,11 @@ def build_episode_store() -> RewardedEpisodeStore:
     metadata = json.loads(s=(dataset_path.with_suffix(suffix=".json")).read_text())
     _check_metadata(metadata=metadata)
 
-    episodes = _build_episodes(
+    episodes = _read_episodes(
         dataset_path=dataset_path, episode_metadata=metadata["episodes"]
     )
 
-    return RewardedEpisodeStore(
+    return Episodes(
         states=np.concatenate(
             [episode.states for episode in episodes]
         ),  # (total_timestep_count, STATE_DIMENSIONALITY)
@@ -140,10 +140,10 @@ def _find_converted_dataset(*, dataset_directory_path: Path) -> Path | None:
     return None
 
 
-def _build_episodes(
+def _read_episodes(
     *, dataset_path: Path, episode_metadata: list[dict]
 ) -> list[_Episode]:
-    logger.info("Starting episode building")
+    logger.info("Starting episode reading")
     episodes: list[_Episode] = []
 
     with h5py.File(name=dataset_path, mode="r") as dataset_file:
@@ -155,10 +155,10 @@ def _build_episodes(
         gym_environment = create_base_environment(episode_step_limit=max_steps + 1)
         try:
             for metadata in tqdm(
-                iterable=episode_metadata, desc="Building episodes", unit="episode"
+                iterable=episode_metadata, desc="Reading episodes", unit="episode"
             ):
                 episodes.append(
-                    _build_episode(
+                    _read_episode(
                         gym_environment=gym_environment,
                         group=dataset_file[f"traj_{metadata['episode_id']}"],
                         seed=metadata["episode_seed"],
@@ -167,11 +167,11 @@ def _build_episodes(
         finally:
             gym_environment.close()
 
-    logger.info("Completed episode building")
+    logger.info("Completed episode reading")
     return episodes
 
 
-def _build_episode(*, gym_environment: Env, group: h5py.Group, seed: int) -> _Episode:
+def _read_episode(*, gym_environment: Env, group: h5py.Group, seed: int) -> _Episode:
     actions = np.asarray(
         a=group["actions"], dtype=np.float32
     )  # (episode_length, ACTION_DIMENSIONALITY)

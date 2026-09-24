@@ -5,10 +5,10 @@ from zarr import Array, Group
 
 from scripts.environments.pusht.reward import calculate_reward, create_environment
 from scripts.shared.download import download_and_extract_zip
-from scripts.shared.episode_store import EpisodeStore, RewardedEpisodeStore
+from scripts.shared.episodes import Episodes, StateActionEpisodes
 
 
-def build_episode_store() -> RewardedEpisodeStore:
+def build_episodes() -> Episodes:
     store = zarr.open(
         store=(
             download_and_extract_zip(
@@ -33,11 +33,11 @@ def build_episode_store() -> RewardedEpisodeStore:
         np.int64
     )  # (episode_count,)
 
-    episodes = EpisodeStore(
+    episodes = StateActionEpisodes(
         states=states, actions=actions, episode_end_indices=episode_end_indices
     )
 
-    return RewardedEpisodeStore(
+    return Episodes(
         states=episodes.states,
         actions=episodes.actions,
         episode_end_indices=episodes.episode_end_indices,
@@ -61,7 +61,7 @@ def _read(*, store: Group, key: str) -> np.ndarray:
 
 
 def _calculate_rewards(
-    *, episodes: EpisodeStore
+    *, episodes: StateActionEpisodes
 ) -> npt.NDArray[np.float32]:  # (total_timestep_count,)
     indices_with_successor = episodes.indices_with_successor  # (transition_count,)
 

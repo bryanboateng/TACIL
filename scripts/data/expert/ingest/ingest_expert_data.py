@@ -11,10 +11,10 @@ from scripts.environments.registry import EnvironmentName
 from scripts.shared.dataset_artifact import (
     DATASET_PROJECT,
     build_dataset_name,
-    upload_episode_store,
+    upload_episodes,
 )
 from scripts.shared.distribution_summary import summarize_distribution
-from scripts.shared.episode_store import RewardedEpisodeStore
+from scripts.shared.episodes import Episodes
 from scripts.shared.log import create_logger
 from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
 
@@ -39,18 +39,18 @@ def _run(*, config: Config) -> None:
         case EnvironmentName.PEG_INSERTION:
             module = peg_insertion
 
-    episode_store = module.build_episode_store()
-    _check_rewards(episode_store=episode_store)
+    episodes = module.build_episodes()
+    _check_rewards(episodes=episodes)
 
-    episode_count = len(episode_store.episode_end_indices)
+    episode_count = len(episodes.episode_end_indices)
 
     with wandb.init(
         project=DATASET_PROJECT,
         job_type="expert-data-ingestion",
         dir=OUTPUT_DIRECTORY_PATH,
     ) as run:
-        upload_episode_store(
-            episode_store=episode_store,
+        upload_episodes(
+            episodes=episodes,
             dataset_name=build_dataset_name(
                 environment=config.environment,
                 episode_count=episode_count,
@@ -59,33 +59,31 @@ def _run(*, config: Config) -> None:
             run=run,
         )
 
-        _record_statistics(episode_store=episode_store, run=run)
+        _record_statistics(episodes=episodes, run=run)
 
 
 # ---- Private --------------------------------------------
 
 
-def _check_rewards(*, episode_store: RewardedEpisodeStore) -> None:
-    if np.isnan(episode_store.rewards[episode_store.indices_with_successor]).any():
+def _check_rewards(*, episodes: Episodes) -> None:
+    if np.isnan(episodes.rewards[episodes.indices_with_successor]).any():
         raise ValueError("There are some rewards missing.")
 
 
-def _record_statistics(*, episode_store: RewardedEpisodeStore, run: Run) -> None:
-    run.summary["1_episode_count"] = len(episode_store.episode_end_indices)
-    run.summary["2_transition_count"] = len(episode_store.states)
+def _record_statistics(*, episodes: Episodes, run: Run) -> None:
+    run.summary["1_episode_count"] = len(episodes.episode_end_indices)
+    run.summary["2_transition_count"] = len(episodes.states)
 
-    for label, value in summarize_distribution(
-        values=episode_store.episode_lengths
-    ).items():
+    for label, value in summarize_distribution(values=episodes.episode_lengths).items():
         run.summary[f"3_episode_length/{label}"] = value
 
     for label, value in summarize_distribution(
-        values=episode_store.rewards[episode_store.indices_with_successor]
+        values=episodes.rewards[episodes.indices_with_successor]
     ).items():
         run.summary[f"4_reward/{label}"] = value
 
-    run.summary["5_state_dimensionality"] = episode_store.states.shape[1]
-    run.summary["6_action_dimensionality"] = episode_store.actions.shape[1]
+    run.summary["5_state_dimensionality"] = episodes.states.shape[1]
+    run.summary["6_action_dimensionality"] = episodes.actions.shape[1]
 
 
 if __name__ == "__main__":

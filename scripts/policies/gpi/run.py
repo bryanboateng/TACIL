@@ -12,7 +12,7 @@ from scripts.policies.gpi import config as gpi_config
 from scripts.policies.gpi.policy import create_geometric_policy_factory
 from scripts.policies.shared.run_config import RunConfig
 from scripts.shared import stage_names
-from scripts.shared.dataset_artifact import download_episode_store
+from scripts.shared.dataset_artifact import download_episodes
 from scripts.shared.log import create_logger, log_device_info
 from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
 from scripts.shared.seeding import set_seed
@@ -46,7 +46,7 @@ def _run(*, config: Config) -> None:
 
         environment = create_environment(name=config.environment)
 
-        expert_episodes = download_episode_store(
+        expert_episodes = download_episodes(
             artifact_name=config.expert_dataset_artifact, run=run
         )
 
@@ -59,7 +59,7 @@ def _run(*, config: Config) -> None:
             environment=environment,
             policy_factory=create_geometric_policy_factory(
                 gpi_geometry=environment.gpi_geometry,
-                episode_store=expert_episodes,
+                episodes=expert_episodes,
                 config=config.policy,
                 device=device,
             ),

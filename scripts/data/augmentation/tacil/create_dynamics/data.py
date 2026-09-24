@@ -3,38 +3,38 @@ from dataclasses import dataclass
 import numpy as np
 from numpy import typing as npt
 
-from scripts.shared.episode_store import EpisodeStore
+from scripts.shared.episodes import StateActionEpisodes
 
 
 @dataclass
-class TransitionTriples:
+class Transitions:
     states: npt.NDArray[np.float32]  # (transition_count, state_dimensionality)
     actions: npt.NDArray[np.float32]  # (transition_count, action_dimensionality)
     next_states: npt.NDArray[np.float32]  # (transition_count, state_dimensionality)
 
 
-def extract_transitions(*, episode_store: EpisodeStore) -> list[TransitionTriples]:
+def extract_transitions(*, episodes: StateActionEpisodes) -> list[Transitions]:
 
     episode_start_indices = np.concatenate(
-        [[0], episode_store.episode_end_indices[:-1]]
+        [[0], episodes.episode_end_indices[:-1]]
     )  # (episode_count,)
 
-    episodes: list[TransitionTriples] = []
+    transitions_per_episode: list[Transitions] = []
     for episode_start_index, episode_end_index in zip(
-        episode_start_indices, episode_store.episode_end_indices, strict=True
+        episode_start_indices, episodes.episode_end_indices, strict=True
     ):
-        episode_states = episode_store.states[
+        episode_states = episodes.states[
             episode_start_index:episode_end_index
         ]  # (transition_count, state_dimensionality)
 
-        episode_actions = episode_store.actions[
+        episode_actions = episodes.actions[
             episode_start_index:episode_end_index
         ]  # (transition_count, action_dimensionality)
 
         # Drop the last timestep to form (s_t, a_t, s_{t+1}) triples,
         # since the terminal state has no corresponding action.
-        episodes.append(
-            TransitionTriples(
+        transitions_per_episode.append(
+            Transitions(
                 states=episode_states[
                     :-1
                 ],  # (episode_length - 1, state_dimensionality)
@@ -47,21 +47,27 @@ def extract_transitions(*, episode_store: EpisodeStore) -> list[TransitionTriple
             )
         )
 
-    return episodes
+    return transitions_per_episode
 
 
-def concatenate_episodes(*, episodes: list[TransitionTriples]) -> TransitionTriples:
-    return TransitionTriples(
-        states=np.concatenate([episode.states for episode in episodes], axis=0),
-        actions=np.concatenate([episode.actions for episode in episodes], axis=0),
+def concatenate_transitions(
+    *, transitions_per_episode: list[Transitions]
+) -> Transitions:
+    return Transitions(
+        states=np.concatenate(
+            [transitions.states for transitions in transitions_per_episode], axis=0
+        ),
+        actions=np.concatenate(
+            [transitions.actions for transitions in transitions_per_episode], axis=0
+        ),
         next_states=np.concatenate(
-            [episode.next_states for episode in episodes], axis=0
+            [transitions.next_states for transitions in transitions_per_episode], axis=0
         ),
     )
 
 
 def build_windows(
-    *, episodes: list[TransitionTriples], window_length: int
+    *, transitions_per_episode: list[Transitions], window_length: int
 ) -> tuple[
     npt.NDArray[
         np.float32
@@ -73,17 +79,17 @@ def build_windows(
     action_window_list: list[npt.NDArray[np.float32]] = []
     state_window_list: list[npt.NDArray[np.float32]] = []
 
-    for episode in episodes:
-        episode_length = episode.actions.shape[0]
+    for transitions in transitions_per_episode:
+        episode_length = transitions.actions.shape[0]
         if episode_length < window_length:
             raise ValueError(
                 f"Episode of length {episode_length} is shorter than "
                 f"window length {window_length}."
             )
 
-        final_next_state = episode.next_states[[-1]]  # (1, state_dimensionality)
+        final_next_state = transitions.next_states[[-1]]  # (1, state_dimensionality)
         full_state_sequence = np.concatenate(
-            [episode.states, final_next_state], axis=0
+            [transitions.states, final_next_state], axis=0
         )  # (episode_length + 1, state_dimensionality)
 
         # One more state than actions in each window: action k is executed at
@@ -93,7 +99,7 @@ def build_windows(
         )  # (episode_window_count, window_length + 1, state_dimensionality)
 
         action_windows = _build_sliding_windows(
-            array=episode.actions, window_length=window_length
+            array=transitions.actions, window_length=window_length
         )  # (episode_window_count, window_length, action_dimensionality)
 
         assert state_windows.shape[0] == action_windows.shape[0]

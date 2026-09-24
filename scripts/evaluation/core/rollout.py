@@ -8,7 +8,7 @@ from scripts.shared.policy_types import Policy
 
 
 @dataclass(frozen=True)
-class EpisodeRecord:
+class Episode:
     seed: int
     reward: float
     terminated: bool
@@ -29,8 +29,8 @@ class _EpisodeRun:
     terminated: bool = False
 
     @property
-    def record(self) -> EpisodeRecord:
-        return EpisodeRecord(
+    def episode(self) -> Episode:
+        return Episode(
             seed=self.seed,
             reward=max(self.rewards, default=float("nan")),
             terminated=self.terminated,
@@ -43,7 +43,7 @@ class _EpisodeRun:
 
 def roll_out_episodes(
     *, environments: list[Env], seeds: list[int], policy: Policy, render: bool
-) -> list[EpisodeRecord]:
+) -> list[Episode]:
     episode_runs: list[_EpisodeRun] = []
     for environment, seed in zip(environments, seeds):
         observation, _ = environment.reset(seed=seed)
@@ -94,7 +94,7 @@ def roll_out_episodes(
 
             running_episode_indices = still_running_episode_indices
 
-    return [episode_run.record for episode_run in episode_runs]
+    return [episode_run.episode for episode_run in episode_runs]
 
 
 # ---- Private --------------------------------------------

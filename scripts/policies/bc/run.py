@@ -19,11 +19,11 @@ from scripts.policies.bc import config as bc_config
 from scripts.policies.bc.policy import create_behavior_cloning_policy_factory
 from scripts.policies.bc.train import train_behavior_cloning_policy
 from scripts.policies.shared.run_config import RunConfig
-from scripts.shared.dataset_artifact import download_episode_store
-from scripts.shared.episode_store import EpisodeStore
+from scripts.shared.dataset_artifact import download_episodes
+from scripts.shared.episodes import StateActionEpisodes
 from scripts.shared.log import create_logger, log_device_info
 from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
-from scripts.shared.state_action_pairs import StateActionPairs
+from scripts.shared.state_action_transitions import StateActionTransitions
 
 logger = create_logger()
 
@@ -56,16 +56,16 @@ def _run(*, config: Config) -> None:
 
         environment = create_environment(name=config.environment)
 
-        expert_episodes = download_episode_store(
+        expert_episodes = download_episodes(
             artifact_name=config.expert_dataset_artifact, run=run
         )
 
         logger.info("Stage 1/3: building the training data.")
-        expert_state_action_pairs = StateActionPairs(
+        expert_state_action_pairs = StateActionTransitions(
             states=expert_episodes.states, actions=expert_episodes.actions
         )
         if config.augmentation is None:
-            state_action_pairs = expert_state_action_pairs
+            state_action_transitions = expert_state_action_pairs
         else:
             synthetic_state_action_pairs = _create_synthetic_state_action_pairs(
                 augmentation_config=config.augmentation,
@@ -75,7 +75,7 @@ def _run(*, config: Config) -> None:
                 device=device,
                 run=run,
             )
-            state_action_pairs = StateActionPairs(
+            state_action_transitions = StateActionTransitions(
                 states=np.concatenate(
                     [
                         expert_state_action_pairs.states,
@@ -98,7 +98,7 @@ def _run(*, config: Config) -> None:
         policy_model = train_behavior_cloning_policy(
             config=config.policy,
             environment=environment,
-            state_action_pairs=state_action_pairs,
+            state_action_transitions=state_action_transitions,
             seed=config.seed,
             device=device,
             run=run,
@@ -122,11 +122,11 @@ def _create_synthetic_state_action_pairs(
     *,
     augmentation_config: Augmentation,
     environment: Environment,
-    expert_episodes: EpisodeStore,
+    expert_episodes: StateActionEpisodes,
     seed: int,
     device: torch.device,
     run: Run,
-) -> StateActionPairs:
+) -> StateActionTransitions:
     match augmentation_config:
         case CcilConfig() as ccil_configuration:
             return ccil.augment(
@@ -148,7 +148,7 @@ def _create_synthetic_state_action_pairs(
                 device=device,
                 run=run,
             )
-            return StateActionPairs(
+            return StateActionTransitions(
                 states=tacil_episodes.states, actions=tacil_episodes.actions
             )
 

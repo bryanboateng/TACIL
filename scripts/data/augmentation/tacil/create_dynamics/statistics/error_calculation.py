@@ -9,7 +9,7 @@ from scripts.data.augmentation.tacil.create_data.inverse_dynamics import (
     solve_inverse_dynamics,
 )
 from scripts.data.augmentation.tacil.create_dynamics.data import (
-    TransitionTriples,
+    Transitions,
     build_windows,
 )
 from scripts.data.augmentation.tacil.dynamics.dynamics_model_ensemble import (
@@ -30,12 +30,12 @@ class ErrorMeasurements:
 def calculate_errors(
     *,
     dynamics_model_ensemble: DynamicsModelEnsemble,
-    validation_episodes: list[TransitionTriples],
+    validation_transitions_per_episode: list[Transitions],
     convergence_tolerance: float,
 ) -> ErrorMeasurements:
     device = next(dynamics_model_ensemble.parameters()).device
     state_windows, action_windows = _draw_windows(
-        validation_episodes=validation_episodes
+        validation_transitions_per_episode=validation_transitions_per_episode
     )
     state_window_batch = torch.from_numpy(state_windows).to(device=device)
     action_window_batch = torch.from_numpy(action_windows).to(device=device)
@@ -62,13 +62,13 @@ def calculate_errors(
 
 
 def _draw_windows(
-    *, validation_episodes: list[TransitionTriples]
+    *, validation_transitions_per_episode: list[Transitions]
 ) -> tuple[
     npt.NDArray[np.float32],  # (window_count, window_length + 1, state_dimensionality)
     npt.NDArray[np.float32],  # (window_count, window_length, action_dimensionality)
 ]:
     state_windows, action_windows = build_windows(
-        episodes=validation_episodes, window_length=20
+        transitions_per_episode=validation_transitions_per_episode, window_length=20
     )
 
     maximum_window_count = 1024

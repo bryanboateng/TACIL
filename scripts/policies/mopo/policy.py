@@ -3,7 +3,6 @@ from dataclasses import dataclass, fields
 import numpy as np
 import torch
 
-from scripts.policies.mopo.buffer import Batch
 from scripts.policies.mopo.dynamics.dynamics import Dynamics
 from scripts.policies.mopo.transitions import Transitions
 from scripts.shared.normalization import MinMaxNormalizer, ZScoreNormalizer
@@ -260,7 +259,7 @@ class MopoPolicy:
                 / transition_count,
             )
 
-    def learn(self, *, batch: Batch) -> None:
+    def learn(self, *, batch: Transitions) -> None:
         torch.compiler.cudagraph_mark_step_begin()
         self._metric_sums += self._learning_step_function(batch)
         self._metric_step_count += 1
@@ -275,7 +274,7 @@ class MopoPolicy:
 
     # ---- Private --------------------------------------------
 
-    def _run_learn_step(self, batch: Batch) -> torch.Tensor:
+    def _run_learn_step(self, batch: Transitions) -> torch.Tensor:
         temperature = _read_temperature(log_temperature=self._log_temperature)
 
         target_value_batch = self._calculate_target_value(
@@ -302,7 +301,7 @@ class MopoPolicy:
     def _calculate_target_value(
         self,
         *,
-        batch: Batch,
+        batch: Transitions,
         temperature: torch.Tensor,  # (1,)
     ) -> torch.Tensor:
         with torch.no_grad():
@@ -326,7 +325,7 @@ class MopoPolicy:
     def _update_critic(
         self,
         *,
-        batch: Batch,
+        batch: Transitions,
         target_value_batch: torch.Tensor,  # (batch_size, 1)
     ) -> torch.Tensor:
         value_batch_per_critic = self._critic(
@@ -349,7 +348,7 @@ class MopoPolicy:
     def _update_actor_and_temperature(
         self,
         *,
-        batch: Batch,
+        batch: Transitions,
         temperature: torch.Tensor,  # (1,)
     ) -> tuple[torch.Tensor, torch.Tensor]:  # each ()
         sampled_action_batch, log_probability_batch = self.sample_action(

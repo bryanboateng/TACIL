@@ -16,7 +16,7 @@ import torch
 from gymnasium import Env
 from tqdm import tqdm
 
-from scripts.evaluation.core.rollout import EpisodeRecord
+from scripts.evaluation.core.rollout import Episode
 from scripts.shared.policy_types import PolicyFactory
 
 _WORKER_TIMEOUT_SECONDS = 120.0
@@ -90,8 +90,8 @@ class ParallelEnvironmentPool:
 
     def roll_out(
         self, *, seeds: list[int], policy_factory: PolicyFactory, condition_index: int
-    ) -> list[EpisodeRecord]:
-        records: list[EpisodeRecord] = []
+    ) -> list[Episode]:
+        records: list[Episode] = []
         batch_size = len(self._connections)
         for start in range(0, len(seeds), batch_size):
             batch_seeds = seeds[start : start + batch_size]
@@ -106,7 +106,7 @@ class ParallelEnvironmentPool:
 
     def _roll_out_batch(
         self, *, seeds: list[int], policy_factory: PolicyFactory, condition_index: int
-    ) -> list[EpisodeRecord]:
+    ) -> list[Episode]:
         connections = self._connections[: len(seeds)]
         reset_start = monotonic()
         for connection, seed in zip(connections, seeds, strict=True):
@@ -154,7 +154,7 @@ class ParallelEnvironmentPool:
                 progress.update()
                 progress.set_postfix(running=len(running), refresh=False)
         return [
-            EpisodeRecord(
+            Episode(
                 seed=seed,
                 reward=max(rewards[i], default=float("nan")),
                 terminated=terminated[i],

@@ -7,19 +7,19 @@ from numpy import typing as npt
 from scripts.environments.gpi_geometry import GpiGeometry
 from scripts.policies.gpi.config import Config, ObservationNoiseConfig
 from scripts.policies.gpi.demonstrations import Demonstrations
-from scripts.shared.episode_store import EpisodeStore
+from scripts.shared.episodes import StateActionEpisodes
 from scripts.shared.policy_types import Policy, PolicyFactory
 
 
 def create_geometric_policy_factory(
     *,
     gpi_geometry: GpiGeometry,
-    episode_store: EpisodeStore,
+    episodes: StateActionEpisodes,
     config: Config,
     device: torch.device,
 ) -> PolicyFactory:
     demonstrations = Demonstrations(
-        gpi_geometry=gpi_geometry, episode_store=episode_store, device=device
+        gpi_geometry=gpi_geometry, episodes=episodes, device=device
     )
 
     def create_policy(*, episode_seeds: list[int]) -> Policy:

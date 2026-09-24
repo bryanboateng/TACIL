@@ -23,7 +23,7 @@ from scripts.evaluation.config import (
     FinalEvaluation,
     TuningEvaluation,
 )
-from scripts.evaluation.core.rollout import EpisodeRecord, roll_out_episodes
+from scripts.evaluation.core.rollout import Episode, roll_out_episodes
 from scripts.evaluation.core.scoring import (
     RewardStatistics,
     SuccessStatistics,
@@ -140,7 +140,7 @@ def _log_video(
     environment: Environment,
     policy_label: str,
     condition: Condition,
-    episode_records: dict[int, EpisodeRecord],
+    episode_records: dict[int, Episode],
     run: Run,
 ) -> None:
     fps = environment.video_settings.video_frames_per_second
@@ -188,7 +188,7 @@ def _write_episode_frames(
     environment: Environment,
     gym_environment: Env,
     condition: Condition,
-    episode_records: dict[int, EpisodeRecord],
+    episode_records: dict[int, Episode],
     video_writer,
     fps: int,
 ) -> None:
@@ -223,8 +223,8 @@ def _convert_surface_to_frame(*, surface: Surface) -> np.ndarray:
 
 
 def _replay_episode_with_rendering(
-    *, episode_record: EpisodeRecord, gym_environment: Env
-) -> EpisodeRecord:
+    *, episode_record: Episode, gym_environment: Env
+) -> Episode:
     with torch.no_grad():
         (replayed_record,) = roll_out_episodes(
             environments=[gym_environment],

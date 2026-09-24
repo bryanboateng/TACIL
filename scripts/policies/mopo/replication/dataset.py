@@ -16,7 +16,7 @@ _REQUIRED_FIELDS = ("observations", "actions", "rewards", "terminals")
 
 
 @dataclass(frozen=True)
-class Dataset:
+class D4rlDataset:
     states: npt.NDArray[np.float32]  # (transition_count, state_dimensionality)
     actions: npt.NDArray[np.float32]  # (transition_count, action_dimensionality)
     next_states: npt.NDArray[np.float32]  # (transition_count, state_dimensionality)
@@ -59,7 +59,7 @@ def download_dataset(*, task: Task) -> Path:
     return file_path
 
 
-def read_dataset(*, file_path: Path) -> Dataset:
+def read_dataset(*, file_path: Path) -> D4rlDataset:
 
     with h5py.File(file_path, mode="r") as file:
         for name in _REQUIRED_FIELDS:
@@ -96,7 +96,7 @@ def read_dataset(*, file_path: Path) -> Dataset:
         else recorded_next_state_batch[kept_indices]
     )
 
-    return Dataset(
+    return D4rlDataset(
         states=state_batch[kept_indices],
         actions=action_batch[kept_indices],
         next_states=next_state_batch,
@@ -105,5 +105,5 @@ def read_dataset(*, file_path: Path) -> Dataset:
     )
 
 
-def load_dataset(*, task: Task) -> Dataset:
+def load_dataset(*, task: Task) -> D4rlDataset:
     return read_dataset(file_path=download_dataset(task=task))

@@ -8,7 +8,7 @@ from torch.optim import Adam
 from tqdm import tqdm
 from wandb import Run
 
-from scripts.policies.mopo.buffer import ReplayBuffer, concatenate_batches
+from scripts.policies.mopo.buffer import ReplayBuffer, concatenate_transitions
 from scripts.policies.mopo.config import Config
 from scripts.policies.mopo.dynamics.dynamics import Dynamics, TerminationFunction
 from scripts.policies.mopo.dynamics.dynamics_training import train_dynamics
@@ -125,7 +125,7 @@ def train_mopo_policy(
                 )
 
             policy.learn(
-                batch=concatenate_batches(
+                batch=concatenate_transitions(
                     first=real_buffer.sample(count=real_data_batch_size),
                     second=imagined_buffer.sample(count=imagined_data_batch_size),
                 )

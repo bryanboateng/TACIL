@@ -27,7 +27,7 @@ from scripts.shared import stage_names
 from scripts.shared.log import create_logger
 from scripts.shared.normalization import MinMaxNormalizer, ZScoreNormalizer
 from scripts.shared.seeding import set_seed
-from scripts.shared.state_action_pairs import StateActionPairs
+from scripts.shared.state_action_transitions import StateActionTransitions
 
 logger = create_logger()
 
@@ -44,7 +44,7 @@ def train_behavior_cloning_policy(
     *,
     config: Config,
     environment: Environment | None,
-    state_action_pairs: StateActionPairs,
+    state_action_transitions: StateActionTransitions,
     seed: int,
     device: torch.device,
     run: Run,
@@ -55,10 +55,10 @@ def train_behavior_cloning_policy(
     loss_function = torch.nn.MSELoss()
 
     run.summary[f"{STAGE_NAME}/0_dataset/1_transition_count"] = len(
-        state_action_pairs.states
+        state_action_transitions.states
     )
 
-    dataset = Dataset(state_action_pairs=state_action_pairs)
+    dataset = Dataset(state_action_transitions=state_action_transitions)
 
     # These low-dimensional datasets are small enough to batch directly on the
     # training device, without fetching and collating each individual sample.
@@ -66,8 +66,8 @@ def train_behavior_cloning_policy(
     actions = dataset.actions.to(device=device)
 
     model = BehaviorCloningPolicyModel(
-        observation_dimensionality=state_action_pairs.states.shape[1],
-        action_dimensionality=state_action_pairs.actions.shape[1],
+        observation_dimensionality=state_action_transitions.states.shape[1],
+        action_dimensionality=state_action_transitions.actions.shape[1],
         hidden_layer_dimensionality=config.hidden_layer_dimensionality,
         observation_normalizer=ZScoreNormalizer(value_batch=states),
         action_normalizer=MinMaxNormalizer(value_batch=actions),

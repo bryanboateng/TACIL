@@ -7,7 +7,7 @@ from wandb import Run
 from scripts.data.augmentation.tacil.create_data.distances import (
     calculate_median_state_step_distance,
 )
-from scripts.data.augmentation.tacil.create_dynamics.data import TransitionTriples
+from scripts.data.augmentation.tacil.create_dynamics.data import Transitions
 from scripts.data.augmentation.tacil.create_dynamics.dynamics_model_training import (
     MemberEpochMetrics,
     MemberTrainingState,
@@ -22,7 +22,7 @@ from scripts.data.augmentation.tacil.dynamics.dynamics_model_ensemble import (
 from scripts.environments.tacil_dynamics_plotter import TacilDynamicsPlotter
 from scripts.shared import stage_names
 from scripts.shared.distribution_summary import summarize_distribution
-from scripts.shared.episode_store import EpisodeStore
+from scripts.shared.episodes import StateActionEpisodes
 from scripts.shared.log import create_logger
 
 logger = create_logger()
@@ -126,16 +126,16 @@ def log_ensemble_statistics(
     *,
     dynamics_model_ensemble: DynamicsModelEnsemble,
     dynamics_plotter: TacilDynamicsPlotter,
-    validation_episodes: list[TransitionTriples],
-    episode_store: EpisodeStore,
+    validation_transitions_per_episode: list[Transitions],
+    episodes: StateActionEpisodes,
     run: Run,
 ) -> None:
     median_expert_state_step_distance = calculate_median_state_step_distance(
-        episode_store=episode_store, dynamics_model_ensemble=dynamics_model_ensemble
+        episodes=episodes, dynamics_model_ensemble=dynamics_model_ensemble
     )
     error_measurements = calculate_errors(
         dynamics_model_ensemble=dynamics_model_ensemble,
-        validation_episodes=validation_episodes,
+        validation_transitions_per_episode=validation_transitions_per_episode,
         convergence_tolerance=1e-3 * median_expert_state_step_distance,
     )
 
@@ -188,7 +188,7 @@ def log_ensemble_statistics(
             **_create_replay_panels(
                 dynamics_model_ensemble=dynamics_model_ensemble,
                 dynamics_plotter=dynamics_plotter,
-                validation_episodes=validation_episodes,
+                validation_transitions_per_episode=validation_transitions_per_episode,
             ),
         }
     )
@@ -221,7 +221,7 @@ def _create_replay_panels(
     *,
     dynamics_model_ensemble: DynamicsModelEnsemble,
     dynamics_plotter: TacilDynamicsPlotter,
-    validation_episodes: list[TransitionTriples],
+    validation_transitions_per_episode: list[Transitions],
 ) -> dict[str, wandb.Image]:
     device = next(dynamics_model_ensemble.parameters()).device
 
@@ -229,8 +229,10 @@ def _create_replay_panels(
 
     replay_panels: dict[str, wandb.Image] = {}
     # A small dataset can leave fewer validation episodes than there are panels.
-    for episode_index in range(min(panel_count, len(validation_episodes))):
-        episode = validation_episodes[episode_index]
+    for episode_index in range(
+        min(panel_count, len(validation_transitions_per_episode))
+    ):
+        episode = validation_transitions_per_episode[episode_index]
 
         true_trajectory = np.concatenate(
             [episode.states, episode.next_states[[-1]]], axis=0

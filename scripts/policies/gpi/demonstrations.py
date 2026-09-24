@@ -2,7 +2,7 @@ import numpy as np
 import torch
 
 from scripts.environments.gpi_geometry import GpiGeometry
-from scripts.shared.episode_store import EpisodeStore
+from scripts.shared.episodes import StateActionEpisodes
 from scripts.shared.normalization import MinMaxNormalizer
 
 
@@ -11,18 +11,18 @@ class Demonstrations:
         self,
         *,
         gpi_geometry: GpiGeometry,
-        episode_store: EpisodeStore,
+        episodes: StateActionEpisodes,
         device: torch.device,
     ) -> None:
         self._gpi_geometry = gpi_geometry
 
         observations = torch.from_numpy(
-            episode_store.states
+            episodes.states
         ).float()  # (step_count, observation_dimensionality)
 
         actions = gpi_geometry.convert_actions_to_object_frame(
             observation_batch=observations,
-            action_batch=torch.from_numpy(episode_store.actions).float(),
+            action_batch=torch.from_numpy(episodes.actions).float(),
         )  # (step_count, action_dimensionality)
 
         self._observation_normalizer = MinMaxNormalizer(value_batch=observations).to(
@@ -41,8 +41,8 @@ class Demonstrations:
 
         self._episode_end_index_per_step = torch.from_numpy(
             np.repeat(
-                a=episode_store.episode_end_indices,
-                repeats=np.diff(a=episode_store.episode_end_indices, prepend=0),
+                a=episodes.episode_end_indices,
+                repeats=np.diff(a=episodes.episode_end_indices, prepend=0),
             )
         ).to(device=device)  # (step_count,)
 

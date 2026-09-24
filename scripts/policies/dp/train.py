@@ -28,7 +28,7 @@ from scripts.policies.shared.checkpoint import (
 )
 from scripts.policies.shared.observation_noise import disturb_half_of_the_batch
 from scripts.shared import stage_names
-from scripts.shared.episode_store import EpisodeStore
+from scripts.shared.episodes import StateActionEpisodes
 from scripts.shared.log import create_logger
 from scripts.shared.seeding import set_seed
 
@@ -47,8 +47,8 @@ def train_diffusion_policy(
     *,
     config: Config,
     environment: Environment,
-    expert_episodes: EpisodeStore,
-    augmented_episodes: EpisodeStore | None,
+    expert_episodes: StateActionEpisodes,
+    augmented_episodes: StateActionEpisodes | None,
     seed: int,
     device: torch.device,
     run: Run,

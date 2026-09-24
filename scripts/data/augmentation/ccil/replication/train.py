@@ -24,10 +24,10 @@ from scripts.data.augmentation.ccil.config import (
 )
 from scripts.policies.bc import config as bc_config
 from scripts.policies.bc.train import train_behavior_cloning_policy
-from scripts.shared.episode_store import EpisodeStore
+from scripts.shared.episodes import StateActionEpisodes
 from scripts.shared.log import create_logger, log_device_info
 from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
-from scripts.shared.state_action_pairs import StateActionPairs
+from scripts.shared.state_action_transitions import StateActionTransitions
 
 logger = create_logger()
 
@@ -170,7 +170,7 @@ def _train(
         run.summary["0_task/5_evaluation_noise"] = task_config["eval"]["noise"]
 
         logger.info("Stage 1/3: building the training data.")
-        state_action_pairs = _build_training_data(
+        state_action_transitions = _build_training_data(
             ccil_config=ccil_config,
             task_config=task_config,
             expert_episodes=expert_episodes,
@@ -184,7 +184,7 @@ def _train(
         policy_model = train_behavior_cloning_policy(
             config=policy_config,
             environment=None,
-            state_action_pairs=state_action_pairs,
+            state_action_transitions=state_action_transitions,
             seed=seed,
             device=device,
             run=run,
@@ -285,7 +285,7 @@ def _balances_data(*, task_config: dict) -> bool:
     )
 
 
-def _read_ccil_demonstrations(*, file_path: Path) -> EpisodeStore:
+def _read_ccil_demonstrations(*, file_path: Path) -> StateActionEpisodes:
     with file_path.open("rb") as file:
         trajectories = pickle.load(file)
 
@@ -311,7 +311,7 @@ def _read_ccil_demonstrations(*, file_path: Path) -> EpisodeStore:
         transition_count += state_array.shape[0]
         episode_end_indices.append(transition_count)
 
-    return EpisodeStore(
+    return StateActionEpisodes(
         states=np.concatenate(state_arrays),
         actions=np.concatenate(action_arrays),
         episode_end_indices=np.array(episode_end_indices, dtype=np.int64),
@@ -322,15 +322,15 @@ def _build_training_data(
     *,
     ccil_config: CcilConfig | None,
     task_config: dict,
-    expert_episodes: EpisodeStore,
+    expert_episodes: StateActionEpisodes,
     seed: int,
     device: torch.device,
     run: Run,
-) -> StateActionPairs:
+) -> StateActionTransitions:
     last_timestep_indices = expert_episodes.episode_end_indices - 1
     expert_keep_mask = np.ones(expert_episodes.states.shape[0], dtype=bool)
     expert_keep_mask[last_timestep_indices] = False
-    expert_state_action_pairs = StateActionPairs(
+    expert_state_action_pairs = StateActionTransitions(
         states=expert_episodes.states[expert_keep_mask],
         actions=expert_episodes.actions[expert_keep_mask],
     )
@@ -350,7 +350,7 @@ def _build_training_data(
         if _balances_data(task_config=task_config)
         else 1
     )
-    return StateActionPairs(
+    return StateActionTransitions(
         states=np.concatenate(
             [expert_state_action_pairs.states] * expert_copy_count
             + [synthetic_state_action_pairs.states],

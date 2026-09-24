@@ -7,7 +7,7 @@ from numpy import typing as npt
 from torch.optim.swa_utils import AveragedModel
 
 from scripts.data.augmentation.tacil.create_dynamics.config import DynamicsConfig
-from scripts.data.augmentation.tacil.create_dynamics.data import TransitionTriples
+from scripts.data.augmentation.tacil.create_dynamics.data import Transitions
 from scripts.data.augmentation.tacil.create_dynamics.loss_calculation import (
     calculate_loss,
 )
@@ -64,8 +64,8 @@ class MemberTrainingState:
 @dataclass
 class TrainingContext:
     config: DynamicsConfig
-    training_transitions: TransitionTriples
-    validation_transitions: TransitionTriples
+    training_transitions: Transitions
+    validation_transitions: Transitions
     validation_state_windows: (
         torch.Tensor
     )  # (window_count, window_length + 1, state_dimensionality)
@@ -242,10 +242,7 @@ def _calculate_validation_loss(
 
 
 def _sample_local_lipschitz_constants(
-    *,
-    training_state: MemberTrainingState,
-    transitions: TransitionTriples,
-    batch_size: int,
+    *, training_state: MemberTrainingState, transitions: Transitions, batch_size: int
 ) -> npt.NDArray[np.float32]:  # (sample_count,)
 
     transition_count = transitions.states.shape[0]

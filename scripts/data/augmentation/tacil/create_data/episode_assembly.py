@@ -6,7 +6,7 @@ import numpy.typing as npt
 from scripts.data.augmentation.tacil.create_data.backward_rollout import (
     SyntheticTrajectories,
 )
-from scripts.shared.episode_store import EpisodeStore
+from scripts.shared.episodes import StateActionEpisodes
 
 
 @dataclass(frozen=True)
@@ -16,7 +16,7 @@ class AugmentationResult:
         empty: int  # anchors whose first backward step already broke the budget
         accepted: int
 
-    episode_store: EpisodeStore
+    episodes: StateActionEpisodes
     trajectory_lengths: npt.NDArray[np.int64]  # (accepted_count,)
     counts: OutcomeCounts
 
@@ -24,7 +24,7 @@ class AugmentationResult:
 def create_augmented_episodes(
     *,
     synthetic_trajectories: SyntheticTrajectories,
-    expert_episodes: EpisodeStore,
+    expert_episodes: StateActionEpisodes,
     anchor_indices: npt.NDArray[np.int64],  # (anchor_count,)
     expert_part_length: int,
 ) -> AugmentationResult:
@@ -47,7 +47,7 @@ def create_augmented_episodes(
     )
 
     return AugmentationResult(
-        episode_store=augmented_episodes,
+        episodes=augmented_episodes,
         trajectory_lengths=trajectory_lengths[accepted_anchor_mask],
         counts=AugmentationResult.OutcomeCounts(
             empty=int(trajectory_lengths.shape[0]) - accepted_anchor_count,
@@ -61,13 +61,13 @@ def create_augmented_episodes(
 
 def _assemble_episodes(
     *,
-    expert_episodes: EpisodeStore,
+    expert_episodes: StateActionEpisodes,
     synthetic_states: npt.NDArray[np.float32],  # (synthetic_step_count, state_dim)
     synthetic_actions: npt.NDArray[np.float32],  # (synthetic_step_count, action_dim)
     trajectory_lengths: npt.NDArray[np.int64],  # (anchor_count,)
     anchor_indices: npt.NDArray[np.int64],  # (anchor_count,)
     expert_part_length: int,
-) -> EpisodeStore:
+) -> StateActionEpisodes:
     start_indices = (
         np.cumsum(trajectory_lengths) - trajectory_lengths
     )  # (anchor_count,)
@@ -110,7 +110,7 @@ def _assemble_episodes(
         )
         episode_lengths.append(int(trajectory_length) + expert_part_length)
 
-    return EpisodeStore(
+    return StateActionEpisodes(
         states=np.concatenate(
             state_trajectories_per_episode, axis=0
         ),  # (total_timestep_count, state_dimensionality)

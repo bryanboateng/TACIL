@@ -6,7 +6,7 @@ import numpy.typing as npt
 import torch
 
 from scripts.policies.dp.config import HorizonLengthConfig
-from scripts.shared.episode_store import EpisodeStore
+from scripts.shared.episodes import StateActionEpisodes
 from scripts.shared.normalization import MinMaxNormalizer
 
 
@@ -14,12 +14,12 @@ class Dataset(torch.utils.data.Dataset[tuple[torch.Tensor, torch.Tensor]]):
     def __init__(
         self,
         *,
-        expert_episodes: EpisodeStore,
-        augmented_episodes: EpisodeStore | None,
+        expert_episodes: StateActionEpisodes,
+        augmented_episodes: StateActionEpisodes | None,
         horizon_lengths: HorizonLengthConfig,
     ) -> None:
         self.observation_normalizer, self.action_normalizer = _create_normalizers(
-            episode_stores=[expert_episodes]
+            all_episodes=[expert_episodes]
             + ([augmented_episodes] if augmented_episodes is not None else [])
         )
 
@@ -106,23 +106,19 @@ class _Windows:
 
 
 def _create_normalizers(
-    *, episode_stores: list[EpisodeStore]
+    *, all_episodes: list[StateActionEpisodes]
 ) -> tuple[MinMaxNormalizer, MinMaxNormalizer]:
     return (
         MinMaxNormalizer(
             # Simulator round-off in constant orientations is not a feature.
             minimum_range=1e-6,
             value_batch=torch.from_numpy(
-                np.concatenate(
-                    [episode_store.states for episode_store in episode_stores], axis=0
-                )
+                np.concatenate([episodes.states for episodes in all_episodes], axis=0)
             ).float(),
         ),
         MinMaxNormalizer(
             value_batch=torch.from_numpy(
-                np.concatenate(
-                    [episode_store.actions for episode_store in episode_stores], axis=0
-                )
+                np.concatenate([episodes.actions for episodes in all_episodes], axis=0)
             ).float()
         ),
     )
@@ -130,7 +126,7 @@ def _create_normalizers(
 
 def _create_windows(
     *,
-    episodes: EpisodeStore,
+    episodes: StateActionEpisodes,
     observation_normalizer: MinMaxNormalizer,
     action_normalizer: MinMaxNormalizer,
     window_length: int,

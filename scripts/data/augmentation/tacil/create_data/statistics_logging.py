@@ -70,7 +70,7 @@ def log_dataset_statistics(
 
     synthetic_count = int(trajectory_lengths.sum())
     run_out_states_count = (
-        int(augmentation_result.episode_store.states.shape[0]) - synthetic_count
+        int(augmentation_result.episodes.states.shape[0]) - synthetic_count
     )
     total_count = source_transition_count + synthetic_count + run_out_states_count
 

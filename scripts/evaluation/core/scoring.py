@@ -9,7 +9,7 @@ from scripts.environments.condition import Condition
 from scripts.environments.environment import Environment
 from scripts.evaluation.config import VALIDATION_START_SEED
 from scripts.evaluation.core.parallel import ParallelEnvironmentPool
-from scripts.evaluation.core.rollout import EpisodeRecord, roll_out_episodes
+from scripts.evaluation.core.rollout import Episode, roll_out_episodes
 from scripts.shared.policy_types import PolicyFactory
 
 
@@ -59,7 +59,7 @@ class ScoringSession:
 
     def run_over_conditions(
         self, *, policy_factory: PolicyFactory, episode_count_per_condition: int
-    ) -> list[EpisodeRecord]:
+    ) -> list[Episode]:
         return [
             record
             for condition_index in range(len(self.environment.conditions))
@@ -81,7 +81,7 @@ class ScoringSession:
         policy_factory: PolicyFactory,
         start_episode_seed: int,
         episode_count: int,
-    ) -> list[EpisodeRecord]:
+    ) -> list[Episode]:
         if self._closed:
             raise RuntimeError("Scoring session is closed")
         condition = self.environment.conditions[condition_index]
@@ -119,7 +119,7 @@ def run_scored_episodes_per_condition(
     start_episode_seed: int,
     episode_count_per_condition: int,
     parallel_environment_count: int = 1,
-) -> Generator[tuple[Condition, list[EpisodeRecord]], None, None]:
+) -> Generator[tuple[Condition, list[Episode]], None, None]:
     with ScoringSession(
         environment=environment, parallel_environment_count=parallel_environment_count
     ) as session:
@@ -141,7 +141,7 @@ def run_scored_episodes_over_conditions(
     policy_factory: PolicyFactory,
     episode_count_per_condition: int,
     parallel_environment_count: int = 1,
-) -> list[EpisodeRecord]:
+) -> list[Episode]:
     with ScoringSession(
         environment=environment, parallel_environment_count=parallel_environment_count
     ) as session:
@@ -157,7 +157,7 @@ def _run_sequential_episodes(
     policy_factory: PolicyFactory,
     seeds: list[int],
     condition: Condition,
-) -> list[EpisodeRecord]:
+) -> list[Episode]:
     gym_environments = []
     try:
         for _ in seeds:
@@ -177,9 +177,7 @@ def _run_sequential_episodes(
             gym_environment.close()
 
 
-def calculate_reward_statistics(
-    *, episode_records: list[EpisodeRecord]
-) -> RewardStatistics:
+def calculate_reward_statistics(*, episode_records: list[Episode]) -> RewardStatistics:
     rewards = np.array([record.reward for record in episode_records])
     episode_count = int(rewards.shape[0])
     if episode_count == 0:
@@ -200,7 +198,7 @@ def calculate_reward_statistics(
 
 
 def calculate_success_statistics(
-    *, episode_records: list[EpisodeRecord]
+    *, episode_records: list[Episode]
 ) -> SuccessStatistics:
     episode_count = len(episode_records)
     if episode_count == 0:
@@ -213,14 +211,14 @@ def calculate_success_statistics(
 
 
 def pick_representative_episodes(
-    *, episode_records: list[EpisodeRecord]
-) -> dict[int, EpisodeRecord]:
+    *, episode_records: list[Episode]
+) -> dict[int, Episode]:
     if not episode_records:
         return {}
     percentiles = (0, 2, 5, 10, 20, 40, 50, 60, 80, 90, 95, 98, 100)
     sorted_records = sorted(episode_records, key=lambda record: record.reward)
     last_index = len(sorted_records) - 1
-    selected: dict[int, EpisodeRecord] = {}
+    selected: dict[int, Episode] = {}
     selected_indices: set[int] = set()
     for percentile in percentiles:
         index = round(number=last_index * percentile / 100)

@@ -12,7 +12,7 @@ from scripts.data.augmentation.tacil.create_dynamics.dynamics_model_ensemble_tra
     train_dynamics_model_ensemble,
 )
 from scripts.environments.environment import Environment
-from scripts.shared.episode_store import EpisodeStore
+from scripts.shared.episodes import StateActionEpisodes
 
 
 @dataclass(frozen=True)
@@ -25,18 +25,18 @@ def augment(
     *,
     config: TacilConfig,
     environment: Environment,
-    expert_episodes: EpisodeStore,
+    expert_episodes: StateActionEpisodes,
     expert_part_length: int,
     seed: int,
     device: torch.device,
     run: Run,
-) -> EpisodeStore:
+) -> StateActionEpisodes:
     dynamics_model_ensemble = train_dynamics_model_ensemble(
         config=config.dynamics,
         state_space=environment.state_space,
         network_input_builder=environment.tacil_network_input_builder,
         dynamics_plotter=environment.tacil_dynamics_plotter,
-        episode_store=expert_episodes,
+        episodes=expert_episodes,
         seed=seed,
         device=device,
         run=run,
