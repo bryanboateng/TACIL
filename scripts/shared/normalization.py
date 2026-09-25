@@ -1,9 +1,5 @@
 import torch
 
-# Float32 simulator observations contain round-off at roughly 1e-8 even in
-# geometrically constant dimensions. Do not amplify that noise into features.
-_MINIMUM_SPREAD = 1e-6
-
 
 class MinMaxNormalizer(torch.nn.Module):
     scale: torch.Tensor  # (dimensionality,)
@@ -17,7 +13,9 @@ class MinMaxNormalizer(torch.nn.Module):
         super().__init__()
         minimum = value_batch.min(dim=0).values  # (dimensionality,)
         value_range = value_batch.max(dim=0).values - minimum  # (dimensionality,)
-        constant_dimension_mask = value_range < _MINIMUM_SPREAD  # (dimensionality,)
+        constant_dimension_mask = (
+            value_range < 10.0 * torch.finfo(value_range.dtype).eps
+        )  # (dimensionality,)
 
         scale = 2.0 / value_range  # (dimensionality,)
         scale[constant_dimension_mask] = 1.0
@@ -53,7 +51,7 @@ class ZScoreNormalizer(torch.nn.Module):
     ) -> None:
         super().__init__()
         std = value_batch.std(dim=0, correction=0)  # (dimensionality,)
-        std[std < _MINIMUM_SPREAD] = 1.0
+        std[std < 10.0 * torch.finfo(std.dtype).eps] = 1.0
         self.register_buffer(name="mean", tensor=value_batch.mean(dim=0))
         self.register_buffer(name="std", tensor=std)
 
