@@ -2,6 +2,7 @@ import copy
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Literal
 
 import torch
 from torch.optim import Adam
@@ -14,6 +15,11 @@ from scripts.policies.mopo.dynamics.dynamics import Dynamics, TerminationFunctio
 from scripts.policies.mopo.dynamics.dynamics_training import train_dynamics
 from scripts.policies.mopo.policy import CriticEnsemble, GaussianActor, MopoPolicy
 from scripts.policies.mopo.transitions import Transitions
+from scripts.policies.shared.checkpoint import (
+    Checkpoint,
+    beats_best_checkpoint,
+    summarize_best_checkpoint,
+)
 from scripts.policies.shared.metrics import (
     EPOCH_METRIC_NAME,
     STAGE_NAME,
@@ -34,6 +40,7 @@ ROLLOUT_SECTION = f"{STAGE_NAME}/3_rollout"
 class ValidationScore:
     mean: float
     std: float
+    success_rate: float
 
 
 def train_mopo_policy(
@@ -42,6 +49,7 @@ def train_mopo_policy(
     transitions: Transitions,
     termination_function: TerminationFunction,
     score_policy: Callable[[MopoPolicy], ValidationScore],
+    selection_metric: Literal["reward", "success_then_reward"],
     seed: int,
     device: torch.device,
     run: Run,
@@ -97,7 +105,7 @@ def train_mopo_policy(
     )
     imagined_data_batch_size = config.optimization.batch_size - real_data_batch_size
 
-    best_checkpoint: _Checkpoint | None = None
+    best_checkpoint: Checkpoint | None = None
     global_step = 0
 
     for epoch_index in tqdm(
@@ -166,47 +174,37 @@ def train_mopo_policy(
             data={
                 f"{VALIDATION_SECTION}/1_reward_mean": validation_score.mean,
                 f"{VALIDATION_SECTION}/2_reward_std": validation_score.std,
+                f"{VALIDATION_SECTION}/3_success_rate": validation_score.success_rate,
                 EPOCH_METRIC_NAME: epoch_index,
                 STEP_METRIC_NAME: global_step,
             }
         )
 
-        if (
-            best_checkpoint is None
-            or validation_score.mean > best_checkpoint.validation_reward_mean
+        if beats_best_checkpoint(
+            best_checkpoint=best_checkpoint,
+            selection_metric=selection_metric,
+            validation_reward_mean=validation_score.mean,
+            validation_success_rate=validation_score.success_rate,
         ):
-            best_checkpoint = _Checkpoint(
+            best_checkpoint = Checkpoint(
                 validation_reward_mean=validation_score.mean,
                 validation_reward_std=validation_score.std,
+                validation_success_rate=validation_score.success_rate,
                 epoch=epoch_index,
-                actor_state_dict=copy.deepcopy(policy.actor.state_dict()),
+                state_dict=copy.deepcopy(policy.actor.state_dict()),
             )
 
     if best_checkpoint is None:
         raise ValueError("No checkpoint was recorded")
 
-    run.summary[f"{STAGE_NAME}/4_best_checkpoint/1_epoch"] = best_checkpoint.epoch
-    run.summary[f"{STAGE_NAME}/4_best_checkpoint/2_validation_reward_mean"] = (
-        best_checkpoint.validation_reward_mean
-    )
-    run.summary[f"{STAGE_NAME}/4_best_checkpoint/3_validation_reward_std"] = (
-        best_checkpoint.validation_reward_std
-    )
+    summarize_best_checkpoint(run=run, best_checkpoint=best_checkpoint)
 
     if config.validation.kept_policy == "best":
-        policy.actor.load_state_dict(state_dict=best_checkpoint.actor_state_dict)
+        policy.actor.load_state_dict(state_dict=best_checkpoint.state_dict)
     return policy
 
 
 # ---- Private --------------------------------------------
-
-
-@dataclass(frozen=True)
-class _Checkpoint:
-    validation_reward_mean: float
-    validation_reward_std: float
-    epoch: int
-    actor_state_dict: dict[str, torch.Tensor]
 
 
 def _create_policy(

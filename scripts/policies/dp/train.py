@@ -131,7 +131,6 @@ def train_diffusion_policy(
                     noise_prediction_network=noise_prediction_network,
                     batch=batch,
                     forward_noise_scheduler=forward_noise_scheduler,
-                    observation_horizon_length=config.horizon_lengths.observation,
                     observation_noise=config.observation_noise,
                     device=device,
                 )
@@ -255,16 +254,13 @@ def _calculate_denoising_loss(
     noise_prediction_network: ConditionalUnet1d,
     batch: WindowBatch,
     forward_noise_scheduler: DDPMScheduler,
-    observation_horizon_length: int,
     observation_noise: float | None,
     device: torch.device,
 ) -> torch.Tensor:
     batch_size = len(batch.observation_windows)
 
     # FiLM conditioning: flatten observation history into a single vector per example.
-    condition_batch = batch.observation_windows[
-        :, :observation_horizon_length, :
-    ].flatten(
+    condition_batch = batch.observation_windows.flatten(
         start_dim=1
     )  # (batch_size, observation_horizon_length * observation_dimensionality)
 

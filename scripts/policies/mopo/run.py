@@ -11,6 +11,7 @@ from scripts.environments.environment import Environment
 from scripts.environments.registry import create_environment
 from scripts.evaluation.core.scoring import (
     calculate_reward_statistics,
+    calculate_success_statistics,
     run_scored_episodes_over_conditions,
 )
 from scripts.evaluation.evaluate_policy import evaluate_policy
@@ -88,6 +89,7 @@ def _run(*, config: Config) -> None:
                 episode_count_per_condition=config.policy.validation.episode_count_per_condition,
                 device=device,
             ),
+            selection_metric=environment.checkpoint_selection_metric,
             seed=config.seed,
             device=device,
             run=run,
@@ -179,19 +181,22 @@ def _score_policy(
     episode_count_per_condition: int,
     device: torch.device,
 ) -> ValidationScore:
-    reward_statistics = calculate_reward_statistics(
-        episode_records=run_scored_episodes_over_conditions(
-            environment=environment,
-            policy_factory=create_mopo_policy_factory(
-                policy=policy,
-                state_normalizer=state_normalizer,
-                action_normalizer=action_normalizer,
-                device=device,
-            ),
-            episode_count_per_condition=episode_count_per_condition,
-        )
+    episode_records = run_scored_episodes_over_conditions(
+        environment=environment,
+        policy_factory=create_mopo_policy_factory(
+            policy=policy,
+            state_normalizer=state_normalizer,
+            action_normalizer=action_normalizer,
+            device=device,
+        ),
+        episode_count_per_condition=episode_count_per_condition,
     )
-    return ValidationScore(mean=reward_statistics.mean, std=reward_statistics.std)
+    reward_statistics = calculate_reward_statistics(episode_records=episode_records)
+    return ValidationScore(
+        mean=reward_statistics.mean,
+        std=reward_statistics.std,
+        success_rate=calculate_success_statistics(episode_records=episode_records).rate,
+    )
 
 
 if __name__ == "__main__":

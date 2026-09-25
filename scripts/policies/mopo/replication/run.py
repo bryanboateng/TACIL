@@ -100,6 +100,7 @@ def _run(*, config: Config) -> None:
                 seed=config.seed,
                 device=device,
             ),
+            selection_metric="reward",
             seed=config.seed,
             device=device,
             run=run,
@@ -169,7 +170,12 @@ def _score_policy(
     result = evaluate(
         policy=policy, task=task, episode_count=episode_count, seed=seed, device=device
     )
-    return ValidationScore(mean=result.score_mean, std=result.score_std)
+    return ValidationScore(
+        mean=result.score_mean,
+        std=result.score_std,
+        # D4RL tasks have no success flag, so the rate is not measured here.
+        success_rate=float("nan"),
+    )
 
 
 if __name__ == "__main__":
