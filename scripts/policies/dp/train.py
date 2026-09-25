@@ -72,8 +72,7 @@ def train_diffusion_policy(
     run.summary[f"{STAGE_NAME}/0_dataset/2_training_window_count"] = len(dataset)
     if len(dataset) == 0:
         raise ValueError("The dataset contains no complete training windows")
-    if config.optimization.cache_dataset_on_device:
-        dataset.to(device=device)
+    dataset.to(device=device)
 
     noise_prediction_network = ConditionalUnet1d(
         action_dimensionality=expert_episodes.actions.shape[1],
@@ -270,13 +269,10 @@ def _calculate_denoising_loss(
     observation_noise: float | None,
     device: torch.device,
 ) -> torch.Tensor:
-    observations, actions = training_batch
-    observations = observations.to(
-        device=device
-    )  # (batch_size, observation_horizon_length, observation_dimensionality)
-    actions = actions.to(
-        device=device
-    )  # (batch_size, prediction_horizon_length, action_dimensionality)
+    (
+        observations,  # (batch_size, observation_horizon_length, observation_dimensionality)
+        actions,  # (batch_size, prediction_horizon_length, action_dimensionality)
+    ) = training_batch
 
     batch_size = observations.shape[0]
 

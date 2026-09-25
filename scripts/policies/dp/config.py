@@ -43,8 +43,6 @@ class OptimizationConfig:
     weight_decay: float = 1e-6
     learning_rate_warmup_step_count: int = 500
     ema_power: float = 0.75
-    # Cache sequence tensors on the training device; disable for large datasets.
-    cache_dataset_on_device: bool = True
 
     def __post_init__(self) -> None:
         for name, value in (
