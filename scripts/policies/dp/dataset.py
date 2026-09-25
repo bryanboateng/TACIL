@@ -10,7 +10,7 @@ from scripts.shared.episodes import Episodes, calculate_episode_lengths
 from scripts.shared.normalization import MinMaxNormalizer
 
 
-class Dataset(torch.utils.data.Dataset[tuple[torch.Tensor, torch.Tensor]]):
+class Dataset:
     def __init__(
         self,
         *,
@@ -62,6 +62,8 @@ class Dataset(torch.utils.data.Dataset[tuple[torch.Tensor, torch.Tensor]]):
                 actions=torch.cat([expert_windows.actions, augmented_windows.actions]),
             )
 
+        self._device = self._windows.actions.device
+
     def __len__(self) -> int:
         return len(self._windows.actions)
 
@@ -70,26 +72,17 @@ class Dataset(torch.utils.data.Dataset[tuple[torch.Tensor, torch.Tensor]]):
             observations=self._windows.observations.to(device=device),
             actions=self._windows.actions.to(device=device),
         )
+        self._device = device
 
     def batches(
         self, *, batch_size: int
     ) -> Iterator[tuple[torch.Tensor, torch.Tensor]]:
-        indices = torch.randperm(len(self), device=self._windows.actions.device)
+        indices = torch.randperm(len(self), device=self._device)
         for batch_indices in indices.split(batch_size):
             yield (
                 self._windows.observations[batch_indices],
                 self._windows.actions[batch_indices],
             )
-
-    def __getitem__(self, index: int) -> tuple[torch.Tensor, torch.Tensor]:
-        return (
-            self._windows.observations[
-                index
-            ],  # (observation_horizon_length, observation_dimensionality)
-            self._windows.actions[
-                index
-            ],  # (prediction_horizon_length, action_dimensionality)
-        )
 
 
 # ---- Private --------------------------------------------

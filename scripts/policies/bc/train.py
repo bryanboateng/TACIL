@@ -33,7 +33,6 @@ from scripts.policies.shared.metrics import (
     define_step_metrics,
 )
 from scripts.shared.log import create_logger
-from scripts.shared.normalization import MinMaxNormalizer, ZScoreNormalizer
 from scripts.shared.seeding import set_seed
 from scripts.shared.state_action_transitions import StateActionTransitions
 
@@ -59,18 +58,14 @@ def train_behavior_cloning_policy(
     )
 
     dataset = Dataset(state_action_transitions=state_action_transitions)
-
-    # These low-dimensional datasets are small enough to batch directly on the
-    # training device, without fetching and collating each individual sample.
-    states = dataset.states.to(device=device)
-    actions = dataset.actions.to(device=device)
+    dataset.to(device=device)
 
     model = BehaviorCloningPolicyModel(
         observation_dimensionality=state_action_transitions.states.shape[1],
         action_dimensionality=state_action_transitions.actions.shape[1],
         hidden_layer_dimensionality=config.hidden_layer_dimensionality,
-        observation_normalizer=ZScoreNormalizer(value_batch=states),
-        action_normalizer=MinMaxNormalizer(value_batch=actions),
+        observation_normalizer=dataset.observation_normalizer,
+        action_normalizer=dataset.action_normalizer,
         excluded_observation_indices=config.excluded_observation_indices,
     ).to(device=device)
 
@@ -87,13 +82,9 @@ def train_behavior_cloning_policy(
             model.train()
             training_start = perf_counter()
             epoch_loss = torch.zeros((), device=device)
-            permutation = torch.randperm(len(dataset), device=device)
-            for batch_index, batch_indices in enumerate(
-                permutation.split(config.optimization.batch_size)
+            for batch_index, (observation_batch, target_action_batch) in enumerate(
+                dataset.batches(batch_size=config.optimization.batch_size)
             ):
-                observation_batch = states[batch_indices]
-                target_action_batch = actions[batch_indices]
-
                 optimizer.zero_grad()
 
                 predicted_action_batch = model(
@@ -126,7 +117,7 @@ def train_behavior_cloning_policy(
 
                 optimizer.step()
 
-                epoch_loss += loss.detach() * len(batch_indices)
+                epoch_loss += loss.detach() * len(observation_batch)
                 global_step += 1
 
             mean_loss = (epoch_loss / len(dataset)).item()
