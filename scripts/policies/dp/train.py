@@ -240,16 +240,13 @@ def train_diffusion_policy(
                     validation_reward_std=validation_reward.std,
                     validation_success_rate=validation_success,
                     epoch=epoch_index,
-                    step=global_step,
                     state_dict=ema_state_dict,
                 )
 
     if best_checkpoint is None:
         raise ValueError("No checkpoint was recorded")
 
-    summarize_best_checkpoint(
-        run=run, best_checkpoint=best_checkpoint, environment=environment
-    )
+    summarize_best_checkpoint(run=run, best_checkpoint=best_checkpoint)
 
     noise_prediction_network.load_state_dict(best_checkpoint.state_dict)
     return noise_prediction_network

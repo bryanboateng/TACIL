@@ -201,7 +201,6 @@ def train_behavior_cloning_policy(
                     validation_reward_std=validation_reward.std,
                     validation_success_rate=validation_success,
                     epoch=epoch_index,
-                    step=global_step,
                     state_dict=copy.deepcopy(model.state_dict()),
                 )
 
@@ -211,10 +210,7 @@ def train_behavior_cloning_policy(
     if best_checkpoint is None:
         raise ValueError("No checkpoint was recorded")
 
-    assert environment is not None
-    summarize_best_checkpoint(
-        run=run, best_checkpoint=best_checkpoint, environment=environment
-    )
+    summarize_best_checkpoint(run=run, best_checkpoint=best_checkpoint)
 
     model.load_state_dict(state_dict=best_checkpoint.state_dict)
     return model
