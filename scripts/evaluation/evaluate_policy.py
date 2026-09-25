@@ -19,6 +19,7 @@ from scripts.environments.render_settings import RenderSettings
 from scripts.evaluation.config import (
     FINAL_START_SEED,
     TUNING_START_SEED,
+    CustomEvaluation,
     EvaluationConfig,
     FinalEvaluation,
     TuningEvaluation,
@@ -58,11 +59,13 @@ def evaluate_policy(
         case TuningEvaluation():
             start_episode_seed = TUNING_START_SEED
             episode_count_per_condition = 100
-            record_videos = False
-        case FinalEvaluation() as final_evaluation:
+        case FinalEvaluation():
             start_episode_seed = FINAL_START_SEED
             episode_count_per_condition = 200
-            record_videos = final_evaluation.record_videos
+        case CustomEvaluation() as custom_evaluation:
+            start_episode_seed = custom_evaluation.start_episode_seed
+            episode_count_per_condition = custom_evaluation.episode_count_per_condition
+
     with torch.no_grad():
         scored_episodes_per_condition = run_scored_episodes_per_condition(
             environment=environment,
@@ -90,7 +93,7 @@ def evaluate_policy(
                         episode_records=episode_records
                     ),
                 )
-                if record_videos:
+                if config.record_videos:
                     video_start = perf_counter()
                     _log_video(
                         environment=environment,
