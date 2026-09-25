@@ -96,12 +96,10 @@ def _create_policy_factory(
         gpi_geometry=environment.gpi_geometry,
         episodes=drop_rewards(
             episodes=read_episodes(
-                episode_file_path=(
-                    Path(
-                        wandb.Api()
-                        .artifact(name=f"{DATASET_PROJECT}/{config.dataset_artifact}")
-                        .download()
-                    )
+                directory_path=Path(
+                    wandb.Api()
+                    .artifact(name=f"{DATASET_PROJECT}/{config.dataset_artifact}")
+                    .download()
                 )
             )
         ),

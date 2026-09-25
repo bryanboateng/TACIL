@@ -34,19 +34,17 @@ def read_environment_name(*, dataset_name: str) -> EnvironmentName:
 
 
 def download_episodes(*, artifact_name: str, run: Run) -> RewardedEpisodes:
-    return read_episodes(
-        episode_file_path=_download(artifact_name=artifact_name, run=run)
-    )
+    return read_episodes(directory_path=_download(artifact_name=artifact_name, run=run))
 
 
 def upload_episodes(*, episodes: RewardedEpisodes, dataset_name: str, run: Run) -> None:
     with tempfile.TemporaryDirectory() as temporary_directory:
-        output_zarr_path = Path(temporary_directory) / "dataset.zarr"
+        output_directory_path = Path(temporary_directory)
 
-        write_episodes(episodes=episodes, save_file_path=output_zarr_path)
+        write_episodes(episodes=episodes, directory_path=output_directory_path)
 
         artifact = wandb.Artifact(name=dataset_name, type="dataset")
-        artifact.add_dir(local_path=str(output_zarr_path))
+        artifact.add_dir(local_path=str(output_directory_path))
         run.log_artifact(artifact_or_path=artifact)
 
 
