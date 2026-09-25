@@ -82,22 +82,20 @@ def train_behavior_cloning_policy(
             model.train()
             training_start = perf_counter()
             epoch_loss = torch.zeros((), device=device)
-            for batch_index, (observation_batch, target_action_batch) in enumerate(
+            for batch_index, batch in enumerate(
                 dataset.batches(batch_size=config.optimization.batch_size)
             ):
                 optimizer.zero_grad()
 
                 predicted_action_batch = model(
-                    observation_batch, config.observation_noise
+                    batch.states, config.observation_noise
                 )  # (batch_size, action_dimensionality)
 
                 loss = loss_function(
                     input=model.action_normalizer.normalize(
                         value_batch=predicted_action_batch
                     ),
-                    target=model.action_normalizer.normalize(
-                        value_batch=target_action_batch
-                    ),
+                    target=model.action_normalizer.normalize(value_batch=batch.actions),
                 )
 
                 loss.backward()
@@ -117,7 +115,7 @@ def train_behavior_cloning_policy(
 
                 optimizer.step()
 
-                epoch_loss += loss.detach() * len(observation_batch)
+                epoch_loss += loss.detach() * len(batch.states)
                 global_step += 1
 
             mean_loss = (epoch_loss / len(dataset)).item()

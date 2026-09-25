@@ -1,9 +1,16 @@
 from collections.abc import Iterator
+from dataclasses import dataclass
 
 import torch
 
 from scripts.shared.normalization import MinMaxNormalizer, ZScoreNormalizer
 from scripts.shared.state_action_transitions import StateActionTransitions
+
+
+@dataclass(frozen=True, slots=True)
+class Batch:
+    states: torch.Tensor  # (batch_size, state_dimensionality)
+    actions: torch.Tensor  # (batch_size, action_dimensionality)
 
 
 class Dataset:
@@ -29,9 +36,9 @@ class Dataset:
         self._actions = self._actions.to(device=device)
         self._device = device
 
-    def batches(
-        self, *, batch_size: int
-    ) -> Iterator[tuple[torch.Tensor, torch.Tensor]]:
+    def batches(self, *, batch_size: int) -> Iterator[Batch]:
         indices = torch.randperm(len(self), device=self._device)
         for batch_indices in indices.split(batch_size):
-            yield (self._states[batch_indices], self._actions[batch_indices])
+            yield Batch(
+                states=self._states[batch_indices], actions=self._actions[batch_indices]
+            )

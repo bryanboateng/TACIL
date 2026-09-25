@@ -18,7 +18,7 @@ from scripts.evaluation.core.scoring import (
     calculate_success_statistics,
 )
 from scripts.policies.dp.config import Config
-from scripts.policies.dp.dataset import Dataset
+from scripts.policies.dp.dataset import Dataset, WindowBatch
 from scripts.policies.dp.network import ConditionalUnet1d
 from scripts.policies.dp.noise_scheduler import create_forward_noise_scheduler
 from scripts.policies.dp.policy import create_diffusion_policy_factory
@@ -123,13 +123,13 @@ def train_diffusion_policy(
             noise_prediction_network.train()
             training_start = perf_counter()
             epoch_loss = torch.zeros((), device=device)
-            for batch_index, training_batch in enumerate(
+            for batch_index, batch in enumerate(
                 dataset.batches(batch_size=config.optimization.batch_size)
             ):
                 optimizer.zero_grad(set_to_none=True)
                 loss = _calculate_denoising_loss(
                     noise_prediction_network=noise_prediction_network,
-                    training_batch=training_batch,
+                    batch=batch,
                     forward_noise_scheduler=forward_noise_scheduler,
                     observation_horizon_length=config.horizon_lengths.observation,
                     observation_noise=config.observation_noise,
@@ -153,7 +153,7 @@ def train_diffusion_policy(
                 learning_rate_scheduler.step()
                 noise_prediction_network_ema.step(noise_prediction_network.parameters())
 
-                epoch_loss += loss.detach() * training_batch[0].shape[0]
+                epoch_loss += loss.detach() * len(batch.observation_windows)
                 global_step += 1
 
             mean_loss = (epoch_loss / len(dataset)).item()
@@ -253,21 +253,18 @@ def train_diffusion_policy(
 def _calculate_denoising_loss(
     *,
     noise_prediction_network: ConditionalUnet1d,
-    training_batch: tuple[torch.Tensor, torch.Tensor],
+    batch: WindowBatch,
     forward_noise_scheduler: DDPMScheduler,
     observation_horizon_length: int,
     observation_noise: float | None,
     device: torch.device,
 ) -> torch.Tensor:
-    (
-        observations,  # (batch_size, observation_horizon_length, observation_dimensionality)
-        actions,  # (batch_size, prediction_horizon_length, action_dimensionality)
-    ) = training_batch
-
-    batch_size = observations.shape[0]
+    batch_size = len(batch.observation_windows)
 
     # FiLM conditioning: flatten observation history into a single vector per example.
-    condition_batch = observations[:, :observation_horizon_length, :].flatten(
+    condition_batch = batch.observation_windows[
+        :, :observation_horizon_length, :
+    ].flatten(
         start_dim=1
     )  # (batch_size, observation_horizon_length * observation_dimensionality)
 
@@ -277,7 +274,7 @@ def _calculate_denoising_loss(
         )
 
     noise_batch = torch.randn(
-        size=actions.shape, device=device
+        size=batch.action_windows.shape, device=device
     )  # (batch_size, prediction_horizon_length, action_dimensionality)
     diffusion_timestep_batch = torch.randint(
         low=0,
@@ -286,7 +283,7 @@ def _calculate_denoising_loss(
         device=device,
     )  # (batch_size,)
     noisy_action_batch = forward_noise_scheduler.add_noise(
-        original_samples=actions,
+        original_samples=batch.action_windows,
         noise=noise_batch,
         # Ignore because PyTorch returns Tensors but diffusers expects IntTensor in its type hints.
         timesteps=diffusion_timestep_batch,  # type: ignore[arg-type] # ty:ignore[invalid-argument-type]

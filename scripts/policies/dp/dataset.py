@@ -1,5 +1,5 @@
-from dataclasses import dataclass
 from collections.abc import Iterator
+from dataclasses import dataclass
 
 import numpy as np
 import numpy.typing as npt
@@ -8,6 +8,16 @@ import torch
 from scripts.policies.dp.config import HorizonLengthConfig
 from scripts.shared.episodes import Episodes, calculate_episode_lengths
 from scripts.shared.normalization import MinMaxNormalizer
+
+
+@dataclass(frozen=True, slots=True)
+class WindowBatch:
+    observation_windows: (
+        torch.Tensor
+    )  # (window_count, observation_horizon_length, observation_dimensionality)
+    action_windows: (
+        torch.Tensor
+    )  # (window_count, prediction_horizon_length, action_dimensionality)
 
 
 class Dataset:
@@ -34,7 +44,7 @@ class Dataset:
         )
 
         if augmented_episodes is None:
-            self._windows = expert_windows
+            windows = expert_windows
         else:
             episode_lengths = calculate_episode_lengths(
                 episode_end_indices=augmented_episodes.episode_end_indices
@@ -55,47 +65,41 @@ class Dataset:
                 lead_in_length=0,
                 run_out_length=0,
             )
-            self._windows = _Windows(
-                observations=torch.cat(
-                    [expert_windows.observations, augmented_windows.observations]
+            windows = WindowBatch(
+                observation_windows=torch.cat(
+                    [
+                        expert_windows.observation_windows,
+                        augmented_windows.observation_windows,
+                    ]
                 ),
-                actions=torch.cat([expert_windows.actions, augmented_windows.actions]),
+                action_windows=torch.cat(
+                    [expert_windows.action_windows, augmented_windows.action_windows]
+                ),
             )
 
-        self._device = self._windows.actions.device
+        self._windows = windows
+        self._device = self._windows.action_windows.device
 
     def __len__(self) -> int:
-        return len(self._windows.actions)
+        return len(self._windows.action_windows)
 
     def to(self, *, device: torch.device) -> None:
-        self._windows = _Windows(
-            observations=self._windows.observations.to(device=device),
-            actions=self._windows.actions.to(device=device),
+        self._windows = WindowBatch(
+            observation_windows=self._windows.observation_windows.to(device=device),
+            action_windows=self._windows.action_windows.to(device=device),
         )
         self._device = device
 
-    def batches(
-        self, *, batch_size: int
-    ) -> Iterator[tuple[torch.Tensor, torch.Tensor]]:
+    def batches(self, *, batch_size: int) -> Iterator[WindowBatch]:
         indices = torch.randperm(len(self), device=self._device)
         for batch_indices in indices.split(batch_size):
-            yield (
-                self._windows.observations[batch_indices],
-                self._windows.actions[batch_indices],
+            yield WindowBatch(
+                observation_windows=self._windows.observation_windows[batch_indices],
+                action_windows=self._windows.action_windows[batch_indices],
             )
 
 
 # ---- Private --------------------------------------------
-
-
-@dataclass(frozen=True, slots=True)
-class _Windows:
-    observations: (
-        torch.Tensor
-    )  # (window_count, observation_horizon_length, observation_dimensionality)
-    actions: (
-        torch.Tensor
-    )  # (window_count, prediction_horizon_length, action_dimensionality)
 
 
 def _create_normalizers(
@@ -124,7 +128,7 @@ def _create_windows(
     observation_horizon_length: int,
     lead_in_length: int,
     run_out_length: int,
-) -> _Windows:
+) -> WindowBatch:
     window_timesteps = _get_window_timesteps(
         episode_end_indices=episodes.episode_end_indices,
         window_length=window_length,
@@ -145,11 +149,11 @@ def _create_windows(
     #     step         0 1 2 3 4 5 6 7 8 9 A B C D E F
     #     observation  o o
     #     prediction   a a a a a a a a a a a a a a a a
-    return _Windows(
-        observations=normalized_observations[
+    return WindowBatch(
+        observation_windows=normalized_observations[
             window_timesteps[:, :observation_horizon_length]
         ],
-        actions=normalized_actions[window_timesteps],
+        action_windows=normalized_actions[window_timesteps],
     )
 
 
