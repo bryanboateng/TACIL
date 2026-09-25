@@ -21,7 +21,7 @@ from scripts.policies.bc.policy import (
 )
 from scripts.policies.shared.checkpoint import (
     Checkpoint,
-    is_new_best,
+    beats_best_checkpoint,
     summarize_best_checkpoint,
 )
 from scripts.policies.shared.metrics import (
@@ -186,7 +186,7 @@ def train_behavior_cloning_policy(
                 }
             )
 
-            if is_new_best(
+            if beats_best_checkpoint(
                 best_checkpoint=best_checkpoint,
                 selection_metric=environment.checkpoint_selection_metric,
                 validation_reward_mean=validation_reward.mean,

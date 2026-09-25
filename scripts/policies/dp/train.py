@@ -24,7 +24,7 @@ from scripts.policies.dp.noise_scheduler import create_forward_noise_scheduler
 from scripts.policies.dp.policy import create_diffusion_policy_factory
 from scripts.policies.shared.checkpoint import (
     Checkpoint,
-    is_new_best,
+    beats_best_checkpoint,
     summarize_best_checkpoint,
 )
 from scripts.policies.shared.metrics import (
@@ -224,7 +224,7 @@ def train_diffusion_policy(
                 }
             )
 
-            if is_new_best(
+            if beats_best_checkpoint(
                 best_checkpoint=best_checkpoint,
                 selection_metric=environment.checkpoint_selection_metric,
                 validation_reward_mean=validation_reward.mean,

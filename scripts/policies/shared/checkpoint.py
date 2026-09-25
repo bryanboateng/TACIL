@@ -15,7 +15,7 @@ class Checkpoint:
     state_dict: dict
 
 
-def is_new_best(
+def beats_best_checkpoint(
     *,
     best_checkpoint: Checkpoint | None,
     selection_metric: Literal["reward", "success_then_reward"],
