@@ -96,7 +96,7 @@ class ScoringSessionTests(unittest.TestCase):
             np.testing.assert_array_equal(a.actions, b.actions)
             self.assertEqual(a.rewards, b.rewards)
 
-    def test_reuses_workers_and_environments_without_changing_episodes(self):
+    def test_reuses_workers_without_changing_episodes(self):
         with tempfile.TemporaryDirectory() as directory:
             task = ToyTask(directory)
             with ScoringSession(
@@ -117,17 +117,19 @@ class ScoringSessionTests(unittest.TestCase):
                     policy_factory=policy_factory(0.5), episode_count_per_condition=3
                 )
                 self.assertNotEqual(first[0].reward, updated[0].reward)
-                for path in files:
-                    self.assertEqual(path.read_text(), "created\n")
+            # Each condition opens its own environments, so every one that was
+            # created is closed again by the time the session ends.
             for path in files:
-                self.assertEqual(path.read_text(), "created\nclosed\n")
-            sequential = run_scored_episodes_over_conditions(
+                events = path.read_text().split()
+                self.assertEqual(events.count("created"), events.count("closed"))
+                self.assertGreater(events.count("created"), 0)
+            with_one_worker = run_scored_episodes_over_conditions(
                 environment=task,
                 policy_factory=policy_factory(0.25),
                 episode_count_per_condition=3,
                 parallel_environment_count=1,
             )
-            self.assert_records_equal(first, sequential)
+            self.assert_records_equal(first, with_one_worker)
             self.assertEqual(
                 [r.seed for r in first],
                 list(range(VALIDATION_START_SEED, VALIDATION_START_SEED + 6)),

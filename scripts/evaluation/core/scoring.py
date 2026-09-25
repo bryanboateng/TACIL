@@ -9,7 +9,7 @@ from scripts.environments.condition import Condition
 from scripts.environments.environment import Environment
 from scripts.evaluation.config import VALIDATION_START_SEED
 from scripts.evaluation.core.parallel import ParallelEnvironmentPool
-from scripts.evaluation.core.rollout import Episode, roll_out_episodes
+from scripts.evaluation.core.rollout import Episode
 from scripts.shared.policy_types import PolicyFactory
 
 
@@ -79,33 +79,23 @@ class ScoringSession:
     ) -> list[Episode]:
         if self._is_closed:
             raise RuntimeError("Scoring session is closed")
-        condition = self.environment.conditions[condition_index]
-        seeds = list(range(start_episode_seed, start_episode_seed + episode_count))
-        if self._parallel_environment_count > 1:
-            if self._parallel_environment_pool is None:
-                self._parallel_environment_pool = ParallelEnvironmentPool(
-                    factories=[
-                        partial(
-                            self.environment.create_gym_environment,
-                            condition=item,
-                            render_settings=None,
-                        )
-                        for item in self.environment.conditions
-                    ],
-                    worker_count=self._parallel_environment_count,
-                )
-            return self._parallel_environment_pool.roll_out(
-                seeds=seeds,
-                policy_factory=policy_factory,
-                condition_index=condition_index,
+        if self._parallel_environment_pool is None:
+            self._parallel_environment_pool = ParallelEnvironmentPool(
+                factories=[
+                    partial(
+                        self.environment.create_gym_environment,
+                        condition=condition,
+                        render_settings=None,
+                    )
+                    for condition in self.environment.conditions
+                ],
+                worker_count=self._parallel_environment_count,
             )
-        else:
-            return _run_episodes_sequentially(
-                environment=self.environment,
-                condition=condition,
-                seeds=seeds,
-                policy_factory=policy_factory,
-            )
+        return self._parallel_environment_pool.roll_out(
+            seeds=list(range(start_episode_seed, start_episode_seed + episode_count)),
+            policy_factory=policy_factory,
+            condition_index=condition_index,
+        )
 
 
 def run_scored_episodes_per_condition(
@@ -145,32 +135,6 @@ def run_scored_episodes_over_conditions(
             policy_factory=policy_factory,
             episode_count_per_condition=episode_count_per_condition,
         )
-
-
-def _run_episodes_sequentially(
-    *,
-    environment: Environment,
-    policy_factory: PolicyFactory,
-    seeds: list[int],
-    condition: Condition,
-) -> list[Episode]:
-    gym_environments = []
-    try:
-        for _ in seeds:
-            gym_environments.append(
-                environment.create_gym_environment(
-                    condition=condition, render_settings=None
-                )
-            )
-        return roll_out_episodes(
-            environments=gym_environments,
-            seeds=seeds,
-            policy=policy_factory(episode_seeds=seeds),
-            render=False,
-        )
-    finally:
-        for gym_environment in gym_environments:
-            gym_environment.close()
 
 
 def calculate_reward_statistics(*, episode_records: list[Episode]) -> RewardStatistics:

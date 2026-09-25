@@ -2,14 +2,13 @@ import faulthandler
 import multiprocessing
 import traceback
 from collections.abc import Callable, Iterator
-from contextlib import ExitStack, contextmanager
+from contextlib import contextmanager
 from multiprocessing.connection import Connection
 from multiprocessing.process import BaseProcess
 from time import monotonic
 from typing import Any, Self
 
 import numpy as np
-import torch
 from gymnasium import Env
 from tqdm import tqdm
 
@@ -96,68 +95,61 @@ class ParallelEnvironmentPool:
     def roll_out(
         self, *, seeds: list[int], policy_factory: PolicyFactory, condition_index: int
     ) -> list[Episode]:
-        records: list[Episode] = []
-        batch_size = len(self._connections)
-        for start in range(0, len(seeds), batch_size):
-            batch_seeds = seeds[start : start + batch_size]
-            records.extend(
-                self._roll_out_batch(
-                    seeds=batch_seeds,
-                    policy_factory=policy_factory,
-                    condition_index=condition_index,
-                )
-            )
-        return records
-
-    def _roll_out_batch(
-        self, *, seeds: list[int], policy_factory: PolicyFactory, condition_index: int
-    ) -> list[Episode]:
-        connections = self._connections[: len(seeds)]
-        reset_start = monotonic()
-        for connection, seed in zip(connections, seeds, strict=True):
-            connection.send(("reset", (condition_index, seed)))
-        observations = [
-            _receive_worker_result(
-                connection=connection,
-                worker=self._workers[i],
-                operation=f"preparing condition={condition_index}, seed={seeds[i]}",
-            )
-            for i, connection in enumerate(connections)
-        ]
-        logger.debug(
-            "Prepared/reset %d scoring environments in %.2fs (first use includes creation).",
-            len(seeds),
-            monotonic() - reset_start,
+        # Every episode holds its own environment, so the policy sees them all at
+        # once and the batch it plans on does not depend on the worker count.
+        seed_chunks = _split_into_chunks(
+            values=seeds, chunk_count=len(self._connections)
         )
+        chunk_starts = np.cumsum([0, *(len(chunk) for chunk in seed_chunks)]).tolist()
+        observations = self._open_environments(
+            seed_chunks=seed_chunks, condition_index=condition_index
+        )
+
         actions: list[list[np.ndarray]] = [[] for _ in seeds]
         rewards: list[list[float]] = [[] for _ in seeds]
         terminated = [False for _ in seeds]
         policy = policy_factory(episode_seeds=seeds)
         running = list(range(len(seeds)))
+
         with tqdm(desc="Parallel rollout", unit="step", leave=False) as progress:
             while running:
                 action_batch = policy(
                     observations_by_episode_index={i: observations[i] for i in running}
                 )
-                # Dispatch every step before waiting for any one simulator.
-                for i in running:
-                    connections[i].send(("step", action_batch[i]))
-                still_running = []
-                for i in running:
-                    observation, reward, done, truncated = _receive_worker_result(
-                        connection=connections[i],
-                        worker=self._workers[i],
-                        operation=f"stepping condition={condition_index}, seed={seeds[i]}",
+                slots_per_worker = _group_slots_per_worker(
+                    episode_indices=running, chunk_starts=chunk_starts
+                )
+                # Dispatch every worker before waiting for any one simulator.
+                for worker_index, slots in slots_per_worker.items():
+                    self._connections[worker_index].send(
+                        (
+                            "step",
+                            {
+                                slot: action_batch[chunk_starts[worker_index] + slot]
+                                for slot in slots
+                            },
+                        )
                     )
-                    observations[i] = observation
-                    actions[i].append(action_batch[i])
-                    rewards[i].append(float(reward))
-                    terminated[i] = bool(done)
-                    if not (done or truncated):
-                        still_running.append(i)
-                running = still_running
+                still_running = []
+                for worker_index, slots in slots_per_worker.items():
+                    results = _receive_worker_result(
+                        connection=self._connections[worker_index],
+                        worker=self._workers[worker_index],
+                        operation=f"stepping condition={condition_index}",
+                    )
+                    for slot in slots:
+                        episode_index = chunk_starts[worker_index] + slot
+                        observation, reward, done, truncated = results[slot]
+                        observations[episode_index] = observation
+                        actions[episode_index].append(action_batch[episode_index])
+                        rewards[episode_index].append(float(reward))
+                        terminated[episode_index] = bool(done)
+                        if not (done or truncated):
+                            still_running.append(episode_index)
+                running = sorted(still_running)
                 progress.update()
                 progress.set_postfix(running=len(running), refresh=False)
+
         return [
             Episode(
                 seed=seed,
@@ -169,6 +161,61 @@ class ParallelEnvironmentPool:
             )
             for i, seed in enumerate(seeds)
         ]
+
+    def _open_environments(
+        self, *, seed_chunks: list[list[int]], condition_index: int
+    ) -> list[np.ndarray]:
+        opening_start = monotonic()
+        for connection, chunk in zip(self._connections, seed_chunks, strict=True):
+            connection.send(("open", (condition_index, chunk)))
+        observations: list[np.ndarray] = []
+        for worker_index, chunk in enumerate(seed_chunks):
+            observations.extend(
+                _receive_worker_result(
+                    connection=self._connections[worker_index],
+                    worker=self._workers[worker_index],
+                    operation=(
+                        f"preparing condition={condition_index}, "
+                        f"{len(chunk)} environments"
+                    ),
+                )
+            )
+        logger.debug(
+            "Opened %d scoring environments in %.2fs.",
+            sum(len(chunk) for chunk in seed_chunks),
+            monotonic() - opening_start,
+        )
+        return observations
+
+
+def _split_into_chunks(*, values: list[int], chunk_count: int) -> list[list[int]]:
+    chunk_size, remainder = divmod(len(values), chunk_count)
+    chunks = []
+    start = 0
+    for chunk_index in range(chunk_count):
+        end = start + chunk_size + (1 if chunk_index < remainder else 0)
+        chunks.append(values[start:end])
+        start = end
+    return chunks
+
+
+def _group_slots_per_worker(
+    *, episode_indices: list[int], chunk_starts: list[int]
+) -> dict[int, list[int]]:
+    slots_per_worker: dict[int, list[int]] = {}
+    for episode_index in episode_indices:
+        worker_index = (
+            next(
+                position
+                for position, start in enumerate(chunk_starts)
+                if start > episode_index
+            )
+            - 1
+        )
+        slots_per_worker.setdefault(worker_index, []).append(
+            episode_index - chunk_starts[worker_index]
+        )
+    return slots_per_worker
 
 
 def _receive_worker_result(
@@ -227,9 +274,9 @@ def _announce_operation(*, connection: Connection, operation: str) -> Iterator[N
 
 
 def _run_worker(connection: Connection, factories: list[Callable[[], Env]]) -> None:
-    environment: Env | None = None
-    environments: dict[int, Env] = {}
-    resources = ExitStack()
+    import torch
+
+    environments: list[Env] = []
     try:
         # Avoid multiplying PyTorch's CPU thread count by the number of workers.
         torch.set_num_threads(1)
@@ -238,31 +285,41 @@ def _run_worker(connection: Connection, factories: list[Callable[[], Env]]) -> N
             command, payload = connection.recv()
             if command == "close":
                 break
-            if command == "reset":
-                condition_index, seed = payload
-                if condition_index not in environments:
+            if command == "open":
+                condition_index, seeds = payload
+                _close_environments(environments=environments)
+                environments = []
+                observations = []
+                for seed in seeds:
                     with _announce_operation(
                         connection=connection,
-                        operation=f"creating environment condition={condition_index}, seed={seed}",
+                        operation=(
+                            f"creating environment condition={condition_index}, "
+                            f"seed={seed}"
+                        ),
                     ):
-                        environments[condition_index] = factories[condition_index]()
-                    resources.callback(environments[condition_index].close)
-                environment = environments[condition_index]
-                with _announce_operation(
-                    connection=connection,
-                    operation=f"resetting environment condition={condition_index}, seed={seed}",
-                ):
-                    observation, _ = environment.reset(seed=seed)
-                environment.observation_space.seed(seed)
-                environment.action_space.seed(seed)
-                connection.send((True, observation))
+                        environment = factories[condition_index]()
+                    environments.append(environment)
+                    with _announce_operation(
+                        connection=connection,
+                        operation=(
+                            f"resetting environment condition={condition_index}, "
+                            f"seed={seed}"
+                        ),
+                    ):
+                        observation, _ = environment.reset(seed=seed)
+                    environment.observation_space.seed(seed)
+                    environment.action_space.seed(seed)
+                    observations.append(observation)
+                connection.send((True, observations))
             elif command == "step":
-                if environment is None:
-                    raise RuntimeError("Reset the environment before stepping")
-                observation, reward, terminated, truncated, _ = environment.step(
-                    payload
-                )
-                connection.send((True, (observation, reward, terminated, truncated)))
+                results = {}
+                for slot, action in payload.items():
+                    observation, reward, terminated, truncated, _ = environments[
+                        slot
+                    ].step(action)
+                    results[slot] = (observation, reward, terminated, truncated)
+                connection.send((True, results))
             else:
                 raise ValueError(f"Unknown worker command: {command}")
     except EOFError:
@@ -274,6 +331,14 @@ def _run_worker(connection: Connection, factories: list[Callable[[], Env]]) -> N
             pass
     finally:
         try:
-            resources.close()
+            _close_environments(environments=environments)
         finally:
             connection.close()
+
+
+def _close_environments(*, environments: list[Env]) -> None:
+    for environment in environments:
+        try:
+            environment.close()
+        except Exception:  # noqa: BLE001
+            logger.warning("Closing a scoring environment failed.", exc_info=True)
