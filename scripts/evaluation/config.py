@@ -47,7 +47,6 @@ EvaluationStage: TypeAlias = (
 class EvaluationConfig:
     stage: EvaluationStage
     record_videos: bool
-    # CPU simulation processes; 1 uses the sequential rollout path.
     parallel_environment_count: int = 6
 
     def __post_init__(self) -> None:
