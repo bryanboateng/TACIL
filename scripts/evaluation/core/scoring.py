@@ -164,14 +164,14 @@ def calculate_reward_statistics(*, episode_records: list[Episode]) -> RewardStat
             standard_error=float("nan"),
             episode_count=0,
         )
-
-    std = float(rewards.std(ddof=1)) if episode_count > 1 else 0.0
-    return RewardStatistics(
-        mean=float(rewards.mean()),
-        std=std,
-        standard_error=std / float(np.sqrt(episode_count)),
-        episode_count=episode_count,
-    )
+    else:
+        std = float(rewards.std(ddof=1)) if episode_count > 1 else 0.0
+        return RewardStatistics(
+            mean=float(rewards.mean()),
+            std=std,
+            standard_error=std / float(np.sqrt(episode_count)),
+            episode_count=episode_count,
+        )
 
 
 def calculate_success_statistics(
@@ -180,11 +180,12 @@ def calculate_success_statistics(
     episode_count = len(episode_records)
     if episode_count == 0:
         return SuccessStatistics(rate=float("nan"), standard_error=float("nan"))
-
-    rate = float(np.mean([record.terminated for record in episode_records]))
-    return SuccessStatistics(
-        rate=rate, standard_error=float(np.sqrt(rate * (1.0 - rate) / episode_count))
-    )
+    else:
+        rate = float(np.mean([record.terminated for record in episode_records]))
+        return SuccessStatistics(
+            rate=rate,
+            standard_error=float(np.sqrt(rate * (1.0 - rate) / episode_count)),
+        )
 
 
 def pick_representative_episodes(
