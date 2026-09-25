@@ -14,19 +14,19 @@ from scripts.policies.mopo.dynamics.dynamics import Dynamics, TerminationFunctio
 from scripts.policies.mopo.dynamics.dynamics_training import train_dynamics
 from scripts.policies.mopo.policy import CriticEnsemble, GaussianActor, MopoPolicy
 from scripts.policies.mopo.transitions import Transitions
-from scripts.shared import stage_names
+from scripts.policies.shared.metrics import (
+    EPOCH_METRIC_NAME,
+    STAGE_NAME,
+    STEP_METRIC_NAME,
+    TRAINING_SECTION,
+    VALIDATION_SECTION,
+    define_step_metrics,
+)
 from scripts.shared.log import create_logger
 from scripts.shared.seeding import set_seed
 
 logger = create_logger()
 
-STAGE_NAME = stage_names.POLICY
-
-STEP_METRIC_NAME = f"{STAGE_NAME}/0_step"
-EPOCH_METRIC_NAME = f"{STAGE_NAME}/0_epoch"
-
-TRAINING_SECTION = f"{STAGE_NAME}/1_training"
-VALIDATION_SECTION = f"{STAGE_NAME}/2_validation"
 ROLLOUT_SECTION = f"{STAGE_NAME}/3_rollout"
 
 
@@ -47,7 +47,9 @@ def train_mopo_policy(
     run: Run,
 ) -> MopoPolicy:
     set_seed(seed=seed)
-    _define_step_metrics(run=run)
+    define_step_metrics(
+        run=run, sections=(TRAINING_SECTION, VALIDATION_SECTION, ROLLOUT_SECTION)
+    )
 
     dynamics = train_dynamics(
         config=config.dynamics,
@@ -266,14 +268,3 @@ def _create_policy(
         compile_learning_step=compile_learning_step,
         device=device,
     )
-
-
-def _define_step_metrics(*, run: Run) -> None:
-    run.define_metric(name=STEP_METRIC_NAME)
-    for name in (
-        EPOCH_METRIC_NAME,
-        f"{TRAINING_SECTION}/*",
-        f"{VALIDATION_SECTION}/*",
-        f"{ROLLOUT_SECTION}/*",
-    ):
-        run.define_metric(name=name, step_metric=STEP_METRIC_NAME)

@@ -21,24 +21,23 @@ from scripts.policies.bc.policy import (
 )
 from scripts.policies.shared.checkpoint import (
     Checkpoint,
-    calculate_checkpoint_selection_key,
+    is_new_best,
     summarize_best_checkpoint,
 )
-from scripts.shared import stage_names
+from scripts.policies.shared.metrics import (
+    EPOCH_METRIC_NAME,
+    STAGE_NAME,
+    STEP_METRIC_NAME,
+    TRAINING_SECTION,
+    VALIDATION_SECTION,
+    define_step_metrics,
+)
 from scripts.shared.log import create_logger
 from scripts.shared.normalization import MinMaxNormalizer, ZScoreNormalizer
 from scripts.shared.seeding import set_seed
 from scripts.shared.state_action_transitions import StateActionTransitions
 
 logger = create_logger()
-
-STAGE_NAME = stage_names.POLICY
-
-STEP_METRIC_NAME = f"{STAGE_NAME}/0_step"
-EPOCH_METRIC_NAME = f"{STAGE_NAME}/0_epoch"
-
-TRAINING_SECTION = f"{STAGE_NAME}/1_training"
-VALIDATION_SECTION = f"{STAGE_NAME}/2_validation"
 
 
 def train_behavior_cloning_policy(
@@ -51,7 +50,7 @@ def train_behavior_cloning_policy(
     run: Run,
 ) -> BehaviorCloningPolicyModel:
     set_seed(seed=seed)
-    _define_step_metrics(run=run)
+    define_step_metrics(run=run, sections=(TRAINING_SECTION, VALIDATION_SECTION))
 
     loss_function = torch.nn.MSELoss()
 
@@ -187,14 +186,11 @@ def train_behavior_cloning_policy(
                 }
             )
 
-            if best_checkpoint is None or calculate_checkpoint_selection_key(
+            if is_new_best(
+                best_checkpoint=best_checkpoint,
                 selection_metric=environment.checkpoint_selection_metric,
                 validation_reward_mean=validation_reward.mean,
                 validation_success_rate=validation_success,
-            ) > calculate_checkpoint_selection_key(
-                selection_metric=environment.checkpoint_selection_metric,
-                validation_reward_mean=best_checkpoint.validation_reward_mean,
-                validation_success_rate=best_checkpoint.validation_success_rate,
             ):
                 best_checkpoint = Checkpoint(
                     validation_reward_mean=validation_reward.mean,
@@ -214,9 +210,3 @@ def train_behavior_cloning_policy(
 
     model.load_state_dict(state_dict=best_checkpoint.state_dict)
     return model
-
-
-def _define_step_metrics(*, run: Run) -> None:
-    run.define_metric(name=STEP_METRIC_NAME)
-    for name in (EPOCH_METRIC_NAME, f"{TRAINING_SECTION}/*", f"{VALIDATION_SECTION}/*"):
-        run.define_metric(name=name, step_metric=STEP_METRIC_NAME)

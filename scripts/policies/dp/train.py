@@ -24,24 +24,23 @@ from scripts.policies.dp.noise_scheduler import create_forward_noise_scheduler
 from scripts.policies.dp.policy import create_diffusion_policy_factory
 from scripts.policies.shared.checkpoint import (
     Checkpoint,
-    calculate_checkpoint_selection_key,
+    is_new_best,
     summarize_best_checkpoint,
 )
+from scripts.policies.shared.metrics import (
+    EPOCH_METRIC_NAME,
+    STAGE_NAME,
+    STEP_METRIC_NAME,
+    TRAINING_SECTION,
+    VALIDATION_SECTION,
+    define_step_metrics,
+)
 from scripts.policies.shared.observation_noise import disturb_half_of_the_batch
-from scripts.shared import stage_names
 from scripts.shared.episodes import Episodes
 from scripts.shared.log import create_logger
 from scripts.shared.seeding import set_seed
 
 logger = create_logger()
-
-STAGE_NAME = stage_names.POLICY
-
-STEP_METRIC_NAME = f"{STAGE_NAME}/0_step"
-EPOCH_METRIC_NAME = f"{STAGE_NAME}/0_epoch"
-
-TRAINING_SECTION = f"{STAGE_NAME}/1_training"
-VALIDATION_SECTION = f"{STAGE_NAME}/2_validation"
 
 
 def train_diffusion_policy(
@@ -55,7 +54,7 @@ def train_diffusion_policy(
     run: Run,
 ) -> ConditionalUnet1d:
     set_seed(seed=seed)
-    _define_step_metrics(run=run)
+    define_step_metrics(run=run, sections=(TRAINING_SECTION, VALIDATION_SECTION))
 
     forward_noise_scheduler = create_forward_noise_scheduler()
 
@@ -225,14 +224,11 @@ def train_diffusion_policy(
                 }
             )
 
-            if best_checkpoint is None or calculate_checkpoint_selection_key(
+            if is_new_best(
+                best_checkpoint=best_checkpoint,
                 selection_metric=environment.checkpoint_selection_metric,
                 validation_reward_mean=validation_reward.mean,
                 validation_success_rate=validation_success,
-            ) > calculate_checkpoint_selection_key(
-                selection_metric=environment.checkpoint_selection_metric,
-                validation_reward_mean=best_checkpoint.validation_reward_mean,
-                validation_success_rate=best_checkpoint.validation_success_rate,
             ):
                 best_checkpoint = Checkpoint(
                     validation_reward_mean=validation_reward.mean,
@@ -252,12 +248,6 @@ def train_diffusion_policy(
 
 
 # ---- Private --------------------------------------------
-
-
-def _define_step_metrics(*, run: Run) -> None:
-    run.define_metric(name=STEP_METRIC_NAME)
-    for name in (EPOCH_METRIC_NAME, f"{TRAINING_SECTION}/*", f"{VALIDATION_SECTION}/*"):
-        run.define_metric(name=name, step_metric=STEP_METRIC_NAME)
 
 
 def _calculate_denoising_loss(
