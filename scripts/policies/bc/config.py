@@ -1,4 +1,6 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+
+from scripts.evaluation.config import calculate_default_parallel_environment_count
 
 
 @dataclass(frozen=True)
@@ -21,7 +23,9 @@ class OptimizationConfig:
 class ValidationConfig:
     interval_epoch_count: int = 40
     episode_count_per_condition: int = 50
-    parallel_environment_count: int = 4
+    parallel_environment_count: int = field(
+        default_factory=calculate_default_parallel_environment_count
+    )
 
     def __post_init__(self) -> None:
         for name, value in (
