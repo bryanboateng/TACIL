@@ -31,7 +31,7 @@ from scripts.evaluation.core.scoring import (
     calculate_reward_statistics,
     calculate_success_statistics,
     pick_representative_episodes,
-    run_scored_episodes_per_condition,
+    roll_out_episodes_with_the_same_seeds_in_every_condition,
 )
 from scripts.evaluation.core.video import FREEZE_SECONDS, render_episode_surfaces
 from scripts.shared import stage_names
@@ -67,12 +67,14 @@ def evaluate_policy(
             episode_count_per_condition = custom_evaluation.episode_count_per_condition
 
     with torch.no_grad():
-        scored_episodes_per_condition_generator = run_scored_episodes_per_condition(
-            environment=environment,
-            policy_factory=policy_factory,
-            start_episode_seed=start_episode_seed,
-            episode_count_per_condition=episode_count_per_condition,
-            parallel_environment_count=config.parallel_environment_count,
+        scored_episodes_per_condition_generator = (
+            roll_out_episodes_with_the_same_seeds_in_every_condition(
+                environment=environment,
+                policy_factory=policy_factory,
+                start_episode_seed=start_episode_seed,
+                episode_count_per_condition=episode_count_per_condition,
+                parallel_environment_count=config.parallel_environment_count,
+            )
         )
         scoring_start = perf_counter()
         with closing(scored_episodes_per_condition_generator):

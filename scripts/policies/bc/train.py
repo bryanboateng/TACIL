@@ -150,7 +150,7 @@ def train_behavior_cloning_policy(
 
             validation_start = perf_counter()
             with torch.no_grad():
-                episode_records = scoring_session.run_over_conditions(
+                episode_records = scoring_session.roll_out_episodes_with_separate_seeds_per_condition(
                     policy_factory=create_behavior_cloning_policy_factory(
                         policy_model=model, device=device
                     ),

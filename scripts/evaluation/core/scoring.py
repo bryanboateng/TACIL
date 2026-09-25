@@ -52,13 +52,13 @@ class ScoringSession:
             self._parallel_environment_pool.close()
             self._parallel_environment_pool = None
 
-    def run_over_conditions(
+    def roll_out_episodes_with_separate_seeds_per_condition(
         self, *, policy_factory: PolicyFactory, episode_count_per_condition: int
     ) -> list[Episode]:
         return [
             record
             for condition_index in range(len(self.environment.conditions))
-            for record in self.run_episodes_in_condition(
+            for record in self.roll_out_episodes_in_one_condition(
                 condition_index=condition_index,
                 policy_factory=policy_factory,
                 start_episode_seed=(
@@ -69,7 +69,7 @@ class ScoringSession:
             )
         ]
 
-    def run_episodes_in_condition(
+    def roll_out_episodes_in_one_condition(
         self,
         *,
         condition_index: int,
@@ -98,7 +98,7 @@ class ScoringSession:
         )
 
 
-def run_scored_episodes_per_condition(
+def roll_out_episodes_with_the_same_seeds_in_every_condition(
     *,
     environment: Environment,
     policy_factory: PolicyFactory,
@@ -112,7 +112,7 @@ def run_scored_episodes_per_condition(
         for condition_index, condition in enumerate(environment.conditions):
             yield (
                 condition,
-                scoring_session.run_episodes_in_condition(
+                scoring_session.roll_out_episodes_in_one_condition(
                     condition_index=condition_index,
                     policy_factory=policy_factory,
                     start_episode_seed=start_episode_seed,
@@ -121,7 +121,7 @@ def run_scored_episodes_per_condition(
             )
 
 
-def run_scored_episodes_over_conditions(
+def roll_out_episodes_with_separate_seeds_per_condition(
     *,
     environment: Environment,
     policy_factory: PolicyFactory,
@@ -131,7 +131,7 @@ def run_scored_episodes_over_conditions(
     with ScoringSession(
         environment=environment, parallel_environment_count=parallel_environment_count
     ) as session:
-        return session.run_over_conditions(
+        return session.roll_out_episodes_with_separate_seeds_per_condition(
             policy_factory=policy_factory,
             episode_count_per_condition=episode_count_per_condition,
         )

@@ -10,8 +10,8 @@ import numpy as np
 from scripts.evaluation.config import VALIDATION_START_SEED
 from scripts.evaluation.core.scoring import (
     ScoringSession,
-    run_scored_episodes_over_conditions,
-    run_scored_episodes_per_condition,
+    roll_out_episodes_with_separate_seeds_per_condition,
+    roll_out_episodes_with_the_same_seeds_in_every_condition,
 )
 
 
@@ -102,18 +102,18 @@ class ScoringSessionTests(unittest.TestCase):
             with ScoringSession(
                 environment=task, parallel_environment_count=2
             ) as session:
-                first = session.run_over_conditions(
+                first = session.roll_out_episodes_with_separate_seeds_per_condition(
                     policy_factory=policy_factory(0.25), episode_count_per_condition=3
                 )
                 files = list(Path(directory).iterdir())
                 # Two processes, each owning both conditions, not four processes.
                 self.assertEqual(len({p.name.split("_")[0] for p in files}), 2)
                 self.assertEqual(len(files), 4)
-                second = session.run_over_conditions(
+                second = session.roll_out_episodes_with_separate_seeds_per_condition(
                     policy_factory=policy_factory(0.25), episode_count_per_condition=3
                 )
                 self.assert_records_equal(first, second)
-                updated = session.run_over_conditions(
+                updated = session.roll_out_episodes_with_separate_seeds_per_condition(
                     policy_factory=policy_factory(0.5), episode_count_per_condition=3
                 )
                 self.assertNotEqual(first[0].reward, updated[0].reward)
@@ -123,7 +123,7 @@ class ScoringSessionTests(unittest.TestCase):
                 events = path.read_text().split()
                 self.assertEqual(events.count("created"), events.count("closed"))
                 self.assertGreater(events.count("created"), 0)
-            with_one_worker = run_scored_episodes_over_conditions(
+            with_one_worker = roll_out_episodes_with_separate_seeds_per_condition(
                 environment=task,
                 policy_factory=policy_factory(0.25),
                 episode_count_per_condition=3,
@@ -141,7 +141,7 @@ class ScoringSessionTests(unittest.TestCase):
                 with ScoringSession(
                     environment=ToyTask(directory), parallel_environment_count=2
                 ) as session:
-                    session.run_over_conditions(
+                    session.roll_out_episodes_with_separate_seeds_per_condition(
                         policy_factory=policy_factory(999),
                         episode_count_per_condition=2,
                     )
@@ -159,13 +159,13 @@ class ScoringSessionTests(unittest.TestCase):
                 self.assertEqual(list(Path(directory).iterdir()), [])
             session.close()
             with self.assertRaisesRegex(RuntimeError, "closed"):
-                session.run_over_conditions(
+                session.roll_out_episodes_with_separate_seeds_per_condition(
                     policy_factory=policy_factory(0), episode_count_per_condition=2
                 )
 
     def test_closing_partial_evaluation_releases_workers(self):
         with tempfile.TemporaryDirectory() as directory:
-            records = run_scored_episodes_per_condition(
+            records = roll_out_episodes_with_the_same_seeds_in_every_condition(
                 environment=ToyTask(directory),
                 policy_factory=policy_factory(0),
                 start_episode_seed=50,

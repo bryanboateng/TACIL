@@ -192,7 +192,7 @@ def train_diffusion_policy(
             try:
                 ema_state_dict = copy.deepcopy(noise_prediction_network.state_dict())
                 with torch.no_grad():
-                    episode_records = scoring_session.run_over_conditions(
+                    episode_records = scoring_session.roll_out_episodes_with_separate_seeds_per_condition(
                         policy_factory=create_diffusion_policy_factory(
                             noise_prediction_network=noise_prediction_network,
                             horizon_lengths=config.horizon_lengths,

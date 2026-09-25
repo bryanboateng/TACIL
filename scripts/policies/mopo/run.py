@@ -12,7 +12,7 @@ from scripts.environments.registry import create_environment
 from scripts.evaluation.core.scoring import (
     calculate_reward_statistics,
     calculate_success_statistics,
-    run_scored_episodes_over_conditions,
+    roll_out_episodes_with_separate_seeds_per_condition,
 )
 from scripts.evaluation.evaluate_policy import evaluate_policy
 from scripts.policies.mopo import config as mopo_config
@@ -181,7 +181,7 @@ def _score_policy(
     episode_count_per_condition: int,
     device: torch.device,
 ) -> ValidationScore:
-    episode_records = run_scored_episodes_over_conditions(
+    episode_records = roll_out_episodes_with_separate_seeds_per_condition(
         environment=environment,
         policy_factory=create_mopo_policy_factory(
             policy=policy,
