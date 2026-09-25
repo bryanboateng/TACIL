@@ -103,18 +103,24 @@ class ScoringSessionTests(unittest.TestCase):
                 environment=task, parallel_environment_count=2
             ) as session:
                 first = session.roll_out_episodes_with_separate_seeds_per_condition(
-                    policy_factory=policy_factory(0.25), episode_count_per_condition=3
+                    start_episode_seed=VALIDATION_START_SEED,
+                    policy_factory=policy_factory(0.25),
+                    episode_count_per_condition=3,
                 )
                 files = list(Path(directory).iterdir())
                 # Two processes, each owning both conditions, not four processes.
                 self.assertEqual(len({p.name.split("_")[0] for p in files}), 2)
                 self.assertEqual(len(files), 4)
                 second = session.roll_out_episodes_with_separate_seeds_per_condition(
-                    policy_factory=policy_factory(0.25), episode_count_per_condition=3
+                    start_episode_seed=VALIDATION_START_SEED,
+                    policy_factory=policy_factory(0.25),
+                    episode_count_per_condition=3,
                 )
                 self.assert_records_equal(first, second)
                 updated = session.roll_out_episodes_with_separate_seeds_per_condition(
-                    policy_factory=policy_factory(0.5), episode_count_per_condition=3
+                    start_episode_seed=VALIDATION_START_SEED,
+                    policy_factory=policy_factory(0.5),
+                    episode_count_per_condition=3,
                 )
                 self.assertNotEqual(first[0].reward, updated[0].reward)
             # Each condition opens its own environments, so every one that was
@@ -124,6 +130,7 @@ class ScoringSessionTests(unittest.TestCase):
                 self.assertEqual(events.count("created"), events.count("closed"))
                 self.assertGreater(events.count("created"), 0)
             with_one_worker = roll_out_episodes_with_separate_seeds_per_condition(
+                start_episode_seed=VALIDATION_START_SEED,
                 environment=task,
                 policy_factory=policy_factory(0.25),
                 episode_count_per_condition=3,
@@ -142,6 +149,7 @@ class ScoringSessionTests(unittest.TestCase):
                     environment=ToyTask(directory), parallel_environment_count=2
                 ) as session:
                     session.roll_out_episodes_with_separate_seeds_per_condition(
+                        start_episode_seed=VALIDATION_START_SEED,
                         policy_factory=policy_factory(999),
                         episode_count_per_condition=2,
                     )
@@ -160,7 +168,9 @@ class ScoringSessionTests(unittest.TestCase):
             session.close()
             with self.assertRaisesRegex(RuntimeError, "closed"):
                 session.roll_out_episodes_with_separate_seeds_per_condition(
-                    policy_factory=policy_factory(0), episode_count_per_condition=2
+                    start_episode_seed=VALIDATION_START_SEED,
+                    policy_factory=policy_factory(0),
+                    episode_count_per_condition=2,
                 )
 
     def test_closing_partial_evaluation_releases_workers(self):

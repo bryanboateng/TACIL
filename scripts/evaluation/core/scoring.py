@@ -7,7 +7,6 @@ import numpy as np
 
 from scripts.environments.condition import Condition
 from scripts.environments.environment import Environment
-from scripts.evaluation.config import VALIDATION_START_SEED
 from scripts.evaluation.core.parallel import ParallelEnvironmentPool
 from scripts.evaluation.core.rollout import Episode
 from scripts.shared.policy_types import PolicyFactory
@@ -53,7 +52,11 @@ class ScoringSession:
             self._parallel_environment_pool = None
 
     def roll_out_episodes_with_separate_seeds_per_condition(
-        self, *, policy_factory: PolicyFactory, episode_count_per_condition: int
+        self,
+        *,
+        policy_factory: PolicyFactory,
+        start_episode_seed: int,
+        episode_count_per_condition: int,
     ) -> list[Episode]:
         return [
             record
@@ -62,12 +65,29 @@ class ScoringSession:
                 condition_index=condition_index,
                 policy_factory=policy_factory,
                 start_episode_seed=(
-                    VALIDATION_START_SEED
-                    + condition_index * episode_count_per_condition
+                    start_episode_seed + condition_index * episode_count_per_condition
                 ),
                 episode_count=episode_count_per_condition,
             )
         ]
+
+    def roll_out_episodes_with_the_same_seeds_in_every_condition(
+        self,
+        *,
+        policy_factory: PolicyFactory,
+        start_episode_seed: int,
+        episode_count_per_condition: int,
+    ) -> Generator[tuple[Condition, list[Episode]], None, None]:
+        for condition_index, condition in enumerate(self.environment.conditions):
+            yield (
+                condition,
+                self.roll_out_episodes_in_one_condition(
+                    condition_index=condition_index,
+                    policy_factory=policy_factory,
+                    start_episode_seed=start_episode_seed,
+                    episode_count=episode_count_per_condition,
+                ),
+            )
 
     def roll_out_episodes_in_one_condition(
         self,
@@ -109,30 +129,27 @@ def roll_out_episodes_with_the_same_seeds_in_every_condition(
     with ScoringSession(
         environment=environment, parallel_environment_count=parallel_environment_count
     ) as scoring_session:
-        for condition_index, condition in enumerate(environment.conditions):
-            yield (
-                condition,
-                scoring_session.roll_out_episodes_in_one_condition(
-                    condition_index=condition_index,
-                    policy_factory=policy_factory,
-                    start_episode_seed=start_episode_seed,
-                    episode_count=episode_count_per_condition,
-                ),
-            )
+        yield from scoring_session.roll_out_episodes_with_the_same_seeds_in_every_condition(
+            policy_factory=policy_factory,
+            start_episode_seed=start_episode_seed,
+            episode_count_per_condition=episode_count_per_condition,
+        )
 
 
 def roll_out_episodes_with_separate_seeds_per_condition(
     *,
     environment: Environment,
     policy_factory: PolicyFactory,
+    start_episode_seed: int,
     episode_count_per_condition: int,
-    parallel_environment_count: int = 1,
+    parallel_environment_count: int,
 ) -> list[Episode]:
     with ScoringSession(
         environment=environment, parallel_environment_count=parallel_environment_count
-    ) as session:
-        return session.roll_out_episodes_with_separate_seeds_per_condition(
+    ) as scoring_session:
+        return scoring_session.roll_out_episodes_with_separate_seeds_per_condition(
             policy_factory=policy_factory,
+            start_episode_seed=start_episode_seed,
             episode_count_per_condition=episode_count_per_condition,
         )
 

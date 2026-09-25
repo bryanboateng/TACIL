@@ -9,6 +9,7 @@ from rich.pretty import pretty_repr
 
 from scripts.environments.environment import Environment
 from scripts.environments.registry import create_environment
+from scripts.evaluation.config import VALIDATION_START_SEED
 from scripts.evaluation.core.scoring import (
     calculate_reward_statistics,
     calculate_success_statistics,
@@ -87,6 +88,7 @@ def _run(*, config: Config) -> None:
                 state_normalizer=state_normalizer,
                 action_normalizer=action_normalizer,
                 episode_count_per_condition=config.policy.validation.episode_count_per_condition,
+                parallel_environment_count=config.policy.validation.parallel_environment_count,
                 device=device,
             ),
             selection_metric=environment.checkpoint_selection_metric,
@@ -179,6 +181,7 @@ def _score_policy(
     state_normalizer: ZScoreNormalizer,
     action_normalizer: MinMaxNormalizer,
     episode_count_per_condition: int,
+    parallel_environment_count: int,
     device: torch.device,
 ) -> ValidationScore:
     episode_records = roll_out_episodes_with_separate_seeds_per_condition(
@@ -189,7 +192,9 @@ def _score_policy(
             action_normalizer=action_normalizer,
             device=device,
         ),
+        start_episode_seed=VALIDATION_START_SEED,
         episode_count_per_condition=episode_count_per_condition,
+        parallel_environment_count=parallel_environment_count,
     )
     reward_statistics = calculate_reward_statistics(episode_records=episode_records)
     return ValidationScore(

@@ -12,6 +12,7 @@ from tqdm.auto import tqdm
 from wandb import Run
 
 from scripts.environments.environment import Environment
+from scripts.evaluation.config import VALIDATION_START_SEED
 from scripts.evaluation.core.scoring import (
     ScoringSession,
     calculate_reward_statistics,
@@ -199,6 +200,7 @@ def train_diffusion_policy(
                             noise_scheduler_name=config.sampler,
                             device=device,
                         ),
+                        start_episode_seed=VALIDATION_START_SEED,
                         episode_count_per_condition=config.validation.episode_count_per_condition,
                     )
                     validation_reward = calculate_reward_statistics(
