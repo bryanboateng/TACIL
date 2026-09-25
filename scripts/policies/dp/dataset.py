@@ -110,11 +110,9 @@ def _create_normalizers(
 ) -> tuple[MinMaxNormalizer, MinMaxNormalizer]:
     return (
         MinMaxNormalizer(
-            # Simulator round-off in constant orientations is not a feature.
-            minimum_range=1e-6,
             value_batch=torch.from_numpy(
                 np.concatenate([episodes.states for episodes in all_episodes], axis=0)
-            ).float(),
+            ).float()
         ),
         MinMaxNormalizer(
             value_batch=torch.from_numpy(
