@@ -28,6 +28,7 @@ logger = create_logger()
 @dataclass
 class Config:
     environment: EnvironmentName
+    dataset_name: str
 
 
 def main() -> None:
@@ -56,7 +57,7 @@ def _run(*, config: Config) -> None:
         upload_episodes(
             episodes=episodes,
             dataset_name=build_dataset_name(
-                environment=config.environment,
+                stem=config.dataset_name,
                 episode_count=episode_count,
                 source_episode_count=episode_count,
             ),

@@ -10,7 +10,7 @@ from scripts.shared.dataset_artifact import (
     DATASET_PROJECT,
     build_dataset_name,
     download_episodes,
-    read_environment_name,
+    read_dataset_stem,
     upload_episodes,
 )
 from scripts.shared.episodes import RewardedEpisodes, calculate_episode_start_indices
@@ -71,7 +71,7 @@ def _run(*, config: Config):
         upload_episodes(
             episodes=subsampled_episodes,
             dataset_name=build_dataset_name(
-                environment=read_environment_name(dataset_name=source_name),
+                stem=read_dataset_stem(dataset_name=source_name),
                 episode_count=len(subsampled_episodes.episode_end_indices),
                 source_episode_count=source_episode_count,
             ),
