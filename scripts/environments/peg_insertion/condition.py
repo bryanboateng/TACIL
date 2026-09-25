@@ -28,15 +28,15 @@ class Settings:
 
 SETTINGS_BY_CONDITION: dict[Condition, Settings] = {
     PegInsertionCondition(DisturbanceLevel.NONE): Settings(
-        label="0_undisturbed", description="disturbance: none", disturbance_impulse=None
+        label="1_undisturbed", description="disturbance: none", disturbance_impulse=None
     ),
     PegInsertionCondition(DisturbanceLevel.LOW): Settings(
-        label="1_low_disturbance",
+        label="2_low_disturbance",
         description="disturbance: low",
         disturbance_impulse=0.02,
     ),
     PegInsertionCondition(DisturbanceLevel.HIGH): Settings(
-        label="2_high_disturbance",
+        label="3_high_disturbance",
         description="disturbance: high",
         disturbance_impulse=0.04,
     ),
