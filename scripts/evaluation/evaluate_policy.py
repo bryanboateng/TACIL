@@ -67,7 +67,7 @@ def evaluate_policy(
             episode_count_per_condition = custom_evaluation.episode_count_per_condition
 
     with torch.no_grad():
-        scored_episodes_per_condition = run_scored_episodes_per_condition(
+        scored_episodes_per_condition_generator = run_scored_episodes_per_condition(
             environment=environment,
             policy_factory=policy_factory,
             start_episode_seed=start_episode_seed,
@@ -75,8 +75,8 @@ def evaluate_policy(
             parallel_environment_count=config.parallel_environment_count,
         )
         scoring_start = perf_counter()
-        with closing(scored_episodes_per_condition):
-            for condition, episode_records in scored_episodes_per_condition:
+        with closing(scored_episodes_per_condition_generator):
+            for condition, episode_records in scored_episodes_per_condition_generator:
                 run.summary[f"{STAGE_NAME}/{condition.label}/8_scoring_seconds"] = (
                     perf_counter() - scoring_start
                 )
