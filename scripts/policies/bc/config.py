@@ -41,13 +41,8 @@ class Config:
     hidden_layer_dimensionality: int = 256
 
     observation_noise: float | None = None
-    # Zero-based coordinates masked in both training and inference. Peg-insertion
-    # TCP velocities are 9–14; peg velocities are 25–30. Empty uses all inputs.
-    excluded_observation_indices: tuple[int, ...] = ()
 
     def __post_init__(self) -> None:
-        if any(index < 0 for index in self.excluded_observation_indices):
-            raise ValueError("excluded_observation_indices must be non-negative")
         if self.hidden_layer_dimensionality <= 0:
             raise ValueError(
                 f"hidden_layer_dimensionality must be positive, but it is "

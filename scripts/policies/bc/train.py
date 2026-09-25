@@ -66,7 +66,6 @@ def train_behavior_cloning_policy(
         hidden_layer_dimensionality=config.hidden_layer_dimensionality,
         observation_normalizer=dataset.observation_normalizer,
         action_normalizer=dataset.action_normalizer,
-        excluded_observation_indices=config.excluded_observation_indices,
     ).to(device=device)
 
     optimizer = Adam(params=model.parameters(), lr=config.optimization.learning_rate)

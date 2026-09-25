@@ -7,8 +7,6 @@ from scripts.shared.policy_types import Policy, PolicyFactory
 
 
 class BehaviorCloningPolicyModel(torch.nn.Module):
-    observation_mask: torch.Tensor
-
     def __init__(
         self,
         *,
@@ -17,7 +15,6 @@ class BehaviorCloningPolicyModel(torch.nn.Module):
         hidden_layer_dimensionality: int,
         observation_normalizer: ZScoreNormalizer,
         action_normalizer: MinMaxNormalizer,
-        excluded_observation_indices: tuple[int, ...] = (),
     ) -> None:
         super().__init__()
 
@@ -29,14 +26,6 @@ class BehaviorCloningPolicyModel(torch.nn.Module):
 
         self.observation_normalizer = observation_normalizer
         self.action_normalizer = action_normalizer
-        if any(
-            index < 0 or index >= observation_dimensionality
-            for index in excluded_observation_indices
-        ):
-            raise ValueError("excluded observation index is outside the observation")
-        observation_mask = torch.ones(observation_dimensionality)
-        observation_mask[list(excluded_observation_indices)] = 0
-        self.register_buffer("observation_mask", observation_mask)
 
     def forward(
         # *, keep key-word parameters optional because the model is exported and used in other places
@@ -54,7 +43,7 @@ class BehaviorCloningPolicyModel(torch.nn.Module):
             )
 
         normalized_action_batch = self.network(
-            normalized_observation_batch * self.observation_mask
+            normalized_observation_batch
         )  # (batch_size, action_dimensionality)
 
         return self.action_normalizer.denormalize(
