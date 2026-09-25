@@ -34,7 +34,15 @@ def read_environment_name(*, dataset_name: str) -> EnvironmentName:
 
 
 def download_episodes(*, artifact_name: str, run: Run) -> RewardedEpisodes:
-    return load_episodes(directory_path=_download(artifact_name=artifact_name, run=run))
+    return load_episodes(
+        directory_path=(
+            Path(
+                run.use_artifact(
+                    artifact_or_name=f"{DATASET_PROJECT}/{artifact_name}"
+                ).download()
+            )
+        )
+    )
 
 
 def upload_episodes(*, episodes: RewardedEpisodes, dataset_name: str, run: Run) -> None:
@@ -46,14 +54,3 @@ def upload_episodes(*, episodes: RewardedEpisodes, dataset_name: str, run: Run) 
         artifact = wandb.Artifact(name=dataset_name, type="dataset")
         artifact.add_dir(local_path=str(output_directory_path))
         run.log_artifact(artifact_or_path=artifact)
-
-
-# ---- Private --------------------------------------------
-
-
-def _download(*, artifact_name: str, run: Run) -> Path:
-    return Path(
-        run.use_artifact(
-            artifact_or_name=f"{DATASET_PROJECT}/{artifact_name}"
-        ).download()
-    )
