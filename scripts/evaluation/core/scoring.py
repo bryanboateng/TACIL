@@ -173,16 +173,14 @@ def calculate_success_statistics(
 def pick_representative_episodes(
     *, episode_records: list[Episode]
 ) -> dict[int, Episode]:
+    percentiles = (0, 2, 5, 10, 20, 40, 50, 60, 80, 90, 95, 98, 100)
+
     if not episode_records:
         return {}
-    percentiles = (0, 2, 5, 10, 20, 40, 50, 60, 80, 90, 95, 98, 100)
+
     sorted_records = sorted(episode_records, key=lambda record: record.reward)
     last_index = len(sorted_records) - 1
-    selected: dict[int, Episode] = {}
-    selected_indices: set[int] = set()
-    for percentile in percentiles:
-        index = round(number=last_index * percentile / 100)
-        if index not in selected_indices:
-            selected[percentile] = sorted_records[index]
-            selected_indices.add(index)
-    return selected
+    return {
+        percentile: sorted_records[round(number=last_index * percentile / 100)]
+        for percentile in percentiles
+    }
