@@ -31,24 +31,29 @@ class ParallelEnvironmentPool:
             raise ValueError("worker_count must be positive")
         startup_start = monotonic()
         # Never fork a process that has already initialized CUDA for training.
-        context = multiprocessing.get_context("spawn")
+        context = multiprocessing.get_context(method="spawn")
         self._connections: list[Connection] = []
         self._workers: list[BaseProcess] = []
+
         try:
             for _ in range(worker_count):
-                parent, child = context.Pipe()
-                worker = context.Process(target=_run_worker, args=(child, factories))
-                self._connections.append(parent)
+                parent_connection, child_connection = context.Pipe()
+                worker_process = context.Process(
+                    target=_run_worker, args=(child_connection, factories)
+                )
+                self._connections.append(parent_connection)
                 try:
-                    worker.start()
+                    worker_process.start()
                 finally:
-                    child.close()
-                self._workers.append(worker)
-            for connection, worker in zip(
+                    child_connection.close()
+                self._workers.append(worker_process)
+            for connection, worker_process in zip(
                 self._connections, self._workers, strict=True
             ):
                 _receive_worker_result(
-                    connection=connection, worker=worker, operation="starting worker"
+                    connection=connection,
+                    worker=worker_process,
+                    operation="starting worker",
                 )
             logger.info(
                 "Started %d scoring workers in %.2fs (reused across conditions).",
