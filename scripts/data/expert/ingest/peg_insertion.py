@@ -110,6 +110,13 @@ def _get_dataset(*, dataset_directory_path: Path) -> Path:
     return converted_dataset_path
 
 
+def _find_converted_dataset(*, dataset_directory_path: Path) -> Path | None:
+    for path in dataset_directory_path.glob("*.h5"):
+        if path.name != "trajectory.h5":
+            return path
+    return None
+
+
 def _check_metadata(*, metadata: dict[str, Any]) -> None:
     environment_info = metadata["env_info"]
     environment_id = environment_info["env_id"]
@@ -131,13 +138,6 @@ def _check_metadata(*, metadata: dict[str, Any]) -> None:
         raise ValueError(
             f"Wrong reward mode. Expected '{REWARD_MODE}' but got '{reward_mode}'"
         )
-
-
-def _find_converted_dataset(*, dataset_directory_path: Path) -> Path | None:
-    for path in dataset_directory_path.glob("*.h5"):
-        if path.name != "trajectory.h5":
-            return path
-    return None
 
 
 def _read_episodes(
