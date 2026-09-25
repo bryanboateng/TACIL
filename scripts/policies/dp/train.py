@@ -25,6 +25,7 @@ from scripts.policies.dp.policy import create_diffusion_policy_factory
 from scripts.policies.shared.checkpoint import (
     Checkpoint,
     calculate_checkpoint_selection_key,
+    summarize_best_checkpoint,
 )
 from scripts.policies.shared.observation_noise import disturb_half_of_the_batch
 from scripts.shared import stage_names
@@ -246,28 +247,9 @@ def train_diffusion_policy(
     if best_checkpoint is None:
         raise ValueError("No checkpoint was recorded")
 
-    run.summary[f"{STAGE_NAME}/3_best_checkpoint/1_epoch"] = best_checkpoint.epoch
-    run.summary[f"{STAGE_NAME}/3_best_checkpoint/2_validation_reward_mean"] = (
-        best_checkpoint.validation_reward_mean
+    summarize_best_checkpoint(
+        run=run, best_checkpoint=best_checkpoint, environment=environment
     )
-    run.summary[f"{STAGE_NAME}/3_best_checkpoint/3_validation_reward_std"] = (
-        best_checkpoint.validation_reward_std
-    )
-    run.summary[f"{STAGE_NAME}/3_best_checkpoint/4_validation_success_rate"] = (
-        best_checkpoint.validation_success_rate
-    )
-    run.summary[f"{STAGE_NAME}/3_best_checkpoint/5_training_step"] = (
-        best_checkpoint.step
-    )
-    run.summary[f"{STAGE_NAME}/3_best_checkpoint/6_completed_epoch_count"] = (
-        best_checkpoint.epoch + 1
-    )
-    run.summary[f"{STAGE_NAME}/3_best_checkpoint/7_selection_metric"] = (
-        environment.checkpoint_selection_metric
-    )
-    run.summary[f"{STAGE_NAME}/3_best_checkpoint/8_validation_conditions"] = [
-        condition.label for condition in environment.conditions
-    ]
 
     noise_prediction_network.load_state_dict(best_checkpoint.state_dict)
     return noise_prediction_network

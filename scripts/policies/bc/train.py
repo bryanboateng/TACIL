@@ -22,6 +22,7 @@ from scripts.policies.bc.policy import (
 from scripts.policies.shared.checkpoint import (
     Checkpoint,
     calculate_checkpoint_selection_key,
+    summarize_best_checkpoint,
 )
 from scripts.shared import stage_names
 from scripts.shared.log import create_logger
@@ -211,28 +212,9 @@ def train_behavior_cloning_policy(
         raise ValueError("No checkpoint was recorded")
 
     assert environment is not None
-    run.summary[f"{STAGE_NAME}/3_best_checkpoint/1_epoch"] = best_checkpoint.epoch
-    run.summary[f"{STAGE_NAME}/3_best_checkpoint/2_validation_reward_mean"] = (
-        best_checkpoint.validation_reward_mean
+    summarize_best_checkpoint(
+        run=run, best_checkpoint=best_checkpoint, environment=environment
     )
-    run.summary[f"{STAGE_NAME}/3_best_checkpoint/3_validation_reward_std"] = (
-        best_checkpoint.validation_reward_std
-    )
-    run.summary[f"{STAGE_NAME}/3_best_checkpoint/4_validation_success_rate"] = (
-        best_checkpoint.validation_success_rate
-    )
-    run.summary[f"{STAGE_NAME}/3_best_checkpoint/5_training_step"] = (
-        best_checkpoint.step
-    )
-    run.summary[f"{STAGE_NAME}/3_best_checkpoint/6_completed_epoch_count"] = (
-        best_checkpoint.epoch + 1
-    )
-    run.summary[f"{STAGE_NAME}/3_best_checkpoint/7_selection_metric"] = (
-        environment.checkpoint_selection_metric
-    )
-    run.summary[f"{STAGE_NAME}/3_best_checkpoint/8_validation_conditions"] = [
-        condition.label for condition in environment.conditions
-    ]
 
     model.load_state_dict(state_dict=best_checkpoint.state_dict)
     return model
