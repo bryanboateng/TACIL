@@ -2,7 +2,7 @@ import multiprocessing
 import unittest
 from unittest.mock import Mock, patch
 
-from scripts.evaluation.core.parallel import _receive
+from scripts.evaluation.core.parallel import _receive_worker_result
 
 
 class ParallelPoolTests(unittest.TestCase):
@@ -12,7 +12,7 @@ class ParallelPoolTests(unittest.TestCase):
             child.send(("status", "creating environment"))
             child.send(("status", "resetting environment"))
             child.send((True, [1, 2, 3]))
-            self.assertEqual(_receive(parent), [1, 2, 3])
+            self.assertEqual(_receive_worker_result(connection=parent), [1, 2, 3])
         finally:
             parent.close()
             child.close()
@@ -32,7 +32,7 @@ class ParallelPoolTests(unittest.TestCase):
                 RuntimeError,
                 "pid=123 timed out after 120s while creating environment condition=2, seed=10050",
             ):
-                _receive(connection, worker=worker)
+                _receive_worker_result(connection=connection, worker=worker)
         connection.poll.assert_called_once()
 
     def test_worker_error_includes_operation(self):
@@ -43,7 +43,7 @@ class ParallelPoolTests(unittest.TestCase):
             with self.assertRaisesRegex(
                 RuntimeError, "resetting environment condition=0, seed=10000"
             ):
-                _receive(parent)
+                _receive_worker_result(connection=parent)
         finally:
             parent.close()
             child.close()

@@ -1,7 +1,4 @@
-"""CPU simulation workers with batched policy inference in the parent process."""
-
 import faulthandler
-import logging
 import multiprocessing
 import traceback
 from collections.abc import Callable, Iterator
@@ -17,12 +14,13 @@ from gymnasium import Env
 from tqdm import tqdm
 
 from scripts.evaluation.core.rollout import Episode
+from scripts.shared.log import create_logger
 from scripts.shared.policy_types import PolicyFactory
 
 _WORKER_TIMEOUT_SECONDS = 120.0
 _WORKER_WARNING_SECONDS = 30.0
 _WORKER_TRACEBACK_SECONDS = 60.0
-logger = logging.getLogger(__name__)
+logger = create_logger()
 
 
 class ParallelEnvironmentPool:
@@ -39,7 +37,7 @@ class ParallelEnvironmentPool:
         try:
             for _ in range(worker_count):
                 parent, child = context.Pipe()
-                worker = context.Process(target=_worker, args=(child, factories))
+                worker = context.Process(target=_run_worker, args=(child, factories))
                 self._connections.append(parent)
                 try:
                     worker.start()
@@ -49,7 +47,9 @@ class ParallelEnvironmentPool:
             for connection, worker in zip(
                 self._connections, self._workers, strict=True
             ):
-                _receive(connection, worker=worker, operation="starting worker")
+                _receive_worker_result(
+                    connection=connection, worker=worker, operation="starting worker"
+                )
             logger.info(
                 "Started %d scoring workers in %.2fs (reused across conditions).",
                 worker_count,
@@ -112,8 +112,8 @@ class ParallelEnvironmentPool:
         for connection, seed in zip(connections, seeds, strict=True):
             connection.send(("reset", (condition_index, seed)))
         observations = [
-            _receive(
-                connection,
+            _receive_worker_result(
+                connection=connection,
                 worker=self._workers[i],
                 operation=f"preparing condition={condition_index}, seed={seeds[i]}",
             )
@@ -139,8 +139,8 @@ class ParallelEnvironmentPool:
                     connections[i].send(("step", action_batch[i]))
                 still_running = []
                 for i in running:
-                    observation, reward, done, truncated = _receive(
-                        connections[i],
+                    observation, reward, done, truncated = _receive_worker_result(
+                        connection=connections[i],
                         worker=self._workers[i],
                         operation=f"stepping condition={condition_index}, seed={seeds[i]}",
                     )
@@ -166,9 +166,9 @@ class ParallelEnvironmentPool:
         ]
 
 
-def _receive(
-    connection: Connection,
+def _receive_worker_result(
     *,
+    connection: Connection,
     worker: BaseProcess | None = None,
     operation: str = "waiting for result",
     timeout_seconds: float = _WORKER_TIMEOUT_SECONDS,
@@ -210,7 +210,7 @@ def _receive(
 
 
 @contextmanager
-def _worker_operation(connection: Connection, operation: str) -> Iterator[None]:
+def _announce_operation(*, connection: Connection, operation: str) -> Iterator[None]:
     connection.send(("status", operation))
     # The watchdog runs in native code, so it can expose a blocked simulator
     # call even when Python is unable to service another command from the parent.
@@ -221,7 +221,7 @@ def _worker_operation(connection: Connection, operation: str) -> Iterator[None]:
         faulthandler.cancel_dump_traceback_later()
 
 
-def _worker(connection: Connection, factories: list[Callable[[], Env]]) -> None:
+def _run_worker(connection: Connection, factories: list[Callable[[], Env]]) -> None:
     environment: Env | None = None
     environments: dict[int, Env] = {}
     resources = ExitStack()
@@ -236,16 +236,16 @@ def _worker(connection: Connection, factories: list[Callable[[], Env]]) -> None:
             if command == "reset":
                 condition_index, seed = payload
                 if condition_index not in environments:
-                    with _worker_operation(
-                        connection,
-                        f"creating environment condition={condition_index}, seed={seed}",
+                    with _announce_operation(
+                        connection=connection,
+                        operation=f"creating environment condition={condition_index}, seed={seed}",
                     ):
                         environments[condition_index] = factories[condition_index]()
                     resources.callback(environments[condition_index].close)
                 environment = environments[condition_index]
-                with _worker_operation(
-                    connection,
-                    f"resetting environment condition={condition_index}, seed={seed}",
+                with _announce_operation(
+                    connection=connection,
+                    operation=f"resetting environment condition={condition_index}, seed={seed}",
                 ):
                     observation, _ = environment.reset(seed=seed)
                 environment.observation_space.seed(seed)
