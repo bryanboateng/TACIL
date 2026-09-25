@@ -5,7 +5,7 @@ import wandb
 from wandb import Run
 
 from scripts.environments.registry import EnvironmentName
-from scripts.shared.episodes import RewardedEpisodes, read_episodes, write_episodes
+from scripts.shared.episodes import RewardedEpisodes, load_episodes, save_episodes
 
 DATASET_PROJECT = "datasets"
 
@@ -34,14 +34,14 @@ def read_environment_name(*, dataset_name: str) -> EnvironmentName:
 
 
 def download_episodes(*, artifact_name: str, run: Run) -> RewardedEpisodes:
-    return read_episodes(directory_path=_download(artifact_name=artifact_name, run=run))
+    return load_episodes(directory_path=_download(artifact_name=artifact_name, run=run))
 
 
 def upload_episodes(*, episodes: RewardedEpisodes, dataset_name: str, run: Run) -> None:
     with tempfile.TemporaryDirectory() as temporary_directory:
         output_directory_path = Path(temporary_directory)
 
-        write_episodes(episodes=episodes, directory_path=output_directory_path)
+        save_episodes(episodes=episodes, directory_path=output_directory_path)
 
         artifact = wandb.Artifact(name=dataset_name, type="dataset")
         artifact.add_dir(local_path=str(output_directory_path))

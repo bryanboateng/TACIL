@@ -58,7 +58,7 @@ def drop_rewards(*, episodes: RewardedEpisodes) -> Episodes:
     )
 
 
-def read_episodes(*, directory_path: Path) -> RewardedEpisodes:
+def load_episodes(*, directory_path: Path) -> RewardedEpisodes:
     with np.load(file=directory_path / EPISODES_ARCHIVE_NAME) as episodes_archive:
         return RewardedEpisodes(
             states=episodes_archive["states"],
@@ -68,7 +68,7 @@ def read_episodes(*, directory_path: Path) -> RewardedEpisodes:
         )
 
 
-def write_episodes(*, episodes: RewardedEpisodes, directory_path: Path) -> None:
+def save_episodes(*, episodes: RewardedEpisodes, directory_path: Path) -> None:
     np.savez_compressed(
         file=directory_path / EPISODES_ARCHIVE_NAME,
         states=episodes.states,
