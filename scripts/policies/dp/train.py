@@ -101,7 +101,6 @@ def train_diffusion_policy(
     )
 
     batch_count = math.ceil(len(dataset) / config.optimization.batch_size)
-
     learning_rate_scheduler = get_scheduler(
         name="cosine",
         optimizer=optimizer,
@@ -157,10 +156,9 @@ def train_diffusion_policy(
                 epoch_loss += loss.detach() * len(batch.observation_windows)
                 global_step += 1
 
-            mean_loss = (epoch_loss / len(dataset)).item()
             run.log(
                 data={
-                    f"{TRAINING_SECTION}/1_loss": mean_loss,
+                    f"{TRAINING_SECTION}/1_loss": (epoch_loss / len(dataset)).item(),
                     f"{TRAINING_SECTION}/2_gradient_norm": gradient_norm.item(),
                     f"{TRAINING_SECTION}/3_learning_rate": learning_rate_scheduler.get_last_lr()[
                         0
@@ -183,8 +181,8 @@ def train_diffusion_policy(
                 )
 
             validation_start = perf_counter()
-            # What gets scored are the averaged weights, so they move into the
-            # network for the duration of the validation and are taken out again.
+
+            # Use the EMA weights for validation and restore the original weights after the validation.
             noise_prediction_network_ema.store(
                 parameters=noise_prediction_network.parameters()
             )
@@ -211,14 +209,14 @@ def train_diffusion_policy(
                 noise_prediction_network_ema.restore(
                     parameters=noise_prediction_network.parameters()
                 )
-            validation_success = calculate_success_statistics(
+            validation_success_rate = calculate_success_statistics(
                 episode_records=episode_records
             ).rate
             run.log(
                 data={
                     f"{VALIDATION_SECTION}/1_reward_mean": validation_reward.mean,
                     f"{VALIDATION_SECTION}/2_reward_std": validation_reward.std,
-                    f"{VALIDATION_SECTION}/3_success_rate": validation_success,
+                    f"{VALIDATION_SECTION}/3_success_rate": validation_success_rate,
                     f"{VALIDATION_SECTION}/4_seconds": perf_counter()
                     - validation_start,
                     EPOCH_METRIC_NAME: epoch_index,
@@ -230,12 +228,12 @@ def train_diffusion_policy(
                 best_checkpoint=best_checkpoint,
                 selection_metric=validation.environment.checkpoint_selection_metric,
                 validation_reward_mean=validation_reward.mean,
-                validation_success_rate=validation_success,
+                validation_success_rate=validation_success_rate,
             ):
                 best_checkpoint = Checkpoint(
                     validation_reward_mean=validation_reward.mean,
                     validation_reward_std=validation_reward.std,
-                    validation_success_rate=validation_success,
+                    validation_success_rate=validation_success_rate,
                     epoch=epoch_index,
                     state_dict=ema_state_dict,
                 )

@@ -101,8 +101,6 @@ def train_behavior_cloning_policy(
 
                 loss.backward()
 
-                # A gradient snapshot per epoch avoids thousands of small kernels
-                # and device synchronizations solely for telemetry.
                 if batch_index == 0:
                     gradient_norm = torch.norm(
                         input=torch.stack(
@@ -119,10 +117,9 @@ def train_behavior_cloning_policy(
                 epoch_loss += loss.detach() * len(batch.states)
                 global_step += 1
 
-            mean_loss = (epoch_loss / len(dataset)).item()
             run.log(
                 data={
-                    f"{TRAINING_SECTION}/1_loss": mean_loss,
+                    f"{TRAINING_SECTION}/1_loss": (epoch_loss / len(dataset)).item(),
                     f"{TRAINING_SECTION}/2_gradient_norm": gradient_norm.item(),
                     f"{TRAINING_SECTION}/3_seconds": perf_counter() - training_start,
                     EPOCH_METRIC_NAME: epoch_index,
@@ -156,14 +153,14 @@ def train_behavior_cloning_policy(
                 validation_reward = calculate_reward_statistics(
                     episode_records=episode_records
                 )
-            validation_success = calculate_success_statistics(
+            validation_success_rate = calculate_success_statistics(
                 episode_records=episode_records
             ).rate
             run.log(
                 data={
                     f"{VALIDATION_SECTION}/1_reward_mean": validation_reward.mean,
                     f"{VALIDATION_SECTION}/2_reward_std": validation_reward.std,
-                    f"{VALIDATION_SECTION}/3_success_rate": validation_success,
+                    f"{VALIDATION_SECTION}/3_success_rate": validation_success_rate,
                     f"{VALIDATION_SECTION}/4_seconds": perf_counter()
                     - validation_start,
                     EPOCH_METRIC_NAME: epoch_index,
@@ -175,12 +172,12 @@ def train_behavior_cloning_policy(
                 best_checkpoint=best_checkpoint,
                 selection_metric=validation.environment.checkpoint_selection_metric,
                 validation_reward_mean=validation_reward.mean,
-                validation_success_rate=validation_success,
+                validation_success_rate=validation_success_rate,
             ):
                 best_checkpoint = Checkpoint(
                     validation_reward_mean=validation_reward.mean,
                     validation_reward_std=validation_reward.std,
-                    validation_success_rate=validation_success,
+                    validation_success_rate=validation_success_rate,
                     epoch=epoch_index,
                     state_dict=copy.deepcopy(model.state_dict()),
                 )
