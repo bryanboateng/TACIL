@@ -1,7 +1,3 @@
-import os
-
-os.environ.setdefault("CUDA_VISIBLE_DEVICES", "0")
-
 import json
 import multiprocessing
 from dataclasses import dataclass
@@ -113,7 +109,7 @@ def _replay_demonstrations_in_a_separate_process(
     *, joint_control_dataset_path: Path
 ) -> None:
     # SAPIEN allows one renderer per process.
-    # Later, in the replaying function, we construct a second renderer.
+    # Later, in the replaying function, we construct a second renderer to create the episodes from the environment states.
     # This is only possible if this renderer doesn't run on the same process as the one used in the replaying function.
     process = multiprocessing.get_context(method="spawn").Process(
         target=_replay_demonstrations, args=(str(joint_control_dataset_path),)
