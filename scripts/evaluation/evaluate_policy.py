@@ -1,5 +1,4 @@
 import tempfile
-from contextlib import closing
 from pathlib import Path
 from time import perf_counter
 
@@ -20,11 +19,11 @@ from scripts.evaluation.config import EvaluationConfig, resolve_evaluation_stage
 from scripts.evaluation.core.rollout import Episode, roll_out_episodes
 from scripts.evaluation.core.scoring import (
     RewardStatistics,
+    ScoringSession,
     SuccessStatistics,
     calculate_reward_statistics,
     calculate_success_statistics,
     pick_representative_episodes,
-    roll_out_episodes_with_the_same_seeds_in_every_condition,
 )
 from scripts.evaluation.core.video import FREEZE_SECONDS, render_episode_surfaces
 from scripts.shared import stage_names
@@ -50,50 +49,51 @@ def evaluate_policy(
     reward_means: list[float] = []
     stage = resolve_evaluation_stage(stage=config.stage)
 
-    with torch.no_grad():
-        scored_episodes_per_condition_generator = (
-            roll_out_episodes_with_the_same_seeds_in_every_condition(
-                environment=environment,
-                policy_factory=policy_factory,
-                start_episode_seed=stage.start_episode_seed,
-                episode_count_per_condition=stage.episode_count_per_condition,
-                parallel_environment_count=config.parallel_environment_count,
-            )
-        )
+    with (
+        torch.no_grad(),
+        ScoringSession(
+            environment=environment,
+            parallel_environment_count=config.parallel_environment_count,
+        ) as scoring_session,
+    ):
         scoring_start = perf_counter()
-        with closing(scored_episodes_per_condition_generator):
-            for condition, episode_records in scored_episodes_per_condition_generator:
-                run.summary[f"{STAGE_NAME}/{condition.label}/7_scoring_seconds"] = (
-                    perf_counter() - scoring_start
-                )
-                logger.info("Scored the policy in %s.", condition.label)
+        for (
+            condition,
+            episode_records,
+        ) in scoring_session.roll_out_episodes_with_the_same_seeds_in_every_condition(
+            policy_factory=policy_factory,
+            start_episode_seed=stage.start_episode_seed,
+            episode_count_per_condition=stage.episode_count_per_condition,
+        ):
+            run.summary[f"{STAGE_NAME}/{condition.label}/7_scoring_seconds"] = (
+                perf_counter() - scoring_start
+            )
+            logger.info("Scored the policy in %s.", condition.label)
 
-                reward = calculate_reward_statistics(episode_records=episode_records)
-                reward_means.append(reward.mean)
+            reward = calculate_reward_statistics(episode_records=episode_records)
+            reward_means.append(reward.mean)
 
-                _write_summary(
-                    run=run,
+            _write_summary(
+                run=run,
+                condition=condition,
+                reward=reward,
+                success=calculate_success_statistics(episode_records=episode_records),
+            )
+            if config.record_videos:
+                video_start = perf_counter()
+                _log_video(
+                    environment=environment,
+                    policy_label=policy_label,
                     condition=condition,
-                    reward=reward,
-                    success=calculate_success_statistics(
+                    episode_records=pick_representative_episodes(
                         episode_records=episode_records
                     ),
+                    run=run,
                 )
-                if config.record_videos:
-                    video_start = perf_counter()
-                    _log_video(
-                        environment=environment,
-                        policy_label=policy_label,
-                        condition=condition,
-                        episode_records=pick_representative_episodes(
-                            episode_records=episode_records
-                        ),
-                        run=run,
-                    )
-                    run.summary[f"{STAGE_NAME}/{condition.label}/8_video_seconds"] = (
-                        perf_counter() - video_start
-                    )
-                scoring_start = perf_counter()
+                run.summary[f"{STAGE_NAME}/{condition.label}/8_video_seconds"] = (
+                    perf_counter() - video_start
+                )
+            scoring_start = perf_counter()
 
     run.summary[f"{STAGE_NAME}/{ALL_CONDITIONS_LABEL}/1_reward_mean"] = sum(
         reward_means

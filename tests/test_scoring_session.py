@@ -8,10 +8,7 @@ import gymnasium as gym
 import numpy as np
 
 from scripts.evaluation.config import VALIDATION_START_SEED
-from scripts.evaluation.core.scoring import (
-    ScoringSession,
-    roll_out_episodes_with_the_same_seeds_in_every_condition,
-)
+from scripts.evaluation.core.scoring import ScoringSession
 
 
 @dataclass(frozen=True)
@@ -175,19 +172,18 @@ class ScoringSessionTests(unittest.TestCase):
 
     def test_closing_partial_evaluation_releases_workers(self):
         with tempfile.TemporaryDirectory() as directory:
-            records = roll_out_episodes_with_the_same_seeds_in_every_condition(
-                environment=ToyTask(directory),
-                policy_factory=policy_factory(0),
-                start_episode_seed=50,
-                episode_count_per_condition=2,
-                parallel_environment_count=2,
-            )
-            try:
-                condition, episodes = next(records)
+            with ScoringSession(
+                environment=ToyTask(directory), parallel_environment_count=2
+            ) as session:
+                condition, episodes = next(
+                    session.roll_out_episodes_with_the_same_seeds_in_every_condition(
+                        policy_factory=policy_factory(0),
+                        start_episode_seed=50,
+                        episode_count_per_condition=2,
+                    )
+                )
                 self.assertEqual(condition.label, "0")
                 self.assertEqual([record.seed for record in episodes], [50, 51])
-            finally:
-                records.close()
             files = list(Path(directory).iterdir())
             self.assertEqual(len(files), 2)
             for path in files:
