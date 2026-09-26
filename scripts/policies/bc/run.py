@@ -18,6 +18,7 @@ from scripts.policies.bc import config as bc_config
 from scripts.policies.bc.policy import create_behavior_cloning_policy_factory
 from scripts.policies.bc.train import train_behavior_cloning_policy
 from scripts.policies.shared.run_config import RunConfig, build_run_record
+from scripts.policies.shared.validation import Validation
 from scripts.shared.dataset_artifact import download_episodes
 from scripts.shared.episodes import Episodes, drop_rewards
 from scripts.shared.log import create_logger, log_device_info
@@ -102,7 +103,13 @@ def _run(*, config: Config) -> None:
         logger.info("Stage 2/3: training the behavior-cloning policy.")
         policy_model = train_behavior_cloning_policy(
             config=config.policy,
-            environment=environment,
+            validation=(
+                None
+                if config.policy.validation is None
+                else Validation(
+                    settings=config.policy.validation, environment=environment
+                )
+            ),
             state_action_transitions=state_action_transitions,
             seed=config.seed,
             device=device,

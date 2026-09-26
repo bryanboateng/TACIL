@@ -18,7 +18,7 @@ from scripts.evaluation.core.scoring import (
     calculate_reward_statistics,
     calculate_success_statistics,
 )
-from scripts.policies.dp.config import Config
+from scripts.policies.dp.config import Config, ValidationConfig
 from scripts.policies.dp.dataset import Dataset, WindowBatch
 from scripts.policies.dp.network import ConditionalUnet1d
 from scripts.policies.dp.noise_scheduler import create_forward_noise_scheduler
@@ -37,6 +37,7 @@ from scripts.policies.shared.metrics import (
     define_step_metrics,
 )
 from scripts.policies.shared.observation_noise import disturb_half_of_the_batch
+from scripts.policies.shared.validation import Validation
 from scripts.shared.episodes import Episodes
 from scripts.shared.log import create_logger
 from scripts.shared.seeding import set_seed
@@ -47,7 +48,7 @@ logger = create_logger()
 def train_diffusion_policy(
     *,
     config: Config,
-    environment: Environment,
+    validation: Validation[ValidationConfig, Environment],
     expert_episodes: Episodes,
     augmented_episodes: Episodes | None,
     seed: int,
@@ -170,14 +171,14 @@ def train_diffusion_policy(
                 }
             )
 
-            if (epoch_index + 1) % config.validation.interval_epoch_count != 0:
+            if (epoch_index + 1) % validation.settings.interval_epoch_count != 0:
                 continue
 
             if scoring_session is None:
                 scoring_session = scoring_resources.enter_context(
                     ScoringSession(
-                        environment=environment,
-                        parallel_environment_count=config.validation.parallel_environment_count,
+                        environment=validation.environment,
+                        parallel_environment_count=validation.settings.parallel_environment_count,
                     )
                 )
 
@@ -201,7 +202,7 @@ def train_diffusion_policy(
                             device=device,
                         ),
                         start_episode_seed=VALIDATION_START_SEED,
-                        episode_count_per_condition=config.validation.episode_count_per_condition,
+                        episode_count_per_condition=validation.settings.episode_count_per_condition,
                     )
                     validation_reward = calculate_reward_statistics(
                         episode_records=episode_records
@@ -227,7 +228,7 @@ def train_diffusion_policy(
 
             if beats_best_checkpoint(
                 best_checkpoint=best_checkpoint,
-                selection_metric=environment.checkpoint_selection_metric,
+                selection_metric=validation.environment.checkpoint_selection_metric,
                 validation_reward_mean=validation_reward.mean,
                 validation_success_rate=validation_success,
             ):

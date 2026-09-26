@@ -14,7 +14,7 @@ from scripts.evaluation.core.scoring import (
     calculate_reward_statistics,
     calculate_success_statistics,
 )
-from scripts.policies.bc.config import Config
+from scripts.policies.bc.config import Config, ValidationConfig
 from scripts.policies.bc.dataset import Dataset
 from scripts.policies.bc.policy import (
     BehaviorCloningPolicyModel,
@@ -33,6 +33,7 @@ from scripts.policies.shared.metrics import (
     VALIDATION_SECTION,
     define_step_metrics,
 )
+from scripts.policies.shared.validation import Validation
 from scripts.shared.log import create_logger
 from scripts.shared.seeding import set_seed
 from scripts.shared.state_action_transitions import StateActionTransitions
@@ -43,7 +44,7 @@ logger = create_logger()
 def train_behavior_cloning_policy(
     *,
     config: Config,
-    environment: Environment | None,
+    validation: Validation[ValidationConfig, Environment] | None,
     state_action_transitions: StateActionTransitions,
     seed: int,
     device: torch.device,
@@ -130,22 +131,16 @@ def train_behavior_cloning_policy(
             )
 
             if (
-                config.validation is None
-                or (epoch_index + 1) % config.validation.interval_epoch_count != 0
+                validation is None
+                or (epoch_index + 1) % validation.settings.interval_epoch_count != 0
             ):
                 continue
-
-            if environment is None:
-                raise ValueError(
-                    "Scoring the policy while it trains needs an environment to score "
-                    "it in, but none was given."
-                )
 
             if scoring_session is None:
                 scoring_session = scoring_resources.enter_context(
                     ScoringSession(
-                        environment=environment,
-                        parallel_environment_count=config.validation.parallel_environment_count,
+                        environment=validation.environment,
+                        parallel_environment_count=validation.settings.parallel_environment_count,
                     )
                 )
 
@@ -156,7 +151,7 @@ def train_behavior_cloning_policy(
                         policy_model=model, device=device
                     ),
                     start_episode_seed=VALIDATION_START_SEED,
-                    episode_count_per_condition=config.validation.episode_count_per_condition,
+                    episode_count_per_condition=validation.settings.episode_count_per_condition,
                 )
                 validation_reward = calculate_reward_statistics(
                     episode_records=episode_records
@@ -178,7 +173,7 @@ def train_behavior_cloning_policy(
 
             if beats_best_checkpoint(
                 best_checkpoint=best_checkpoint,
-                selection_metric=environment.checkpoint_selection_metric,
+                selection_metric=validation.environment.checkpoint_selection_metric,
                 validation_reward_mean=validation_reward.mean,
                 validation_success_rate=validation_success,
             ):
@@ -190,7 +185,7 @@ def train_behavior_cloning_policy(
                     state_dict=copy.deepcopy(model.state_dict()),
                 )
 
-    if config.validation is None:
+    if validation is None:
         return model
 
     if best_checkpoint is None:

@@ -136,24 +136,6 @@ def roll_out_episodes_with_the_same_seeds_in_every_condition(
         )
 
 
-def roll_out_episodes_with_separate_seeds_per_condition(
-    *,
-    environment: Environment,
-    policy_factory: PolicyFactory,
-    start_episode_seed: int,
-    episode_count_per_condition: int,
-    parallel_environment_count: int,
-) -> list[Episode]:
-    with ScoringSession(
-        environment=environment, parallel_environment_count=parallel_environment_count
-    ) as scoring_session:
-        return scoring_session.roll_out_episodes_with_separate_seeds_per_condition(
-            policy_factory=policy_factory,
-            start_episode_seed=start_episode_seed,
-            episode_count_per_condition=episode_count_per_condition,
-        )
-
-
 def calculate_reward_statistics(*, episode_records: list[Episode]) -> RewardStatistics:
     rewards = np.array([record.reward for record in episode_records])
     episode_count = int(rewards.shape[0])

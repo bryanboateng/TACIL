@@ -1,5 +1,4 @@
 from dataclasses import dataclass
-from typing import Literal
 
 
 @dataclass(frozen=True)
@@ -110,7 +109,6 @@ class ValidationConfig:
     interval_epoch_count: int = 100
     episode_count_per_condition: int = 12
     parallel_environment_count: int = 6
-    kept_policy: Literal["last", "best"] = "best"
 
     def __post_init__(self) -> None:
         for name, value in (
@@ -127,4 +125,4 @@ class Config:
     dynamics: DynamicsConfig
     rollout: RolloutConfig
     optimization: OptimizationConfig
-    validation: ValidationConfig
+    validation: ValidationConfig | None

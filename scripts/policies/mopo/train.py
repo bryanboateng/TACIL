@@ -1,19 +1,31 @@
 import copy
 import time
-from collections.abc import Callable
+from contextlib import ExitStack
 from dataclasses import dataclass
-from typing import Literal
 
+import numpy as np
 import torch
 from torch.optim import Adam
 from tqdm import tqdm
 from wandb import Run
 
+from scripts.environments.environment import Environment
+from scripts.evaluation.config import VALIDATION_START_SEED
+from scripts.evaluation.core.scoring import (
+    ScoringSession,
+    calculate_reward_statistics,
+    calculate_success_statistics,
+)
 from scripts.policies.mopo.buffer import ReplayBuffer, concatenate_transitions
-from scripts.policies.mopo.config import Config
+from scripts.policies.mopo.config import Config, ValidationConfig
 from scripts.policies.mopo.dynamics.dynamics import Dynamics, TerminationFunction
 from scripts.policies.mopo.dynamics.dynamics_training import train_dynamics
-from scripts.policies.mopo.policy import CriticEnsemble, GaussianActor, MopoPolicy
+from scripts.policies.mopo.policy import (
+    CriticEnsemble,
+    GaussianActor,
+    MopoPolicy,
+    create_mopo_policy_factory,
+)
 from scripts.policies.mopo.transitions import Transitions
 from scripts.policies.shared.checkpoint import (
     Checkpoint,
@@ -28,7 +40,9 @@ from scripts.policies.shared.metrics import (
     VALIDATION_SECTION,
     define_step_metrics,
 )
+from scripts.policies.shared.validation import Validation
 from scripts.shared.log import create_logger
+from scripts.shared.normalization import MinMaxNormalizer, ZScoreNormalizer
 from scripts.shared.seeding import set_seed
 
 logger = create_logger()
@@ -37,10 +51,33 @@ ROLLOUT_SECTION = f"{STAGE_NAME}/3_rollout"
 
 
 @dataclass(frozen=True)
-class ValidationScore:
-    mean: float
-    std: float
-    success_rate: float
+class NormalizedEnvironment:
+    environment: Environment
+    state_normalizer: ZScoreNormalizer
+    action_normalizer: MinMaxNormalizer
+
+
+def create_termination_function(
+    *, normalized_environment: NormalizedEnvironment
+) -> TerminationFunction:
+    def calculate_termination(
+        normalized_state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
+    ) -> torch.Tensor:  # (batch_size,)
+        state_batch = (
+            normalized_environment.state_normalizer.denormalize(
+                value_batch=normalized_state_batch.cpu()
+            )
+            .numpy()
+            .astype(np.float32)
+        )  # (batch_size, state_dimensionality)
+
+        return torch.from_numpy(
+            normalized_environment.environment.calculate_termination(
+                state_batch=state_batch
+            )
+        ).to(device=normalized_state_batch.device)
+
+    return calculate_termination
 
 
 def train_mopo_policy(
@@ -48,8 +85,7 @@ def train_mopo_policy(
     config: Config,
     transitions: Transitions,
     termination_function: TerminationFunction,
-    score_policy: Callable[[MopoPolicy], ValidationScore],
-    selection_metric: Literal["reward", "success_then_reward"],
+    validation: Validation[ValidationConfig, NormalizedEnvironment] | None,
     seed: int,
     device: torch.device,
     run: Run,
@@ -108,99 +144,136 @@ def train_mopo_policy(
     best_checkpoint: Checkpoint | None = None
     global_step = 0
 
-    for epoch_index in tqdm(
-        iterable=range(config.optimization.epoch_count), desc="Epoch", unit="epoch"
-    ):
-        policy.train()
-        rollout_duration = 0.0
-        epoch_start_timepoint = time.perf_counter()
-        for _ in range(config.optimization.step_count_per_epoch):
-            if global_step % config.rollout.interval_step_count == 0:
-                rollout_start_timepoint = time.perf_counter()
-                imagined_transitions, rollout_metrics = policy.imagine_rollout(
-                    start_state_batch=real_buffer.sample_states(
-                        count=config.rollout.start_state_count
-                    ),
-                    length=config.rollout.length,
-                )
-                imagined_buffer.add(transitions=imagined_transitions)
-                rollout_duration += time.perf_counter() - rollout_start_timepoint
-                run.log(
-                    data={
-                        f"{ROLLOUT_SECTION}/1_transition_count": rollout_metrics.transition_count,
-                        f"{ROLLOUT_SECTION}/2_reward_mean": rollout_metrics.reward_mean,
-                        f"{ROLLOUT_SECTION}/3_penalty_mean": rollout_metrics.penalty_mean,
-                        STEP_METRIC_NAME: global_step,
-                    }
-                )
+    with ExitStack() as scoring_resources:
+        scoring_session: ScoringSession | None = None
 
-            policy.learn(
-                batch=concatenate_transitions(
-                    first=real_buffer.sample(count=real_data_batch_size),
-                    second=imagined_buffer.sample(count=imagined_data_batch_size),
-                )
-            )
-            global_step += 1
-
-        epoch_metrics = policy.get_epoch_metrics()
-        training_metrics = {
-            f"{TRAINING_SECTION}/1_actor_loss": epoch_metrics.actor_loss,
-            f"{TRAINING_SECTION}/2_critic_loss": epoch_metrics.critic_loss,
-            f"{TRAINING_SECTION}/3_temperature_loss": epoch_metrics.temperature_loss,
-            f"{TRAINING_SECTION}/4_temperature": epoch_metrics.temperature,
-        }
-        # Read after the averages, because that is where the device catches up.
-        epoch_seconds = time.perf_counter() - epoch_start_timepoint
-
-        run.log(
-            data={
-                **training_metrics,
-                f"{TRAINING_SECTION}/5_learning_seconds": epoch_seconds
-                - rollout_duration,
-                f"{ROLLOUT_SECTION}/4_seconds": rollout_duration,
-                EPOCH_METRIC_NAME: epoch_index,
-                STEP_METRIC_NAME: global_step,
-            }
-        )
-
-        actor_lr_schedule.step()
-
-        if (epoch_index + 1) % config.validation.interval_epoch_count != 0:
-            continue
-
-        validation_score = score_policy(policy)
-        policy.train()
-        run.log(
-            data={
-                f"{VALIDATION_SECTION}/1_reward_mean": validation_score.mean,
-                f"{VALIDATION_SECTION}/2_reward_std": validation_score.std,
-                f"{VALIDATION_SECTION}/3_success_rate": validation_score.success_rate,
-                EPOCH_METRIC_NAME: epoch_index,
-                STEP_METRIC_NAME: global_step,
-            }
-        )
-
-        if beats_best_checkpoint(
-            best_checkpoint=best_checkpoint,
-            selection_metric=selection_metric,
-            validation_reward_mean=validation_score.mean,
-            validation_success_rate=validation_score.success_rate,
+        for epoch_index in tqdm(
+            iterable=range(config.optimization.epoch_count), desc="Epoch", unit="epoch"
         ):
-            best_checkpoint = Checkpoint(
-                validation_reward_mean=validation_score.mean,
-                validation_reward_std=validation_score.std,
-                validation_success_rate=validation_score.success_rate,
-                epoch=epoch_index,
-                state_dict=copy.deepcopy(policy.actor.state_dict()),
+            policy.train()
+            rollout_duration = 0.0
+            epoch_start_timepoint = time.perf_counter()
+            for _ in range(config.optimization.step_count_per_epoch):
+                if global_step % config.rollout.interval_step_count == 0:
+                    rollout_start_timepoint = time.perf_counter()
+                    imagined_transitions, rollout_metrics = policy.imagine_rollout(
+                        start_state_batch=real_buffer.sample_states(
+                            count=config.rollout.start_state_count
+                        ),
+                        length=config.rollout.length,
+                    )
+                    imagined_buffer.add(transitions=imagined_transitions)
+                    rollout_duration += time.perf_counter() - rollout_start_timepoint
+                    run.log(
+                        data={
+                            f"{ROLLOUT_SECTION}/1_transition_count": rollout_metrics.transition_count,
+                            f"{ROLLOUT_SECTION}/2_reward_mean": rollout_metrics.reward_mean,
+                            f"{ROLLOUT_SECTION}/3_penalty_mean": rollout_metrics.penalty_mean,
+                            STEP_METRIC_NAME: global_step,
+                        }
+                    )
+
+                policy.learn(
+                    batch=concatenate_transitions(
+                        first=real_buffer.sample(count=real_data_batch_size),
+                        second=imagined_buffer.sample(count=imagined_data_batch_size),
+                    )
+                )
+                global_step += 1
+
+            epoch_metrics = policy.get_epoch_metrics()
+            training_metrics = {
+                f"{TRAINING_SECTION}/1_actor_loss": epoch_metrics.actor_loss,
+                f"{TRAINING_SECTION}/2_critic_loss": epoch_metrics.critic_loss,
+                f"{TRAINING_SECTION}/3_temperature_loss": epoch_metrics.temperature_loss,
+                f"{TRAINING_SECTION}/4_temperature": epoch_metrics.temperature,
+            }
+            # Read after the averages, because that is where the device catches up.
+            epoch_seconds = time.perf_counter() - epoch_start_timepoint
+
+            run.log(
+                data={
+                    **training_metrics,
+                    f"{TRAINING_SECTION}/5_learning_seconds": epoch_seconds
+                    - rollout_duration,
+                    f"{ROLLOUT_SECTION}/4_seconds": rollout_duration,
+                    EPOCH_METRIC_NAME: epoch_index,
+                    STEP_METRIC_NAME: global_step,
+                }
             )
+
+            actor_lr_schedule.step()
+
+            if (
+                validation is None
+                or (epoch_index + 1) % validation.settings.interval_epoch_count != 0
+            ):
+                continue
+
+            normalized_environment = validation.environment
+
+            if scoring_session is None:
+                scoring_session = scoring_resources.enter_context(
+                    ScoringSession(
+                        environment=normalized_environment.environment,
+                        parallel_environment_count=validation.settings.parallel_environment_count,
+                    )
+                )
+
+            validation_start_timepoint = time.perf_counter()
+            with torch.no_grad():
+                episode_records = scoring_session.roll_out_episodes_with_separate_seeds_per_condition(
+                    policy_factory=create_mopo_policy_factory(
+                        policy=policy,
+                        state_normalizer=normalized_environment.state_normalizer,
+                        action_normalizer=normalized_environment.action_normalizer,
+                        device=device,
+                    ),
+                    start_episode_seed=VALIDATION_START_SEED,
+                    episode_count_per_condition=validation.settings.episode_count_per_condition,
+                )
+                validation_reward = calculate_reward_statistics(
+                    episode_records=episode_records
+                )
+            validation_success = calculate_success_statistics(
+                episode_records=episode_records
+            ).rate
+            policy.train()
+            run.log(
+                data={
+                    f"{VALIDATION_SECTION}/1_reward_mean": validation_reward.mean,
+                    f"{VALIDATION_SECTION}/2_reward_std": validation_reward.std,
+                    f"{VALIDATION_SECTION}/3_success_rate": validation_success,
+                    f"{VALIDATION_SECTION}/4_seconds": time.perf_counter()
+                    - validation_start_timepoint,
+                    EPOCH_METRIC_NAME: epoch_index,
+                    STEP_METRIC_NAME: global_step,
+                }
+            )
+
+            if beats_best_checkpoint(
+                best_checkpoint=best_checkpoint,
+                selection_metric=normalized_environment.environment.checkpoint_selection_metric,
+                validation_reward_mean=validation_reward.mean,
+                validation_success_rate=validation_success,
+            ):
+                best_checkpoint = Checkpoint(
+                    validation_reward_mean=validation_reward.mean,
+                    validation_reward_std=validation_reward.std,
+                    validation_success_rate=validation_success,
+                    epoch=epoch_index,
+                    state_dict=copy.deepcopy(policy.actor.state_dict()),
+                )
+
+    if validation is None:
+        return policy
 
     if best_checkpoint is None:
         raise ValueError("No checkpoint was recorded")
 
     summarize_best_checkpoint(run=run, best_checkpoint=best_checkpoint)
 
-    if config.validation.kept_policy == "best":
-        policy.actor.load_state_dict(state_dict=best_checkpoint.state_dict)
+    policy.actor.load_state_dict(state_dict=best_checkpoint.state_dict)
     return policy
 
 

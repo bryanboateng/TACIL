@@ -10,7 +10,6 @@ import numpy as np
 from scripts.evaluation.config import VALIDATION_START_SEED
 from scripts.evaluation.core.scoring import (
     ScoringSession,
-    roll_out_episodes_with_separate_seeds_per_condition,
     roll_out_episodes_with_the_same_seeds_in_every_condition,
 )
 
@@ -129,13 +128,14 @@ class ScoringSessionTests(unittest.TestCase):
                 events = path.read_text().split()
                 self.assertEqual(events.count("created"), events.count("closed"))
                 self.assertGreater(events.count("created"), 0)
-            with_one_worker = roll_out_episodes_with_separate_seeds_per_condition(
-                start_episode_seed=VALIDATION_START_SEED,
-                environment=task,
-                policy_factory=policy_factory(0.25),
-                episode_count_per_condition=3,
-                parallel_environment_count=1,
-            )
+            with ScoringSession(
+                environment=task, parallel_environment_count=1
+            ) as single_worker_session:
+                with_one_worker = single_worker_session.roll_out_episodes_with_separate_seeds_per_condition(
+                    start_episode_seed=VALIDATION_START_SEED,
+                    policy_factory=policy_factory(0.25),
+                    episode_count_per_condition=3,
+                )
             self.assert_records_equal(first, with_one_worker)
             self.assertEqual(
                 [r.seed for r in first],

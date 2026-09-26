@@ -8,18 +8,17 @@ from rich.pretty import pretty_repr
 
 from scripts.environments.environment import Environment
 from scripts.environments.registry import create_environment
-from scripts.evaluation.config import VALIDATION_START_SEED
-from scripts.evaluation.core.scoring import (
-    calculate_reward_statistics,
-    calculate_success_statistics,
-    roll_out_episodes_with_separate_seeds_per_condition,
-)
 from scripts.evaluation.evaluate_policy import evaluate_policy
 from scripts.policies.mopo import config as mopo_config
-from scripts.policies.mopo.policy import MopoPolicy, create_mopo_policy_factory
-from scripts.policies.mopo.train import ValidationScore, train_mopo_policy
+from scripts.policies.mopo.policy import create_mopo_policy_factory
+from scripts.policies.mopo.train import (
+    NormalizedEnvironment,
+    create_termination_function,
+    train_mopo_policy,
+)
 from scripts.policies.mopo.transitions import Transitions
 from scripts.policies.shared.run_config import RunConfig, build_run_record
+from scripts.policies.shared.validation import Validation
 from scripts.shared.dataset_artifact import download_episodes
 from scripts.shared.episodes import RewardedEpisodes, calculate_indices_with_successor
 from scripts.shared.log import create_logger, log_device_info
@@ -77,24 +76,25 @@ def _run(*, config: Config) -> None:
 
         logger.info("Stage 1/2: training the MOPO policy.")
 
+        normalized_environment = NormalizedEnvironment(
+            environment=environment,
+            state_normalizer=state_normalizer,
+            action_normalizer=action_normalizer,
+        )
         policy = train_mopo_policy(
             config=config.policy,
             transitions=transitions,
-            termination_function=lambda state_batch: _calculate_termination(
-                environment=environment,
-                normalized_state_batch=state_batch,
-                state_normalizer=state_normalizer,
+            termination_function=create_termination_function(
+                normalized_environment=normalized_environment
             ),
-            score_policy=lambda policy: _score_policy(
-                environment=environment,
-                policy=policy,
-                state_normalizer=state_normalizer,
-                action_normalizer=action_normalizer,
-                episode_count_per_condition=config.policy.validation.episode_count_per_condition,
-                parallel_environment_count=config.policy.validation.parallel_environment_count,
-                device=device,
+            validation=(
+                None
+                if config.policy.validation is None
+                else Validation(
+                    settings=config.policy.validation,
+                    environment=normalized_environment,
+                )
             ),
-            selection_metric=environment.checkpoint_selection_metric,
             seed=config.seed,
             device=device,
             run=run,
@@ -157,53 +157,6 @@ def _build_transitions(
             .astype(np.float32)
             .reshape(-1, 1)
         ).to(device=device),
-    )
-
-
-def _calculate_termination(
-    *,
-    environment: Environment,
-    normalized_state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
-    state_normalizer: ZScoreNormalizer,
-) -> torch.Tensor:  # (batch_size,)
-    state_batch = (
-        state_normalizer.denormalize(value_batch=normalized_state_batch.cpu())
-        .numpy()
-        .astype(np.float32)
-    )  # (batch_size, state_dimensionality)
-
-    return torch.from_numpy(
-        environment.calculate_termination(state_batch=state_batch)
-    ).to(device=normalized_state_batch.device)
-
-
-def _score_policy(
-    *,
-    environment: Environment,
-    policy: MopoPolicy,
-    state_normalizer: ZScoreNormalizer,
-    action_normalizer: MinMaxNormalizer,
-    episode_count_per_condition: int,
-    parallel_environment_count: int,
-    device: torch.device,
-) -> ValidationScore:
-    episode_records = roll_out_episodes_with_separate_seeds_per_condition(
-        environment=environment,
-        policy_factory=create_mopo_policy_factory(
-            policy=policy,
-            state_normalizer=state_normalizer,
-            action_normalizer=action_normalizer,
-            device=device,
-        ),
-        start_episode_seed=VALIDATION_START_SEED,
-        episode_count_per_condition=episode_count_per_condition,
-        parallel_environment_count=parallel_environment_count,
-    )
-    reward_statistics = calculate_reward_statistics(episode_records=episode_records)
-    return ValidationScore(
-        mean=reward_statistics.mean,
-        std=reward_statistics.std,
-        success_rate=calculate_success_statistics(episode_records=episode_records).rate,
     )
 
 

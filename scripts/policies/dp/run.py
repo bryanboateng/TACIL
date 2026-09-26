@@ -13,6 +13,7 @@ from scripts.policies.dp import config as policy_config
 from scripts.policies.dp.policy import create_diffusion_policy_factory
 from scripts.policies.dp.train import train_diffusion_policy
 from scripts.policies.shared.run_config import RunConfig, build_run_record
+from scripts.policies.shared.validation import Validation
 from scripts.shared.dataset_artifact import download_episodes
 from scripts.shared.episodes import drop_rewards
 from scripts.shared.log import create_logger, log_device_info
@@ -93,7 +94,9 @@ def _run(*, config: Config) -> None:
         logger.info("Stage 2/3: training the diffusion policy.")
         noise_prediction_network = train_diffusion_policy(
             config=config.policy,
-            environment=environment,
+            validation=Validation(
+                settings=config.policy.validation, environment=environment
+            ),
             expert_episodes=expert_episodes,
             augmented_episodes=augmented_episodes,
             seed=config.seed,
