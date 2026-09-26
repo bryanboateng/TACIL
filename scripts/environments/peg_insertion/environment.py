@@ -57,6 +57,9 @@ def keep_sapien_renderer_alive() -> sapien.render.SapienRenderer:
     which makes resets roughly three times slower without changing any result.
     The device has to match the one the recorded videos render on, or SAPIEN
     refuses to create the rendering environment later in the same process.
+
+    SAPIEN allows one renderer per process, so anything that starts its own, as
+    replaying demonstrations does, has to run in a process of its own.
     """
     return sapien.render.SapienRenderer(sapien.Device(RENDER_DEVICE))
 

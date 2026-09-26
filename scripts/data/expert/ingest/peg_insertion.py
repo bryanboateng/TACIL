@@ -1,4 +1,5 @@
 import json
+import multiprocessing
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -28,6 +29,8 @@ from scripts.shared.episodes import RewardedEpisodes
 from scripts.shared.log import create_logger
 
 logger = create_logger()
+
+_COMPLETION_MARKER_NAME = "conversion_complete"
 
 
 def build_episodes() -> RewardedEpisodes:
@@ -77,27 +80,18 @@ class _Episode:
 def _get_dataset(*, dataset_directory_path: Path) -> Path:
     logger.info("Retrieving dataset at %s.", dataset_directory_path)
 
-    joint_control_dataset_path = dataset_directory_path / "trajectory.h5"
-
+    completion_marker_path = dataset_directory_path / _COMPLETION_MARKER_NAME
     converted_dataset_path = _find_converted_dataset(
         dataset_directory_path=dataset_directory_path
     )
 
-    if converted_dataset_path is not None:
+    if converted_dataset_path is not None and completion_marker_path.exists():
         logger.info("Using cached conversion at %s.", converted_dataset_path)
         return converted_dataset_path
 
     logger.info("Converting demonstrations to %s.", CONTROL_MODE)
-    replay_trajectory(
-        args=ReplayArgs(
-            traj_path=str(joint_control_dataset_path),
-            obs_mode="none",
-            target_control_mode=CONTROL_MODE,
-            save_traj=True,
-            max_retry=2,
-            record_rewards=True,
-            reward_mode=REWARD_MODE,
-        )
+    _replay_demonstrations_in_a_separate_process(
+        joint_control_dataset_path=dataset_directory_path / "trajectory.h5"
     )
 
     converted_dataset_path = _find_converted_dataset(
@@ -106,8 +100,40 @@ def _get_dataset(*, dataset_directory_path: Path) -> Path:
     if converted_dataset_path is None:
         raise RuntimeError("Trajectory conversion produced no new .h5 file.")
 
+    completion_marker_path.touch()
     logger.info("Conversion complete: %s.", converted_dataset_path)
     return converted_dataset_path
+
+
+def _replay_demonstrations_in_a_separate_process(
+    *, joint_control_dataset_path: Path
+) -> None:
+    # SAPIEN allows one renderer per process.
+    # Later, in the replaying function, we construct a second renderer.
+    # This is only possible if this renderer doesn't run on the same process as the one used in the replaying function.
+    process = multiprocessing.get_context(method="spawn").Process(
+        target=_replay_demonstrations, args=(str(joint_control_dataset_path),)
+    )
+    process.start()
+    process.join()
+    if process.exitcode != 0:
+        raise RuntimeError(
+            f"Replaying the demonstrations failed with exit code {process.exitcode}."
+        )
+
+
+def _replay_demonstrations(joint_control_dataset_path: str) -> None:
+    replay_trajectory(
+        args=ReplayArgs(
+            traj_path=joint_control_dataset_path,
+            obs_mode="none",
+            target_control_mode=CONTROL_MODE,
+            save_traj=True,
+            max_retry=2,
+            record_rewards=True,
+            reward_mode=REWARD_MODE,
+        )
+    )
 
 
 def _find_converted_dataset(*, dataset_directory_path: Path) -> Path | None:
