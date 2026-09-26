@@ -1,3 +1,7 @@
+import os
+
+os.environ["CUDA_VISIBLE_DEVICES"] = ""
+
 import json
 import multiprocessing
 from dataclasses import dataclass
@@ -30,7 +34,7 @@ from scripts.shared.log import create_logger
 
 logger = create_logger()
 
-_COMPLETION_MARKER_NAME = "conversion_complete"
+_COMPLETION_MARKER_FILE_NAME = "conversion_complete"
 
 
 def build_episodes() -> RewardedEpisodes:
@@ -80,12 +84,12 @@ class _Episode:
 def _get_dataset(*, dataset_directory_path: Path) -> Path:
     logger.info("Retrieving dataset at %s.", dataset_directory_path)
 
-    completion_marker_path = dataset_directory_path / _COMPLETION_MARKER_NAME
+    completion_marker_file_path = dataset_directory_path / _COMPLETION_MARKER_FILE_NAME
     converted_dataset_path = _find_converted_dataset(
         dataset_directory_path=dataset_directory_path
     )
 
-    if converted_dataset_path is not None and completion_marker_path.exists():
+    if converted_dataset_path is not None and completion_marker_file_path.exists():
         logger.info("Using cached conversion at %s.", converted_dataset_path)
         return converted_dataset_path
 
@@ -100,7 +104,7 @@ def _get_dataset(*, dataset_directory_path: Path) -> Path:
     if converted_dataset_path is None:
         raise RuntimeError("Trajectory conversion produced no new .h5 file.")
 
-    completion_marker_path.touch()
+    completion_marker_file_path.touch()
     logger.info("Conversion complete: %s.", converted_dataset_path)
     return converted_dataset_path
 
