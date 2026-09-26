@@ -9,10 +9,17 @@ class ParallelPoolTests(unittest.TestCase):
     def test_status_is_not_returned_as_an_observation(self):
         parent, child = multiprocessing.Pipe()
         try:
-            child.send(("status", "creating environment"))
-            child.send(("status", "resetting environment"))
-            child.send((True, [1, 2, 3]))
-            self.assertEqual(_receive_worker_result(connection=parent), [1, 2, 3])
+            child.send(("progress", "creating environment"))
+            child.send(("progress", "resetting environment"))
+            child.send(("success", [1, 2, 3]))
+            self.assertEqual(
+                _receive_worker_result(
+                    connection=parent,
+                    worker=Mock(pid=123, exitcode=None),
+                    operation="waiting for result",
+                ),
+                [1, 2, 3],
+            )
         finally:
             parent.close()
             child.close()
@@ -21,7 +28,7 @@ class ParallelPoolTests(unittest.TestCase):
         connection = Mock()
         connection.poll.return_value = True
         connection.recv.return_value = (
-            "status",
+            "progress",
             "creating environment condition=2, seed=10050",
         )
         worker = Mock(pid=123, exitcode=None)
@@ -32,18 +39,24 @@ class ParallelPoolTests(unittest.TestCase):
                 RuntimeError,
                 "pid=123 timed out after 120s while creating environment condition=2, seed=10050",
             ):
-                _receive_worker_result(connection=connection, worker=worker)
+                _receive_worker_result(
+                    connection=connection, worker=worker, operation="waiting for result"
+                )
         connection.poll.assert_called_once()
 
     def test_worker_error_includes_operation(self):
         parent, child = multiprocessing.Pipe()
         try:
-            child.send(("status", "resetting environment condition=0, seed=10000"))
-            child.send((False, "simulator failed"))
+            child.send(("progress", "resetting environment condition=0, seed=10000"))
+            child.send(("error", "simulator failed"))
             with self.assertRaisesRegex(
                 RuntimeError, "resetting environment condition=0, seed=10000"
             ):
-                _receive_worker_result(connection=parent)
+                _receive_worker_result(
+                    connection=parent,
+                    worker=Mock(pid=123, exitcode=1),
+                    operation="waiting for result",
+                )
         finally:
             parent.close()
             child.close()

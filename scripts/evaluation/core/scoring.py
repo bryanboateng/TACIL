@@ -60,9 +60,9 @@ class ScoringSession:
     ) -> list[Episode]:
         return [
             record
-            for condition_index in range(len(self.environment.conditions))
+            for condition_index, condition in enumerate(self.environment.conditions)
             for record in self._roll_out_episodes_in_one_condition(
-                condition_index=condition_index,
+                condition=condition,
                 policy_factory=policy_factory,
                 start_episode_seed=(
                     start_episode_seed + condition_index * episode_count_per_condition
@@ -78,11 +78,11 @@ class ScoringSession:
         start_episode_seed: int,
         episode_count_per_condition: int,
     ) -> Generator[tuple[Condition, list[Episode]], None, None]:
-        for condition_index, condition in enumerate(self.environment.conditions):
+        for condition in self.environment.conditions:
             yield (
                 condition,
                 self._roll_out_episodes_in_one_condition(
-                    condition_index=condition_index,
+                    condition=condition,
                     policy_factory=policy_factory,
                     start_episode_seed=start_episode_seed,
                     episode_count=episode_count_per_condition,
@@ -92,7 +92,7 @@ class ScoringSession:
     def _roll_out_episodes_in_one_condition(
         self,
         *,
-        condition_index: int,
+        condition: Condition,
         policy_factory: PolicyFactory,
         start_episode_seed: int,
         episode_count: int,
@@ -101,20 +101,20 @@ class ScoringSession:
             raise RuntimeError("Scoring session is closed")
         if self._parallel_environment_pool is None:
             self._parallel_environment_pool = ParallelEnvironmentPool(
-                factories=[
-                    partial(
+                environment_factories={
+                    each_condition.label: partial(
                         self.environment.create_gym_environment,
-                        condition=condition,
+                        condition=each_condition,
                         render_settings=None,
                     )
-                    for condition in self.environment.conditions
-                ],
+                    for each_condition in self.environment.conditions
+                },
                 worker_count=self._parallel_environment_count,
             )
         return self._parallel_environment_pool.roll_out(
             seeds=list(range(start_episode_seed, start_episode_seed + episode_count)),
             policy_factory=policy_factory,
-            condition_index=condition_index,
+            condition_label=condition.label,
         )
 
 
