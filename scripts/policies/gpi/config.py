@@ -36,19 +36,36 @@ class ObservationNoiseConfig:
 class Config:
     observation_noise: ObservationNoiseConfig
     steps_per_search: int = 8
+    neighbour_count: int = 3
+    action_smoothing: float = 0.0
     progression_weight: float = 1.0
     attraction_weight: float = 1.0
+    robot_distance_weight: float = 1.0
+    environment_distance_weight: float = 1.0
 
     def __post_init__(self) -> None:
-        if self.steps_per_search < 2:
+        if self.steps_per_search < 1:
             raise ValueError(
-                f"steps_per_search must be at least 2, but it is "
+                f"steps_per_search must be at least 1, but it is "
                 f"{self.steps_per_search}."
+            )
+
+        if self.neighbour_count < 1:
+            raise ValueError(
+                f"neighbour_count must be at least 1, but it is {self.neighbour_count}."
+            )
+
+        if self.action_smoothing < 0:
+            raise ValueError(
+                f"action_smoothing must not be negative, but it is "
+                f"{self.action_smoothing}."
             )
 
         for name, value in (
             ("progression_weight", self.progression_weight),
             ("attraction_weight", self.attraction_weight),
+            ("robot_distance_weight", self.robot_distance_weight),
+            ("environment_distance_weight", self.environment_distance_weight),
         ):
             if value < 0:
                 raise ValueError(f"{name} must not be negative, but it is {value}.")
