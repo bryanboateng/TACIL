@@ -1,4 +1,3 @@
-from dataclasses import asdict
 from typing import Annotated, TypeAlias
 
 import numpy as np
@@ -18,7 +17,7 @@ from scripts.evaluation.evaluate_policy import evaluate_policy
 from scripts.policies.bc import config as bc_config
 from scripts.policies.bc.policy import create_behavior_cloning_policy_factory
 from scripts.policies.bc.train import train_behavior_cloning_policy
-from scripts.policies.shared.run_config import RunConfig
+from scripts.policies.shared.run_config import RunConfig, build_run_record
 from scripts.shared.dataset_artifact import download_episodes
 from scripts.shared.episodes import Episodes, drop_rewards
 from scripts.shared.log import create_logger, log_device_info
@@ -47,7 +46,11 @@ def _run(*, config: Config) -> None:
     with wandb.init(
         project=config.wandb_project,
         job_type="bc",
-        config=asdict(obj=config),
+        config=build_run_record(
+            config=config,
+            policy_name="bc",
+            augmentation_name=_get_augmentation_name(augmentation=config.augmentation),
+        ),
         dir=OUTPUT_DIRECTORY_PATH,
     ) as run:
         run_name = run.name
@@ -56,11 +59,11 @@ def _run(*, config: Config) -> None:
 
         environment = create_environment(name=config.environment)
 
-        expert_episodes = drop_rewards(
-            episodes=download_episodes(
-                artifact_name=config.expert_dataset_artifact, run=run
-            )
+        dataset = download_episodes(
+            artifact_name=config.expert_dataset_artifact, run=run
         )
+        run.config["expert_dataset_artifact_version"] = dataset.artifact_version
+        expert_episodes = drop_rewards(episodes=dataset.episodes)
 
         logger.info("Stage 1/3: building the training data.")
         expert_state_action_pairs = StateActionTransitions(
@@ -118,6 +121,16 @@ def _run(*, config: Config) -> None:
             run=run,
         )
         logger.info("Stage 3/3: done.")
+
+
+def _get_augmentation_name(*, augmentation: Augmentation | None) -> str | None:
+    match augmentation:
+        case None:
+            return None
+        case TacilConfig():
+            return "tacil"
+        case CcilConfig():
+            return "ccil"
 
 
 def _create_synthetic_state_action_pairs(

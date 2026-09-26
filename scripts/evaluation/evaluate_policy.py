@@ -16,14 +16,7 @@ from wandb import Run
 from scripts.environments.condition import Condition
 from scripts.environments.environment import Environment
 from scripts.environments.render_settings import RenderSettings
-from scripts.evaluation.config import (
-    FINAL_START_SEED,
-    TUNING_START_SEED,
-    CustomEvaluation,
-    EvaluationConfig,
-    FinalEvaluation,
-    TuningEvaluation,
-)
+from scripts.evaluation.config import EvaluationConfig, resolve_evaluation_stage
 from scripts.evaluation.core.rollout import Episode, roll_out_episodes
 from scripts.evaluation.core.scoring import (
     RewardStatistics,
@@ -55,31 +48,22 @@ def evaluate_policy(
     run: Run,
 ) -> None:
     reward_means: list[float] = []
-    match config.stage:
-        case TuningEvaluation():
-            start_episode_seed = TUNING_START_SEED
-            episode_count_per_condition = 100
-        case FinalEvaluation():
-            start_episode_seed = FINAL_START_SEED
-            episode_count_per_condition = 200
-        case CustomEvaluation() as custom_evaluation:
-            start_episode_seed = custom_evaluation.start_episode_seed
-            episode_count_per_condition = custom_evaluation.episode_count_per_condition
+    stage = resolve_evaluation_stage(stage=config.stage)
 
     with torch.no_grad():
         scored_episodes_per_condition_generator = (
             roll_out_episodes_with_the_same_seeds_in_every_condition(
                 environment=environment,
                 policy_factory=policy_factory,
-                start_episode_seed=start_episode_seed,
-                episode_count_per_condition=episode_count_per_condition,
+                start_episode_seed=stage.start_episode_seed,
+                episode_count_per_condition=stage.episode_count_per_condition,
                 parallel_environment_count=config.parallel_environment_count,
             )
         )
         scoring_start = perf_counter()
         with closing(scored_episodes_per_condition_generator):
             for condition, episode_records in scored_episodes_per_condition_generator:
-                run.summary[f"{STAGE_NAME}/{condition.label}/8_scoring_seconds"] = (
+                run.summary[f"{STAGE_NAME}/{condition.label}/7_scoring_seconds"] = (
                     perf_counter() - scoring_start
                 )
                 logger.info("Scored the policy in %s.", condition.label)
@@ -106,7 +90,7 @@ def evaluate_policy(
                         ),
                         run=run,
                     )
-                    run.summary[f"{STAGE_NAME}/{condition.label}/9_video_seconds"] = (
+                    run.summary[f"{STAGE_NAME}/{condition.label}/8_video_seconds"] = (
                         perf_counter() - video_start
                     )
                 scoring_start = perf_counter()
@@ -134,9 +118,6 @@ def _write_summary(
     run.summary[f"{STAGE_NAME}/{condition.label}/4_success_rate"] = success.rate
     run.summary[f"{STAGE_NAME}/{condition.label}/5_success_standard_error"] = (
         success.standard_error
-    )
-    run.summary[f"{STAGE_NAME}/{condition.label}/6_episode_count"] = (
-        reward.episode_count
     )
 
 
@@ -178,7 +159,7 @@ def _log_video(
 
             run.log(
                 data={
-                    f"{STAGE_NAME}/{condition.label}/7_video": wandb.Video(
+                    f"{STAGE_NAME}/{condition.label}/6_video": wandb.Video(
                         data_or_path=str(video_path), format="mp4"
                     )
                 }

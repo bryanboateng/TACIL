@@ -1,5 +1,6 @@
 import re
 import tempfile
+from dataclasses import dataclass
 from pathlib import Path
 
 import wandb
@@ -8,6 +9,12 @@ from wandb import Run
 from scripts.shared.episodes import RewardedEpisodes, load_episodes, save_episodes
 
 DATASET_PROJECT = "datasets"
+
+
+@dataclass(frozen=True)
+class DownloadedDataset:
+    episodes: RewardedEpisodes
+    artifact_version: str
 
 
 def build_dataset_name(
@@ -26,15 +33,11 @@ def read_dataset_stem(*, dataset_name: str) -> str:
     return match.group("stem")
 
 
-def download_episodes(*, artifact_name: str, run: Run) -> RewardedEpisodes:
-    return load_episodes(
-        directory_path=(
-            Path(
-                run.use_artifact(
-                    artifact_or_name=f"{DATASET_PROJECT}/{artifact_name}"
-                ).download()
-            )
-        )
+def download_episodes(*, artifact_name: str, run: Run) -> DownloadedDataset:
+    artifact = run.use_artifact(artifact_or_name=f"{DATASET_PROJECT}/{artifact_name}")
+    return DownloadedDataset(
+        episodes=load_episodes(directory_path=Path(artifact.download())),
+        artifact_version=artifact.version,
     )
 
 

@@ -47,7 +47,7 @@ def _run(*, config: Config):
     ) as run:
         expert_episodes = download_episodes(
             artifact_name=config.source_dataset_artifact, run=run
-        )
+        ).episodes
 
         source_episode_count = len(expert_episodes.episode_end_indices)
         source_name = config.source_dataset_artifact.split(":", maxsplit=1)[0]

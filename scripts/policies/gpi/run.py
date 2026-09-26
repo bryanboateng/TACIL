@@ -1,4 +1,3 @@
-from dataclasses import asdict
 from typing import TypeAlias
 
 import torch
@@ -10,7 +9,7 @@ from scripts.environments.registry import create_environment
 from scripts.evaluation.evaluate_policy import evaluate_policy
 from scripts.policies.gpi import config as gpi_config
 from scripts.policies.gpi.policy import create_geometric_policy_factory
-from scripts.policies.shared.run_config import RunConfig
+from scripts.policies.shared.run_config import RunConfig, build_run_record
 from scripts.shared import stage_names
 from scripts.shared.dataset_artifact import download_episodes
 from scripts.shared.episodes import drop_rewards
@@ -38,7 +37,9 @@ def _run(*, config: Config) -> None:
     with wandb.init(
         project=config.wandb_project,
         job_type="gpi",
-        config=asdict(obj=config),
+        config=build_run_record(
+            config=config, policy_name="gpi", augmentation_name=None
+        ),
         dir=OUTPUT_DIRECTORY_PATH,
     ) as run:
         run_name = run.name
@@ -47,11 +48,11 @@ def _run(*, config: Config) -> None:
 
         environment = create_environment(name=config.environment)
 
-        expert_episodes = drop_rewards(
-            episodes=download_episodes(
-                artifact_name=config.expert_dataset_artifact, run=run
-            )
+        dataset = download_episodes(
+            artifact_name=config.expert_dataset_artifact, run=run
         )
+        run.config["expert_dataset_artifact_version"] = dataset.artifact_version
+        expert_episodes = drop_rewards(episodes=dataset.episodes)
 
         run.summary[f"{stage_names.POLICY}/0_dataset/1_transition_count"] = len(
             expert_episodes.states

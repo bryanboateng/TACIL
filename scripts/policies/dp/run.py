@@ -1,4 +1,3 @@
-from dataclasses import asdict
 from typing import Annotated, TypeAlias
 
 import torch
@@ -13,7 +12,7 @@ from scripts.evaluation.evaluate_policy import evaluate_policy
 from scripts.policies.dp import config as policy_config
 from scripts.policies.dp.policy import create_diffusion_policy_factory
 from scripts.policies.dp.train import train_diffusion_policy
-from scripts.policies.shared.run_config import RunConfig
+from scripts.policies.shared.run_config import RunConfig, build_run_record
 from scripts.shared.dataset_artifact import download_episodes
 from scripts.shared.episodes import drop_rewards
 from scripts.shared.log import create_logger, log_device_info
@@ -38,7 +37,11 @@ def _run(*, config: Config) -> None:
     with wandb.init(
         project=config.wandb_project,
         job_type="dp",
-        config=asdict(obj=config),
+        config=build_run_record(
+            config=config,
+            policy_name="dp",
+            augmentation_name=None if config.augmentation is None else "tacil",
+        ),
         dir=OUTPUT_DIRECTORY_PATH,
     ) as run:
         run_name = run.name
@@ -47,11 +50,11 @@ def _run(*, config: Config) -> None:
 
         environment = create_environment(name=config.environment)
 
-        expert_episodes = drop_rewards(
-            episodes=download_episodes(
-                artifact_name=config.expert_dataset_artifact, run=run
-            )
+        dataset = download_episodes(
+            artifact_name=config.expert_dataset_artifact, run=run
         )
+        run.config["expert_dataset_artifact_version"] = dataset.artifact_version
+        expert_episodes = drop_rewards(episodes=dataset.episodes)
 
         logger.info("Stage 1/3: creating the augmented episodes.")
 

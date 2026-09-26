@@ -1,4 +1,3 @@
-from dataclasses import asdict
 from typing import TypeAlias
 
 import numpy as np
@@ -20,7 +19,7 @@ from scripts.policies.mopo import config as mopo_config
 from scripts.policies.mopo.policy import MopoPolicy, create_mopo_policy_factory
 from scripts.policies.mopo.train import ValidationScore, train_mopo_policy
 from scripts.policies.mopo.transitions import Transitions
-from scripts.policies.shared.run_config import RunConfig
+from scripts.policies.shared.run_config import RunConfig, build_run_record
 from scripts.shared.dataset_artifact import download_episodes
 from scripts.shared.episodes import RewardedEpisodes, calculate_indices_with_successor
 from scripts.shared.log import create_logger, log_device_info
@@ -45,7 +44,9 @@ def _run(*, config: Config) -> None:
     with wandb.init(
         project=config.wandb_project,
         job_type="mopo",
-        config=asdict(obj=config),
+        config=build_run_record(
+            config=config, policy_name="mopo", augmentation_name=None
+        ),
         dir=OUTPUT_DIRECTORY_PATH,
     ) as run:
         run_name = run.name
@@ -54,9 +55,11 @@ def _run(*, config: Config) -> None:
 
         environment = create_environment(name=config.environment)
 
-        expert_episodes = download_episodes(
+        dataset = download_episodes(
             artifact_name=config.expert_dataset_artifact, run=run
         )
+        run.config["expert_dataset_artifact_version"] = dataset.artifact_version
+        expert_episodes = dataset.episodes
 
         state_normalizer = ZScoreNormalizer(
             value_batch=torch.from_numpy(expert_episodes.states).float()
