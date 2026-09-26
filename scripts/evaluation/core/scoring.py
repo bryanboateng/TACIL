@@ -61,7 +61,7 @@ class ScoringSession:
         return [
             record
             for condition_index in range(len(self.environment.conditions))
-            for record in self.roll_out_episodes_in_one_condition(
+            for record in self._roll_out_episodes_in_one_condition(
                 condition_index=condition_index,
                 policy_factory=policy_factory,
                 start_episode_seed=(
@@ -81,7 +81,7 @@ class ScoringSession:
         for condition_index, condition in enumerate(self.environment.conditions):
             yield (
                 condition,
-                self.roll_out_episodes_in_one_condition(
+                self._roll_out_episodes_in_one_condition(
                     condition_index=condition_index,
                     policy_factory=policy_factory,
                     start_episode_seed=start_episode_seed,
@@ -89,7 +89,7 @@ class ScoringSession:
                 ),
             )
 
-    def roll_out_episodes_in_one_condition(
+    def _roll_out_episodes_in_one_condition(
         self,
         *,
         condition_index: int,
