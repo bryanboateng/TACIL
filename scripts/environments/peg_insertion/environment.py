@@ -13,7 +13,6 @@ from numpy import typing as npt
 
 from scripts.environments import state_bounds
 from scripts.environments.condition import Condition
-from scripts.environments.peg_insertion.reward import calculate_success
 from scripts.environments.peg_insertion.condition import (
     ALL_CONDITIONS,
     SETTINGS_BY_CONDITION,
@@ -30,13 +29,13 @@ from scripts.environments.peg_insertion.observation import (
     extract_state_from_environment,
 )
 from scripts.environments.peg_insertion.plots import create_dynamics_plots
+from scripts.environments.peg_insertion.reward import calculate_success
 from scripts.environments.peg_insertion.tacil_network_input import build_network_input
 from scripts.environments.render_settings import RenderSettings
 from scripts.environments.state_bounds import Bound
 from scripts.environments.state_space import StateSpace
 from scripts.environments.tacil_dynamics_plotter import TacilDynamicsPlotter
 from scripts.environments.tacil_network_input import TacilNetworkInputBuilder
-from scripts.environments.video_settings import VideoSettings
 
 TASK_ID = "PegInsertionSide-v1"
 
@@ -140,8 +139,12 @@ class PegInsertionEnvironment:
         return "success_then_reward"
 
     @property
-    def video_settings(self) -> VideoSettings:
-        return VideoSettings(frames_per_second=20, playback_speed=2.0)
+    def control_frequency(self) -> int:
+        return 20
+
+    @property
+    def video_playback_speed(self) -> float:
+        return 2.0
 
     def describe_condition(self, *, condition: Condition) -> str:
         return SETTINGS_BY_CONDITION[condition].description

@@ -10,7 +10,6 @@ from scripts.environments.render_settings import RenderSettings
 from scripts.environments.state_space import StateSpace
 from scripts.environments.tacil_dynamics_plotter import TacilDynamicsPlotter
 from scripts.environments.tacil_network_input import TacilNetworkInputBuilder
-from scripts.environments.video_settings import VideoSettings
 
 
 class Environment(Protocol):
@@ -35,7 +34,10 @@ class Environment(Protocol):
     ) -> Literal["reward", "success_then_reward"]: ...
 
     @property
-    def video_settings(self) -> VideoSettings: ...
+    def control_frequency(self) -> int: ...
+
+    @property
+    def video_playback_speed(self) -> float: ...
 
     def describe_condition(self, *, condition: Condition) -> str: ...
 

@@ -8,7 +8,6 @@ from numpy import typing as npt
 
 from scripts.environments import state_bounds
 from scripts.environments.condition import Condition
-from scripts.environments.pusht.reward import calculate_success, create_environment
 from scripts.environments.pusht.condition import ALL_CONDITIONS, SETTINGS_BY_CONDITION
 from scripts.environments.pusht.disturbance import DisturbanceWrapper
 from scripts.environments.pusht.gpi_geometry import PushTGpiGeometry
@@ -20,15 +19,13 @@ from scripts.environments.pusht.observation import (
 )
 from scripts.environments.pusht.plots import create_dynamics_plots
 from scripts.environments.pusht.renderer import RecoloredRenderWrapper
+from scripts.environments.pusht.reward import calculate_success, create_environment
 from scripts.environments.pusht.tacil_network_input import build_network_input
 from scripts.environments.render_settings import RenderSettings
 from scripts.environments.state_bounds import Bound
 from scripts.environments.state_space import StateSpace
 from scripts.environments.tacil_dynamics_plotter import TacilDynamicsPlotter
 from scripts.environments.tacil_network_input import TacilNetworkInputBuilder
-from scripts.environments.video_settings import VideoSettings
-
-_VIDEO_SETTINGS = VideoSettings(frames_per_second=10, playback_speed=3.5)
 
 
 class PushTEnvironment:
@@ -72,8 +69,12 @@ class PushTEnvironment:
         return "reward"
 
     @property
-    def video_settings(self) -> VideoSettings:
-        return _VIDEO_SETTINGS
+    def control_frequency(self) -> int:
+        return 10
+
+    @property
+    def video_playback_speed(self) -> float:
+        return 3.5
 
     def describe_condition(self, *, condition: Condition) -> str:
         return SETTINGS_BY_CONDITION[condition].description

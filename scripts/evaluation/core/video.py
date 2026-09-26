@@ -7,18 +7,23 @@ from matplotlib import colormaps
 from pygame import Surface
 from pygame.font import Font
 
-from scripts.environments.video_settings import VideoSettings
 from scripts.evaluation.core.rollout import Episode
 from scripts.shared.paths import PROJECT_ROOT_DIRECTORY_PATH
 
 FREEZE_SECONDS = 2
 
 
+def calculate_video_frames_per_second(
+    *, control_frequency: int, playback_speed: float
+) -> int:
+    return round(number=control_frequency * playback_speed)
+
+
 def render_episode_surfaces(
     *,
     episode_record: Episode,
     condition_description: str,
-    video_settings: VideoSettings,
+    playback_speed: float,
     policy_label: str,
     percentile: int,
 ) -> list[pygame.Surface]:
@@ -57,7 +62,7 @@ def render_episode_surfaces(
             line_index=1,
         )
         _add_text_to_surface(
-            text=f"speed: {video_settings.playback_speed}×\nstep: {step}",
+            text=f"speed: {playback_speed}×\nstep: {step}",
             placement=_Placement.BOTTOM_LEFT,
             surface=annotated_surface,
             font=font,

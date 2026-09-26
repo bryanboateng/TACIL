@@ -25,7 +25,11 @@ from scripts.evaluation.core.scoring import (
     calculate_success_statistics,
     pick_representative_episodes,
 )
-from scripts.evaluation.core.video import FREEZE_SECONDS, render_episode_surfaces
+from scripts.evaluation.core.video import (
+    FREEZE_SECONDS,
+    calculate_video_frames_per_second,
+    render_episode_surfaces,
+)
 from scripts.shared import stage_names
 from scripts.shared.log import create_logger
 from scripts.shared.policy_types import Policy, PolicyFactory
@@ -129,7 +133,10 @@ def _log_video(
     episode_records: dict[int, Episode],
     run: Run,
 ) -> None:
-    fps = environment.video_settings.video_frames_per_second
+    fps = calculate_video_frames_per_second(
+        control_frequency=environment.control_frequency,
+        playback_speed=environment.video_playback_speed,
+    )
     gym_environment = environment.create_gym_environment(
         condition=condition,
         render_settings=RenderSettings(size=1_000, supersample_factor=2),
@@ -191,7 +198,7 @@ def _write_episode_frames(
         for surface in render_episode_surfaces(
             episode_record=replayed_record,
             condition_description=environment.describe_condition(condition=condition),
-            video_settings=environment.video_settings,
+            playback_speed=environment.video_playback_speed,
             policy_label=policy_label,
             percentile=percentile,
         ):

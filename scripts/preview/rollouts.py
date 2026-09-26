@@ -13,7 +13,11 @@ from scripts.environments.environment import Environment
 from scripts.environments.registry import EnvironmentName, create_environment
 from scripts.environments.render_settings import RenderSettings
 from scripts.evaluation.core.rollout import roll_out_episodes
-from scripts.evaluation.core.video import FREEZE_SECONDS, render_episode_surfaces
+from scripts.evaluation.core.video import (
+    FREEZE_SECONDS,
+    calculate_video_frames_per_second,
+    render_episode_surfaces,
+)
 from scripts.policies.gpi import config as gpi
 from scripts.policies.gpi.policy import create_geometric_policy_factory
 from scripts.shared.dataset_artifact import DATASET_PROJECT
@@ -46,7 +50,10 @@ def _run(*, config: Config) -> None:
     clock = pygame.time.Clock()
 
     environment = create_environment(name=config.environment)
-    fps = environment.video_settings.video_frames_per_second
+    fps = calculate_video_frames_per_second(
+        control_frequency=environment.control_frequency,
+        playback_speed=environment.video_playback_speed,
+    )
     policy_factory = _create_policy_factory(config=config, environment=environment)
 
     for condition in itertools.cycle(environment.conditions):
@@ -71,7 +78,7 @@ def _run(*, config: Config) -> None:
         surfaces = render_episode_surfaces(
             episode_record=episode_record,
             condition_description=environment.describe_condition(condition=condition),
-            video_settings=environment.video_settings,
+            playback_speed=environment.video_playback_speed,
             policy_label="preview",
             percentile=75,
         )
