@@ -1,17 +1,16 @@
-from typing import Annotated, TypeAlias
+from typing import TypeAlias
 
 import numpy as np
 import torch
 import tyro
 import wandb
 from rich.pretty import pretty_repr
-from wandb import Run
 
-from scripts.data.augmentation.ccil import augmentation as ccil
-from scripts.data.augmentation.ccil.config import CcilConfig
-from scripts.data.augmentation.tacil import augmentation as tacil
-from scripts.data.augmentation.tacil.augmentation import TacilConfig
-from scripts.environments.environment import Environment
+from scripts.data.augmentation.augment import (
+    AugmentationConfig,
+    augment,
+    get_augmentation_name,
+)
 from scripts.environments.registry import create_environment
 from scripts.evaluation.evaluate_policy import evaluate_policy
 from scripts.policies.bc import config as bc_config
@@ -20,18 +19,14 @@ from scripts.policies.bc.train import train_behavior_cloning_policy
 from scripts.policies.shared.run_config import RunConfig, build_run_record
 from scripts.policies.shared.validation import Validation
 from scripts.shared.dataset_artifact import download_episodes
-from scripts.shared.episodes import Episodes, drop_rewards
+from scripts.shared.episodes import drop_rewards
 from scripts.shared.log import create_logger, log_device_info
 from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
 from scripts.shared.state_action_transitions import StateActionTransitions
 
 logger = create_logger()
 
-Augmentation: TypeAlias = (
-    Annotated[TacilConfig, tyro.conf.subcommand(name="tacil")]
-    | Annotated[CcilConfig, tyro.conf.subcommand(name="ccil")]
-)
-Config: TypeAlias = RunConfig[bc_config.Config, Augmentation]
+Config: TypeAlias = RunConfig[bc_config.Config, AugmentationConfig]
 
 
 def main() -> None:
@@ -50,7 +45,7 @@ def _run(*, config: Config) -> None:
         config=build_run_record(
             config=config,
             policy_name="bc",
-            augmentation_name=_get_augmentation_name(augmentation=config.augmentation),
+            augmentation_name=get_augmentation_name(config=config.augmentation),
         ),
         dir=OUTPUT_DIRECTORY_PATH,
     ) as run:
@@ -73,27 +68,24 @@ def _run(*, config: Config) -> None:
         if config.augmentation is None:
             state_action_transitions = expert_state_action_pairs
         else:
-            synthetic_state_action_pairs = _create_synthetic_state_action_pairs(
-                augmentation_config=config.augmentation,
+            augmented_episodes = augment(
+                config=config.augmentation,
                 environment=environment,
                 expert_episodes=expert_episodes,
+                # Behavior cloning trains on single (state, action) pairs, not
+                # windows, so no expert part is needed.
+                expert_part_length=0,
                 seed=config.seed,
                 device=device,
                 run=run,
             )
             state_action_transitions = StateActionTransitions(
                 states=np.concatenate(
-                    [
-                        expert_state_action_pairs.states,
-                        synthetic_state_action_pairs.states,
-                    ],
+                    [expert_state_action_pairs.states, augmented_episodes.states],
                     axis=0,
                 ),  # (pair_count, state_dimensionality)
                 actions=np.concatenate(
-                    [
-                        expert_state_action_pairs.actions,
-                        synthetic_state_action_pairs.actions,
-                    ],
+                    [expert_state_action_pairs.actions, augmented_episodes.actions],
                     axis=0,
                 ),  # (pair_count, action_dimensionality)
             )
@@ -128,51 +120,6 @@ def _run(*, config: Config) -> None:
             run=run,
         )
         logger.info("Stage 3/3: done.")
-
-
-def _get_augmentation_name(*, augmentation: Augmentation | None) -> str | None:
-    match augmentation:
-        case None:
-            return None
-        case TacilConfig():
-            return "tacil"
-        case CcilConfig():
-            return "ccil"
-
-
-def _create_synthetic_state_action_pairs(
-    *,
-    augmentation_config: Augmentation,
-    environment: Environment,
-    expert_episodes: Episodes,
-    seed: int,
-    device: torch.device,
-    run: Run,
-) -> StateActionTransitions:
-    match augmentation_config:
-        case CcilConfig() as ccil_configuration:
-            return ccil.augment(
-                config=ccil_configuration,
-                expert_episodes=expert_episodes,
-                seed=seed,
-                device=device,
-                run=run,
-            )
-        case TacilConfig() as tacil_configuration:
-            tacil_episodes = tacil.augment(
-                config=tacil_configuration,
-                environment=environment,
-                expert_episodes=expert_episodes,
-                # Behavior cloning trains on single (state, action) pairs, not
-                # windows, so no expert part is needed.
-                expert_part_length=0,
-                seed=seed,
-                device=device,
-                run=run,
-            )
-            return StateActionTransitions(
-                states=tacil_episodes.states, actions=tacil_episodes.actions
-            )
 
 
 if __name__ == "__main__":

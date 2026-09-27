@@ -37,10 +37,8 @@ class Dataset:
             episodes=expert_episodes,
             observation_normalizer=self.observation_normalizer,
             action_normalizer=self.action_normalizer,
-            window_length=horizon_lengths.prediction,
-            observation_horizon_length=horizon_lengths.observation,
-            lead_in_length=horizon_lengths.observation - 1,
-            run_out_length=horizon_lengths.execution - 1,
+            horizon_lengths=horizon_lengths,
+            pad_episode_end=True,
         )
 
         if augmented_episodes is None:
@@ -60,10 +58,8 @@ class Dataset:
                 episodes=augmented_episodes,
                 observation_normalizer=self.observation_normalizer,
                 action_normalizer=self.action_normalizer,
-                window_length=horizon_lengths.prediction,
-                observation_horizon_length=horizon_lengths.observation,
-                lead_in_length=0,
-                run_out_length=0,
+                horizon_lengths=horizon_lengths,
+                pad_episode_end=False,
             )
             windows = WindowBatch(
                 observation_windows=torch.cat(
@@ -124,16 +120,14 @@ def _create_windows(
     episodes: Episodes,
     observation_normalizer: MinMaxNormalizer,
     action_normalizer: MinMaxNormalizer,
-    window_length: int,
-    observation_horizon_length: int,
-    lead_in_length: int,
-    run_out_length: int,
+    horizon_lengths: HorizonLengthConfig,
+    pad_episode_end: bool,
 ) -> WindowBatch:
     window_timesteps = _get_window_timesteps(
         episode_end_indices=episodes.episode_end_indices,
-        window_length=window_length,
-        lead_in_length=lead_in_length,
-        run_out_length=run_out_length,
+        window_length=horizon_lengths.prediction,
+        lead_in_length=horizon_lengths.observation - 1,
+        run_out_length=horizon_lengths.execution - 1 if pad_episode_end else 0,
     )  # (window_count, window_length)
 
     normalized_observations = observation_normalizer.normalize(
@@ -151,7 +145,7 @@ def _create_windows(
     #     prediction   a a a a a a a a a a a a a a a a
     return WindowBatch(
         observation_windows=normalized_observations[
-            window_timesteps[:, :observation_horizon_length]
+            window_timesteps[:, : horizon_lengths.observation]
         ],
         action_windows=normalized_actions[window_timesteps],
     )

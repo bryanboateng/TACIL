@@ -3,9 +3,7 @@ import torch
 from numpy import typing as npt
 from wandb import Run
 
-from scripts.data.augmentation.tacil.create_data.anchor_selection import (
-    get_anchor_indices,
-)
+from scripts.data.augmentation.anchor_selection import get_anchor_indices
 from scripts.data.augmentation.tacil.create_data.backward_rollout import (
     roll_out_backward,
 )

@@ -6,20 +6,21 @@ from scripts.data.augmentation.ccil.create_augmented_data import (
     create_ccil_augmented_data,
 )
 from scripts.shared.episodes import Episodes
-from scripts.shared.state_action_transitions import StateActionTransitions
 
 
 def augment(
     *,
     config: CcilConfig,
     expert_episodes: Episodes,
+    expert_part_length: int,
     seed: int,
     device: torch.device,
     run: Run,
-) -> StateActionTransitions:
+) -> Episodes:
     return create_ccil_augmented_data(
         config=config,
         expert_episodes=expert_episodes,
+        expert_part_length=expert_part_length,
         seed=seed,
         device=device,
         run=run,

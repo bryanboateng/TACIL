@@ -1,7 +1,11 @@
+from dataclasses import dataclass
+
 import numpy as np
 import torch
 from wandb import Run
 
+from scripts.data.augmentation.anchor_selection import get_anchor_indices
+from scripts.data.augmentation.assembly import assemble_episodes
 from scripts.data.augmentation.ccil.config import (
     BackwardEulerLabels,
     CcilConfig,
@@ -13,10 +17,9 @@ from scripts.data.augmentation.ccil.world_model import WorldModel, fit_world_mod
 from scripts.shared import stage_names
 from scripts.shared.distribution_plot import create_distribution_plot
 from scripts.shared.distribution_summary import summarize_distribution
-from scripts.shared.episodes import Episodes
+from scripts.shared.episodes import Episodes, calculate_indices_with_successor
 from scripts.shared.log import create_logger
 from scripts.shared.seeding import set_seed
-from scripts.shared.state_action_transitions import StateActionTransitions
 
 logger = create_logger()
 
@@ -34,10 +37,11 @@ def create_ccil_augmented_data(
     *,
     config: CcilConfig,
     expert_episodes: Episodes,
+    expert_part_length: int,
     seed: int,
     device: torch.device,
     run: Run,
-) -> StateActionTransitions:
+) -> Episodes:
     set_seed(seed=seed)
 
     states, actions, next_states = (
@@ -71,49 +75,73 @@ def create_ccil_augmented_data(
             }
         )
 
+    anchor_indices = np.intersect1d(
+        get_anchor_indices(
+            episode_end_indices=expert_episodes.episode_end_indices,
+            expert_part_length=expert_part_length,
+        ),
+        calculate_indices_with_successor(
+            episode_end_indices=expert_episodes.episode_end_indices,
+            total_timestep_count=expert_episodes.states.shape[0],
+        ),
+    )  # (anchor_count,)
+
     with torch.no_grad():
-        label_states, label_actions, label_distances, attempted_count = (
-            _generate_labels(
-                world_model=world_model,
-                state_batch=states,
-                action_batch=actions,
-                next_state_batch=next_states,
-                config=config,
-            )
+        labels = _generate_labels(
+            world_model=world_model,
+            state_batch=torch.from_numpy(expert_episodes.states[anchor_indices]).to(
+                device=device
+            ),
+            action_batch=torch.from_numpy(expert_episodes.actions[anchor_indices]).to(
+                device=device
+            ),
+            next_state_batch=torch.from_numpy(
+                expert_episodes.states[anchor_indices + 1]
+            ).to(device=device),
+            anchor_index_batch=torch.from_numpy(anchor_indices).to(device=device),
+            config=config,
         )
 
     accepted_mask = _accept_labels(
-        label_distances=label_distances, config=config.labels
+        label_distances=labels.distances, config=config.labels
     )
-    label_count = label_states.shape[0]
-    rejected_count = label_count - int(accepted_mask.sum())
+    label_count = labels.states.shape[0]
+    accepted_count = int(accepted_mask.sum())
+    rejected_count = label_count - accepted_count
 
     run.summary[f"{STAGE_NAME}/1_labels/1_expert_transition_count"] = states.shape[0]
     run.summary[f"{STAGE_NAME}/1_labels/2_label_count"] = label_count
     run.summary[f"{STAGE_NAME}/1_labels/4_rejected_label_count"] = rejected_count
     run.summary[f"{STAGE_NAME}/1_labels/6_unsolved_label_count"] = (
-        attempted_count - label_count
+        labels.attempted_count - label_count
     )
     run.summary[f"{STAGE_NAME}/1_labels/5_rejected_label_fraction"] = (
         rejected_count / max(label_count, 1)
     )
 
-    for label, value in summarize_distribution(values=label_distances).items():
+    for label, value in summarize_distribution(values=labels.distances).items():
         run.summary[f"{STAGE_NAME}/2_label_distances/{label}"] = value
     run.log(
         data={
             f"{STAGE_NAME}/2_label_distances/4_plot": create_distribution_plot(
-                values=label_distances, xlabel="label distance"
+                values=labels.distances, xlabel="label distance"
             )
         }
     )
 
-    accepted_states = label_states[accepted_mask]
-    run.summary[f"{STAGE_NAME}/3_dataset/1_synthetic_transition_count"] = int(
-        accepted_states.shape[0]
-    )
-    return StateActionTransitions(
-        states=accepted_states, actions=label_actions[accepted_mask]
+    run.summary[f"{STAGE_NAME}/3_dataset/1_synthetic_transition_count"] = accepted_count
+    if accepted_count == 0:
+        raise RuntimeError(
+            "Rejection removed every CCIL label, so there is nothing to augment with."
+        )
+
+    return assemble_episodes(
+        expert_episodes=expert_episodes,
+        synthetic_states=labels.states[accepted_mask],
+        synthetic_actions=labels.actions[accepted_mask],
+        trajectory_lengths=np.ones(accepted_count, dtype=np.int64),
+        anchor_indices=labels.anchor_indices[accepted_mask],
+        expert_part_length=expert_part_length,
     )
 
 
@@ -123,6 +151,15 @@ def _define_epoch_metrics(*, run: Run) -> None:
 
 
 # ---- Private --------------------------------------------
+
+
+@dataclass(frozen=True)
+class _Labels:
+    states: np.ndarray  # (label_count, state_dimensionality)
+    actions: np.ndarray  # (label_count, action_dimensionality)
+    anchor_indices: np.ndarray  # (label_count,)
+    distances: np.ndarray  # (label_count,)
+    attempted_count: int
 
 
 def _accept_labels(
@@ -143,26 +180,26 @@ def _accept_labels(
 def _extract_transitions(
     *, episodes: Episodes
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    last_timestep_indices = episodes.episode_end_indices - 1
-    keep_mask = np.ones(episodes.states.shape[0], dtype=bool)
-    keep_mask[last_timestep_indices] = False
-
-    successor_indices = np.nonzero(keep_mask)[0] + 1
+    indices_with_successor = calculate_indices_with_successor(
+        episode_end_indices=episodes.episode_end_indices,
+        total_timestep_count=episodes.states.shape[0],
+    )
     return (
-        episodes.states[keep_mask],
-        episodes.actions[keep_mask],
-        episodes.states[successor_indices],
+        episodes.states[indices_with_successor],
+        episodes.actions[indices_with_successor],
+        episodes.states[indices_with_successor + 1],
     )
 
 
 def _generate_labels(
     *,
     world_model: WorldModel,
-    state_batch: torch.Tensor,  # (transition_count, state_dimensionality)
-    action_batch: torch.Tensor,  # (transition_count, action_dimensionality)
-    next_state_batch: torch.Tensor,  # (transition_count, state_dimensionality)
+    state_batch: torch.Tensor,  # (anchor_count, state_dimensionality)
+    action_batch: torch.Tensor,  # (anchor_count, action_dimensionality)
+    next_state_batch: torch.Tensor,  # (anchor_count, state_dimensionality)
+    anchor_index_batch: torch.Tensor,  # (anchor_count,)
     config: CcilConfig,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray, int]:
+) -> _Labels:
     generation = config.labels.generation
     label_count_per_transition = (
         generation.label_count_per_transition
@@ -172,6 +209,7 @@ def _generate_labels(
 
     label_state_chunks: list[np.ndarray] = []
     label_action_chunks: list[np.ndarray] = []
+    anchor_index_chunks: list[np.ndarray] = []
     distance_chunks: list[np.ndarray] = []
     attempted_count = 0
 
@@ -181,6 +219,9 @@ def _generate_labels(
             repeats=label_count_per_transition, dim=0
         )
         repeated_actions = action_batch[batch_slice].repeat_interleave(
+            repeats=label_count_per_transition, dim=0
+        )
+        repeated_anchor_indices = anchor_index_batch[batch_slice].repeat_interleave(
             repeats=label_count_per_transition, dim=0
         )
 
@@ -219,13 +260,15 @@ def _generate_labels(
         attempted_count += label_states.shape[0]
         label_state_chunks.append(label_states[solved_mask].cpu().numpy())
         label_action_chunks.append(label_actions[solved_mask].cpu().numpy())
+        anchor_index_chunks.append(repeated_anchor_indices[solved_mask].cpu().numpy())
         distance_chunks.append(distances[solved_mask].cpu().numpy())
 
-    return (
-        np.concatenate(label_state_chunks).astype(np.float32),
-        np.concatenate(label_action_chunks).astype(np.float32),
-        np.concatenate(distance_chunks),
-        attempted_count,
+    return _Labels(
+        states=np.concatenate(label_state_chunks).astype(np.float32),
+        actions=np.concatenate(label_action_chunks).astype(np.float32),
+        anchor_indices=np.concatenate(anchor_index_chunks).astype(np.int64),
+        distances=np.concatenate(distance_chunks),
+        attempted_count=attempted_count,
     )
 
 

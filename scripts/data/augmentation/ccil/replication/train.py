@@ -337,12 +337,16 @@ def _build_training_data(
     if ccil_config is None:
         return expert_state_action_pairs
 
-    synthetic_state_action_pairs = ccil.augment(
+    synthetic_episodes = ccil.augment(
         config=ccil_config,
         expert_episodes=expert_episodes,
+        expert_part_length=0,
         seed=seed,
         device=device,
         run=run,
+    )
+    synthetic_state_action_pairs = StateActionTransitions(
+        states=synthetic_episodes.states, actions=synthetic_episodes.actions
     )
 
     expert_copy_count = (
