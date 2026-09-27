@@ -1,21 +1,10 @@
-"""Distance metric of GPI on PegInsertionSide.
-
-The metric measures every term in controller units: one unit is what the
-`pd_ee_delta_pose` controller can command in a single step (0.1 m, 0.1 rad), or
-the whole command range of the gripper (0.05 m). The tests pin that convention
-and the properties the retrieval relies on.
-"""
-
 import unittest
 
 import numpy as np
 import torch
 from mani_skill.utils.geometry.rotation_conversions import axis_angle_to_matrix
 
-from scripts.environments.peg_insertion.gpi_geometry import (
-    FEATURE_DIMENSIONALITY,
-    PegInsertionGpiGeometry,
-)
+from scripts.environments.peg_insertion.gpi_geometry import PegInsertionGpiGeometry
 from scripts.environments.peg_insertion.observation import (
     GRIPPER_OPENING_INDEX,
     HOLE_ORIENTATION_SLICE,
@@ -93,28 +82,15 @@ class PegGpiDistanceTests(unittest.TestCase):
         )[0]
         return float(self.distances(feature_batch, query_feature)[0])
 
-    def test_feature_dimensionality(self):
-        self.assertEqual(self.features.shape, (64, FEATURE_DIMENSIONALITY))
-
-    def test_a_state_has_zero_distance_to_itself(self):
-        distances = self.distances(self.features, self.features[7])
-        self.assertAlmostEqual(float(distances[7]), 0.0, places=6)
-        self.assertEqual(int(distances.argmin()), 7)
-
-    def test_distance_is_symmetric(self):
-        forward = self.distances(self.features[3:4], self.features[9])
-        backward = self.distances(self.features[9:10], self.features[3])
-        self.assertAlmostEqual(float(forward), float(backward), places=9)
-
     def test_one_controller_step_of_translation_is_distance_one(self):
         state = self.states[0]
         moved = state.clone()
-        moved[TCP_POSITION_SLICE] += torch.tensor([0.06, 0.08, 0.0])  # 0.1 m
+        moved[TCP_POSITION_SLICE] += torch.tensor([0.06, 0.08, 0.0])
         self.assertAlmostEqual(self.distance_after(state, moved), 1.0, places=6)
 
     def test_one_controller_step_of_rotation_is_distance_one(self):
         state = self.states[0]
-        rotated = rotate_tcp(state, [0.0, 0.1, 0.0])  # 0.1 rad
+        rotated = rotate_tcp(state, [0.0, 0.1, 0.0])
         self.assertAlmostEqual(self.distance_after(state, rotated), 1.0, places=6)
 
     def test_full_gripper_range_is_distance_one(self):

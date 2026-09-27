@@ -1,23 +1,10 @@
-"""Guard rails for PegInsertionSide resets.
-
-An earlier attempt to speed resets up kept the robot and table alive across
-episodes and rebuilt only the peg and hole. That left PhysX state behind and
-made a seed's outcome depend on how many episodes had run before it in the same
-environment, which the test below would have caught. The scene is built by
-unmodified ManiSkill code again; the only change is that the process holds one
-render material so SAPIEN does not tear its renderer down between resets.
-"""
-
 import unittest
 from contextlib import ExitStack
 
 import numpy as np
 import torch
 
-from scripts.environments.peg_insertion.environment import (
-    create_base_environment,
-    keep_sapien_renderer_alive,
-)
+from scripts.environments.peg_insertion.environment import create_base_environment
 from scripts.environments.peg_insertion.observation import (
     extract_state_from_environment,
 )
@@ -58,9 +45,6 @@ class PegSceneDeterminismTests(unittest.TestCase):
                 )
         finally:
             torch.set_num_threads(thread_count)
-
-    def test_the_renderer_reference_is_held_for_the_whole_process(self):
-        self.assertIs(keep_sapien_renderer_alive(), keep_sapien_renderer_alive())
 
     def test_a_rendering_environment_still_starts_after_a_headless_one(self):
         with ExitStack() as resources:

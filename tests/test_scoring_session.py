@@ -65,7 +65,6 @@ class ToyTask:
 
 
 def policy_factory(action):
-    # Deliberately local/unpicklable: inference must remain in the parent.
     def factory(*, episode_seeds):
         steps = [0] * len(episode_seeds)
 
@@ -104,7 +103,6 @@ class ScoringSessionTests(unittest.TestCase):
                     episode_count_per_condition=3,
                 )
                 files = list(Path(directory).iterdir())
-                # Two processes, each owning both conditions, not four processes.
                 self.assertEqual(len({p.name.split("_")[0] for p in files}), 2)
                 self.assertEqual(len(files), 4)
                 second = session.roll_out_episodes_with_separate_seeds_per_condition(
@@ -119,8 +117,6 @@ class ScoringSessionTests(unittest.TestCase):
                     episode_count_per_condition=3,
                 )
                 self.assertNotEqual(first[0].reward, updated[0].reward)
-            # Each condition opens its own environments, so every one that was
-            # created is closed again by the time the session ends.
             for path in files:
                 events = path.read_text().split()
                 self.assertEqual(events.count("created"), events.count("closed"))
