@@ -4,13 +4,13 @@ from mani_skill.utils.structs import Actor, Link, Pose
 from numpy import typing as npt
 
 TCP_POSITION_SLICE = slice(0, 3)
-TCP_ORIENTATION_SLICE = slice(3, 9)  # (6,) 6D: first two columns of rotation matrix
+TCP_ORIENTATION_SLICE = slice(3, 9)  # (6,) first two columns of rotation matrix
 TCP_LINEAR_VELOCITY_SLICE = slice(9, 12)
 TCP_ANGULAR_VELOCITY_SLICE = slice(12, 15)
 GRIPPER_OPENING_INDEX = 15
 PEG_POSITION_SLICE = slice(16, 19)
 PEG_ORIENTATION_SLICE = slice(19, 25)  # (6,) 6D
-PEG_FORWARD_AXIS_SLICE = slice(19, 22)  # (3,) first column of the 6D rotation
+PEG_FORWARD_AXIS_SLICE = slice(19, 22)  # (3,) first column of the rotation matrix
 PEG_LINEAR_VELOCITY_SLICE = slice(25, 28)
 PEG_ANGULAR_VELOCITY_SLICE = slice(28, 31)
 PEG_HALF_SIZE_SLICE = slice(31, 34)
