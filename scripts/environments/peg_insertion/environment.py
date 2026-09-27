@@ -42,7 +42,10 @@ TASK_ID = "PegInsertionSide-v1"
 CONTROL_MODE = "pd_ee_delta_pose"
 REWARD_MODE = "normalized_dense"
 SIMULATION_BACKEND = "physx_cpu"
-RENDER_DEVICE = "cpu"
+# "cuda" makes SAPIEN use the GPU that CUDA_VISIBLE_DEVICES points to.
+# With "cpu" SAPIEN picks some GPU on its own, which left
+# stray processes on other people's GPUs on the cluster.
+RENDER_DEVICE = "cuda"
 
 
 @cache
