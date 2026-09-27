@@ -1,20 +1,19 @@
-import tempfile
 from dataclasses import asdict, dataclass
-from pathlib import Path
 
 import numpy as np
 import tyro
 import wandb
-import zarr
 from rich.pretty import pretty_repr
 from wandb import Run
 
 from scripts.shared.dataset_artifact import (
     DATASET_PROJECT,
     build_dataset_name,
-    download_episode_store,
+    download_episodes,
+    read_dataset_stem,
+    upload_episodes,
 )
-from scripts.shared.episode_store import EpisodeStore
+from scripts.shared.episodes import RewardedEpisodes, calculate_episode_start_indices
 from scripts.shared.log import create_logger
 from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
 
@@ -46,11 +45,11 @@ def _run(*, config: Config):
         config=asdict(config),
         dir=OUTPUT_DIRECTORY_PATH,
     ) as run:
-        expert_episode_store = download_episode_store(
+        expert_episodes = download_episodes(
             artifact_name=config.source_dataset_artifact, run=run
-        )
+        ).episodes
 
-        source_episode_count = len(expert_episode_store.episode_end_indices)
+        source_episode_count = len(expert_episodes.episode_end_indices)
         source_name = config.source_dataset_artifact.split(":", maxsplit=1)[0]
 
         if not source_name.endswith(f"-of-{source_episode_count}"):
@@ -59,21 +58,21 @@ def _run(*, config: Config):
                 f"{source_episode_count} episodes."
             )
 
-        subsampled_episode_store = _subsample_episodes(
-            episode_store=expert_episode_store, episode_count=config.episode_count
+        subsampled_episodes = _subsample_episodes(
+            episodes=expert_episodes, episode_count=config.episode_count
         )
 
         _log_dataset_statistics(
-            expert_episode_store=expert_episode_store,
-            subsampled_episode_store=subsampled_episode_store,
+            expert_episodes=expert_episodes,
+            subsampled_episodes=subsampled_episodes,
             run=run,
         )
 
-        _upload_episode_store(
-            subsampled_episode_store=subsampled_episode_store,
+        upload_episodes(
+            episodes=subsampled_episodes,
             dataset_name=build_dataset_name(
-                environment=source_name.removeprefix("dataset-").split("-")[0],
-                episode_count=len(subsampled_episode_store.episode_end_indices),
+                stem=read_dataset_stem(dataset_name=source_name),
+                episode_count=len(subsampled_episodes.episode_end_indices),
                 source_episode_count=source_episode_count,
             ),
             run=run,
@@ -81,10 +80,10 @@ def _run(*, config: Config):
 
 
 def _subsample_episodes(
-    *, episode_store: EpisodeStore, episode_count: int
-) -> EpisodeStore:
+    *, episodes: RewardedEpisodes, episode_count: int
+) -> RewardedEpisodes:
 
-    source_episode_count = len(episode_store.episode_end_indices)
+    source_episode_count = len(episodes.episode_end_indices)
 
     selected_episode_indices = np.sort(
         a=np.random.default_rng(seed=42).permutation(x=source_episode_count)[
@@ -92,11 +91,8 @@ def _subsample_episodes(
         ]
     )  # (selected_episode_count,)
 
-    episode_start_indices = np.concatenate(
-        (
-            np.zeros(shape=1, dtype=episode_store.episode_end_indices.dtype),
-            episode_store.episode_end_indices[:-1],
-        )
+    episode_start_indices = calculate_episode_start_indices(
+        episode_end_indices=episodes.episode_end_indices
     )  # (episode_count,)
 
     selected_transition_indices_list = []
@@ -105,7 +101,7 @@ def _subsample_episodes(
 
     for selected_episode_index in selected_episode_indices.tolist():
         start_index: int = episode_start_indices[selected_episode_index]
-        end_index: int = episode_store.episode_end_indices[selected_episode_index]
+        end_index: int = episodes.episode_end_indices[selected_episode_index]
 
         episode_transition_indices = np.arange(
             start_index, stop=end_index
@@ -120,30 +116,33 @@ def _subsample_episodes(
         selected_transition_indices_list
     )  # (selected_transition_count,)
 
-    return EpisodeStore(
-        states=episode_store.states[
+    return RewardedEpisodes(
+        states=episodes.states[
             selected_transition_indices_np_array
         ],  # (selected_transition_count, state_dimensionality)
-        actions=episode_store.actions[
+        actions=episodes.actions[
             selected_transition_indices_np_array
         ],  # (selected_transition_count, action_dimensionality)
+        rewards=episodes.rewards[
+            selected_transition_indices_np_array
+        ],  # (selected_transition_count,)
         episode_end_indices=np.asarray(
-            subsampled_episode_end_indices
+            a=subsampled_episode_end_indices, dtype=np.int64
         ),  # (selected_episode_count,)
     )
 
 
 def _log_dataset_statistics(
-    expert_episode_store: EpisodeStore, subsampled_episode_store: EpisodeStore, run: Run
+    expert_episodes: RewardedEpisodes, subsampled_episodes: RewardedEpisodes, run: Run
 ):
-    expert_episode_count = len(expert_episode_store.episode_end_indices)
-    expert_transition_count = len(expert_episode_store.states)
+    expert_episode_count = len(expert_episodes.episode_end_indices)
+    expert_transition_count = len(expert_episodes.states)
 
     run.summary["1_source_dataset/1_episode_count"] = expert_episode_count
     run.summary["1_source_dataset/2_transition_count"] = expert_transition_count
 
-    selected_episode_count = len(subsampled_episode_store.episode_end_indices)
-    selected_transition_count = len(subsampled_episode_store.states)
+    selected_episode_count = len(subsampled_episodes.episode_end_indices)
+    selected_transition_count = len(subsampled_episodes.states)
 
     run.summary["2_subsampled_dataset/1_episode_count"] = selected_episode_count
     run.summary["2_subsampled_dataset/3_episode_fraction_of_source"] = (
@@ -153,32 +152,6 @@ def _log_dataset_statistics(
     run.summary["2_subsampled_dataset/4_transition_fraction_of_source"] = (
         selected_transition_count / expert_transition_count
     )
-
-
-def _upload_episode_store(
-    *, subsampled_episode_store: EpisodeStore, dataset_name: str, run: Run
-):
-    with tempfile.TemporaryDirectory() as temporary_directory:
-        output_zarr_path = Path(temporary_directory) / "dataset.zarr"
-
-        _write_episode_store(
-            episode_store=subsampled_episode_store, save_file_path=output_zarr_path
-        )
-
-        new_artifact = wandb.Artifact(name=dataset_name, type="dataset")
-        new_artifact.add_dir(local_path=str(output_zarr_path))
-        run.log_artifact(artifact_or_path=new_artifact)
-
-
-def _write_episode_store(*, episode_store: EpisodeStore, save_file_path: Path):
-    root = zarr.open_group(str(save_file_path), mode="w")
-
-    data_group = root.create_group("data")
-    data_group.create_array("state", data=episode_store.states)
-    data_group.create_array("action", data=episode_store.actions)
-
-    meta_group = root.create_group("meta")
-    meta_group.create_array("episode_ends", data=episode_store.episode_end_indices)
 
 
 if __name__ == "__main__":

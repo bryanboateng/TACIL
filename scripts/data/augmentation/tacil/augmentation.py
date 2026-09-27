@@ -11,7 +11,8 @@ from scripts.data.augmentation.tacil.create_dynamics.config import DynamicsConfi
 from scripts.data.augmentation.tacil.create_dynamics.dynamics_model_ensemble_training import (  # noqa: E501
     train_dynamics_model_ensemble,
 )
-from scripts.shared.episode_store import EpisodeStore
+from scripts.environments.environment import Environment
+from scripts.shared.episodes import Episodes
 
 
 @dataclass(frozen=True)
@@ -23,15 +24,19 @@ class TacilConfig:
 def augment(
     *,
     config: TacilConfig,
-    expert_episodes: EpisodeStore,
+    environment: Environment,
+    expert_episodes: Episodes,
     expert_part_length: int,
     seed: int,
     device: torch.device,
     run: Run,
-) -> EpisodeStore:
+) -> Episodes:
     dynamics_model_ensemble = train_dynamics_model_ensemble(
         config=config.dynamics,
-        episode_store=expert_episodes,
+        state_space=environment.state_space,
+        network_input_builder=environment.tacil_network_input_builder,
+        dynamics_plotter=environment.tacil_dynamics_plotter,
+        episodes=expert_episodes,
         seed=seed,
         device=device,
         run=run,

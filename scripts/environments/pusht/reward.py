@@ -1,15 +1,25 @@
 import numpy as np
 from gym_pusht.envs.pusht import PushTEnv
+from numpy import typing as npt
 
 from scripts.shared.convex_polygon import calculate_area, calculate_intersection_area
-from scripts.shared.pusht_state import BLOCK_ORIENTATION_INDEX, BLOCK_POSITION_SLICE
+from scripts.environments.pusht.observation import (
+    BLOCK_ORIENTATION_INDEX,
+    BLOCK_POSITION_SLICE,
+)
+
+
+def create_environment() -> PushTEnv:
+    environment = PushTEnv()
+    environment.reset()
+    return environment
 
 
 def calculate_reward(
     *,
-    state_batch: np.ndarray,  # (batch_size, state_dimensionality)
-) -> np.ndarray:  # (batch_size,)
-    environment = _create_environment()
+    state_batch: npt.NDArray[np.float32],  # (batch_size, state_dimensionality)
+    environment: PushTEnv,
+) -> npt.NDArray[np.floating]:  # (batch_size,)
     return np.clip(
         a=_calculate_coverage(state_batch=state_batch, environment=environment)
         / environment.success_threshold,
@@ -18,13 +28,13 @@ def calculate_reward(
     )
 
 
-def calculate_termination(
+def calculate_success(
     *,
-    state_batch: np.ndarray,  # (batch_size, state_dimensionality)
-) -> np.ndarray:  # (batch_size,)
-    environment = _create_environment()
-    return (
-        _calculate_coverage(state_batch=state_batch, environment=environment)
+    state_batch: npt.NDArray[np.float32],  # (batch_size, state_dimensionality)
+    environment: PushTEnv,
+) -> npt.NDArray[np.bool_]:  # (batch_size,)
+    return np.asarray(
+        a=_calculate_coverage(state_batch=state_batch, environment=environment)
         > environment.success_threshold
     )
 
@@ -32,17 +42,11 @@ def calculate_termination(
 # ---- Private --------------------------------------------
 
 
-def _create_environment() -> PushTEnv:
-    environment = PushTEnv()
-    environment.reset()
-    return environment
-
-
 def _calculate_coverage(
     *,
-    state_batch: np.ndarray,  # (batch_size, state_dimensionality)
+    state_batch: npt.NDArray[np.float32],  # (batch_size, state_dimensionality)
     environment: PushTEnv,
-) -> np.ndarray:  # (batch_size,)
+) -> npt.NDArray[np.floating]:  # (batch_size,)
     block_shapes = list(environment.block.shapes)
 
     goal_body = PushTEnv.get_goal_pose_body(environment.goal_pose)

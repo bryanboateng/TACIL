@@ -11,6 +11,7 @@ dependencies = [
     "h5py>=3.16.0",
     "imageio>=2.37.3",
     "imageio-ffmpeg>=0.6.0",
+    "mani-skill>=3.0.1",
     "matplotlib>=3.10.9",
     "mujoco>=3.13.0",
     "numpy>=2.4.3",
@@ -33,7 +34,11 @@ dev = [
 ]
 
 [tool.uv]
-override-dependencies = ["opencv-python; sys_platform == 'never'"]
+environments = ["sys_platform == 'linux'"]
+override-dependencies = [
+    "opencv-python; sys_platform == 'never'",
+    "mplib; sys_platform == 'never'",
+]
 
 [[tool.uv.index]]
 name = "pytorch-cu126"

@@ -3,36 +3,27 @@ from enum import Enum, auto
 
 import numpy as np
 import pygame
-from gym_pusht.envs import PushTEnv
 from matplotlib import colormaps
 from pygame import Surface
 from pygame.font import Font
 
-from scripts.evaluation.core.condition import (
-    Condition,
-    DisturbanceLevel,
-    FloorCondition,
-)
-from scripts.evaluation.core.rollout import EpisodeRecord
+from scripts.evaluation.core.rollout import Episode
 from scripts.shared.paths import PROJECT_ROOT_DIRECTORY_PATH
 
 FREEZE_SECONDS = 2
-PLAYBACK_SPEED = 3.5
 
 
-def get_video_fps() -> int:
-    actions_per_second = PushTEnv.metadata["render_fps"]
-    if not isinstance(actions_per_second, int):
-        raise TypeError(
-            f"Expected an integer action rate, got {type(actions_per_second).__name__}"
-        )
-    return round(actions_per_second * PLAYBACK_SPEED)
+def calculate_video_frames_per_second(
+    *, control_frequency: int, playback_speed: float
+) -> int:
+    return round(number=control_frequency * playback_speed)
 
 
 def render_episode_surfaces(
     *,
-    episode_record: EpisodeRecord,
-    condition: Condition,
+    episode_record: Episode,
+    condition_description: str,
+    playback_speed: float,
     policy_label: str,
     percentile: int,
 ) -> list[pygame.Surface]:
@@ -52,7 +43,7 @@ def render_episode_surfaces(
         annotated_surface = _convert_frame_to_surface(frame=frame).copy()
 
         _add_text_to_surface(
-            text=f"{policy_label}\n{_describe_condition(condition=condition)}",
+            text=f"{policy_label}\n{condition_description}",
             placement=_Placement.TOP_LEFT,
             surface=annotated_surface,
             font=font,
@@ -71,7 +62,7 @@ def render_episode_surfaces(
             line_index=1,
         )
         _add_text_to_surface(
-            text=f"speed: {PLAYBACK_SPEED}×\nstep: {step}",
+            text=f"speed: {playback_speed}×\nstep: {step}",
             placement=_Placement.BOTTOM_LEFT,
             surface=annotated_surface,
             font=font,
@@ -217,25 +208,6 @@ def _get_score_color(*, score: float) -> tuple[int, int, int]:
 
 def _measure_digit_width(*, font: Font) -> int:
     return max(font.size(digit)[0] for digit in "0123456789")
-
-
-def _describe_condition(*, condition: Condition) -> str:
-    if condition.disturbance_level is None:
-        disturbance_label = "none"
-    else:
-        match condition.disturbance_level:
-            case DisturbanceLevel.LOW:
-                disturbance_label = "low"
-            case DisturbanceLevel.HIGH:
-                disturbance_label = "high"
-
-    match condition.floor_condition:
-        case FloorCondition.GRIPPY:
-            floor_label = "grippy"
-        case FloorCondition.SLIPPERY:
-            floor_label = "slippery"
-
-    return f"floor: {floor_label}   disturbance: {disturbance_label}"
 
 
 def _build_reward_text(*, frame_max_reward: float, frame_reward: float) -> str:

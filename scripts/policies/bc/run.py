@@ -1,4 +1,3 @@
-from dataclasses import asdict
 from typing import Annotated, TypeAlias
 
 import numpy as np
@@ -12,16 +11,19 @@ from scripts.data.augmentation.ccil import augmentation as ccil
 from scripts.data.augmentation.ccil.config import CcilConfig
 from scripts.data.augmentation.tacil import augmentation as tacil
 from scripts.data.augmentation.tacil.augmentation import TacilConfig
+from scripts.environments.environment import Environment
+from scripts.environments.registry import create_environment
 from scripts.evaluation.evaluate_policy import evaluate_policy
 from scripts.policies.bc import config as bc_config
 from scripts.policies.bc.policy import create_behavior_cloning_policy_factory
 from scripts.policies.bc.train import train_behavior_cloning_policy
-from scripts.policies.shared.run_config import RunConfig
-from scripts.shared.dataset_artifact import download_episode_store
-from scripts.shared.episode_store import EpisodeStore
+from scripts.policies.shared.run_config import RunConfig, build_run_record
+from scripts.policies.shared.validation import Validation
+from scripts.shared.dataset_artifact import download_episodes
+from scripts.shared.episodes import Episodes, drop_rewards
 from scripts.shared.log import create_logger, log_device_info
 from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
-from scripts.shared.state_action_pairs import StateActionPairs
+from scripts.shared.state_action_transitions import StateActionTransitions
 
 logger = create_logger()
 
@@ -45,32 +47,41 @@ def _run(*, config: Config) -> None:
     with wandb.init(
         project=config.wandb_project,
         job_type="bc",
-        config=asdict(obj=config),
+        config=build_run_record(
+            config=config,
+            policy_name="bc",
+            augmentation_name=_get_augmentation_name(augmentation=config.augmentation),
+        ),
         dir=OUTPUT_DIRECTORY_PATH,
     ) as run:
         run_name = run.name
         if run_name is None:
             raise RuntimeError("wandb run name unexpectedly None")
 
-        expert_episodes = download_episode_store(
+        environment = create_environment(name=config.environment)
+
+        dataset = download_episodes(
             artifact_name=config.expert_dataset_artifact, run=run
         )
+        run.config["expert_dataset_artifact_version"] = dataset.artifact_version
+        expert_episodes = drop_rewards(episodes=dataset.episodes)
 
         logger.info("Stage 1/3: building the training data.")
-        expert_state_action_pairs = StateActionPairs(
+        expert_state_action_pairs = StateActionTransitions(
             states=expert_episodes.states, actions=expert_episodes.actions
         )
         if config.augmentation is None:
-            state_action_pairs = expert_state_action_pairs
+            state_action_transitions = expert_state_action_pairs
         else:
             synthetic_state_action_pairs = _create_synthetic_state_action_pairs(
                 augmentation_config=config.augmentation,
+                environment=environment,
                 expert_episodes=expert_episodes,
                 seed=config.seed,
                 device=device,
                 run=run,
             )
-            state_action_pairs = StateActionPairs(
+            state_action_transitions = StateActionTransitions(
                 states=np.concatenate(
                     [
                         expert_state_action_pairs.states,
@@ -92,7 +103,14 @@ def _run(*, config: Config) -> None:
         logger.info("Stage 2/3: training the behavior-cloning policy.")
         policy_model = train_behavior_cloning_policy(
             config=config.policy,
-            state_action_pairs=state_action_pairs,
+            validation=(
+                None
+                if config.policy.validation is None
+                else Validation(
+                    settings=config.policy.validation, environment=environment
+                )
+            ),
+            state_action_transitions=state_action_transitions,
             seed=config.seed,
             device=device,
             run=run,
@@ -101,25 +119,36 @@ def _run(*, config: Config) -> None:
 
         logger.info("Stage 3/3: evaluating the policy.")
         evaluate_policy(
+            environment=environment,
             policy_factory=create_behavior_cloning_policy_factory(
                 policy_model=policy_model, device=device
             ),
             policy_label=f"bc ({run_name})",
             config=config.evaluation,
-            record_videos=config.record_videos,
             run=run,
         )
         logger.info("Stage 3/3: done.")
 
 
+def _get_augmentation_name(*, augmentation: Augmentation | None) -> str | None:
+    match augmentation:
+        case None:
+            return None
+        case TacilConfig():
+            return "tacil"
+        case CcilConfig():
+            return "ccil"
+
+
 def _create_synthetic_state_action_pairs(
     *,
     augmentation_config: Augmentation,
-    expert_episodes: EpisodeStore,
+    environment: Environment,
+    expert_episodes: Episodes,
     seed: int,
     device: torch.device,
     run: Run,
-) -> StateActionPairs:
+) -> StateActionTransitions:
     match augmentation_config:
         case CcilConfig() as ccil_configuration:
             return ccil.augment(
@@ -132,6 +161,7 @@ def _create_synthetic_state_action_pairs(
         case TacilConfig() as tacil_configuration:
             tacil_episodes = tacil.augment(
                 config=tacil_configuration,
+                environment=environment,
                 expert_episodes=expert_episodes,
                 # Behavior cloning trains on single (state, action) pairs, not
                 # windows, so no expert part is needed.
@@ -140,7 +170,7 @@ def _create_synthetic_state_action_pairs(
                 device=device,
                 run=run,
             )
-            return StateActionPairs(
+            return StateActionTransitions(
                 states=tacil_episodes.states, actions=tacil_episodes.actions
             )
 

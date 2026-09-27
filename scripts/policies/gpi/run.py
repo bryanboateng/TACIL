@@ -1,4 +1,3 @@
-from dataclasses import asdict
 from typing import TypeAlias
 
 import torch
@@ -6,12 +5,14 @@ import tyro
 import wandb
 from rich.pretty import pretty_repr
 
+from scripts.environments.registry import create_environment
 from scripts.evaluation.evaluate_policy import evaluate_policy
 from scripts.policies.gpi import config as gpi_config
 from scripts.policies.gpi.policy import create_geometric_policy_factory
-from scripts.policies.shared.run_config import RunConfig
+from scripts.policies.shared.run_config import RunConfig, build_run_record
 from scripts.shared import stage_names
-from scripts.shared.dataset_artifact import download_episode_store
+from scripts.shared.dataset_artifact import download_episodes
+from scripts.shared.episodes import drop_rewards
 from scripts.shared.log import create_logger, log_device_info
 from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
 from scripts.shared.seeding import set_seed
@@ -36,16 +37,22 @@ def _run(*, config: Config) -> None:
     with wandb.init(
         project=config.wandb_project,
         job_type="gpi",
-        config=asdict(obj=config),
+        config=build_run_record(
+            config=config, policy_name="gpi", augmentation_name=None
+        ),
         dir=OUTPUT_DIRECTORY_PATH,
     ) as run:
         run_name = run.name
         if run_name is None:
             raise RuntimeError("wandb run name unexpectedly None")
 
-        expert_episodes = download_episode_store(
+        environment = create_environment(name=config.environment)
+
+        dataset = download_episodes(
             artifact_name=config.expert_dataset_artifact, run=run
         )
+        run.config["expert_dataset_artifact_version"] = dataset.artifact_version
+        expert_episodes = drop_rewards(episodes=dataset.episodes)
 
         run.summary[f"{stage_names.POLICY}/0_dataset/1_transition_count"] = len(
             expert_episodes.states
@@ -53,12 +60,15 @@ def _run(*, config: Config) -> None:
 
         logger.info("Stage 1/1: evaluating the geometric policy.")
         evaluate_policy(
+            environment=environment,
             policy_factory=create_geometric_policy_factory(
-                episode_store=expert_episodes, config=config.policy, device=device
+                gpi_geometry=environment.gpi_geometry,
+                episodes=expert_episodes,
+                config=config.policy,
+                device=device,
             ),
             policy_label=f"gpi ({run_name})",
             config=config.evaluation,
-            record_videos=config.record_videos,
             run=run,
         )
         logger.info("Stage 1/1: done.")

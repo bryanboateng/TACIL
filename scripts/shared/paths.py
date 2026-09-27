@@ -11,3 +11,4 @@ def _find_project_root() -> Path:
 
 PROJECT_ROOT_DIRECTORY_PATH = _find_project_root()
 OUTPUT_DIRECTORY_PATH = PROJECT_ROOT_DIRECTORY_PATH / "output"
+DOWNLOAD_DIRECTORY_PATH = PROJECT_ROOT_DIRECTORY_PATH / "downloads"

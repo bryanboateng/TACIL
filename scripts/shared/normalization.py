@@ -1,7 +1,5 @@
 import torch
 
-_CONSTANT_DIMENSION_THRESHOLD = 1e-4
-
 
 class MinMaxNormalizer(torch.nn.Module):
     scale: torch.Tensor  # (dimensionality,)
@@ -16,7 +14,7 @@ class MinMaxNormalizer(torch.nn.Module):
         minimum = value_batch.min(dim=0).values  # (dimensionality,)
         value_range = value_batch.max(dim=0).values - minimum  # (dimensionality,)
         constant_dimension_mask = (
-            value_range < _CONSTANT_DIMENSION_THRESHOLD
+            value_range < 10.0 * torch.finfo(value_range.dtype).eps
         )  # (dimensionality,)
 
         scale = 2.0 / value_range  # (dimensionality,)
@@ -52,8 +50,8 @@ class ZScoreNormalizer(torch.nn.Module):
         value_batch: torch.Tensor,  # (batch_size, dimensionality)
     ) -> None:
         super().__init__()
-        std = value_batch.std(dim=0)  # (dimensionality,)
-        std[std < _CONSTANT_DIMENSION_THRESHOLD] = 1.0
+        std = value_batch.std(dim=0, correction=0)  # (dimensionality,)
+        std[std < 10.0 * torch.finfo(std.dtype).eps] = 1.0
         self.register_buffer(name="mean", tensor=value_batch.mean(dim=0))
         self.register_buffer(name="std", tensor=std)
 

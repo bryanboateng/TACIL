@@ -7,16 +7,17 @@ from numpy import typing as npt
 from torch.optim.swa_utils import AveragedModel
 
 from scripts.data.augmentation.tacil.create_dynamics.config import DynamicsConfig
-from scripts.data.augmentation.tacil.create_dynamics.data import TransitionTriples
+from scripts.data.augmentation.tacil.create_dynamics.data import Transitions
 from scripts.data.augmentation.tacil.create_dynamics.loss_calculation import (
     calculate_loss,
 )
 from scripts.data.augmentation.tacil.dynamics.dynamics_model.dynamics_model import (
     DynamicsModel,
 )
+from scripts.environments.tacil_network_input import TacilNetworkInputBuilder
+from scripts.environments.state_space import StateSpace
 from scripts.shared.normalization import ZScoreNormalizer
 from scripts.shared.seeding import set_seed
-
 
 _PATIENCE_THRESHOLD = 0.001
 
@@ -63,8 +64,8 @@ class MemberTrainingState:
 @dataclass
 class TrainingContext:
     config: DynamicsConfig
-    training_transitions: TransitionTriples
-    validation_transitions: TransitionTriples
+    training_transitions: Transitions
+    validation_transitions: Transitions
     validation_state_windows: (
         torch.Tensor
     )  # (window_count, window_length + 1, state_dimensionality)
@@ -77,6 +78,8 @@ def create_member_training_state(
     *,
     member_seed: int,
     config: DynamicsConfig,
+    state_space: StateSpace,
+    network_input_builder: TacilNetworkInputBuilder,
     network_input_normalizer: ZScoreNormalizer,
     state_displacement_normalizer: ZScoreNormalizer,
     state_windows: torch.Tensor,
@@ -88,6 +91,8 @@ def create_member_training_state(
     set_seed(seed=member_seed)
 
     dynamics_model = DynamicsModel(
+        state_space=state_space,
+        network_input_builder=network_input_builder,
         hidden_layer_count=config.hidden_layer_count,
         hidden_layer_dimensionality=config.hidden_layer_dimensionality,
         lipschitz_limit=config.lipschitz_limit,
@@ -237,10 +242,7 @@ def _calculate_validation_loss(
 
 
 def _sample_local_lipschitz_constants(
-    *,
-    training_state: MemberTrainingState,
-    transitions: TransitionTriples,
-    batch_size: int,
+    *, training_state: MemberTrainingState, transitions: Transitions, batch_size: int
 ) -> npt.NDArray[np.float32]:  # (sample_count,)
 
     transition_count = transitions.states.shape[0]

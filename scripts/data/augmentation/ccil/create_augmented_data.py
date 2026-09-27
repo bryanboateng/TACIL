@@ -13,10 +13,10 @@ from scripts.data.augmentation.ccil.world_model import WorldModel, fit_world_mod
 from scripts.shared import stage_names
 from scripts.shared.distribution_plot import create_distribution_plot
 from scripts.shared.distribution_summary import summarize_distribution
-from scripts.shared.episode_store import EpisodeStore
+from scripts.shared.episodes import Episodes
 from scripts.shared.log import create_logger
 from scripts.shared.seeding import set_seed
-from scripts.shared.state_action_pairs import StateActionPairs
+from scripts.shared.state_action_transitions import StateActionTransitions
 
 logger = create_logger()
 
@@ -33,16 +33,16 @@ _BATCH_SIZE = 4_096
 def create_ccil_augmented_data(
     *,
     config: CcilConfig,
-    expert_episodes: EpisodeStore,
+    expert_episodes: Episodes,
     seed: int,
     device: torch.device,
     run: Run,
-) -> StateActionPairs:
+) -> StateActionTransitions:
     set_seed(seed=seed)
 
     states, actions, next_states = (
         torch.from_numpy(x).to(device=device)
-        for x in _extract_transitions(episode_store=expert_episodes)
+        for x in _extract_transitions(episodes=expert_episodes)
     )
 
     world_model = WorldModel(
@@ -112,7 +112,7 @@ def create_ccil_augmented_data(
     run.summary[f"{STAGE_NAME}/3_dataset/1_synthetic_transition_count"] = int(
         accepted_states.shape[0]
     )
-    return StateActionPairs(
+    return StateActionTransitions(
         states=accepted_states, actions=label_actions[accepted_mask]
     )
 
@@ -141,17 +141,17 @@ def _accept_labels(
 
 
 def _extract_transitions(
-    *, episode_store: EpisodeStore
+    *, episodes: Episodes
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    last_timestep_indices = episode_store.episode_end_indices - 1
-    keep_mask = np.ones(episode_store.states.shape[0], dtype=bool)
+    last_timestep_indices = episodes.episode_end_indices - 1
+    keep_mask = np.ones(episodes.states.shape[0], dtype=bool)
     keep_mask[last_timestep_indices] = False
 
     successor_indices = np.nonzero(keep_mask)[0] + 1
     return (
-        episode_store.states[keep_mask],
-        episode_store.actions[keep_mask],
-        episode_store.states[successor_indices],
+        episodes.states[keep_mask],
+        episodes.actions[keep_mask],
+        episodes.states[successor_indices],
     )
 
 

@@ -1,75 +1,73 @@
 import copy
+from contextlib import ExitStack
+from time import perf_counter
 
 import torch
 from torch.optim import Adam
-from torch.utils.data import DataLoader
 from tqdm.auto import tqdm
 from wandb import Run
 
+from scripts.environments.environment import Environment
+from scripts.evaluation.config import VALIDATION_START_SEED
 from scripts.evaluation.core.scoring import (
+    ScoringSession,
     calculate_reward_statistics,
-    run_scored_episodes_over_conditions,
+    calculate_success_statistics,
 )
-from scripts.policies.bc.config import Config
+from scripts.policies.bc.config import Config, ValidationConfig
 from scripts.policies.bc.dataset import Dataset
 from scripts.policies.bc.policy import (
     BehaviorCloningPolicyModel,
     create_behavior_cloning_policy_factory,
 )
-from scripts.policies.shared.checkpoint import Checkpoint
-from scripts.shared import stage_names
+from scripts.policies.shared.checkpoint import (
+    Checkpoint,
+    beats_best_checkpoint,
+    summarize_best_checkpoint,
+)
+from scripts.policies.shared.metrics import (
+    EPOCH_METRIC_NAME,
+    STAGE_NAME,
+    STEP_METRIC_NAME,
+    TRAINING_SECTION,
+    VALIDATION_SECTION,
+    define_step_metrics,
+)
+from scripts.policies.shared.validation import Validation
 from scripts.shared.log import create_logger
-from scripts.shared.normalization import MinMaxNormalizer, ZScoreNormalizer
 from scripts.shared.seeding import set_seed
-from scripts.shared.state_action_pairs import StateActionPairs
+from scripts.shared.state_action_transitions import StateActionTransitions
 
 logger = create_logger()
-
-STAGE_NAME = stage_names.POLICY
-
-STEP_METRIC_NAME = f"{STAGE_NAME}/0_step"
-EPOCH_METRIC_NAME = f"{STAGE_NAME}/0_epoch"
-
-TRAINING_SECTION = f"{STAGE_NAME}/1_training"
-VALIDATION_SECTION = f"{STAGE_NAME}/2_validation"
 
 
 def train_behavior_cloning_policy(
     *,
     config: Config,
-    state_action_pairs: StateActionPairs,
+    validation: Validation[ValidationConfig, Environment] | None,
+    state_action_transitions: StateActionTransitions,
     seed: int,
     device: torch.device,
     run: Run,
 ) -> BehaviorCloningPolicyModel:
     set_seed(seed=seed)
-    _define_step_metrics(run=run)
+    define_step_metrics(run=run, sections=(TRAINING_SECTION, VALIDATION_SECTION))
 
     loss_function = torch.nn.MSELoss()
 
     run.summary[f"{STAGE_NAME}/0_dataset/1_transition_count"] = len(
-        state_action_pairs.states
+        state_action_transitions.states
     )
 
-    dataset = Dataset(state_action_pairs=state_action_pairs)
-
-    data_loader = DataLoader(
-        dataset=dataset,
-        batch_size=config.optimization.batch_size,
-        shuffle=True,
-        pin_memory=device.type == "cuda",
-    )
+    dataset = Dataset(state_action_transitions=state_action_transitions)
+    dataset.to(device=device)
 
     model = BehaviorCloningPolicyModel(
-        observation_dimensionality=state_action_pairs.states.shape[1],
-        action_dimensionality=state_action_pairs.actions.shape[1],
+        observation_dimensionality=state_action_transitions.states.shape[1],
+        action_dimensionality=state_action_transitions.actions.shape[1],
         hidden_layer_dimensionality=config.hidden_layer_dimensionality,
-        observation_normalizer=ZScoreNormalizer(
-            value_batch=dataset.states.to(device=device)
-        ),
-        action_normalizer=MinMaxNormalizer(
-            value_batch=dataset.actions.to(device=device)
-        ),
+        observation_normalizer=dataset.observation_normalizer,
+        action_normalizer=dataset.action_normalizer,
     ).to(device=device)
 
     optimizer = Adam(params=model.parameters(), lr=config.optimization.learning_rate)
@@ -77,110 +75,120 @@ def train_behavior_cloning_policy(
     best_checkpoint: Checkpoint | None = None
     global_step = 0
 
-    for epoch_index in tqdm(
-        iterable=range(config.optimization.epoch_count), desc="Epoch", unit="epoch"
-    ):
-        model.train()
-        for observation_batch, target_action_batch in data_loader:
-            observation_batch = observation_batch.to(
-                device=device
-            )  # (batch_size, observation_dimensionality)
-            target_action_batch = target_action_batch.to(
-                device=device
-            )  # (batch_size, action_dimensionality)
+    with ExitStack() as scoring_resources:
+        scoring_session: ScoringSession | None = None
+        for epoch_index in tqdm(
+            iterable=range(config.optimization.epoch_count), desc="Epoch", unit="epoch"
+        ):
+            model.train()
+            training_start = perf_counter()
+            epoch_loss = torch.zeros((), device=device)
+            for batch_index, batch in enumerate(
+                dataset.batches(batch_size=config.optimization.batch_size)
+            ):
+                optimizer.zero_grad()
 
-            optimizer.zero_grad()
+                predicted_action_batch = model(
+                    batch.states, config.observation_noise
+                )  # (batch_size, action_dimensionality)
 
-            predicted_action_batch = model(
-                observation_batch, config.observation_noise
-            )  # (batch_size, action_dimensionality)
-
-            loss = loss_function(
-                input=model.action_normalizer.normalize(
-                    value_batch=predicted_action_batch
-                ),
-                target=model.action_normalizer.normalize(
-                    value_batch=target_action_batch
-                ),
-            )
-
-            loss.backward()
-
-            gradient_norm = torch.norm(
-                input=torch.stack(
-                    tensors=[
-                        parameter.grad.norm()
-                        for parameter in model.parameters()
-                        if parameter.grad is not None
-                    ]
+                loss = loss_function(
+                    input=model.action_normalizer.normalize(
+                        value_batch=predicted_action_batch
+                    ),
+                    target=model.action_normalizer.normalize(value_batch=batch.actions),
                 )
-            )
 
-            optimizer.step()
+                loss.backward()
+
+                if batch_index == 0:
+                    gradient_norm = torch.norm(
+                        input=torch.stack(
+                            tensors=[
+                                parameter.grad.norm()
+                                for parameter in model.parameters()
+                                if parameter.grad is not None
+                            ]
+                        )
+                    )
+
+                optimizer.step()
+
+                epoch_loss += loss.detach() * len(batch.states)
+                global_step += 1
 
             run.log(
                 data={
-                    f"{TRAINING_SECTION}/1_loss": loss.item(),
+                    f"{TRAINING_SECTION}/1_loss": (epoch_loss / len(dataset)).item(),
                     f"{TRAINING_SECTION}/2_gradient_norm": gradient_norm.item(),
+                    f"{TRAINING_SECTION}/3_seconds": perf_counter() - training_start,
+                    EPOCH_METRIC_NAME: epoch_index,
                     STEP_METRIC_NAME: global_step,
                 }
             )
-            global_step += 1
 
-        if (
-            config.validation is None
-            or (epoch_index + 1) % config.validation.interval_epoch_count != 0
-        ):
-            continue
+            if (
+                validation is None
+                or (epoch_index + 1) % validation.settings.interval_epoch_count != 0
+            ):
+                continue
 
-        with torch.no_grad():
-            validation_reward = calculate_reward_statistics(
-                episode_records=run_scored_episodes_over_conditions(
+            if scoring_session is None:
+                scoring_session = scoring_resources.enter_context(
+                    ScoringSession(
+                        environment=validation.environment,
+                        parallel_environment_count=validation.settings.parallel_environment_count,
+                    )
+                )
+
+            validation_start = perf_counter()
+            with torch.no_grad():
+                episode_records = scoring_session.roll_out_episodes_with_separate_seeds_per_condition(
                     policy_factory=create_behavior_cloning_policy_factory(
                         policy_model=model, device=device
                     ),
-                    episode_count_per_condition=config.validation.episode_count_per_condition,
+                    start_episode_seed=VALIDATION_START_SEED,
+                    episode_count_per_condition=validation.settings.episode_count_per_condition,
                 )
+                validation_reward = calculate_reward_statistics(
+                    episode_records=episode_records
+                )
+            validation_success_rate = calculate_success_statistics(
+                episode_records=episode_records
+            ).rate
+            run.log(
+                data={
+                    f"{VALIDATION_SECTION}/1_reward_mean": validation_reward.mean,
+                    f"{VALIDATION_SECTION}/2_reward_std": validation_reward.std,
+                    f"{VALIDATION_SECTION}/3_success_rate": validation_success_rate,
+                    f"{VALIDATION_SECTION}/4_seconds": perf_counter()
+                    - validation_start,
+                    EPOCH_METRIC_NAME: epoch_index,
+                    STEP_METRIC_NAME: global_step,
+                }
             )
-        run.log(
-            data={
-                f"{VALIDATION_SECTION}/1_reward_mean": validation_reward.mean,
-                f"{VALIDATION_SECTION}/2_reward_std": validation_reward.std,
-                EPOCH_METRIC_NAME: epoch_index,
-                STEP_METRIC_NAME: global_step,
-            }
-        )
 
-        if (
-            best_checkpoint is None
-            or validation_reward.mean > best_checkpoint.validation_reward_mean
-        ):
-            best_checkpoint = Checkpoint(
+            if beats_best_checkpoint(
+                best_checkpoint=best_checkpoint,
+                selection_metric=validation.environment.checkpoint_selection_metric,
                 validation_reward_mean=validation_reward.mean,
-                validation_reward_std=validation_reward.std,
-                epoch=epoch_index,
-                state_dict=copy.deepcopy(model.state_dict()),
-            )
+                validation_success_rate=validation_success_rate,
+            ):
+                best_checkpoint = Checkpoint(
+                    validation_reward_mean=validation_reward.mean,
+                    validation_reward_std=validation_reward.std,
+                    validation_success_rate=validation_success_rate,
+                    epoch=epoch_index,
+                    state_dict=copy.deepcopy(model.state_dict()),
+                )
 
-    if config.validation is None:
+    if validation is None:
         return model
 
     if best_checkpoint is None:
         raise ValueError("No checkpoint was recorded")
 
-    run.summary[f"{STAGE_NAME}/3_best_checkpoint/1_epoch"] = best_checkpoint.epoch
-    run.summary[f"{STAGE_NAME}/3_best_checkpoint/2_validation_reward_mean"] = (
-        best_checkpoint.validation_reward_mean
-    )
-    run.summary[f"{STAGE_NAME}/3_best_checkpoint/3_validation_reward_std"] = (
-        best_checkpoint.validation_reward_std
-    )
+    summarize_best_checkpoint(run=run, best_checkpoint=best_checkpoint)
 
     model.load_state_dict(state_dict=best_checkpoint.state_dict)
     return model
-
-
-def _define_step_metrics(*, run: Run) -> None:
-    run.define_metric(name=STEP_METRIC_NAME)
-    for name in (EPOCH_METRIC_NAME, f"{TRAINING_SECTION}/*", f"{VALIDATION_SECTION}/*"):
-        run.define_metric(name=name, step_metric=STEP_METRIC_NAME)

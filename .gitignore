@@ -1,5 +1,8 @@
 /output/
 
+# downloaded expert data
+/downloads/
+
 # wandb artifact downloads
 /artifacts/
 

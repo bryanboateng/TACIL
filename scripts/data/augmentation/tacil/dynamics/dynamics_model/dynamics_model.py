@@ -3,18 +3,17 @@ import torch
 from scripts.data.augmentation.tacil.dynamics.dynamics_model.lipschitz_constrained_linear import (
     LipschitzConstrainedLinear,
 )
-from scripts.data.augmentation.tacil.dynamics.network_input import (
-    NETWORK_INPUT_DIMENSIONALITY,
-    create_raw_network_input,
-)
+from scripts.environments.tacil_network_input import TacilNetworkInputBuilder
+from scripts.environments.state_space import StateSpace
 from scripts.shared.normalization import ZScoreNormalizer
-from scripts.shared.pusht_state import STATE_DIMENSIONALITY, add_states
 
 
 class DynamicsModel(torch.nn.Module):
     def __init__(
         self,
         *,
+        state_space: StateSpace,
+        network_input_builder: TacilNetworkInputBuilder,
         hidden_layer_count: int,
         hidden_layer_dimensionality: int,
         lipschitz_limit: float | None,
@@ -23,12 +22,14 @@ class DynamicsModel(torch.nn.Module):
     ):
         super().__init__()
 
+        self.state_space = state_space
+        self.network_input_builder = network_input_builder
         self.input_normalizer = input_normalizer
         self.state_displacement_normalizer = state_displacement_normalizer
 
         self._network = _create_network(
-            input_dimensionality=NETWORK_INPUT_DIMENSIONALITY,
-            output_dimensionality=STATE_DIMENSIONALITY,
+            input_dimensionality=input_normalizer.mean.shape[0],
+            output_dimensionality=state_space.dimensionality,
             hidden_layer_count=hidden_layer_count,
             hidden_layer_dimensionality=hidden_layer_dimensionality,
             lipschitz_limit=lipschitz_limit,
@@ -38,10 +39,8 @@ class DynamicsModel(torch.nn.Module):
         self, *, state_batch: torch.Tensor, action_batch: torch.Tensor
     ) -> torch.Tensor:  # (batch_size, state_dimensionality)
         normalized_state_displacement_batch = self._network(
-            _create_normalized_network_input(
-                state_batch=state_batch,
-                action_batch=action_batch,
-                normalizer=self.input_normalizer,
+            self._create_normalized_network_input(
+                state_batch=state_batch, action_batch=action_batch
             )
         )  # (batch_size, state_dimensionality)
 
@@ -49,17 +48,15 @@ class DynamicsModel(torch.nn.Module):
             value_batch=normalized_state_displacement_batch
         )  # (batch_size, state_dimensionality)
 
-        return add_states(
+        return self.state_space.add(
             first_addend_batch=state_batch, second_addend_batch=state_displacement_batch
         )  # (batch_size, state_dimensionality)
 
     def calculate_local_lipschitz_constants(
         self, *, state_batch: torch.Tensor, action_batch: torch.Tensor
     ) -> torch.Tensor:  # (batch_size,)
-        network_input_batch = _create_normalized_network_input(
-            state_batch=state_batch,
-            action_batch=action_batch,
-            normalizer=self.input_normalizer,
+        network_input_batch = self._create_normalized_network_input(
+            state_batch=state_batch, action_batch=action_batch
         )  # (batch_size, input_dimensionality)
 
         jacobian_batch: torch.Tensor = torch.vmap(
@@ -69,6 +66,20 @@ class DynamicsModel(torch.nn.Module):
         )  # (batch_size, state_dimensionality, state_dimensionality + action_dimensionality)
 
         return torch.linalg.matrix_norm(jacobian_batch, ord=2)  # (batch_size,)
+
+    # ---- Private --------------------------------------------
+
+    def _create_normalized_network_input(
+        self,
+        *,
+        state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
+        action_batch: torch.Tensor,  # (batch_size, action_dimensionality)
+    ) -> torch.Tensor:  # (batch_size, network_input_dimensionality)
+        return self.input_normalizer.normalize(
+            value_batch=self.network_input_builder(
+                state_batch=state_batch, action_batch=action_batch
+            )
+        )
 
 
 # ---- Private --------------------------------------------
@@ -148,16 +159,3 @@ def _create_linear_layer(
             output_dimensionality=output_dimensionality,
             lipschitz_limit=lipschitz_limit_per_layer,
         )
-
-
-def _create_normalized_network_input(
-    *,
-    state_batch: torch.Tensor,
-    action_batch: torch.Tensor,
-    normalizer: ZScoreNormalizer,
-) -> torch.Tensor:  # (batch_size, NETWORK_INPUT_DIMENSIONALITY)
-    return normalizer.normalize(
-        value_batch=create_raw_network_input(
-            state_batch=state_batch, action_batch=action_batch
-        )
-    )

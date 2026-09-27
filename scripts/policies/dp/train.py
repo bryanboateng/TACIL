@@ -1,4 +1,7 @@
 import copy
+import math
+from contextlib import ExitStack
+from time import perf_counter
 
 import torch
 from diffusers.optimization import get_scheduler
@@ -8,44 +11,52 @@ from torch import nn as nn
 from tqdm.auto import tqdm
 from wandb import Run
 
+from scripts.environments.environment import Environment
+from scripts.evaluation.config import VALIDATION_START_SEED
 from scripts.evaluation.core.scoring import (
+    ScoringSession,
     calculate_reward_statistics,
-    run_scored_episodes_over_conditions,
+    calculate_success_statistics,
 )
-from scripts.policies.dp.config import Config
-from scripts.policies.dp.dataset import Dataset
+from scripts.policies.dp.config import Config, ValidationConfig
+from scripts.policies.dp.dataset import Dataset, WindowBatch
 from scripts.policies.dp.network import ConditionalUnet1d
 from scripts.policies.dp.noise_scheduler import create_forward_noise_scheduler
 from scripts.policies.dp.policy import create_diffusion_policy_factory
-from scripts.policies.shared.checkpoint import Checkpoint
+from scripts.policies.shared.checkpoint import (
+    Checkpoint,
+    beats_best_checkpoint,
+    summarize_best_checkpoint,
+)
+from scripts.policies.shared.metrics import (
+    EPOCH_METRIC_NAME,
+    STAGE_NAME,
+    STEP_METRIC_NAME,
+    TRAINING_SECTION,
+    VALIDATION_SECTION,
+    define_step_metrics,
+)
 from scripts.policies.shared.observation_noise import disturb_half_of_the_batch
-from scripts.shared import stage_names
-from scripts.shared.episode_store import EpisodeStore
+from scripts.policies.shared.validation import Validation
+from scripts.shared.episodes import Episodes
 from scripts.shared.log import create_logger
 from scripts.shared.seeding import set_seed
 
 logger = create_logger()
 
-STAGE_NAME = stage_names.POLICY
-
-STEP_METRIC_NAME = f"{STAGE_NAME}/0_step"
-EPOCH_METRIC_NAME = f"{STAGE_NAME}/0_epoch"
-
-TRAINING_SECTION = f"{STAGE_NAME}/1_training"
-VALIDATION_SECTION = f"{STAGE_NAME}/2_validation"
-
 
 def train_diffusion_policy(
     *,
     config: Config,
-    expert_episodes: EpisodeStore,
-    augmented_episodes: EpisodeStore | None,
+    validation: Validation[ValidationConfig, Environment],
+    expert_episodes: Episodes,
+    augmented_episodes: Episodes | None,
     seed: int,
     device: torch.device,
     run: Run,
 ) -> ConditionalUnet1d:
     set_seed(seed=seed)
-    _define_step_metrics(run=run)
+    define_step_metrics(run=run, sections=(TRAINING_SECTION, VALIDATION_SECTION))
 
     forward_noise_scheduler = create_forward_noise_scheduler()
 
@@ -60,6 +71,9 @@ def train_diffusion_policy(
     )
 
     run.summary[f"{STAGE_NAME}/0_dataset/2_training_window_count"] = len(dataset)
+    if len(dataset) == 0:
+        raise ValueError("The dataset contains no complete training windows")
+    dataset.to(device=device)
 
     noise_prediction_network = ConditionalUnet1d(
         action_dimensionality=expert_episodes.actions.shape[1],
@@ -86,140 +100,148 @@ def train_diffusion_policy(
         weight_decay=config.optimization.weight_decay,
     )
 
-    dataloader = torch.utils.data.DataLoader(
-        dataset=dataset,
-        batch_size=config.optimization.batch_size,
-        shuffle=True,
-        pin_memory=(device.type == "cuda"),
-        num_workers=1,
-        persistent_workers=True,
-    )
-
+    batch_count = math.ceil(len(dataset) / config.optimization.batch_size)
     learning_rate_scheduler = get_scheduler(
         name="cosine",
         optimizer=optimizer,
         num_warmup_steps=config.optimization.learning_rate_warmup_step_count,
-        num_training_steps=len(dataloader) * config.optimization.epoch_count,
+        num_training_steps=batch_count * config.optimization.epoch_count,
     )
 
     global_step = 0
 
     best_checkpoint: Checkpoint | None = None
 
-    for epoch_index in tqdm(
-        iterable=range(config.optimization.epoch_count),
-        desc="Epoch",
-        unit="epoch",
-        dynamic_ncols=True,
-        position=0,
-    ):
-        noise_prediction_network.train()
-
-        for training_batch in tqdm(
-            iterable=dataloader,
-            desc="Batch",
-            unit="batch",
-            leave=False,
+    with ExitStack() as scoring_resources:
+        scoring_session: ScoringSession | None = None
+        for epoch_index in tqdm(
+            iterable=range(config.optimization.epoch_count),
+            desc="Epoch",
+            unit="epoch",
             dynamic_ncols=True,
-            position=1,
+            position=0,
         ):
-            loss = _calculate_denoising_loss(
-                noise_prediction_network=noise_prediction_network,
-                training_batch=training_batch,
-                forward_noise_scheduler=forward_noise_scheduler,
-                observation_horizon_length=config.horizon_lengths.observation,
-                observation_noise=config.observation_noise,
-                device=device,
-            )
-
-            loss.backward()
-
-            gradient_norm = torch.norm(
-                input=torch.stack(
-                    tensors=[
-                        parameter.grad.norm()
-                        for parameter in noise_prediction_network.parameters()
-                        if parameter.grad is not None
-                    ]
+            noise_prediction_network.train()
+            training_start = perf_counter()
+            epoch_loss = torch.zeros((), device=device)
+            for batch_index, batch in enumerate(
+                dataset.batches(batch_size=config.optimization.batch_size)
+            ):
+                optimizer.zero_grad(set_to_none=True)
+                loss = _calculate_denoising_loss(
+                    noise_prediction_network=noise_prediction_network,
+                    batch=batch,
+                    forward_noise_scheduler=forward_noise_scheduler,
+                    observation_noise=config.observation_noise,
+                    device=device,
                 )
-            )
 
-            optimizer.step()
-            optimizer.zero_grad()
-            learning_rate_scheduler.step()
-            noise_prediction_network_ema.step(noise_prediction_network.parameters())
+                loss.backward()
+
+                if batch_index == 0:
+                    gradient_norm = torch.norm(
+                        input=torch.stack(
+                            tensors=[
+                                parameter.grad.norm()
+                                for parameter in noise_prediction_network.parameters()
+                                if parameter.grad is not None
+                            ]
+                        )
+                    )
+
+                optimizer.step()
+                learning_rate_scheduler.step()
+                noise_prediction_network_ema.step(noise_prediction_network.parameters())
+
+                epoch_loss += loss.detach() * len(batch.observation_windows)
+                global_step += 1
 
             run.log(
                 data={
-                    f"{TRAINING_SECTION}/1_loss": loss.item(),
-                    f"{TRAINING_SECTION}/3_learning_rate": (
-                        learning_rate_scheduler.get_last_lr()[0]
-                    ),
+                    f"{TRAINING_SECTION}/1_loss": (epoch_loss / len(dataset)).item(),
                     f"{TRAINING_SECTION}/2_gradient_norm": gradient_norm.item(),
+                    f"{TRAINING_SECTION}/3_learning_rate": learning_rate_scheduler.get_last_lr()[
+                        0
+                    ],
+                    f"{TRAINING_SECTION}/4_seconds": perf_counter() - training_start,
+                    EPOCH_METRIC_NAME: epoch_index,
                     STEP_METRIC_NAME: global_step,
                 }
             )
-            global_step += 1
 
-        if (epoch_index + 1) % config.validation.interval_epoch_count != 0:
-            continue
+            if (epoch_index + 1) % validation.settings.interval_epoch_count != 0:
+                continue
 
-        # What gets scored are the averaged weights, so they move into the
-        # network for the duration of the validation and are taken out again.
-        noise_prediction_network_ema.store(
-            parameters=noise_prediction_network.parameters()
-        )
-        noise_prediction_network_ema.copy_to(
-            parameters=noise_prediction_network.parameters()
-        )
-        try:
-            ema_state_dict = copy.deepcopy(noise_prediction_network.state_dict())
-            with torch.no_grad():
-                validation_reward = calculate_reward_statistics(
-                    episode_records=run_scored_episodes_over_conditions(
+            if scoring_session is None:
+                scoring_session = scoring_resources.enter_context(
+                    ScoringSession(
+                        environment=validation.environment,
+                        parallel_environment_count=validation.settings.parallel_environment_count,
+                    )
+                )
+
+            validation_start = perf_counter()
+
+            # Use the EMA weights for validation and restore the original weights after the validation.
+            noise_prediction_network_ema.store(
+                parameters=noise_prediction_network.parameters()
+            )
+            noise_prediction_network_ema.copy_to(
+                parameters=noise_prediction_network.parameters()
+            )
+            try:
+                ema_state_dict = copy.deepcopy(noise_prediction_network.state_dict())
+                with torch.no_grad():
+                    episode_records = scoring_session.roll_out_episodes_with_separate_seeds_per_condition(
                         policy_factory=create_diffusion_policy_factory(
                             noise_prediction_network=noise_prediction_network,
                             horizon_lengths=config.horizon_lengths,
                             noise_scheduler_name=config.sampler,
                             device=device,
                         ),
-                        episode_count_per_condition=config.validation.episode_count_per_condition,
+                        start_episode_seed=VALIDATION_START_SEED,
+                        episode_count_per_condition=validation.settings.episode_count_per_condition,
                     )
+                    validation_reward = calculate_reward_statistics(
+                        episode_records=episode_records
+                    )
+            finally:
+                noise_prediction_network_ema.restore(
+                    parameters=noise_prediction_network.parameters()
                 )
-        finally:
-            noise_prediction_network_ema.restore(
-                parameters=noise_prediction_network.parameters()
+            validation_success_rate = calculate_success_statistics(
+                episode_records=episode_records
+            ).rate
+            run.log(
+                data={
+                    f"{VALIDATION_SECTION}/1_reward_mean": validation_reward.mean,
+                    f"{VALIDATION_SECTION}/2_reward_std": validation_reward.std,
+                    f"{VALIDATION_SECTION}/3_success_rate": validation_success_rate,
+                    f"{VALIDATION_SECTION}/4_seconds": perf_counter()
+                    - validation_start,
+                    EPOCH_METRIC_NAME: epoch_index,
+                    STEP_METRIC_NAME: global_step,
+                }
             )
-        run.log(
-            data={
-                f"{VALIDATION_SECTION}/1_reward_mean": validation_reward.mean,
-                f"{VALIDATION_SECTION}/2_reward_std": validation_reward.std,
-                EPOCH_METRIC_NAME: epoch_index,
-                STEP_METRIC_NAME: global_step,
-            }
-        )
 
-        if (
-            best_checkpoint is None
-            or validation_reward.mean > best_checkpoint.validation_reward_mean
-        ):
-            best_checkpoint = Checkpoint(
+            if beats_best_checkpoint(
+                best_checkpoint=best_checkpoint,
+                selection_metric=validation.environment.checkpoint_selection_metric,
                 validation_reward_mean=validation_reward.mean,
-                validation_reward_std=validation_reward.std,
-                epoch=epoch_index,
-                state_dict=ema_state_dict,
-            )
+                validation_success_rate=validation_success_rate,
+            ):
+                best_checkpoint = Checkpoint(
+                    validation_reward_mean=validation_reward.mean,
+                    validation_reward_std=validation_reward.std,
+                    validation_success_rate=validation_success_rate,
+                    epoch=epoch_index,
+                    state_dict=ema_state_dict,
+                )
 
     if best_checkpoint is None:
         raise ValueError("No checkpoint was recorded")
 
-    run.summary[f"{STAGE_NAME}/3_best_checkpoint/1_epoch"] = best_checkpoint.epoch
-    run.summary[f"{STAGE_NAME}/3_best_checkpoint/2_validation_reward_mean"] = (
-        best_checkpoint.validation_reward_mean
-    )
-    run.summary[f"{STAGE_NAME}/3_best_checkpoint/3_validation_reward_std"] = (
-        best_checkpoint.validation_reward_std
-    )
+    summarize_best_checkpoint(run=run, best_checkpoint=best_checkpoint)
 
     noise_prediction_network.load_state_dict(best_checkpoint.state_dict)
     return noise_prediction_network
@@ -228,33 +250,18 @@ def train_diffusion_policy(
 # ---- Private --------------------------------------------
 
 
-def _define_step_metrics(*, run: Run) -> None:
-    run.define_metric(name=STEP_METRIC_NAME)
-    for name in (EPOCH_METRIC_NAME, f"{TRAINING_SECTION}/*", f"{VALIDATION_SECTION}/*"):
-        run.define_metric(name=name, step_metric=STEP_METRIC_NAME)
-
-
 def _calculate_denoising_loss(
     *,
     noise_prediction_network: ConditionalUnet1d,
-    training_batch: tuple[torch.Tensor, torch.Tensor],
+    batch: WindowBatch,
     forward_noise_scheduler: DDPMScheduler,
-    observation_horizon_length: int,
     observation_noise: float | None,
     device: torch.device,
 ) -> torch.Tensor:
-    observations, actions = training_batch
-    observations = observations.to(
-        device=device
-    )  # (batch_size, observation_horizon_length, observation_dimensionality)
-    actions = actions.to(
-        device=device
-    )  # (batch_size, prediction_horizon_length, action_dimensionality)
-
-    batch_size = observations.shape[0]
+    batch_size = len(batch.observation_windows)
 
     # FiLM conditioning: flatten observation history into a single vector per example.
-    condition_batch = observations[:, :observation_horizon_length, :].flatten(
+    condition_batch = batch.observation_windows.flatten(
         start_dim=1
     )  # (batch_size, observation_horizon_length * observation_dimensionality)
 
@@ -264,7 +271,7 @@ def _calculate_denoising_loss(
         )
 
     noise_batch = torch.randn(
-        size=actions.shape, device=device
+        size=batch.action_windows.shape, device=device
     )  # (batch_size, prediction_horizon_length, action_dimensionality)
     diffusion_timestep_batch = torch.randint(
         low=0,
@@ -273,7 +280,7 @@ def _calculate_denoising_loss(
         device=device,
     )  # (batch_size,)
     noisy_action_batch = forward_noise_scheduler.add_noise(
-        original_samples=actions,
+        original_samples=batch.action_windows,
         noise=noise_batch,
         # Ignore because PyTorch returns Tensors but diffusers expects IntTensor in its type hints.
         timesteps=diffusion_timestep_batch,  # type: ignore[arg-type] # ty:ignore[invalid-argument-type]

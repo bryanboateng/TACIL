@@ -1,17 +1,6 @@
-from dataclasses import dataclass
-
 import torch
 
 from scripts.policies.mopo.transitions import Transitions
-
-
-@dataclass(frozen=True)
-class Batch:
-    states: torch.Tensor  # (batch_size, state_dimensionality)
-    actions: torch.Tensor  # (batch_size, action_dimensionality)
-    next_states: torch.Tensor  # (batch_size, state_dimensionality)
-    rewards: torch.Tensor  # (batch_size, 1)
-    terminations: torch.Tensor  # (batch_size, 1)
 
 
 class ReplayBuffer:
@@ -59,9 +48,9 @@ class ReplayBuffer:
         self._write_index = (self._write_index + count) % self._capacity
         self._size = min(self._size + count, self._capacity)
 
-    def sample(self, *, count: int) -> Batch:
+    def sample(self, *, count: int) -> Transitions:
         indices = self._draw_indices(count=count)
-        return Batch(
+        return Transitions(
             states=self._states[indices],
             actions=self._actions[indices],
             next_states=self._next_states[indices],
@@ -80,8 +69,8 @@ class ReplayBuffer:
         return torch.randint(low=0, high=self._size, size=(count,), device=self._device)
 
 
-def concatenate_batches(*, first: Batch, second: Batch) -> Batch:
-    return Batch(
+def concatenate_transitions(*, first: Transitions, second: Transitions) -> Transitions:
+    return Transitions(
         states=torch.cat(tensors=[first.states, second.states], dim=0),
         actions=torch.cat(tensors=[first.actions, second.actions], dim=0),
         next_states=torch.cat(tensors=[first.next_states, second.next_states], dim=0),

@@ -1,4 +1,3 @@
-from dataclasses import asdict
 from typing import Annotated, TypeAlias
 
 import torch
@@ -8,12 +7,15 @@ from rich.pretty import pretty_repr
 
 from scripts.data.augmentation.tacil import augmentation as tacil
 from scripts.data.augmentation.tacil.augmentation import TacilConfig
+from scripts.environments.registry import create_environment
 from scripts.evaluation.evaluate_policy import evaluate_policy
 from scripts.policies.dp import config as policy_config
 from scripts.policies.dp.policy import create_diffusion_policy_factory
 from scripts.policies.dp.train import train_diffusion_policy
-from scripts.policies.shared.run_config import RunConfig
-from scripts.shared.dataset_artifact import download_episode_store
+from scripts.policies.shared.run_config import RunConfig, build_run_record
+from scripts.policies.shared.validation import Validation
+from scripts.shared.dataset_artifact import download_episodes
+from scripts.shared.episodes import drop_rewards
 from scripts.shared.log import create_logger, log_device_info
 from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
 
@@ -36,16 +38,24 @@ def _run(*, config: Config) -> None:
     with wandb.init(
         project=config.wandb_project,
         job_type="dp",
-        config=asdict(obj=config),
+        config=build_run_record(
+            config=config,
+            policy_name="dp",
+            augmentation_name=None if config.augmentation is None else "tacil",
+        ),
         dir=OUTPUT_DIRECTORY_PATH,
     ) as run:
         run_name = run.name
         if run_name is None:
             raise RuntimeError("wandb run name unexpectedly None")
 
-        expert_episodes = download_episode_store(
+        environment = create_environment(name=config.environment)
+
+        dataset = download_episodes(
             artifact_name=config.expert_dataset_artifact, run=run
         )
+        run.config["expert_dataset_artifact_version"] = dataset.artifact_version
+        expert_episodes = drop_rewards(episodes=dataset.episodes)
 
         logger.info("Stage 1/3: creating the augmented episodes.")
 
@@ -56,6 +66,7 @@ def _run(*, config: Config) -> None:
             case TacilConfig() as tacil_configuration:
                 augmented_episodes = tacil.augment(
                     config=tacil_configuration,
+                    environment=environment,
                     expert_episodes=expert_episodes,
                     # The policy trains on windows of `prediction` steps. The
                     # expert steps let the last windows run from synthetic
@@ -83,6 +94,9 @@ def _run(*, config: Config) -> None:
         logger.info("Stage 2/3: training the diffusion policy.")
         noise_prediction_network = train_diffusion_policy(
             config=config.policy,
+            validation=Validation(
+                settings=config.policy.validation, environment=environment
+            ),
             expert_episodes=expert_episodes,
             augmented_episodes=augmented_episodes,
             seed=config.seed,
@@ -93,6 +107,7 @@ def _run(*, config: Config) -> None:
 
         logger.info("Stage 3/3: evaluating the policy.")
         evaluate_policy(
+            environment=environment,
             policy_factory=create_diffusion_policy_factory(
                 noise_prediction_network=noise_prediction_network,
                 horizon_lengths=config.policy.horizon_lengths,
@@ -101,7 +116,6 @@ def _run(*, config: Config) -> None:
             ),
             policy_label=f"dp ({run_name})",
             config=config.evaluation,
-            record_videos=config.record_videos,
             run=run,
         )
         logger.info("Stage 3/3: done.")
