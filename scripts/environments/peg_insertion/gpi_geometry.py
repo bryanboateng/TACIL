@@ -24,19 +24,11 @@ _ACTION_TRANSLATION_SLICE = slice(0, 3)
 _ACTION_ROTATION_SLICE = slice(3, ARM_ACTION_COUNT)
 _ACTION_GRIPPER_SLICE = slice(ARM_ACTION_COUNT, ARM_ACTION_COUNT + 1)
 
-# Bounds of ManiSkill's Panda `pd_ee_delta_pose` controller: one action unit
-# moves the end effector by 0.1 m or 0.1 rad. The negative rotation sign is what
-# the demonstrations were converted against.
 _TRANSLATION_SCALE_IN_METRES = 0.1
 _ROTATION_SCALE_IN_RADIANS = -0.1
 _ROTATION_MAGNITUDE_IN_RADIANS = abs(_ROTATION_SCALE_IN_RADIANS)
-# Range of the gripper's absolute position command, [-0.01, 0.04].
 _GRIPPER_RANGE_IN_METRES = 0.05
 
-# Everything is expressed in the hole frame. Peg half width, peg half height and
-# hole radius are excluded: the peg cross-section is square and the hole radius
-# is the half width plus a constant 3 mm clearance, so the three carry a single
-# number that does not change the required strategy.
 FEATURE_DIMENSIONALITY = 26
 
 _FEATURE_TCP_POSITION_SLICE = slice(0, 3)
@@ -104,10 +96,6 @@ class PegInsertionGpiGeometry:
         robot_distance_weight: float,
         environment_distance_weight: float,
     ) -> torch.Tensor:  # (step_count,)
-        # Distances are measured in controller units, so that "distance 1" is
-        # one step of travel and the attraction flow derived from the robot
-        # distance is commensurable with the action it is added to (paper,
-        # equation 2). Data-dependent normalization is deliberately not used.
         del feature_normalizer
 
         difference_batch = (
@@ -324,7 +312,7 @@ def _calculate_rotation_angles(
     feature_batch: torch.Tensor,  # (step_count, FEATURE_DIMENSIONALITY)
     query_feature: torch.Tensor,  # (FEATURE_DIMENSIONALITY,)
     rotation_slice: slice,
-) -> torch.Tensor:  # (step_count,) geodesic angle in radians
+) -> torch.Tensor:  # (step_count,)
     trace_batch = (
         feature_batch[:, rotation_slice] * query_feature[rotation_slice]
     ).sum(dim=-1)  # (step_count,)
