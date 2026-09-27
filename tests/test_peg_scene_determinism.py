@@ -1,3 +1,13 @@
+"""A reset must give the same result for a seed. The result must not change if
+other episodes ran in the environment before.
+
+We made a fault when we tried to make resets faster. We kept the robot and the
+table. We rebuilt only the peg and the hole. Old physics data stayed in the
+environment and changed the result.
+
+We now rebuild the full scene at each reset. These tests check that a reused
+environment and a new environment give the same state for the same seed."""
+
 import unittest
 from contextlib import ExitStack
 
