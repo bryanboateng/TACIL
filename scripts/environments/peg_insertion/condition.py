@@ -23,22 +23,22 @@ class PegInsertionCondition:
 class Settings:
     label: str
     description: str
-    disturbance_impulse: float | None
+    disturbance_shift: float | None
 
 
 SETTINGS_BY_CONDITION: dict[Condition, Settings] = {
     PegInsertionCondition(DisturbanceLevel.NONE): Settings(
-        label="1_undisturbed", description="disturbance: none", disturbance_impulse=None
+        label="1_undisturbed", description="disturbance: none", disturbance_shift=None
     ),
     PegInsertionCondition(DisturbanceLevel.LOW): Settings(
         label="2_low_disturbance",
         description="disturbance: low",
-        disturbance_impulse=0.02,
+        disturbance_shift=0.01,
     ),
     PegInsertionCondition(DisturbanceLevel.HIGH): Settings(
         label="3_high_disturbance",
         description="disturbance: high",
-        disturbance_impulse=0.04,
+        disturbance_shift=0.02,
     ),
 }
 

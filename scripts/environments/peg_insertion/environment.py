@@ -161,13 +161,11 @@ class PegInsertionEnvironment:
             )
         )
 
-        disturbance_impulse = SETTINGS_BY_CONDITION[condition].disturbance_impulse
-        if disturbance_impulse is None:
+        disturbance_shift = SETTINGS_BY_CONDITION[condition].disturbance_shift
+        if disturbance_shift is None:
             return environment
 
-        return DisturbanceWrapper(
-            environment=environment, magnitude=disturbance_impulse
-        )
+        return DisturbanceWrapper(environment=environment, shift=disturbance_shift)
 
     def calculate_termination(
         self,
