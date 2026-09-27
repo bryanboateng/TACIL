@@ -243,6 +243,7 @@ class ParallelEnvironmentPool:
                         f"preparing condition={condition_label}, "
                         f"{len(worker_seeds)} environments"
                     ),
+                    timeout_seconds=_WORKER_TIMEOUT_SECONDS * len(worker_seeds),
                 )
             )
         logger.debug(
@@ -292,17 +293,21 @@ def _group_episode_indices_per_worker(
 
 
 def _receive_worker_result(
-    *, connection: Connection, worker: BaseProcess, operation: str
+    *,
+    connection: Connection,
+    worker: BaseProcess,
+    operation: str,
+    timeout_seconds: float = _WORKER_TIMEOUT_SECONDS,
 ) -> Any:
     start_timepoint = monotonic()
-    deadline_timepoint = start_timepoint + _WORKER_TIMEOUT_SECONDS
+    deadline_timepoint = start_timepoint + timeout_seconds
     worker_description = f"CPU environment worker pid={worker.pid}"
     while True:
         remaining_seconds = deadline_timepoint - monotonic()
         if remaining_seconds <= 0:
             raise RuntimeError(
                 f"{worker_description} timed out after "
-                f"{_WORKER_TIMEOUT_SECONDS:g}s while {operation}. "
+                f"{timeout_seconds:g}s while {operation}. "
                 f"Exit code: {worker.exitcode}."
             )
         if not connection.poll(timeout=min(remaining_seconds, _WORKER_WARNING_SECONDS)):
