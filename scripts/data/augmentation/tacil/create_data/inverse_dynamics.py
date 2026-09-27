@@ -124,11 +124,29 @@ def _calculate_jacobian_of_residual_wrt_normalized_state(
             ),  # (1, state_dimensionality)
         ).squeeze(dim=0)  # (state_dimensionality,)
 
-    return torch.vmap(func=torch.func.jacrev(func=calculate_residual, argnums=0))(
+    return _vmap_in_chunks(
         normalized_state_batch,  # (batch_size, state_dimensionality)
         action_batch,  # (batch_size, action_dimensionality)
         target_next_state_batch,  # (batch_size, state_dimensionality)
+        func=torch.func.jacrev(func=calculate_residual, argnums=0),
+        chunk_size=2_048,
     )  # (batch_size, state_dimensionality, state_dimensionality)
+
+
+def _vmap_in_chunks(
+    *batches: torch.Tensor,  # each (batch_size, ...)
+    func,
+    chunk_size: int,
+) -> torch.Tensor:  # (batch_size, ...)
+    vmapped = torch.vmap(func=func)
+    batch_size = batches[0].shape[0]
+    return torch.cat(
+        tensors=[
+            vmapped(*(batch[start : start + chunk_size] for batch in batches))
+            for start in range(0, batch_size, chunk_size)
+        ],
+        dim=0,
+    )
 
 
 def _add_ridge(
