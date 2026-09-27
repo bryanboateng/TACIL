@@ -12,7 +12,6 @@ from scripts.environments.peg_insertion.observation import (
     GRIPPER_OPENING_INDEX,
     HOLE_ORIENTATION_SLICE,
     HOLE_POSITION_SLICE,
-    HOLE_RADIUS_INDEX,
     PEG_HALF_SIZE_SLICE,
     PEG_ORIENTATION_SLICE,
     PEG_POSITION_SLICE,
@@ -25,25 +24,29 @@ _ACTION_TRANSLATION_SLICE = slice(0, 3)
 _ACTION_ROTATION_SLICE = slice(3, ARM_ACTION_COUNT)
 _ACTION_GRIPPER_SLICE = slice(ARM_ACTION_COUNT, ARM_ACTION_COUNT + 1)
 
+# Bounds of ManiSkill's Panda `pd_ee_delta_pose` controller: one action unit
+# moves the end effector by 0.1 m or 0.1 rad. The negative rotation sign is what
+# the demonstrations were converted against.
 _TRANSLATION_SCALE_IN_METRES = 0.1
 _ROTATION_SCALE_IN_RADIANS = -0.1
+_ROTATION_MAGNITUDE_IN_RADIANS = abs(_ROTATION_SCALE_IN_RADIANS)
+# Range of the gripper's absolute position command, [-0.01, 0.04].
+_GRIPPER_RANGE_IN_METRES = 0.05
 
-FEATURE_DIMENSIONALITY = 29
+# Everything is expressed in the hole frame. Peg half width, peg half height and
+# hole radius are excluded: the peg cross-section is square and the hole radius
+# is the half width plus a constant 3 mm clearance, so the three carry a single
+# number that does not change the required strategy.
+FEATURE_DIMENSIONALITY = 26
 
 _FEATURE_TCP_POSITION_SLICE = slice(0, 3)
 _FEATURE_TCP_ROTATION_SLICE = slice(3, 12)
 _FEATURE_GRIPPER_SLICE = slice(12, 13)
 _FEATURE_PEG_POSITION_SLICE = slice(13, 16)
 _FEATURE_PEG_ROTATION_SLICE = slice(16, 25)
-_FEATURE_PEG_HALF_SIZE_SLICE = slice(25, 28)
-_FEATURE_HOLE_RADIUS_SLICE = slice(28, 29)
+_FEATURE_PEG_HALF_LENGTH_SLICE = slice(25, 26)
 
-_ROBOT_LENGTH_FEATURE_SLICES = (_FEATURE_TCP_POSITION_SLICE, _FEATURE_GRIPPER_SLICE)
-_ENVIRONMENT_LENGTH_FEATURE_SLICES = (
-    _FEATURE_PEG_POSITION_SLICE,
-    _FEATURE_PEG_HALF_SIZE_SLICE,
-    _FEATURE_HOLE_RADIUS_SLICE,
-)
+_PEG_HALF_LENGTH_INDEX = PEG_HALF_SIZE_SLICE.start
 
 
 class PegInsertionGpiGeometry:
@@ -85,8 +88,9 @@ class PegInsertionGpiGeometry:
                     ),
                     frame_rotation=hole_rotation,
                 ),
-                observation_batch[:, PEG_HALF_SIZE_SLICE],
-                observation_batch[:, HOLE_RADIUS_INDEX : HOLE_RADIUS_INDEX + 1],
+                observation_batch[
+                    :, _PEG_HALF_LENGTH_INDEX : _PEG_HALF_LENGTH_INDEX + 1
+                ],
             ],
             dim=-1,
         )
@@ -100,25 +104,51 @@ class PegInsertionGpiGeometry:
         robot_distance_weight: float,
         environment_distance_weight: float,
     ) -> torch.Tensor:  # (step_count,)
-        difference_batch = (feature_batch - query_feature) * _scale_to_unit_interval(
-            feature_normalizer=feature_normalizer
+        # Distances are measured in controller units, so that "distance 1" is
+        # one step of travel and the attraction flow derived from the robot
+        # distance is commensurable with the action it is added to (paper,
+        # equation 2). Data-dependent normalization is deliberately not used.
+        del feature_normalizer
+
+        difference_batch = (
+            feature_batch - query_feature
         )  # (step_count, FEATURE_DIMENSIONALITY)
 
-        robot_distance = _sum_group_norms(
-            difference_batch=difference_batch, group_slices=_ROBOT_LENGTH_FEATURE_SLICES
-        ) + _calculate_rotation_distances(
-            feature_batch=feature_batch,
-            query_feature=query_feature,
-            rotation_slice=_FEATURE_TCP_ROTATION_SLICE,
+        robot_distance = (
+            _calculate_norms(
+                difference_batch=difference_batch,
+                feature_slice=_FEATURE_TCP_POSITION_SLICE,
+            )
+            / _TRANSLATION_SCALE_IN_METRES
+            + _calculate_rotation_angles(
+                feature_batch=feature_batch,
+                query_feature=query_feature,
+                rotation_slice=_FEATURE_TCP_ROTATION_SLICE,
+            )
+            / _ROTATION_MAGNITUDE_IN_RADIANS
+            + _calculate_norms(
+                difference_batch=difference_batch, feature_slice=_FEATURE_GRIPPER_SLICE
+            )
+            / _GRIPPER_RANGE_IN_METRES
         )  # (step_count,)
 
-        environment_distance = _sum_group_norms(
-            difference_batch=difference_batch,
-            group_slices=_ENVIRONMENT_LENGTH_FEATURE_SLICES,
-        ) + _calculate_rotation_distances(
-            feature_batch=feature_batch,
-            query_feature=query_feature,
-            rotation_slice=_FEATURE_PEG_ROTATION_SLICE,
+        environment_distance = (
+            _calculate_norms(
+                difference_batch=difference_batch,
+                feature_slice=_FEATURE_PEG_POSITION_SLICE,
+            )
+            / _TRANSLATION_SCALE_IN_METRES
+            + _calculate_rotation_angles(
+                feature_batch=feature_batch,
+                query_feature=query_feature,
+                rotation_slice=_FEATURE_PEG_ROTATION_SLICE,
+            )
+            / _ROTATION_MAGNITUDE_IN_RADIANS
+            + _calculate_norms(
+                difference_batch=difference_batch,
+                feature_slice=_FEATURE_PEG_HALF_LENGTH_SLICE,
+            )
+            / _TRANSLATION_SCALE_IN_METRES
         )  # (step_count,)
 
         return (
@@ -281,33 +311,21 @@ def _clip_to_unit_norm(
     )
 
 
-def _scale_to_unit_interval(
-    *, feature_normalizer: MinMaxNormalizer
-) -> torch.Tensor:  # (FEATURE_DIMENSIONALITY,)
-    return feature_normalizer.scale / 2.0
-
-
-def _sum_group_norms(
+def _calculate_norms(
     *,
     difference_batch: torch.Tensor,  # (step_count, FEATURE_DIMENSIONALITY)
-    group_slices: tuple[slice, ...],
+    feature_slice: slice,
 ) -> torch.Tensor:  # (step_count,)
-    return sum(
-        torch.linalg.norm(difference_batch[:, group_slice], dim=-1)
-        for group_slice in group_slices
-    )
+    return torch.linalg.norm(difference_batch[:, feature_slice], dim=-1)
 
 
-def _calculate_rotation_distances(
+def _calculate_rotation_angles(
     *,
     feature_batch: torch.Tensor,  # (step_count, FEATURE_DIMENSIONALITY)
     query_feature: torch.Tensor,  # (FEATURE_DIMENSIONALITY,)
     rotation_slice: slice,
-) -> torch.Tensor:  # (step_count,)
+) -> torch.Tensor:  # (step_count,) geodesic angle in radians
     trace_batch = (
         feature_batch[:, rotation_slice] * query_feature[rotation_slice]
     ).sum(dim=-1)  # (step_count,)
-    return (
-        torch.arccos(input=((trace_batch - 1.0) / 2.0).clamp(min=-1.0, max=1.0))
-        / torch.pi
-    )
+    return torch.arccos(input=((trace_batch - 1.0) / 2.0).clamp(min=-1.0, max=1.0))
