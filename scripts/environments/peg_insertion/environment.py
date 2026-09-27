@@ -29,7 +29,7 @@ from scripts.environments.peg_insertion.observation import (
     extract_state_from_environment,
 )
 from scripts.environments.peg_insertion.plots import create_dynamics_plots
-from scripts.environments.peg_insertion.reward import calculate_success
+from scripts.environments.peg_insertion.success import calculate_success
 from scripts.environments.peg_insertion.tacil_network_input import build_network_input
 from scripts.environments.render_settings import RenderSettings
 from scripts.environments.state_bounds import Bound
