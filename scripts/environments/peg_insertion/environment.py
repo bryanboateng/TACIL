@@ -50,15 +50,10 @@ def keep_sapien_renderer_alive() -> sapien.render.SapienRenderer:
     """Hold SAPIEN's renderer for the lifetime of the process.
 
     ManiSkill builds render materials before it checks whether anything can be
-    rendered, which starts the renderer even under render_backend="none", and
-    PegInsertionSide rebuilds the whole scene on every reset. Without this
-    reference the renderer is torn down and started again for every episode,
-    which makes resets roughly three times slower without changing any result.
-    The device has to match the one the recorded videos render on, or SAPIEN
-    refuses to create the rendering environment later in the same process.
-
-    SAPIEN allows one renderer per process, so anything that starts its own, as
-    replaying demonstrations does, has to run in a process of its own.
+    rendered.
+    This happens even when render_backend="none" is set.
+    Without this reference the renderer is torn down and started again
+    for every episode, which makes resets roughly three times slower.
     """
     return sapien.render.SapienRenderer(sapien.Device(RENDER_DEVICE))
 
@@ -153,7 +148,7 @@ class PegInsertionEnvironment:
     def create_gym_environment(
         *, condition: Condition, render_settings: RenderSettings | None
     ) -> Env:
-        environment: Env = _SelectedObservationWrapper(
+        environment: Env = _StateObservationWrapper(
             environment=create_base_environment(
                 # The converted demonstrations need about 105-423 steps so 450 is a good limit.
                 episode_step_limit=450,
@@ -187,7 +182,7 @@ class PegInsertionEnvironment:
 # ---- Private --------------------------------------------
 
 
-class _SelectedObservationWrapper(gymnasium.ObservationWrapper):
+class _StateObservationWrapper(gymnasium.ObservationWrapper):
     def __init__(self, *, environment: gymnasium.Env) -> None:
         super().__init__(env=environment)
         task = environment.unwrapped
