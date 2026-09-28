@@ -189,6 +189,7 @@ def _write_episode_frames(
         sorted(episode_records.items(), key=lambda item: item[0]),
         desc="Recording",
         unit="episode",
+        dynamic_ncols=True,
     ):
         replayed_record = _replay_episode_with_rendering(
             episode_record=episode_record, gym_environment=gym_environment

@@ -114,7 +114,10 @@ def train_dynamics_model_ensemble(
     )
 
     for epoch_index in tqdm(
-        range(config.maximum_epoch_count), desc="training ensemble", unit="epoch"
+        range(config.maximum_epoch_count),
+        desc="training ensemble",
+        unit="epoch",
+        dynamic_ncols=True,
     ):
         if (
             epoch_index - training_state.last_improvement_epoch

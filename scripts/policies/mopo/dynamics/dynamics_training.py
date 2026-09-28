@@ -87,7 +87,7 @@ def train_dynamics(
     epoch_count_without_improvement = 0
     epoch_index = 0
 
-    progress_bar = tqdm(desc="Dynamics epoch", unit="epoch")
+    progress_bar = tqdm(desc="Dynamics epoch", unit="epoch", dynamic_ncols=True)
     while epoch_count_without_improvement < config.patience_epoch_count:
         training_loss = _train_for_one_epoch(
             config=config,

@@ -157,7 +157,10 @@ def fit_world_model(
 
     world_model.train()
     for _ in tqdm(
-        iterable=range(config.epoch_count), desc="ccil dynamics", unit="epoch"
+        iterable=range(config.epoch_count),
+        desc="ccil dynamics",
+        unit="epoch",
+        dynamic_ncols=True,
     ):
         permutation = torch.randperm(transition_count, device=state_batch.device)
         total_sum = data_sum = regularization_sum = 0.0

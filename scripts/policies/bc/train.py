@@ -78,7 +78,10 @@ def train_behavior_cloning_policy(
     with ExitStack() as scoring_resources:
         scoring_session: ScoringSession | None = None
         for epoch_index in tqdm(
-            iterable=range(config.optimization.epoch_count), desc="Epoch", unit="epoch"
+            iterable=range(config.optimization.epoch_count),
+            desc="Epoch",
+            unit="epoch",
+            dynamic_ncols=True,
         ):
             model.train()
             training_start = perf_counter()

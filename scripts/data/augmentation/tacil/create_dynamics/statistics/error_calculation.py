@@ -133,7 +133,10 @@ def _calculate_backward(
     current_state_batch = state_windows[:, -1, :]
 
     for walk_step_index in tqdm(
-        iterable=range(step_count), desc="walking windows backward", unit="step"
+        iterable=range(step_count),
+        desc="walking windows backward",
+        unit="step",
+        dynamic_ncols=True,
     ):
         if window_indices.numel() == 0:
             break

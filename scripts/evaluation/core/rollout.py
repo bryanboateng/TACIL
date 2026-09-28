@@ -59,7 +59,7 @@ def roll_out_episodes(
         )
 
     running_episode_indices = list(range(len(episode_runs)))
-    with tqdm(desc="Rollout", unit="step", leave=False) as progress:
+    with tqdm(desc="Rollout", unit="step", leave=False, dynamic_ncols=True) as progress:
         while len(running_episode_indices) > 0:
             progress.update()
             progress.set_postfix(running=len(running_episode_indices), refresh=False)

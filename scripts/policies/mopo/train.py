@@ -148,7 +148,10 @@ def train_mopo_policy(
         scoring_session: ScoringSession | None = None
 
         for epoch_index in tqdm(
-            iterable=range(config.optimization.epoch_count), desc="Epoch", unit="epoch"
+            iterable=range(config.optimization.epoch_count),
+            desc="Epoch",
+            unit="epoch",
+            dynamic_ncols=True,
         ):
             policy.train()
             rollout_duration = 0.0

@@ -55,7 +55,7 @@ def roll_out_backward(
     )  # (active_count,)
     current_state_batch = anchor_state_batch  # (active_count, state_dimensionality)
 
-    progress_bar = tqdm(desc="backward step", unit="step")
+    progress_bar = tqdm(desc="backward step", unit="step", dynamic_ncols=True)
     while True:
         if active_trajectory_indices.numel() == 0:
             break

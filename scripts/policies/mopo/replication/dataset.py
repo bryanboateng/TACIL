@@ -49,6 +49,7 @@ def download_dataset(*, task: Task) -> Path:
                 unit="B",
                 unit_scale=True,
                 desc=task.dataset_file_name,
+                dynamic_ncols=True,
             ) as progress_bar,
         ):
             while chunk := response.read(1 << 20):

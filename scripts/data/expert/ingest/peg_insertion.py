@@ -181,7 +181,10 @@ def _read_episodes(
         gym_environment = create_base_environment(episode_step_limit=max_steps + 1)
         try:
             for metadata in tqdm(
-                iterable=episode_metadata, desc="Reading episodes", unit="episode"
+                iterable=episode_metadata,
+                desc="Reading episodes",
+                unit="episode",
+                dynamic_ncols=True,
             ):
                 episodes.append(
                     _read_episode(

@@ -36,6 +36,7 @@ def _download(*, url: str, save_file_path: Path) -> None:
         unit="B",
         unit_scale=True,
         unit_divisor=1_024,
+        dynamic_ncols=True,
     ) as progress_bar:
 
         def report(block_count: int, block_size: int, total_size: int) -> None:

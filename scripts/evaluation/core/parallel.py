@@ -124,7 +124,7 @@ class ParallelEnvironmentPool:
         policy = policy_factory(episode_seeds=seeds)
         running_episode_indices = list(range(len(seeds)))
 
-        with tqdm(desc="Parallel rollout", unit="step", leave=False) as progress_bar:
+        with tqdm(desc="Parallel rollout", unit="step", leave=False, dynamic_ncols=True) as progress_bar:
             while len(running_episode_indices) != 0:
                 action_per_episode_index = policy(
                     observations_by_episode_index={
