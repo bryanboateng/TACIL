@@ -35,7 +35,7 @@ def solve_inverse_dynamics(
     while True:
         residual_batch = _calculate_residual(
             dynamics_model_ensemble=dynamics_model_ensemble,
-            normalized_state_batch=dynamics_model_ensemble.state_normalizer.normalize(
+            normalized_state_batch=dynamics_model_ensemble.normalizers.state.normalize(
                 value_batch=state_estimate_batch
             ),
             action_batch=action_batch,
@@ -51,7 +51,7 @@ def solve_inverse_dynamics(
 
         jacobian_batch = _calculate_jacobian_of_residual_wrt_normalized_state(
             dynamics_model_ensemble=dynamics_model_ensemble,
-            normalized_state_batch=dynamics_model_ensemble.state_normalizer.normalize(
+            normalized_state_batch=dynamics_model_ensemble.normalizers.state.normalize(
                 value_batch=state_estimate_batch
             ),
             action_batch=action_batch,
@@ -65,7 +65,7 @@ def solve_inverse_dynamics(
 
         state_estimate_batch = dynamics_model_ensemble.state_space.add(
             first_addend_batch=state_estimate_batch,
-            second_addend_batch=-dynamics_model_ensemble.state_normalizer.denormalize_difference(
+            second_addend_batch=-dynamics_model_ensemble.normalizers.state.denormalize_difference(
                 normalized_difference_batch=normalized_newton_step_batch
             ),
         )  # (batch_size, state_dimensionality)
@@ -87,7 +87,7 @@ def _calculate_residual(
     target_next_state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
 ) -> torch.Tensor:  # (batch_size, state_dimensionality)
     predicted_next_state_batch = dynamics_model_ensemble.predict_next_state(
-        state_batch=dynamics_model_ensemble.state_normalizer.denormalize(
+        state_batch=dynamics_model_ensemble.normalizers.state.denormalize(
             value_batch=normalized_state_batch
         ),
         action_batch=action_batch,
@@ -96,7 +96,7 @@ def _calculate_residual(
         minuend_batch=predicted_next_state_batch,
         subtrahend_batch=target_next_state_batch,
         state_space=dynamics_model_ensemble.state_space,
-        state_normalizer=dynamics_model_ensemble.state_normalizer,
+        state_normalizer=dynamics_model_ensemble.normalizers.state,
     )  # (batch_size, state_dimensionality)
 
 

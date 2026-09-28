@@ -9,8 +9,7 @@ from scripts.data.augmentation.tacil.create_data.distances import (
 )
 from scripts.data.augmentation.tacil.create_dynamics.data import Transitions
 from scripts.data.augmentation.tacil.create_dynamics.dynamics_model_training import (
-    MemberEpochMetrics,
-    MemberTrainingState,
+    EpochMetrics,
 )
 from scripts.data.augmentation.tacil.create_dynamics.statistics import plots
 from scripts.data.augmentation.tacil.create_dynamics.statistics.error_calculation import (
@@ -44,81 +43,56 @@ def define_epoch_metrics(*, run: Run) -> None:
         run.define_metric(name=f"{section}/*", step_metric=EPOCH_METRIC_NAME)
 
 
-def log_epoch(
-    *, epoch_index: int, per_member_metrics: list[MemberEpochMetrics], run: Run
-) -> None:
+def log_epoch(*, epoch_index: int, metrics: EpochMetrics, run: Run) -> None:
     logged_metrics: dict[str, float | wandb.Histogram] = {
         EPOCH_METRIC_NAME: epoch_index
     }
     for prefix, member_values in (
-        (
-            f"{LOSS_SECTION}/1_training",
-            [metrics.training_loss for metrics in per_member_metrics],
-        ),
-        (
-            f"{LOSS_SECTION}/2_validation",
-            [metrics.validation_loss for metrics in per_member_metrics],
-        ),
-        (
-            GRADIENT_NORM_SECTION,
-            [metrics.gradient_norm for metrics in per_member_metrics],
-        ),
+        (f"{LOSS_SECTION}/1_training", metrics.training_losses),
+        (f"{LOSS_SECTION}/2_validation", metrics.validation_losses),
+        (GRADIENT_NORM_SECTION, metrics.gradient_norms),
     ):
-        for label, value in summarize_distribution(
-            values=np.asarray(member_values, dtype=np.float64)
-        ).items():
+        for label, value in _summarize_finite_values(values=member_values).items():
             logged_metrics[f"{prefix}/{label}"] = value
 
-    for split, member_split_lipschitz in (
-        (
-            "1_training",
-            [
-                metrics.training_local_lipschitz_constants
-                for metrics in per_member_metrics
-            ],
-        ),
-        (
-            "2_validation",
-            [
-                metrics.validation_local_lipschitz_constants
-                for metrics in per_member_metrics
-            ],
-        ),
+    for split, local_lipschitz_constants in (
+        ("1_training", metrics.training_local_lipschitz_constants),
+        ("2_validation", metrics.validation_local_lipschitz_constants),
     ):
-        logged_metrics[f"{LIPSCHITZ_SECTION}/{split}"] = wandb.Histogram(
-            sequence=np.concatenate(member_split_lipschitz).tolist()
-        )
+        finite_constants = local_lipschitz_constants[
+            np.isfinite(local_lipschitz_constants)
+        ]  # (finite_count,)
+        if finite_constants.size > 0:
+            logged_metrics[f"{LIPSCHITZ_SECTION}/{split}"] = wandb.Histogram(
+                sequence=finite_constants.tolist()
+            )
 
     run.log(data=logged_metrics)
 
 
 def log_best_checkpoint_summary(
-    *, member_states: list[MemberTrainingState], run: Run
+    *,
+    best_validation_losses: npt.NDArray[np.float64],  # (member_count,)
+    best_epochs: npt.NDArray[np.int64],  # (member_count,)
+    run: Run,
 ) -> None:
-    best_checkpoints = []
-    for member_state in member_states:
-        if member_state.best_checkpoint is None:
-            raise ValueError("No checkpoint was recorded")
-        best_checkpoints.append(member_state.best_checkpoint)
+    converged_member_mask = np.isfinite(best_validation_losses)  # (member_count,)
 
     for name, values in (
-        (
-            "1_validation_loss",
-            np.array([checkpoint.validation_loss for checkpoint in best_checkpoints]),
-        ),
-        ("2_epoch", np.array([checkpoint.epoch for checkpoint in best_checkpoints])),
+        ("1_validation_loss", best_validation_losses[converged_member_mask]),
+        ("2_epoch", best_epochs[converged_member_mask]),
     ):
-        for label, value in summarize_distribution(values=values).items():
+        for label, value in _summarize_finite_values(values=values).items():
             run.summary[f"{STAGE_NAME}/3_best_checkpoint/{name}/{label}"] = value
+    run.summary[f"{STAGE_NAME}/3_best_checkpoint/3_diverged_member_count"] = int(
+        np.count_nonzero(~converged_member_mask)
+    )
 
 
 def log_window_counts(
-    *, member_training_window_counts: list[int], validation_window_count: int, run: Run
+    *, training_window_count: int, validation_window_count: int, run: Run
 ) -> None:
-    for label, value in summarize_distribution(
-        values=np.asarray(member_training_window_counts)
-    ).items():
-        run.summary[f"{STAGE_NAME}/4_window_count/1_training/{label}"] = value
+    run.summary[f"{STAGE_NAME}/4_window_count/1_training"] = training_window_count
     run.summary[f"{STAGE_NAME}/4_window_count/2_validation"] = validation_window_count
 
 
@@ -263,16 +237,24 @@ def _roll_out_members_forward(
     initial_state: torch.Tensor,  # (state_dimensionality,)
     actions: torch.Tensor,  # (step_count, action_dimensionality)
 ) -> torch.Tensor:  # (member_count, step_count + 1, state_dimensionality)
-    member_trajectories: list[torch.Tensor] = []
-    for dynamics_model in dynamics_model_ensemble.dynamics_models:
-        current_state_batch = initial_state.unsqueeze(dim=0)
-        trajectory_states = [current_state_batch]
-        for step_index in range(actions.shape[0]):
-            current_state_batch = dynamics_model.predict_next_state(
-                state_batch=current_state_batch,
-                action_batch=actions[step_index].unsqueeze(dim=0),
-            )
-            trajectory_states.append(current_state_batch)
-        member_trajectories.append(torch.cat(tensors=trajectory_states, dim=0))
+    per_member_state_batch = initial_state.expand(
+        dynamics_model_ensemble.member_count, 1, -1
+    )  # (member_count, 1, state_dimensionality)
+    trajectory_states = [per_member_state_batch]
+    for step_index in range(actions.shape[0]):
+        per_member_state_batch = dynamics_model_ensemble.predict_next_state_per_member(
+            state_batch=per_member_state_batch,
+            action_batch=actions[step_index].unsqueeze(dim=0),
+        )  # (member_count, 1, state_dimensionality)
+        trajectory_states.append(per_member_state_batch)
 
-    return torch.stack(tensors=member_trajectories, dim=0)
+    return torch.cat(tensors=trajectory_states, dim=1)
+
+
+def _summarize_finite_values(
+    *, values: npt.NDArray[np.floating] | npt.NDArray[np.integer]
+) -> dict[str, float]:
+    finite_values = values[np.isfinite(values)]  # (finite_count,)
+    if finite_values.size == 0:
+        return {}
+    return summarize_distribution(values=finite_values)

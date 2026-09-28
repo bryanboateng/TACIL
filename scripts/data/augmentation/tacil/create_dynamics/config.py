@@ -5,7 +5,7 @@ from dataclasses import dataclass
 class DynamicsConfig:
     window_length: int
     lipschitz_limit: float | None
-    ensemble_size: int = 20
+    ensemble_size: int = 10
     maximum_epoch_count: int = 500
     patience_epoch_count: int = 50
     hidden_layer_count: int = 2

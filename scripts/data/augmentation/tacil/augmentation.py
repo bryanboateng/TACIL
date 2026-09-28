@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 
 import torch
+from torch.nn.utils import parametrize
 from wandb import Run
 
 from scripts.data.augmentation.tacil.create_data.config import DataConfig
@@ -42,7 +43,7 @@ def augment(
         run=run,
     )
 
-    with torch.no_grad():
+    with torch.no_grad(), parametrize.cached():
         return create_augmented_data(
             config=config.data,
             expert_episodes=expert_episodes,

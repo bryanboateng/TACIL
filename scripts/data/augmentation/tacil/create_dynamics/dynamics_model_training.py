@@ -4,68 +4,52 @@ from dataclasses import dataclass
 import numpy as np
 import torch
 from numpy import typing as npt
-from torch.optim.swa_utils import AveragedModel
 
-from scripts.data.augmentation.tacil.create_dynamics.config import DynamicsConfig
-from scripts.data.augmentation.tacil.create_dynamics.data import Transitions
 from scripts.data.augmentation.tacil.create_dynamics.loss_calculation import (
-    calculate_loss,
+    calculate_losses,
 )
-from scripts.data.augmentation.tacil.dynamics.dynamics_model.dynamics_model import (
-    DynamicsModel,
+from scripts.data.augmentation.tacil.dynamics.dynamics_model_ensemble import (
+    DynamicsModelEnsemble,
 )
-from scripts.environments.tacil_network_input import TacilNetworkInputBuilder
-from scripts.environments.state_space import StateSpace
-from scripts.shared.normalization import ZScoreNormalizer
-from scripts.shared.seeding import set_seed
 
-_PATIENCE_THRESHOLD = 0.001
+_BATCH_SIZE = 2_048
+_LIPSCHITZ_SAMPLE_COUNT = 512
+_IMPROVEMENT_THRESHOLD = 0.01
 
 
 @dataclass
-class Checkpoint:
-    validation_loss: float
-    epoch: int
-    state_dict: dict
+class EpochMetrics:
+    training_losses: npt.NDArray[np.float64]  # (member_count,)
+    validation_losses: npt.NDArray[np.float64]  # (member_count,)
+    gradient_norms: npt.NDArray[np.float64]  # (member_count,)
+    training_local_lipschitz_constants: npt.NDArray[
+        np.float32
+    ]  # (member_count, sample_count)
+    validation_local_lipschitz_constants: npt.NDArray[
+        np.float32
+    ]  # (member_count, sample_count)
 
 
 @dataclass
-class MemberEpochMetrics:
-    training_loss: float
-    validation_loss: float
-    training_local_lipschitz_constants: npt.NDArray[np.float32]
-    validation_local_lipschitz_constants: npt.NDArray[np.float32]
-    gradient_norm: float
-
-
-@dataclass
-class MemberTrainingState:
-    model: DynamicsModel
+class TrainingState:
+    model: DynamicsModelEnsemble
+    best_model: DynamicsModelEnsemble
     optimizer: torch.optim.Optimizer
-    ema_model: AveragedModel
-    shuffle_generator: torch.Generator
-    histogram_sample_generator: np.random.Generator
-    state_windows: torch.Tensor
-    action_windows: torch.Tensor
-    best_checkpoint: Checkpoint | None = None
-    patience_loss: float | None = None
-    epoch_count_without_improvement: int = 0
-
-    @property
-    def ema_dynamics_model(self) -> DynamicsModel:
-        module = self.ema_model.module
-        if not isinstance(module, DynamicsModel):
-            raise TypeError(
-                f"Expected the EMA module to be a DynamicsModel, got {type(module)}"
-            )
-        return module
+    generator: torch.Generator
+    window_indices_per_member: torch.Tensor  # (member_count, window_count)
+    best_validation_losses: npt.NDArray[np.float64]  # (member_count,)
+    best_epochs: npt.NDArray[np.int64]  # (member_count,)
+    last_improvement_epoch: int
 
 
 @dataclass
 class TrainingContext:
-    config: DynamicsConfig
-    training_transitions: Transitions
-    validation_transitions: Transitions
+    training_state_windows: (
+        torch.Tensor
+    )  # (window_count, window_length + 1, state_dimensionality)
+    training_action_windows: (
+        torch.Tensor
+    )  # (window_count, window_length, action_dimensionality)
     validation_state_windows: (
         torch.Tensor
     )  # (window_count, window_length + 1, state_dimensionality)
@@ -74,197 +58,221 @@ class TrainingContext:
     )  # (window_count, window_length, action_dimensionality)
 
 
-def create_member_training_state(
-    *,
-    member_seed: int,
-    config: DynamicsConfig,
-    state_space: StateSpace,
-    network_input_builder: TacilNetworkInputBuilder,
-    network_input_normalizer: ZScoreNormalizer,
-    state_displacement_normalizer: ZScoreNormalizer,
-    state_windows: torch.Tensor,
-    action_windows: torch.Tensor,
-) -> MemberTrainingState:
-    device = state_windows.device
+def create_training_state(
+    *, model: DynamicsModelEnsemble, seed: int, training_window_count: int
+) -> TrainingState:
+    device = next(model.parameters()).device
+    generator = torch.Generator(device=device).manual_seed(seed)
 
-    # Seeds the weight initialization below of the DynamicsModel.
-    set_seed(seed=member_seed)
-
-    dynamics_model = DynamicsModel(
-        state_space=state_space,
-        network_input_builder=network_input_builder,
-        hidden_layer_count=config.hidden_layer_count,
-        hidden_layer_dimensionality=config.hidden_layer_dimensionality,
-        lipschitz_limit=config.lipschitz_limit,
-        input_normalizer=network_input_normalizer,
-        state_displacement_normalizer=state_displacement_normalizer,
-    ).to(device=device)
-
-    return MemberTrainingState(
-        model=dynamics_model,
+    return TrainingState(
+        model=model,
+        best_model=copy.deepcopy(model),
         optimizer=torch.optim.Adam(
-            params=dynamics_model.parameters(), lr=1e-3, weight_decay=1e-5
+            params=model.parameters(), lr=1e-3, weight_decay=1e-5
         ),
-        ema_model=AveragedModel(
-            dynamics_model,
-            avg_fn=lambda ema_parameter, current_parameter, _num_averaged: (
-                0.9 * ema_parameter + 0.1 * current_parameter
-            ),
-            use_buffers=False,
+        generator=generator,
+        window_indices_per_member=torch.randint(
+            low=0,
+            high=training_window_count,
+            size=(model.member_count, training_window_count),
+            generator=generator,
+            device=device,
         ),
-        shuffle_generator=torch.Generator(device=device).manual_seed(member_seed),
-        histogram_sample_generator=np.random.default_rng(seed=member_seed),
-        state_windows=state_windows,
-        action_windows=action_windows,
+        best_validation_losses=np.full(shape=model.member_count, fill_value=np.inf),
+        best_epochs=np.full(shape=model.member_count, fill_value=-1, dtype=np.int64),
+        last_improvement_epoch=-1,
     )
 
 
-def train_member_for_one_epoch(
-    *, training_state: MemberTrainingState, epoch_index: int, context: TrainingContext
-) -> MemberEpochMetrics:
-    batch_size = 2_048
+def train_for_one_epoch(
+    *, training_state: TrainingState, epoch_index: int, context: TrainingContext
+) -> EpochMetrics:
+    device = context.training_state_windows.device
+    member_count = training_state.model.member_count
 
-    window_count = training_state.state_windows.shape[0]
-    step_count = max(window_count // batch_size, 1)
+    window_indices_per_member = _shuffle_rows(
+        index_per_member=training_state.window_indices_per_member,
+        generator=training_state.generator,
+    )  # (member_count, window_count)
+    step_count = max(window_indices_per_member.shape[1] // _BATCH_SIZE, 1)
 
     training_state.model.train()
-    shuffled_window_indices = torch.randperm(
-        n=window_count,
-        generator=training_state.shuffle_generator,
-        device=training_state.state_windows.device,
-    )
 
-    losses: list[float] = []
-    gradient_norms: list[float] = []
+    loss_sums = torch.zeros(member_count, dtype=torch.float64, device=device)
+    maximum_gradient_norms = torch.zeros(member_count, device=device)
 
     for step_index in range(step_count):
-        batch_window_indices = shuffled_window_indices[
-            step_index * batch_size : (step_index + 1) * batch_size
-        ]
+        batch_window_indices = window_indices_per_member[
+            :, step_index * _BATCH_SIZE : (step_index + 1) * _BATCH_SIZE
+        ]  # (member_count, batch_size)
 
         training_state.optimizer.zero_grad()
 
-        loss = calculate_loss(
-            dynamics_model=training_state.model,
-            state_window_batch=training_state.state_windows[batch_window_indices],
-            action_window_batch=training_state.action_windows[batch_window_indices],
-        )
-        loss.backward()
-        losses.append(loss.detach().item())
+        losses = calculate_losses(
+            dynamics_model_ensemble=training_state.model,
+            state_window_batch=context.training_state_windows[batch_window_indices],
+            action_window_batch=context.training_action_windows[batch_window_indices],
+        )  # (member_count,)
+        losses.sum().backward()
+        loss_sums += losses.detach()
 
-        gradient_norm = torch.nn.utils.clip_grad_norm_(
-            parameters=training_state.model.parameters(), max_norm=1.0
-        )
+        gradient_norms = _clip_gradient_norms_per_member(
+            model=training_state.model, maximum_norm=1.0
+        )  # (member_count,)
         training_state.optimizer.step()
-        gradient_norms.append(gradient_norm.item())
-
-    training_state.ema_model.update_parameters(model=training_state.model)
+        maximum_gradient_norms = torch.maximum(maximum_gradient_norms, gradient_norms)
 
     with torch.no_grad():
-        validation_loss = _calculate_validation_loss(
-            dynamics_model=training_state.ema_dynamics_model,
-            state_windows=context.validation_state_windows,
-            action_windows=context.validation_action_windows,
-            batch_size=batch_size,
+        validation_losses = (
+            _calculate_validation_losses(
+                dynamics_model_ensemble=training_state.model,
+                state_windows=context.validation_state_windows,
+                action_windows=context.validation_action_windows,
+            )
+            .cpu()
+            .numpy()
+        )  # (member_count,)
+
+        _record_checkpoints(
+            training_state=training_state,
+            validation_losses=validation_losses,
+            epoch_index=epoch_index,
         )
 
-    best = training_state.best_checkpoint
-    if best is None or validation_loss < best.validation_loss:
-        training_state.best_checkpoint = Checkpoint(
-            validation_loss=validation_loss,
-            epoch=epoch_index,
-            state_dict=copy.deepcopy(training_state.ema_dynamics_model.state_dict()),
-        )
-
-    patience_loss = training_state.patience_loss
-    if (
-        patience_loss is None
-        or (patience_loss - validation_loss) / patience_loss > _PATIENCE_THRESHOLD
-    ):
-        training_state.patience_loss = validation_loss
-        training_state.epoch_count_without_improvement = 0
-    else:
-        training_state.epoch_count_without_improvement += 1
-
-    with torch.no_grad():
         training_local_lipschitz_constants = _sample_local_lipschitz_constants(
             training_state=training_state,
-            transitions=context.training_transitions,
-            batch_size=batch_size,
-        )
+            state_windows=context.training_state_windows,
+            action_windows=context.training_action_windows,
+        )  # (member_count, sample_count)
         validation_local_lipschitz_constants = _sample_local_lipschitz_constants(
             training_state=training_state,
-            transitions=context.validation_transitions,
-            batch_size=batch_size,
-        )
+            state_windows=context.validation_state_windows,
+            action_windows=context.validation_action_windows,
+        )  # (member_count, sample_count)
 
-    return MemberEpochMetrics(
-        training_loss=float(np.mean(a=losses)),
-        validation_loss=validation_loss,
+    return EpochMetrics(
+        training_losses=(loss_sums / step_count).cpu().numpy(),
+        validation_losses=validation_losses,
+        gradient_norms=maximum_gradient_norms.double().cpu().numpy(),
         training_local_lipschitz_constants=training_local_lipschitz_constants,
         validation_local_lipschitz_constants=validation_local_lipschitz_constants,
-        gradient_norm=float(np.max(a=gradient_norms)),
     )
 
 
 # ---- Private --------------------------------------------
 
 
-def _calculate_validation_loss(
+def _shuffle_rows(
     *,
-    dynamics_model: DynamicsModel,
+    index_per_member: torch.Tensor,  # (member_count, window_count)
+    generator: torch.Generator,
+) -> torch.Tensor:  # (member_count, window_count)
+    order = torch.rand(
+        index_per_member.shape, generator=generator, device=index_per_member.device
+    ).argsort(dim=-1)
+    return index_per_member.gather(dim=-1, index=order)
+
+
+def _clip_gradient_norms_per_member(
+    *, model: DynamicsModelEnsemble, maximum_norm: float
+) -> torch.Tensor:  # (member_count,)
+    gradients = [
+        parameter.grad for parameter in model.parameters() if parameter.grad is not None
+    ]  # each (member_count, ...)
+
+    total_norms = (
+        torch.stack(
+            tensors=[
+                gradient.flatten(start_dim=1).square().sum(dim=1)
+                for gradient in gradients
+            ],
+            dim=0,
+        )
+        .sum(dim=0)
+        .sqrt()
+    )  # (member_count,)
+
+    clip_coefficients = torch.clamp(
+        input=maximum_norm / (total_norms + 1e-6), max=1.0
+    )  # (member_count,)
+    for gradient in gradients:
+        gradient.mul_(clip_coefficients.view(-1, *(1,) * (gradient.dim() - 1)))
+
+    return total_norms
+
+
+def _calculate_validation_losses(
+    *,
+    dynamics_model_ensemble: DynamicsModelEnsemble,
     state_windows: torch.Tensor,  # (window_count, window_length + 1, state_dimensionality)
     action_windows: torch.Tensor,  # (window_count, window_length, action_dimensionality)
-    batch_size: int,
-) -> float:
-    window_count = state_windows.shape[0]
-    total_loss = 0.0
+) -> torch.Tensor:  # (member_count,)
+    dynamics_model_ensemble.eval()
+    weighted_losses = torch.stack(
+        tensors=[
+            calculate_losses(
+                dynamics_model_ensemble=dynamics_model_ensemble,
+                state_window_batch=state_window_batch,
+                action_window_batch=action_window_batch,
+            )
+            * state_window_batch.shape[0]
+            for state_window_batch, action_window_batch in zip(
+                state_windows.split(_BATCH_SIZE),
+                action_windows.split(_BATCH_SIZE),
+                strict=True,
+            )
+        ],
+        dim=0,
+    )  # (batch_count, member_count)
+    return weighted_losses.sum(dim=0) / state_windows.shape[0]
 
-    dynamics_model.eval()
-    for batch_start_index in range(0, window_count, batch_size):
-        batch_slice = slice(batch_start_index, batch_start_index + batch_size)
 
-        state_window_batch = state_windows[
-            batch_slice
-        ]  # (batch_size, window_length + 1, state_dimensionality)
-        action_window_batch = action_windows[
-            batch_slice
-        ]  # (batch_size, window_length, action_dimensionality)
+def _record_checkpoints(
+    *,
+    training_state: TrainingState,
+    validation_losses: npt.NDArray[np.float64],  # (member_count,)
+    epoch_index: int,
+) -> None:
+    improved_member_mask = validation_losses < training_state.best_validation_losses * (
+        1.0 - _IMPROVEMENT_THRESHOLD
+    )  # (member_count,)
+    training_state.best_validation_losses[improved_member_mask] = validation_losses[
+        improved_member_mask
+    ]
+    training_state.best_epochs[improved_member_mask] = epoch_index
+    if improved_member_mask.any():
+        training_state.last_improvement_epoch = epoch_index
 
-        batch_loss = calculate_loss(
-            dynamics_model=dynamics_model,
-            state_window_batch=state_window_batch,
-            action_window_batch=action_window_batch,
-        )
-        total_loss += batch_loss.item() * state_window_batch.shape[0]
-
-    return total_loss / window_count
+    improved_member_indices = np.flatnonzero(
+        improved_member_mask
+    ).tolist()  # (improved_member_count,)
+    for best_parameter, parameter in zip(
+        training_state.best_model.parameters(),
+        training_state.model.parameters(),
+        strict=True,
+    ):
+        best_parameter[improved_member_indices] = parameter[improved_member_indices]
 
 
 def _sample_local_lipschitz_constants(
-    *, training_state: MemberTrainingState, transitions: Transitions, batch_size: int
-) -> npt.NDArray[np.float32]:  # (sample_count,)
+    *,
+    training_state: TrainingState,
+    state_windows: torch.Tensor,  # (window_count, window_length + 1, state_dimensionality)
+    action_windows: torch.Tensor,  # (window_count, window_length, action_dimensionality)
+) -> npt.NDArray[np.float32]:  # (member_count, sample_count)
+    sample_indices = torch.randint(
+        low=0,
+        high=state_windows.shape[0],
+        size=(training_state.model.member_count, _LIPSCHITZ_SAMPLE_COUNT),
+        generator=training_state.generator,
+        device=state_windows.device,
+    )  # (member_count, sample_count)
 
-    transition_count = transitions.states.shape[0]
-    sample_indices = training_state.histogram_sample_generator.choice(
-        a=transition_count, size=min(512, transition_count), replace=False
-    )  # (sample_count,)
-
-    training_state.ema_dynamics_model.eval()
-
-    device = next(training_state.ema_dynamics_model.parameters()).device
-    states = torch.from_numpy(transitions.states[sample_indices]).to(device=device)
-    actions = torch.from_numpy(transitions.actions[sample_indices]).to(device=device)
-
-    local_lipschitz_constant_batches: list[npt.NDArray[np.float32]] = []
-
-    for batch_start_index in range(0, states.shape[0], batch_size):
-        batch_slice = slice(batch_start_index, batch_start_index + batch_size)
-        local_lipschitz_constant_batches.append(
-            training_state.ema_dynamics_model.calculate_local_lipschitz_constants(
-                state_batch=states[batch_slice], action_batch=actions[batch_slice]
-            )
-            .cpu()
-            .numpy()
+    return (
+        training_state.model.calculate_local_lipschitz_constants(
+            state_batch=state_windows[sample_indices, 0],
+            action_batch=action_windows[sample_indices, 0],
         )
-    return np.concatenate(local_lipschitz_constant_batches)
+        .cpu()
+        .numpy()
+    )

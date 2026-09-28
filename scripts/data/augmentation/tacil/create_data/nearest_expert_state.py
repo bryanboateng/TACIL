@@ -77,7 +77,7 @@ def _calculate_distances(
             state_batch=query_state_batch[chunk_slice].unsqueeze(dim=1),
             other_state_batch=expert_state_batch.unsqueeze(dim=0),
             state_space=dynamics_model_ensemble.state_space,
-            state_normalizer=dynamics_model_ensemble.state_normalizer,
+            state_normalizer=dynamics_model_ensemble.normalizers.state,
         )  # (chunk_size, expert_count)
         if exclude_self_as_neighbour:
             chunk_indices = torch.arange(

@@ -104,7 +104,7 @@ def _calculate_forward(
                 state_batch=current_state_batch,
                 other_state_batch=state_windows[:, step_index + 1, :],
                 state_space=dynamics_model_ensemble.state_space,
-                state_normalizer=dynamics_model_ensemble.state_normalizer,
+                state_normalizer=dynamics_model_ensemble.normalizers.state,
             )
         )
 
@@ -161,7 +161,7 @@ def _calculate_backward(
                 state_batch=current_state_batch,
                 other_state_batch=state_windows[window_indices, window_step_index, :],
                 state_space=dynamics_model_ensemble.state_space,
-                state_normalizer=dynamics_model_ensemble.state_normalizer,
+                state_normalizer=dynamics_model_ensemble.normalizers.state,
             )
         )
         replay_errors[window_indices, walk_step_index] = (
