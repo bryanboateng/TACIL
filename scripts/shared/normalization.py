@@ -43,6 +43,7 @@ class MinMaxNormalizer(torch.nn.Module):
 class ZScoreNormalizer(torch.nn.Module):
     mean: torch.Tensor  # (dimensionality,)
     std: torch.Tensor  # (dimensionality,)
+    is_constant: torch.Tensor  # (dimensionality,)
 
     def __init__(
         self,
@@ -51,9 +52,11 @@ class ZScoreNormalizer(torch.nn.Module):
     ) -> None:
         super().__init__()
         std = value_batch.std(dim=0, correction=0)  # (dimensionality,)
-        std[std < 10.0 * torch.finfo(std.dtype).eps] = 1.0
+        is_constant = std < 10.0 * torch.finfo(std.dtype).eps  # (dimensionality,)
+        std[is_constant] = 1.0
         self.register_buffer(name="mean", tensor=value_batch.mean(dim=0))
         self.register_buffer(name="std", tensor=std)
+        self.register_buffer(name="is_constant", tensor=is_constant)
 
     def normalize(
         self,

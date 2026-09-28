@@ -35,9 +35,19 @@ class EnsembleNetwork(torch.nn.Module):
         # (batch_size, input_dimensionality) for one batch every member shares
     ) -> torch.Tensor:  # (member_count, batch_size, output_dimensionality)
         weights, biases = self._collect_parameters()
-        return torch.vmap(
-            func=_apply_layers, in_dims=(0, 0, 0 if input_batch.dim() == 3 else None)
-        )(weights, biases, input_batch)
+        return torch.stack(
+            tensors=[
+                _apply_layers(
+                    [weight[member_index] for weight in weights],
+                    [bias[member_index] for bias in biases],
+                    input_batch
+                    if input_batch.dim() == 2
+                    else input_batch[member_index],
+                )
+                for member_index in range(weights[0].shape[0])
+            ],
+            dim=0,
+        )
 
     def calculate_jacobians(
         self,

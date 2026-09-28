@@ -73,8 +73,12 @@ class DynamicsModelEnsemble(torch.nn.Module):
             )
         )  # (member_count, batch_size, state_dimensionality)
 
-        state_displacement_batch = self.normalizers.state_displacement.denormalize(
-            value_batch=normalized_state_displacement_batch
+        state_displacement_batch = torch.where(
+            condition=~self.normalizers.state_displacement.is_constant,
+            input=self.normalizers.state_displacement.denormalize(
+                value_batch=normalized_state_displacement_batch
+            ),
+            other=0.0,
         )  # (member_count, batch_size, state_dimensionality)
 
         return self.state_space.add(
