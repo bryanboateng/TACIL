@@ -116,11 +116,18 @@ def log_ensemble_statistics(
     backward_replay_errors_per_step_count = (
         error_measurements.backward_replay_errors.cpu().numpy()
     )  # (window_count, step_count)
-    _log_errors_per_step_count(
-        errors_per_step_count=backward_replay_errors_per_step_count,
-        key_prefix=f"{STAGE_NAME}/6_replay_error",
-        run=run,
-    )
+    backward_account_errors_per_step_count = (
+        error_measurements.backward_account_errors.cpu().numpy()
+    )  # (window_count, step_count)
+    for errors_per_step_count, key_suffix in (
+        (backward_replay_errors_per_step_count, "1_replay"),
+        (backward_account_errors_per_step_count, "2_account"),
+    ):
+        _log_errors_per_step_count(
+            errors_per_step_count=errors_per_step_count,
+            key_prefix=f"{STAGE_NAME}/6_stopping_rule_error/{key_suffix}",
+            run=run,
+        )
 
     run.summary[
         f"{STAGE_NAME}/5_error_over_step_count/1_backward/0_complete_walk_fraction"
@@ -149,13 +156,16 @@ def log_ensemble_statistics(
                     error_measurements.backward_prediction_errors.cpu().numpy()
                 ),
             ),
-            f"{STAGE_NAME}/6_replay_error/0_plot": (
-                plots.create_replay_error_plot(
+            f"{STAGE_NAME}/6_stopping_rule_error/0_plot": (
+                plots.create_stopping_rule_error_plot(
                     backward_prediction_errors_per_step_count=(
                         error_measurements.backward_prediction_errors.cpu().numpy()
                     ),
                     backward_replay_errors_per_step_count=(
                         backward_replay_errors_per_step_count
+                    ),
+                    backward_account_errors_per_step_count=(
+                        backward_account_errors_per_step_count
                     ),
                 )
             ),

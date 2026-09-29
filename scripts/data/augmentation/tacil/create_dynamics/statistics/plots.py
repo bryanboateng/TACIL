@@ -6,7 +6,6 @@ from matplotlib.artist import Artist
 from matplotlib.legend_handler import HandlerTuple
 from numpy import typing as npt
 
-
 matplotlib.use(backend="Agg")
 
 plt.style.use(style="seaborn-v0_8-whitegrid")
@@ -16,6 +15,7 @@ plt.rcParams["savefig.dpi"] = 300
 _FORWARD_COLOR = "tab:red"
 _BACKWARD_COLOR = "tab:blue"
 _REPLAY_ERROR_COLOR = "tab:green"
+_ACCOUNT_ERROR_COLOR = "tab:orange"
 
 
 def create_prediction_error_vs_step_count_plot(
@@ -88,12 +88,15 @@ def create_prediction_error_vs_step_count_plot(
     return image
 
 
-def create_replay_error_plot(
+def create_stopping_rule_error_plot(
     *,
     backward_prediction_errors_per_step_count: npt.NDArray[
         np.floating
     ],  # (window_count, step_count)
     backward_replay_errors_per_step_count: npt.NDArray[
+        np.floating
+    ],  # (window_count, step_count)
+    backward_account_errors_per_step_count: npt.NDArray[
         np.floating
     ],  # (window_count, step_count)
 ) -> wandb.Image:
@@ -106,7 +109,7 @@ def create_replay_error_plot(
     for values_per_step_count, label, color, line_style in (
         (
             backward_prediction_errors_per_step_count,
-            "prediction error",
+            "prediction error (ground truth)",
             _BACKWARD_COLOR,
             "-",
         ),
@@ -115,6 +118,12 @@ def create_replay_error_plot(
             "replay error",
             _REPLAY_ERROR_COLOR,
             "--",
+        ),
+        (
+            backward_account_errors_per_step_count,
+            "account error",
+            _ACCOUNT_ERROR_COLOR,
+            ":",
         ),
     ):
         measured_step_count_mask = np.isfinite(values_per_step_count).any(axis=0)
@@ -155,7 +164,7 @@ def create_replay_error_plot(
         title="median and 10th-90th percentile",
         handler_map={tuple: HandlerTuple(ndivide=1)},
     )
-    plot_area.set_title(label="Replay Error vs. Prediction Error")
+    plot_area.set_title(label="Stopping-Rule Error vs. True Prediction Error")
     figure.tight_layout()
 
     image = wandb.Image(data_or_path=figure)

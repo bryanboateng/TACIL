@@ -9,7 +9,7 @@ from scripts.data.augmentation.tacil.create_data.nearest_expert_state_plot impor
 )
 from scripts.data.augmentation.tacil.create_dynamics.statistics.plots import (
     create_prediction_error_vs_step_count_plot,
-    create_replay_error_plot,
+    create_stopping_rule_error_plot,
 )
 from scripts.environments.peg_insertion import plot_preview as peg_insertion_preview
 from scripts.environments.pusht import plot_preview as pusht_preview
@@ -50,7 +50,7 @@ def main() -> None:
                     ),
                 )
             ),
-            "replay_error": create_replay_error_plot(
+            "stopping_rule_error": create_stopping_rule_error_plot(
                 backward_prediction_errors_per_step_count=_stop_walks_early(
                     prediction_errors=_draw_growing_errors(
                         rng=rng, growth_per_step=1.6
@@ -60,6 +60,13 @@ def main() -> None:
                 backward_replay_errors_per_step_count=_stop_walks_early(
                     prediction_errors=0.2
                     * _draw_growing_errors(rng=rng, growth_per_step=1.35),
+                    rng=rng,
+                ),
+                backward_account_errors_per_step_count=_stop_walks_early(
+                    prediction_errors=_accumulate_over_steps(
+                        per_step_values=0.1
+                        * _draw_growing_errors(rng=rng, growth_per_step=1.15)
+                    ),
                     rng=rng,
                 ),
             ),
@@ -136,6 +143,14 @@ def _draw_growing_errors(
         mean=0.0, sigma=0.55, size=(_WINDOW_COUNT, _TRAJECTORY_DEPTH)
     )
     return median_per_depth * per_window_factors
+
+
+def _accumulate_over_steps(
+    *,
+    per_step_values: npt.NDArray[np.floating],  # (_WINDOW_COUNT, _TRAJECTORY_DEPTH)
+) -> npt.NDArray[np.floating]:  # (_WINDOW_COUNT, _TRAJECTORY_DEPTH)
+    # The account stopping rule reports a running total, not a per-step value.
+    return np.cumsum(per_step_values, axis=1)
 
 
 def _stop_walks_early(

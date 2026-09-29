@@ -25,6 +25,7 @@ class ErrorMeasurements:
     forward_prediction_errors: torch.Tensor  # (window_count, step_count)
     backward_prediction_errors: torch.Tensor  # (window_count, step_count)
     backward_replay_errors: torch.Tensor  # (window_count, step_count)
+    backward_account_errors: torch.Tensor  # (window_count, step_count)
 
 
 def calculate_errors(
@@ -45,16 +46,19 @@ def calculate_errors(
         state_windows=state_window_batch,
         action_windows=action_window_batch,
     )
-    backward_prediction_errors, backward_replay_errors = _calculate_backward(
-        dynamics_model_ensemble=dynamics_model_ensemble,
-        state_windows=state_window_batch,
-        action_windows=action_window_batch,
-        convergence_tolerance=convergence_tolerance,
+    backward_prediction_errors, backward_replay_errors, backward_account_errors = (
+        _calculate_backward(
+            dynamics_model_ensemble=dynamics_model_ensemble,
+            state_windows=state_window_batch,
+            action_windows=action_window_batch,
+            convergence_tolerance=convergence_tolerance,
+        )
     )
     return ErrorMeasurements(
         forward_prediction_errors=forward_prediction_errors,
         backward_prediction_errors=backward_prediction_errors,
         backward_replay_errors=backward_replay_errors,
+        backward_account_errors=backward_account_errors,
     )
 
 
@@ -120,6 +124,7 @@ def _calculate_backward(
 ) -> tuple[
     torch.Tensor,  # prediction errors, (window_count, step_count)
     torch.Tensor,  # replay errors, (window_count, step_count)
+    torch.Tensor,  # account errors, (window_count, step_count)
 ]:
     window_count, step_count, _ = action_windows.shape
     device = state_windows.device
@@ -128,6 +133,11 @@ def _calculate_backward(
         size=(window_count, step_count), fill_value=float("nan"), device=device
     )
     replay_errors = torch.full_like(input=prediction_errors, fill_value=float("nan"))
+    account_errors = torch.full_like(input=prediction_errors, fill_value=float("nan"))
+
+    # The account stopping rule sums the per-step ensemble disagreement along the
+    # walk, so the running total has to survive windows dropping out.
+    account_batch = torch.zeros(window_count, device=device)  # (window_count,)
 
     window_indices = torch.arange(window_count, device=device)  # (active_count,)
     current_state_batch = state_windows[:, -1, :]
@@ -167,6 +177,14 @@ def _calculate_backward(
                 state_normalizer=dynamics_model_ensemble.normalizers.state,
             )
         )
+        account_batch[window_indices] += (
+            dynamics_model_ensemble.calculate_prediction_uncertainty(
+                state_batch=current_state_batch,
+                action_batch=action_windows[window_indices, window_step_index, :],
+            )
+        )
+        account_errors[window_indices, walk_step_index] = account_batch[window_indices]
+
         replay_errors[window_indices, walk_step_index] = (
             dynamics_model_ensemble.calculate_replay_error(
                 start_state_batch=current_state_batch,
@@ -178,4 +196,4 @@ def _calculate_backward(
             )
         )
 
-    return prediction_errors, replay_errors
+    return prediction_errors, replay_errors, account_errors
