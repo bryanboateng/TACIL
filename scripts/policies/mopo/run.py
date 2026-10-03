@@ -48,10 +48,6 @@ def _run(*, config: Config) -> None:
         ),
         dir=OUTPUT_DIRECTORY_PATH,
     ) as run:
-        run_name = run.name
-        if run_name is None:
-            raise RuntimeError("wandb run name unexpectedly None")
-
         environment = create_environment(name=config.environment)
 
         dataset = download_episodes(
@@ -110,7 +106,6 @@ def _run(*, config: Config) -> None:
                 action_normalizer=action_normalizer,
                 device=device,
             ),
-            policy_label=f"mopo ({run_name})",
             config=config.evaluation,
             run=run,
         )

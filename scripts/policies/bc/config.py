@@ -42,6 +42,8 @@ class Config:
 
     observation_noise: float | None = None
 
+    save_model: bool = False
+
     def __post_init__(self) -> None:
         if self.hidden_layer_dimensionality <= 0:
             raise ValueError(

@@ -19,6 +19,7 @@ from scripts.shared.distribution_plot import create_distribution_plot
 from scripts.shared.distribution_summary import summarize_distribution
 from scripts.shared.episodes import Episodes, calculate_indices_with_successor
 from scripts.shared.log import create_logger
+from scripts.shared.model_artifact import DYNAMICS_MODEL_ARTIFACT_TYPE, upload_model
 from scripts.shared.seeding import set_seed
 
 logger = create_logger()
@@ -73,6 +74,10 @@ def create_ccil_augmented_data(
                 f"{LOSS_SECTION}/3_regularization_term": losses.regularization_term,
                 EPOCH_METRIC_NAME: epoch_index,
             }
+        )
+    if config.dynamics.save_model:
+        upload_model(
+            model=world_model, artifact_type=DYNAMICS_MODEL_ARTIFACT_TYPE, run=run
         )
 
     anchor_indices = np.intersect1d(

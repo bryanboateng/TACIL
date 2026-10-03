@@ -48,7 +48,6 @@ def build_run_record[PolicyConfigT, AugmentationT](
         "stage": stage.name,
         "start_episode_seed": stage.start_episode_seed,
         "episode_count_per_condition": stage.episode_count_per_condition,
-        "record_videos": config.evaluation.record_videos,
         "parallel_environment_count": config.evaluation.parallel_environment_count,
     }
     if augmentation_name is not None:

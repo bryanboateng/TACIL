@@ -88,6 +88,8 @@ class Config:
 
     observation_noise: float | None = None
 
+    save_model: bool = False
+
     def __post_init__(self) -> None:
         if self.observation_noise is not None and self.observation_noise <= 0:
             raise ValueError(

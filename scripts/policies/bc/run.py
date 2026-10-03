@@ -21,6 +21,7 @@ from scripts.policies.shared.validation import Validation
 from scripts.shared.dataset_artifact import download_episodes
 from scripts.shared.episodes import drop_rewards
 from scripts.shared.log import create_logger, log_device_info
+from scripts.shared.model_artifact import POLICY_ARTIFACT_TYPE, upload_model
 from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
 from scripts.shared.state_action_transitions import StateActionTransitions
 
@@ -49,10 +50,6 @@ def _run(*, config: Config) -> None:
         ),
         dir=OUTPUT_DIRECTORY_PATH,
     ) as run:
-        run_name = run.name
-        if run_name is None:
-            raise RuntimeError("wandb run name unexpectedly None")
-
         environment = create_environment(name=config.environment)
 
         dataset = download_episodes(
@@ -107,6 +104,10 @@ def _run(*, config: Config) -> None:
             device=device,
             run=run,
         )
+        if config.policy.save_model:
+            upload_model(
+                model=policy_model, artifact_type=POLICY_ARTIFACT_TYPE, run=run
+            )
         logger.info("Stage 2/3: done.")
 
         logger.info("Stage 3/3: evaluating the policy.")
@@ -115,7 +116,6 @@ def _run(*, config: Config) -> None:
             policy_factory=create_behavior_cloning_policy_factory(
                 policy_model=policy_model, device=device
             ),
-            policy_label=f"bc ({run_name})",
             config=config.evaluation,
             run=run,
         )

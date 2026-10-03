@@ -14,6 +14,7 @@ from scripts.data.augmentation.tacil.create_dynamics.dynamics_model_ensemble_tra
 )
 from scripts.environments.environment import Environment
 from scripts.shared.episodes import Episodes
+from scripts.shared.model_artifact import DYNAMICS_MODEL_ARTIFACT_TYPE, upload_model
 
 
 @dataclass(frozen=True)
@@ -42,6 +43,12 @@ def augment(
         device=device,
         run=run,
     )
+    if config.dynamics.save_model:
+        upload_model(
+            model=dynamics_model_ensemble,
+            artifact_type=DYNAMICS_MODEL_ARTIFACT_TYPE,
+            run=run,
+        )
 
     with torch.no_grad(), parametrize.cached():
         return create_augmented_data(

@@ -49,8 +49,8 @@ EvaluationStage: TypeAlias = (
 @dataclass(frozen=True)
 class EvaluationConfig:
     stage: EvaluationStage
-    record_videos: bool
     parallel_environment_count: int = 6
+    save_rollouts: bool = False
 
     def __post_init__(self) -> None:
         if self.parallel_environment_count <= 0:

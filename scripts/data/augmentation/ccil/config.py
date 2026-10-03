@@ -76,6 +76,7 @@ class DynamicsConfig:
     weight_decay: float = 1e-5
     batch_size: int = 512
     epoch_count: int = 100
+    save_model: bool = False
 
     lipschitz_type: LipschitzType = "soft_sampling"
     lipschitz_constraint: float = 2.0

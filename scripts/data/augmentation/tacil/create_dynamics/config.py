@@ -10,6 +10,7 @@ class DynamicsConfig:
     patience_epoch_count: int = 50
     hidden_layer_count: int = 2
     hidden_layer_dimensionality: int = 256
+    save_model: bool = False
 
     def __post_init__(self) -> None:
         for name, value in (
