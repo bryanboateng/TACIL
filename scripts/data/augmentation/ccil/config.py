@@ -9,6 +9,8 @@ LipschitzType: TypeAlias = Literal[
 
 RejectionRule: TypeAlias = Literal["absolute", "quantile", "none"]
 
+RejectionScore: TypeAlias = Literal["distance", "jacobian_weighted_distance"]
+
 
 @dataclass(frozen=True)
 class NoisyActionLabels:
@@ -54,6 +56,7 @@ LabelGeneration: TypeAlias = (
 
 @dataclass(frozen=True)
 class RejectionConfig:
+    score: RejectionScore = "jacobian_weighted_distance"
     rule: RejectionRule = "none"
     limit: float = 0.5
 

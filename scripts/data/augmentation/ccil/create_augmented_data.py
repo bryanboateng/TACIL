@@ -12,6 +12,7 @@ from scripts.data.augmentation.ccil.config import (
     ForwardEulerLabels,
     LabelConfig,
     NoisyActionLabels,
+    RejectionScore,
 )
 from scripts.data.augmentation.ccil.world_model import WorldModel, fit_world_model
 from scripts.shared import stage_names
@@ -108,7 +109,7 @@ def create_ccil_augmented_data(
         )
 
     accepted_mask = _accept_labels(
-        label_distances=labels.distances, config=config.labels
+        label_scores=labels.rejection_scores, config=config.labels
     )
     label_count = labels.states.shape[0]
     accepted_count = int(accepted_mask.sum())
@@ -133,6 +134,13 @@ def create_ccil_augmented_data(
             )
         }
     )
+
+    for label, value in summarize_distribution(
+        values=labels.local_lipschitz_estimates
+    ).items():
+        run.summary[f"{STAGE_NAME}/4_local_lipschitz_estimates/{label}"] = value
+    for label, value in summarize_distribution(values=labels.rejection_scores).items():
+        run.summary[f"{STAGE_NAME}/5_rejection_scores/{label}"] = value
 
     run.summary[f"{STAGE_NAME}/3_dataset/1_synthetic_transition_count"] = accepted_count
     if accepted_count == 0:
@@ -164,22 +172,60 @@ class _Labels:
     actions: np.ndarray  # (label_count, action_dimensionality)
     anchor_indices: np.ndarray  # (label_count,)
     distances: np.ndarray  # (label_count,)
+    local_lipschitz_estimates: np.ndarray  # (label_count,)
+    rejection_scores: np.ndarray  # (label_count,)
     attempted_count: int
 
 
 def _accept_labels(
-    *, label_distances: np.ndarray, config: LabelConfig
+    *, label_scores: np.ndarray, config: LabelConfig
 ) -> np.ndarray:  # (label_count,)
     rejection = config.rejection
     match rejection.rule:
         case "none":
-            return np.ones_like(label_distances, dtype=bool)
+            return np.ones_like(label_scores, dtype=bool)
         case "quantile":
-            limit = float(np.quantile(a=label_distances, q=rejection.limit))
+            limit = float(np.quantile(a=label_scores, q=rejection.limit))
         case "absolute":
             limit = rejection.limit
 
-    return label_distances < limit
+    return label_scores < limit
+
+
+def _calculate_rejection_scores(
+    *,
+    distances: np.ndarray,  # (label_count,)
+    local_lipschitz_estimates: np.ndarray,  # (label_count,)
+    score: RejectionScore,
+) -> np.ndarray:  # (label_count,)
+    match score:
+        case "distance":
+            return distances
+        case "jacobian_weighted_distance":
+            return local_lipschitz_estimates * distances
+
+
+def _estimate_local_lipschitz_constants(
+    *,
+    world_model: WorldModel,
+    state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
+    action_batch: torch.Tensor,  # (batch_size, action_dimensionality)
+) -> torch.Tensor:  # (batch_size,)
+    state_dimensionality = state_batch.shape[-1]
+
+    def predict_residual(state_action: torch.Tensor) -> torch.Tensor:
+        return world_model.predict_residual(
+            state_batch=state_action[None, :state_dimensionality],
+            action_batch=state_action[None, state_dimensionality:],
+        )[0]
+
+    with torch.enable_grad():
+        jacobian_batch = torch.func.vmap(
+            torch.func.jacrev(predict_residual)
+        )(
+            torch.cat(tensors=[state_batch, action_batch], dim=-1)
+        )  # (batch_size, state_dimensionality, state_dimensionality + action_dimensionality)
+    return torch.linalg.matrix_norm(jacobian_batch.detach(), ord=2)
 
 
 def _extract_transitions(
@@ -216,6 +262,7 @@ def _generate_labels(
     label_action_chunks: list[np.ndarray] = []
     anchor_index_chunks: list[np.ndarray] = []
     distance_chunks: list[np.ndarray] = []
+    lipschitz_chunks: list[np.ndarray] = []
     attempted_count = 0
 
     for batch_start_index in range(0, state_batch.shape[0], _BATCH_SIZE):
@@ -261,18 +308,32 @@ def _generate_labels(
                 )
 
         distances = torch.linalg.norm(label_states - repeated_states, dim=-1)
+        local_lipschitz_estimates = _estimate_local_lipschitz_constants(
+            world_model=world_model,
+            state_batch=state_batch[batch_slice],
+            action_batch=action_batch[batch_slice],
+        ).repeat_interleave(repeats=label_count_per_transition, dim=0)
 
         attempted_count += label_states.shape[0]
         label_state_chunks.append(label_states[solved_mask].cpu().numpy())
         label_action_chunks.append(label_actions[solved_mask].cpu().numpy())
         anchor_index_chunks.append(repeated_anchor_indices[solved_mask].cpu().numpy())
         distance_chunks.append(distances[solved_mask].cpu().numpy())
+        lipschitz_chunks.append(local_lipschitz_estimates[solved_mask].cpu().numpy())
 
+    distances = np.concatenate(distance_chunks)
+    local_lipschitz_estimates = np.concatenate(lipschitz_chunks)
     return _Labels(
         states=np.concatenate(label_state_chunks).astype(np.float32),
         actions=np.concatenate(label_action_chunks).astype(np.float32),
         anchor_indices=np.concatenate(anchor_index_chunks).astype(np.int64),
-        distances=np.concatenate(distance_chunks),
+        distances=distances,
+        local_lipschitz_estimates=local_lipschitz_estimates,
+        rejection_scores=_calculate_rejection_scores(
+            distances=distances,
+            local_lipschitz_estimates=local_lipschitz_estimates,
+            score=config.labels.rejection.score,
+        ),
         attempted_count=attempted_count,
     )
 

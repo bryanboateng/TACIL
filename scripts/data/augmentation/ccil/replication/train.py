@@ -271,6 +271,7 @@ def _build_ccil_config(*, task_config: dict) -> CcilConfig:
         labels=LabelConfig(
             generation=generation,
             rejection=RejectionConfig(
+                score="distance",
                 rule="absolute" if epsilon else "none",
                 limit=float(epsilon) if epsilon else 0.5,
             ),
