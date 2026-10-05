@@ -17,7 +17,7 @@ from scripts.environments.condition import Condition
 from scripts.environments.environment import Environment
 from scripts.environments.registry import EnvironmentName, create_environment
 from scripts.environments.render_settings import RenderSettings
-from scripts.evaluation.core.rollout import Episode, roll_out_episodes
+from scripts.evaluation.core.rollout import Episode
 from scripts.evaluation.core.scoring import pick_representative_episodes
 from scripts.evaluation.core.video import (
     FREEZE_SECONDS,
@@ -31,7 +31,6 @@ from scripts.evaluation.rollouts_artifact import (
 from scripts.shared import stage_names
 from scripts.shared.log import create_logger
 from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
-from scripts.shared.policy_types import Policy
 
 logger = create_logger()
 
@@ -95,7 +94,10 @@ def _log_video(
         control_frequency=environment.control_frequency,
         playback_speed=environment.video_playback_speed,
     )
-    gym_environment = environment.create_gym_environment(
+    physics_environment = environment.create_gym_environment(
+        condition=condition, render_settings=None
+    )
+    render_environment = environment.create_gym_environment(
         condition=condition,
         render_settings=RenderSettings(size=1_000, supersample_factor=2),
     )
@@ -113,7 +115,8 @@ def _log_video(
                 _write_episode_frames(
                     policy_label=policy_label,
                     environment=environment,
-                    gym_environment=gym_environment,
+                    physics_environment=physics_environment,
+                    render_environment=render_environment,
                     condition=condition,
                     episode_records=episode_records,
                     video_writer=video_writer,
@@ -130,14 +133,16 @@ def _log_video(
                 }
             )
     finally:
-        gym_environment.close()
+        render_environment.close()
+        physics_environment.close()
 
 
 def _write_episode_frames(
     *,
     policy_label: str,
     environment: Environment,
-    gym_environment: Env,
+    physics_environment: Env,
+    render_environment: Env,
     condition: Condition,
     episode_records: dict[int, Episode],
     video_writer,
@@ -150,7 +155,10 @@ def _write_episode_frames(
         dynamic_ncols=True,
     ):
         replayed_record = _replay_episode_with_rendering(
-            episode_record=episode_record, gym_environment=gym_environment
+            environment=environment,
+            episode_record=episode_record,
+            physics_environment=physics_environment,
+            render_environment=render_environment,
         )
 
         frame: np.ndarray | None = None
@@ -175,41 +183,66 @@ def _convert_surface_to_frame(*, surface: Surface) -> np.ndarray:
 
 
 def _replay_episode_with_rendering(
-    *, episode_record: Episode, gym_environment: Env
+    *,
+    environment: Environment,
+    episode_record: Episode,
+    physics_environment: Env,
+    render_environment: Env,
 ) -> Episode:
-    with torch.no_grad():
-        (replayed_record,) = roll_out_episodes(
-            environments=[gym_environment],
-            seeds=[episode_record.seed],
-            policy=_create_replay_policy(action_sequences=[episode_record.actions]),
-            render=True,
+    observation, _ = physics_environment.reset(seed=episode_record.seed)
+    render_environment.reset(seed=episode_record.seed)
+    frames = [
+        _render_physics_state(
+            environment=environment,
+            physics_environment=physics_environment,
+            render_environment=render_environment,
         )
+    ]
+    rewards: list[float] = []
+    terminated = False
+    with torch.no_grad():
+        for action in episode_record.actions:
+            observation, reward, terminated, _, _ = physics_environment.step(
+                action=action
+            )
+            rewards.append(float(reward))
+            frames.append(
+                _render_physics_state(
+                    environment=environment,
+                    physics_environment=physics_environment,
+                    render_environment=render_environment,
+                )
+            )
 
-    if not np.array_equal(
-        a1=replayed_record.final_observation, a2=episode_record.final_observation
-    ):
+    if not np.array_equal(a1=observation, a2=episode_record.final_observation):
         raise RuntimeError(
             f"Replaying episode {episode_record.seed} did not reproduce it: "
-            f"it ended at {np.array2string(a=replayed_record.final_observation)}, "
+            f"it ended at {np.array2string(a=observation)}, "
             f"not {np.array2string(a=episode_record.final_observation)}."
         )
-    return replayed_record
+    return Episode(
+        seed=episode_record.seed,
+        reward=max(rewards, default=float("nan")),
+        terminated=terminated,
+        final_observation=observation,
+        actions=episode_record.actions,
+        rewards=rewards,
+        frames=frames,
+    )
 
 
-def _create_replay_policy(*, action_sequences: list[list[np.ndarray]]) -> Policy:
-    step_indices = [0] * len(action_sequences)
-
-    def create_action(
-        *, observations_by_episode_index: dict[int, np.ndarray]
-    ) -> dict[int, np.ndarray]:
-        actions = {}
-        for episode_index in observations_by_episode_index.keys():
-            action_sequence = action_sequences[episode_index]
-            actions[episode_index] = action_sequence[step_indices[episode_index]]
-            step_indices[episode_index] += 1
-        return actions
-
-    return create_action
+def _render_physics_state(
+    *, environment: Environment, physics_environment: Env, render_environment: Env
+) -> np.ndarray:
+    environment.copy_simulation_state(
+        source=physics_environment, target=render_environment
+    )
+    frame = render_environment.render()
+    if not isinstance(frame, np.ndarray):
+        raise TypeError(
+            f"Expected rgb_array render to return ndarray, got {type(frame)}"
+        )
+    return frame
 
 
 if __name__ == "__main__":

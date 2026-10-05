@@ -3,6 +3,7 @@ from typing import Literal
 import gym_pusht  # noqa: F401
 import gymnasium
 import numpy as np
+from gym_pusht.envs import PushTEnv
 from gymnasium import Env
 from numpy import typing as npt
 
@@ -105,6 +106,14 @@ class PushTEnvironment:
 
         return environment
 
+    @staticmethod
+    def copy_simulation_state(*, source: Env, target: Env) -> None:
+        source_task = _get_task(environment=source)
+        target_task = _get_task(environment=target)
+        target_task.agent.position = source_task.agent.position
+        target_task.block.position = source_task.block.position
+        target_task.block.angle = source_task.block.angle
+
     def calculate_termination(
         self,
         *,
@@ -121,3 +130,13 @@ class PushTEnvironment:
                 environment=self._reward_environment,
             )
         return termination_batch
+
+
+# ---- Private --------------------------------------------
+
+
+def _get_task(*, environment: Env) -> PushTEnv:
+    task = environment.unwrapped
+    if not isinstance(task, PushTEnv):
+        raise TypeError(f"Expected PushTEnv, got {type(task).__name__}")
+    return task

@@ -228,6 +228,12 @@ class PegInsertionEnvironment:
 
         return DisturbanceWrapper(environment=environment, shift=disturbance_shift)
 
+    @staticmethod
+    def copy_simulation_state(*, source: Env, target: Env) -> None:
+        _get_task(environment=target).set_state_dict(
+            _get_task(environment=source).get_state_dict()
+        )
+
     def calculate_termination(
         self,
         *,
@@ -246,6 +252,13 @@ class PegInsertionEnvironment:
 
 
 # ---- Private --------------------------------------------
+
+
+def _get_task(*, environment: Env) -> PegInsertionSideEnv:
+    task = environment.unwrapped
+    if not isinstance(task, PegInsertionSideEnv):
+        raise TypeError(f"Expected PegInsertionSideEnv, got {type(task).__name__}")
+    return task
 
 
 class _StateObservationWrapper(gymnasium.ObservationWrapper):

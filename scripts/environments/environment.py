@@ -45,6 +45,8 @@ class Environment(Protocol):
         self, *, condition: Condition, render_settings: RenderSettings | None
     ) -> Env: ...
 
+    def copy_simulation_state(self, *, source: Env, target: Env) -> None: ...
+
     def calculate_termination(
         self,
         *,
