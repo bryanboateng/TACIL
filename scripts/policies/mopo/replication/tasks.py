@@ -25,8 +25,8 @@ class Task:
     dataset_url: str
     rollout_length: int
     penalty_coefficient: float
-    published_score: float
-    published_score_std: float
+    published_score: float | None
+    published_score_std: float | None
 
     @property
     def dataset_file_name(self) -> str:
@@ -50,6 +50,9 @@ _SETTINGS = (
     ("halfcheetah", "medium_expert", 5, 2.5, 83.6, 12.5),
     ("hopper", "medium_expert", 5, 5.0, 74.6, 44.2),
     ("walker2d", "medium_expert", 1, 2.5, 108.2, 4.3),
+    ("halfcheetah", "expert", 5, 2.5, None, None),
+    ("hopper", "expert", 5, 5.0, None, None),
+    ("walker2d", "expert", 1, 2.5, None, None),
 )
 
 ALL_TASKS = {

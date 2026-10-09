@@ -63,7 +63,11 @@ def format_summary(*, result_directory_path: Path = RESULT_DIRECTORY_PATH) -> st
     ]
     for name, task in ALL_TASKS.items():
         our_scores = scores.get(name)
-        if our_scores is None:
+        if (
+            our_scores is None
+            or task.published_score is None
+            or task.published_score_std is None
+        ):
             continue
         mean = float(np.mean(our_scores))
         gap = mean - task.published_score

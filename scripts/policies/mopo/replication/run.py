@@ -29,6 +29,9 @@ class Config:
 
     final_episode_count: int = 100
 
+    real_data_ratio: float | None = None
+    epoch_count: int | None = None
+
     def __post_init__(self) -> None:
         if self.task not in ALL_TASKS:
             raise ValueError(
@@ -48,7 +51,7 @@ def _run(*, config: Config) -> None:
     device = torch.device(device="cuda" if torch.cuda.is_available() else "cpu")
     log_device_info(device=device, logger=logger)
 
-    policy_config = _build_policy_config(task=task)
+    policy_config = _build_policy_config(task=task, config=config)
     logger.info(pretty_repr(policy_config))
 
     with wandb.init(
@@ -110,18 +113,20 @@ def _run(*, config: Config) -> None:
         run.summary["4_evaluation/2_score_std"] = result.score_std
         run.summary["4_evaluation/3_return_mean"] = result.return_mean
         run.summary["4_evaluation/4_episode_length_mean"] = result.episode_length_mean
-        run.summary["4_evaluation/5_published_score"] = task.published_score
-        run.summary["4_evaluation/6_score_difference"] = (
-            result.score_mean - task.published_score
-        )
-        run.summary["4_evaluation/7_within_published_spread"] = (
-            abs(result.score_mean - task.published_score) <= task.published_score_std
-        )
+        if task.published_score is not None and task.published_score_std is not None:
+            run.summary["4_evaluation/5_published_score"] = task.published_score
+            run.summary["4_evaluation/6_score_difference"] = (
+                result.score_mean - task.published_score
+            )
+            run.summary["4_evaluation/7_within_published_spread"] = (
+                abs(result.score_mean - task.published_score)
+                <= task.published_score_std
+            )
         result_file_path = write_result(
             task=task.name, seed=config.seed, score=result.score_mean
         )
         logger.info(
-            "Stage 3/3: score %.1f +- %.1f, published %.1f. Wrote %s.",
+            "Stage 3/3: score %.1f +- %.1f, published %s. Wrote %s.",
             result.score_mean,
             result.score_std,
             task.published_score,
@@ -132,7 +137,7 @@ def _run(*, config: Config) -> None:
 # ---- Private --------------------------------------------
 
 
-def _build_policy_config(*, task: Task) -> mopo_config.Config:
+def _build_policy_config(*, task: Task, config: Config) -> mopo_config.Config:
     default = mopo_config.Config(
         dynamics=mopo_config.DynamicsConfig(),
         rollout=mopo_config.RolloutConfig(),
@@ -146,7 +151,15 @@ def _build_policy_config(*, task: Task) -> mopo_config.Config:
             length=task.rollout_length,
             penalty_coefficient=task.penalty_coefficient,
         ),
-        optimization=dataclasses.replace(default.optimization, epoch_count=EPOCH_COUNT),
+        optimization=dataclasses.replace(
+            default.optimization,
+            epoch_count=config.epoch_count or EPOCH_COUNT,
+            real_data_ratio=(
+                default.optimization.real_data_ratio
+                if config.real_data_ratio is None
+                else config.real_data_ratio
+            ),
+        ),
         validation=None,
     )
 
