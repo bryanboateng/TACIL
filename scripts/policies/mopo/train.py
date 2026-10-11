@@ -42,6 +42,7 @@ from scripts.policies.shared.metrics import (
 )
 from scripts.policies.shared.validation import Validation
 from scripts.shared.log import create_logger
+from scripts.shared.model_artifact import DYNAMICS_MODEL_ARTIFACT_TYPE, upload_model
 from scripts.shared.normalization import MinMaxNormalizer, ZScoreNormalizer
 from scripts.shared.seeding import set_seed
 
@@ -104,6 +105,12 @@ def train_mopo_policy(
         device=device,
         run=run,
     )
+    if config.dynamics.save_model:
+        upload_model(
+            model=dynamics.model_ensemble,
+            artifact_type=DYNAMICS_MODEL_ARTIFACT_TYPE,
+            run=run,
+        )
 
     state_dimensionality = transitions.states.shape[1]
     action_dimensionality = transitions.actions.shape[1]

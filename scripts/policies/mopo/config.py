@@ -12,6 +12,7 @@ class DynamicsConfig:
     holdout_ratio: float = 0.2
     log_variance_loss_coefficient: float = 0.01
     patience_epoch_count: int = 5
+    save_model: bool = False
 
     def __post_init__(self) -> None:
         if len(self.weight_decays) != len(self.hidden_layer_dimensionalities) + 1:
@@ -126,3 +127,5 @@ class Config:
     rollout: RolloutConfig
     optimization: OptimizationConfig
     validation: ValidationConfig | None
+
+    save_model: bool = False

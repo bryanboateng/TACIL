@@ -22,6 +22,7 @@ from scripts.policies.shared.validation import Validation
 from scripts.shared.dataset_artifact import download_episodes
 from scripts.shared.episodes import RewardedEpisodes, calculate_indices_with_successor
 from scripts.shared.log import create_logger, log_device_info
+from scripts.shared.model_artifact import POLICY_ARTIFACT_TYPE, upload_model
 from scripts.shared.normalization import MinMaxNormalizer, ZScoreNormalizer
 from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
 
@@ -95,6 +96,10 @@ def _run(*, config: Config) -> None:
             device=device,
             run=run,
         )
+        if config.policy.save_model:
+            upload_model(
+                model=policy.actor, artifact_type=POLICY_ARTIFACT_TYPE, run=run
+            )
         logger.info("Stage 1/2: done.")
 
         logger.info("Stage 2/2: evaluating the policy.")
