@@ -396,7 +396,7 @@ def _solve_forward_euler(
                     state_batch[searching_indices],
                     action_batch[searching_indices],
                     target_state_batch[searching_indices],
-                ),
+                ).detach(),
                 residual_batch[searching_indices],
             )
             state_batch[searching_indices] = state_batch[searching_indices] - step_batch
