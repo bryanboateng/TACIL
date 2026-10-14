@@ -29,6 +29,7 @@ from scripts.evaluation.rollouts_artifact import (
     download_evaluation_rollouts,
 )
 from scripts.shared import stage_names
+from scripts.shared.dataset_artifact import read_episode_count
 from scripts.shared.log import create_logger
 from scripts.shared.paths import OUTPUT_DIRECTORY_PATH
 
@@ -77,13 +78,34 @@ def _render_videos(*, run_path: str, video_project: str) -> None:
             logger.info("Rendering %s of %s.", condition.label, run_path)
             _log_video(
                 environment=environment,
-                policy_label=f"{source_run.config['policy_name']} ({source_run.name})",
+                policy_label=_describe_run(config=source_run.config),
                 condition=condition,
                 episode_records=pick_representative_episodes(
                     episode_records=episode_records_by_condition_label[condition.label]
                 ),
                 run=run,
             )
+
+
+def _describe_run(*, config: dict) -> str:
+    episode_count = read_episode_count(
+        dataset_name=config["expert_dataset_artifact"].split(":")[0]
+    )
+    return f"{episode_count} Episodes · {_describe_method(config=config)}"
+
+
+def _describe_method(*, config: dict) -> str:
+    policy_name = config["policy_name"]
+    policy = policy_name.upper()
+    augmentation = config.get("augmentation")
+    if augmentation is not None:
+        return f"{policy} {augmentation['name'].upper()}"
+    if (
+        policy_name in ("bc", "dp")
+        and config["policy"].get("observation_noise") is not None
+    ):
+        return f"{policy} Noise"
+    return policy
 
 
 def _log_video(

@@ -33,6 +33,16 @@ def read_dataset_stem(*, dataset_name: str) -> str:
     return match.group("stem")
 
 
+def read_episode_count(*, dataset_name: str) -> int:
+    match = re.compile(r".+-(?P<episode_count>\d+)-of-\d+").fullmatch(dataset_name)
+    if match is None:
+        raise ValueError(
+            f"{dataset_name!r} does not end in the "
+            f"'-<episode_count>-of-<source_episode_count>' suffix."
+        )
+    return int(match.group("episode_count"))
+
+
 def download_episodes(*, artifact_name: str, run: Run) -> DownloadedDataset:
     artifact = run.use_artifact(artifact_or_name=f"{DATASET_PROJECT}/{artifact_name}")
     return DownloadedDataset(
