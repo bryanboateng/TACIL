@@ -6,7 +6,7 @@ import wandb
 from rich.pretty import pretty_repr
 from wandb import Run
 
-from scripts.data.expert.ingest import peg_insertion, pusht
+from scripts.data.expert.ingest import peg_insertion, pusht, stack_cube
 from scripts.environments.registry import EnvironmentName
 from scripts.shared.dataset_artifact import (
     DATASET_PROJECT,
@@ -43,6 +43,8 @@ def _run(*, config: Config) -> None:
             module = pusht
         case EnvironmentName.PEG_INSERTION:
             module = peg_insertion
+        case EnvironmentName.STACK_CUBE:
+            module = stack_cube
 
     episodes = module.build_episodes()
     _check_rewards(episodes=episodes)
