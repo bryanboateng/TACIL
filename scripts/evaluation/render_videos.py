@@ -62,7 +62,7 @@ def _render_videos(*, run_path: str, video_project: str) -> None:
         entity=entity,
         project=video_project,
         job_type="video",
-        name=source_run.name,
+        name=_describe_run(config=source_run.config),
         config=dict(source_run.config, source_run_path=run_path),
         dir=OUTPUT_DIRECTORY_PATH,
     ) as run:
