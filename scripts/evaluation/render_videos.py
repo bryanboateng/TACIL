@@ -91,7 +91,7 @@ def _describe_run(*, config: dict) -> str:
     episode_count = read_episode_count(
         dataset_name=config["expert_dataset_artifact"].split(":")[0]
     )
-    return f"{episode_count} Episodes · {_describe_method(config=config)}"
+    return f"{_describe_method(config=config)} · {episode_count} Episodes"
 
 
 def _describe_method(*, config: dict) -> str:
