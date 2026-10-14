@@ -12,6 +12,7 @@ from scripts.data.augmentation.tacil.create_dynamics.statistics.plots import (
     create_stopping_rule_error_plot,
 )
 from scripts.environments.peg_insertion import plot_preview as peg_insertion_preview
+from scripts.environments.stack_cube import plot_preview as stack_cube_preview
 from scripts.environments.pusht import plot_preview as pusht_preview
 from scripts.environments.registry import EnvironmentName, create_environment
 from scripts.shared.distribution_plot import create_distribution_plot
@@ -86,6 +87,8 @@ def main() -> None:
                 draw_trajectories = pusht_preview.draw_trajectories
             case EnvironmentName.PEG_INSERTION:
                 draw_trajectories = peg_insertion_preview.draw_trajectories
+            case EnvironmentName.STACK_CUBE:
+                draw_trajectories = stack_cube_preview.draw_trajectories
 
         member_trajectories, true_trajectory = draw_trajectories(
             rng=np.random.default_rng(seed=_SEED),
