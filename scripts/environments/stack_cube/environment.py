@@ -102,7 +102,7 @@ class StackCubeEnvironment:
     ) -> Env:
         environment: Env = _StateObservationWrapper(
             environment=create_base_environment(
-                # The converted demonstrations need about 80-140 steps so 300 is a good limit.
+                # Demos take up to ~137 steps (p99), doubled for slack.
                 episode_step_limit=300,
                 render_settings=render_settings,
             )

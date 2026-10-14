@@ -117,7 +117,7 @@ class PegInsertionEnvironment:
     ) -> Env:
         environment: Env = _StateObservationWrapper(
             environment=create_base_environment(
-                # The converted demonstrations need about 105-423 steps so 450 is a good limit.
+                # Demos take up to ~219 steps (p99), doubled for slack.
                 episode_step_limit=450,
                 render_settings=render_settings,
             )
