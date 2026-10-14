@@ -6,7 +6,7 @@ from mani_skill.utils.structs import Pose
 from numpy import typing as npt
 
 _FIRST_DISTURBANCE_STEP = 20
-_DISTURBANCE_PERIOD = 100
+_DISTURBANCE_PERIOD = 60
 
 
 class DisturbanceWrapper(gymnasium.Wrapper):

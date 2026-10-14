@@ -33,12 +33,12 @@ SETTINGS_BY_CONDITION: dict[Condition, Settings] = {
     StackCubeCondition(DisturbanceLevel.LOW): Settings(
         label="2_low_disturbance",
         description="disturbance: low",
-        disturbance_shift=0.04,
+        disturbance_shift=0.008,
     ),
     StackCubeCondition(DisturbanceLevel.HIGH): Settings(
         label="3_high_disturbance",
         description="disturbance: high",
-        disturbance_shift=0.08,
+        disturbance_shift=0.011,
     ),
 }
 
