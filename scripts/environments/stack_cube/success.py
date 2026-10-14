@@ -13,7 +13,7 @@ from scripts.environments.stack_cube.observation import (
 _PLACEMENT_TOLERANCE = 0.005
 _STATIC_LINEAR_SPEED_LIMIT = 1e-2
 _STATIC_ANGULAR_SPEED_LIMIT = 0.5
-_RELEASED_GRIPPER_OPENING = 0.03
+_RELEASED_GRIPPER_OPENING = 0.021
 
 
 def calculate_success(
