@@ -1,6 +1,9 @@
 import itertools
+import multiprocessing
+import queue
 import random
 from dataclasses import dataclass
+from multiprocessing.queues import Queue
 from pathlib import Path
 
 import pygame
@@ -45,10 +48,42 @@ def main() -> None:
 
 
 def _run(*, config: Config) -> None:
+    environment = create_environment(name=config.environment)
+    fps = calculate_video_frames_per_second(
+        control_frequency=environment.control_frequency,
+        playback_speed=environment.video_playback_speed,
+    )
+
+    context = multiprocessing.get_context("spawn")
+    frames = context.Queue(maxsize=2)
+    worker = context.Process(
+        target=_render_episodes, args=(config, frames), daemon=True
+    )
+    worker.start()
+
     pygame.init()
     screen = pygame.display.set_mode(size=(RENDER_SIZE, RENDER_SIZE))
+    pygame.display.set_caption(title="Preview")
     clock = pygame.time.Clock()
+    try:
+        while not _quit_has_been_requested():
+            try:
+                frame = frames.get(timeout=0.1)
+            except queue.Empty:
+                if not worker.is_alive():
+                    raise RuntimeError("The preview worker stopped.")
+                continue
+            screen.blit(
+                pygame.image.frombytes(frame, (RENDER_SIZE, RENDER_SIZE), "RGB"), (0, 0)
+            )
+            pygame.display.flip()
+            clock.tick(fps)
+    finally:
+        worker.terminate()
+        pygame.quit()
 
+
+def _render_episodes(config: Config, frames: Queue) -> None:
     environment = create_environment(name=config.environment)
     fps = calculate_video_frames_per_second(
         control_frequency=environment.control_frequency,
@@ -58,8 +93,6 @@ def _run(*, config: Config) -> None:
 
     for condition in itertools.cycle(environment.conditions):
         seed = random.randint(a=0, b=2**31 - 1)
-        pygame.display.set_caption(title="Preview")
-
         gym_environment = environment.create_gym_environment(
             condition=condition,
             render_settings=RenderSettings(size=RENDER_SIZE, supersample_factor=1),
@@ -85,12 +118,7 @@ def _run(*, config: Config) -> None:
 
         freeze = [surfaces[-1]] * (fps * FREEZE_SECONDS)
         for surface in [*surfaces, *freeze]:
-            if _quit_has_been_requested():
-                pygame.quit()
-                return
-            screen.blit(surface, (0, 0))
-            pygame.display.flip()
-            clock.tick(fps)
+            frames.put(pygame.image.tobytes(surface, "RGB"))
 
 
 def _create_policy_factory(
