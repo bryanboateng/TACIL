@@ -37,35 +37,39 @@ logger = create_logger()
 
 @dataclass(frozen=True)
 class Config:
+    video_project: str
     run_paths: tuple[str, ...]
 
 
 def main() -> None:
     config = tyro.cli(f=Config)
     for run_path in config.run_paths:
-        _render_videos(run_path=run_path)
+        _render_videos(run_path=run_path, video_project=config.video_project)
 
 
 # ---- Private --------------------------------------------
 
 
-def _render_videos(*, run_path: str) -> None:
+def _render_videos(*, run_path: str, video_project: str) -> None:
     entity, project, run_id = run_path.split("/")
-    finished_run = wandb.Api().run(path=run_path)
+    source_run = wandb.Api().run(path=run_path)
     environment = create_environment(
-        name=EnvironmentName[finished_run.config["environment"]]
+        name=EnvironmentName[source_run.config["environment"]]
     )
 
     with wandb.init(
         entity=entity,
-        project=project,
-        id=run_id,
-        resume="must",
+        project=video_project,
+        job_type="video",
+        name=source_run.name,
+        config=dict(source_run.config, source_run_path=run_path),
         dir=OUTPUT_DIRECTORY_PATH,
     ) as run:
         episode_records_by_condition_label = download_evaluation_rollouts(
             artifact=run.use_artifact(
-                artifact_or_name=f"evaluation-rollouts-{run_id}:latest",
+                artifact_or_name=(
+                    f"{entity}/{project}/evaluation-rollouts-{run_id}:latest"
+                ),
                 type=EVALUATION_ROLLOUTS_ARTIFACT_TYPE,
             )
         )
@@ -73,7 +77,7 @@ def _render_videos(*, run_path: str) -> None:
             logger.info("Rendering %s of %s.", condition.label, run_path)
             _log_video(
                 environment=environment,
-                policy_label=f"{finished_run.config['policy_name']} ({run.name})",
+                policy_label=f"{source_run.config['policy_name']} ({source_run.name})",
                 condition=condition,
                 episode_records=pick_representative_episodes(
                     episode_records=episode_records_by_condition_label[condition.label]
