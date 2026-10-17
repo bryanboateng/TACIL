@@ -133,7 +133,9 @@ class DynamicsModelEnsemble(torch.nn.Module):
             )
         )  # (member_count, batch_size, state_dimensionality, network_input_dimensionality)
 
-        return calculate_spectral_norms(matrix_batch=jacobian_batch)
+        return calculate_spectral_norms(matrix_batch=jacobian_batch.cpu()).to(
+            device=jacobian_batch.device
+        )
 
     # ---- Private --------------------------------------------
 
