@@ -11,6 +11,7 @@ class DynamicsConfig:
     hidden_layer_count: int = 2
     hidden_layer_dimensionality: int = 256
     save_model: bool = False
+    record_lipschitz_constants: bool = False
 
     def __post_init__(self) -> None:
         for name, value in (

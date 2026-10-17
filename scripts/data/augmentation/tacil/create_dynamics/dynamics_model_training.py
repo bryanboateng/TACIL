@@ -22,12 +22,12 @@ class EpochMetrics:
     training_losses: npt.NDArray[np.float64]  # (member_count,)
     validation_losses: npt.NDArray[np.float64]  # (member_count,)
     gradient_norms: npt.NDArray[np.float64]  # (member_count,)
-    training_local_lipschitz_constants: npt.NDArray[
-        np.float32
-    ]  # (member_count, sample_count)
-    validation_local_lipschitz_constants: npt.NDArray[
-        np.float32
-    ]  # (member_count, sample_count)
+    training_local_lipschitz_constants: (
+        npt.NDArray[np.float32] | None
+    )  # (member_count, sample_count)
+    validation_local_lipschitz_constants: (
+        npt.NDArray[np.float32] | None
+    )  # (member_count, sample_count)
 
 
 @dataclass
@@ -56,6 +56,7 @@ class TrainingContext:
     validation_action_windows: (
         torch.Tensor
     )  # (window_count, window_length, action_dimensionality)
+    record_lipschitz_constants: bool
 
 
 def create_training_state(
@@ -143,11 +144,13 @@ def train_for_one_epoch(
             training_state=training_state,
             state_windows=context.training_state_windows,
             action_windows=context.training_action_windows,
+            record=context.record_lipschitz_constants,
         )  # (member_count, sample_count)
         validation_local_lipschitz_constants = _sample_local_lipschitz_constants(
             training_state=training_state,
             state_windows=context.validation_state_windows,
             action_windows=context.validation_action_windows,
+            record=context.record_lipschitz_constants,
         )  # (member_count, sample_count)
 
     return EpochMetrics(
@@ -259,7 +262,8 @@ def _sample_local_lipschitz_constants(
     training_state: TrainingState,
     state_windows: torch.Tensor,  # (window_count, window_length + 1, state_dimensionality)
     action_windows: torch.Tensor,  # (window_count, window_length, action_dimensionality)
-) -> npt.NDArray[np.float32]:  # (member_count, sample_count)
+    record: bool,
+) -> npt.NDArray[np.float32] | None:  # (member_count, sample_count)
     sample_indices = torch.randint(
         low=0,
         high=state_windows.shape[0],
@@ -267,6 +271,9 @@ def _sample_local_lipschitz_constants(
         generator=training_state.generator,
         device=state_windows.device,
     )  # (member_count, sample_count)
+
+    if not record:
+        return None
 
     return (
         training_state.model.calculate_local_lipschitz_constants(

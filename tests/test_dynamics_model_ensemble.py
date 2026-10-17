@@ -181,6 +181,7 @@ class DivergedMemberIsolationTests(unittest.TestCase):
             training_action_windows=action_windows,
             validation_state_windows=state_windows[:64],
             validation_action_windows=action_windows[:64],
+            record_lipschitz_constants=True,
         )
         return training_state, context
 

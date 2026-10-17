@@ -85,6 +85,7 @@ def train_dynamics_model_ensemble(
         validation_action_windows=torch.from_numpy(validation_action_windows).to(
             device=device
         ),
+        record_lipschitz_constants=config.record_lipschitz_constants,
     )
 
     training_state = create_training_state(

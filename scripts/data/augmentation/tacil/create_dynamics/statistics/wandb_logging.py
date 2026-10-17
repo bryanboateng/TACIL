@@ -59,6 +59,8 @@ def log_epoch(*, epoch_index: int, metrics: EpochMetrics, run: Run) -> None:
         ("1_training", metrics.training_local_lipschitz_constants),
         ("2_validation", metrics.validation_local_lipschitz_constants),
     ):
+        if local_lipschitz_constants is None:
+            continue
         finite_constants = local_lipschitz_constants[
             np.isfinite(local_lipschitz_constants)
         ]  # (finite_count,)
