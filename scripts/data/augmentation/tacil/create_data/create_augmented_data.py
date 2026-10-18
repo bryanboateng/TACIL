@@ -80,6 +80,7 @@ def create_augmented_data(
         stopping_rule=config.stopping_rule,
         error_limit=error_limit,
         convergence_tolerance=1e-3 * median_expert_state_step_distance,
+        depth_limit=config.depth_limit,
     )
 
     log_rollout_statistics(

@@ -11,6 +11,9 @@ from scripts.data.augmentation.tacil.create_data.inverse_dynamics import (
 from scripts.data.augmentation.tacil.dynamics.dynamics_model_ensemble import (
     DynamicsModelEnsemble,
 )
+from scripts.data.augmentation.tacil.dynamics.state_distance import (
+    calculate_normalized_state_distance,
+)
 
 
 @dataclass(frozen=True)
@@ -35,6 +38,7 @@ def roll_out_backward(
     stopping_rule: StoppingRule,
     error_limit: float,
     convergence_tolerance: float,
+    depth_limit: int | None,
 ) -> tuple[SyntheticTrajectories, RolloutDiagnostics]:
     anchor_count = anchor_state_batch.shape[0]
     device = anchor_state_batch.device
@@ -58,6 +62,8 @@ def roll_out_backward(
     progress_bar = tqdm(desc="backward step", unit="step", dynamic_ncols=True)
     while True:
         if active_trajectory_indices.numel() == 0:
+            break
+        if depth_limit is not None and len(accepted_steps_per_depth) == depth_limit:
             break
         progress_bar.set_postfix(
             active_anchor_count=int(active_trajectory_indices.numel())
@@ -210,6 +216,41 @@ class _AccountMeter:
         )
 
 
+class _CcilMeter:
+    def __init__(
+        self,
+        *,
+        dynamics_model_ensemble: DynamicsModelEnsemble,
+        anchor_state_batch: torch.Tensor,  # (anchor_count, state_dimensionality)
+        anchor_action_batch: torch.Tensor,  # (anchor_count, action_dimensionality)
+    ) -> None:
+        self._dynamics_model_ensemble = dynamics_model_ensemble
+        self._anchor_state_batch = anchor_state_batch
+        with torch.no_grad():
+            self._local_lipschitz_constant_batch = (
+                dynamics_model_ensemble.calculate_ensemble_local_lipschitz_constants(
+                    state_batch=anchor_state_batch, action_batch=anchor_action_batch
+                )
+            )  # (anchor_count,)
+
+    def calculate(
+        self,
+        *,
+        trajectory_indices: torch.Tensor,  # (active_count,)
+        backward_step: _BackwardStep,
+    ) -> torch.Tensor:  # (active_count,)
+        distance_batch = calculate_normalized_state_distance(
+            state_batch=backward_step.predecessor_state_batch,
+            other_state_batch=self._anchor_state_batch[trajectory_indices],
+            state_space=self._dynamics_model_ensemble.state_space,
+            state_normalizer=self._dynamics_model_ensemble.normalizers.state,
+        )  # (active_count,)
+        return self._local_lipschitz_constant_batch[trajectory_indices] * distance_batch
+
+    def record(self, *, accepted_steps: _AcceptedSteps) -> None:
+        pass
+
+
 def _build_error_meter(
     *,
     stopping_rule: StoppingRule,
@@ -229,6 +270,12 @@ def _build_error_meter(
                 dynamics_model_ensemble=dynamics_model_ensemble,
                 anchor_count=anchor_state_batch.shape[0],
                 device=anchor_state_batch.device,
+            )
+        case "ccil":
+            return _CcilMeter(
+                dynamics_model_ensemble=dynamics_model_ensemble,
+                anchor_state_batch=anchor_state_batch,
+                anchor_action_batch=anchor_action_batch,
             )
 
 

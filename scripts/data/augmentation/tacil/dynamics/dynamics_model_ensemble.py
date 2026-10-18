@@ -137,6 +137,32 @@ class DynamicsModelEnsemble(torch.nn.Module):
             device=jacobian_batch.device
         )
 
+    def calculate_ensemble_local_lipschitz_constants(
+        self,
+        *,
+        state_batch: torch.Tensor,  # (batch_size, state_dimensionality)
+        action_batch: torch.Tensor,  # (batch_size, action_dimensionality)
+        chunk_size: int = 1024,
+    ) -> torch.Tensor:  # (batch_size,)
+        constant_chunks: list[torch.Tensor] = []
+        for start in range(0, state_batch.shape[0], chunk_size):
+            normalized_input_batch = self._create_normalized_network_input(
+                state_batch=state_batch[start : start + chunk_size],
+                action_batch=action_batch[start : start + chunk_size],
+            )  # (chunk_size, network_input_dimensionality)
+
+            jacobian_batch = self._network.calculate_jacobians(
+                input_batch=normalized_input_batch.expand(
+                    self.member_count, *normalized_input_batch.shape
+                )
+            )  # (member_count, chunk_size, state_dimensionality, network_input_dimensionality)
+
+            constant_chunks.append(
+                calculate_spectral_norms(matrix_batch=jacobian_batch.mean(dim=0))
+            )  # (chunk_size,)
+
+        return torch.cat(tensors=constant_chunks)  # (batch_size,)
+
     # ---- Private --------------------------------------------
 
     def _create_normalized_network_input(
