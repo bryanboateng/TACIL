@@ -64,40 +64,102 @@ class PegGpiDistanceTests(unittest.TestCase):
         )
         self.normalizer = MinMaxNormalizer(value_batch=self.features)
 
-    def distances(self, feature_batch, query_feature):
+    def distances(
+        self,
+        feature_batch,
+        query_feature,
+        environment_distance_share=0.5,
+        rotation_distance_share=0.5,
+    ):
         return self.geometry.calculate_observation_distances(
             feature_batch=feature_batch,
             query_feature=query_feature,
             feature_normalizer=self.normalizer,
-            robot_distance_weight=1.0,
-            environment_distance_weight=1.0,
+            environment_distance_share=environment_distance_share,
+            rotation_distance_share=rotation_distance_share,
         )
 
-    def distance_after(self, state, modified_state):
+    def distance_after(
+        self,
+        state,
+        modified_state,
+        environment_distance_share=0.5,
+        rotation_distance_share=0.5,
+    ):
         feature_batch = self.geometry.project_observations(
             observation_batch=modified_state.unsqueeze(0)
         )
         query_feature = self.geometry.project_observations(
             observation_batch=state.unsqueeze(0)
         )[0]
-        return float(self.distances(feature_batch, query_feature)[0])
+        return float(
+            self.distances(
+                feature_batch,
+                query_feature,
+                environment_distance_share=environment_distance_share,
+                rotation_distance_share=rotation_distance_share,
+            )[0]
+        )
 
-    def test_one_controller_step_of_translation_is_distance_one(self):
+    def test_translation_counts_in_metres(self):
         state = self.states[0]
         moved = state.clone()
         moved[TCP_POSITION_SLICE] += torch.tensor([0.06, 0.08, 0.0])
-        self.assertAlmostEqual(self.distance_after(state, moved), 1.0, places=6)
+        distance = self.distance_after(
+            state, moved, environment_distance_share=0.0, rotation_distance_share=0.0
+        )
+        self.assertAlmostEqual(distance, 0.1, places=6)
 
-    def test_one_controller_step_of_rotation_is_distance_one(self):
+    def test_rotation_counts_in_radians(self):
         state = self.states[0]
         rotated = rotate_tcp(state, [0.0, 0.1, 0.0])
-        self.assertAlmostEqual(self.distance_after(state, rotated), 1.0, places=6)
+        distance = self.distance_after(
+            state, rotated, environment_distance_share=0.0, rotation_distance_share=1.0
+        )
+        self.assertAlmostEqual(distance, 0.1, places=6)
 
-    def test_full_gripper_range_is_distance_one(self):
+    def test_rotation_share_weighs_radians_against_metres(self):
+        state = self.states[0]
+        moved = rotate_tcp(state, [0.0, 0.1, 0.0])
+        moved[TCP_POSITION_SLICE] += torch.tensor([0.0, 0.2, 0.0])
+        distance = self.distance_after(
+            state, moved, environment_distance_share=0.0, rotation_distance_share=0.25
+        )
+        self.assertAlmostEqual(distance, 0.75 * 0.2 + 0.25 * 0.1, places=6)
+
+    def test_environment_share_weighs_the_object_against_the_robot(self):
+        state = self.states[0]
+        moved = state.clone()
+        moved[TCP_POSITION_SLICE] += torch.tensor([0.0, 0.1, 0.0])
+        self.assertAlmostEqual(
+            self.distance_after(
+                state,
+                moved,
+                environment_distance_share=1.0,
+                rotation_distance_share=0.0,
+            ),
+            0.0,
+            places=6,
+        )
+        self.assertAlmostEqual(
+            self.distance_after(
+                state,
+                moved,
+                environment_distance_share=0.25,
+                rotation_distance_share=0.0,
+            ),
+            0.075,
+            places=6,
+        )
+
+    def test_gripper_opening_counts_in_metres(self):
         state = self.states[0]
         opened = state.clone()
         opened[GRIPPER_OPENING_INDEX] += 0.05
-        self.assertAlmostEqual(self.distance_after(state, opened), 1.0, places=6)
+        distance = self.distance_after(
+            state, opened, environment_distance_share=0.0, rotation_distance_share=0.0
+        )
+        self.assertAlmostEqual(distance, 0.05, places=6)
 
     def test_hole_radius_and_peg_cross_section_do_not_count(self):
         state = self.states[0]
@@ -110,7 +172,13 @@ class PegGpiDistanceTests(unittest.TestCase):
         state = self.states[0]
         lengthened = state.clone()
         lengthened[PEG_HALF_SIZE_SLICE.start] += 0.04
-        self.assertAlmostEqual(self.distance_after(state, lengthened), 0.4, places=6)
+        distance = self.distance_after(
+            state,
+            lengthened,
+            environment_distance_share=1.0,
+            rotation_distance_share=0.0,
+        )
+        self.assertAlmostEqual(distance, 0.04, places=6)
 
     def test_moving_the_whole_scene_leaves_distances_unchanged(self):
         generator = np.random.default_rng(1)

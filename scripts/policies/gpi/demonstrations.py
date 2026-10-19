@@ -57,8 +57,8 @@ class Demonstrations:
         query_observation: torch.Tensor,  # (observation_dimensionality,)
         excluded_step_indices: set[int],
         neighbour_count: int,
-        robot_distance_weight: float,
-        environment_distance_weight: float,
+        environment_distance_share: float,
+        rotation_distance_share: float,
     ) -> tuple[list[int], torch.Tensor]:  # indices, distances
         available_count = len(self._features) - len(excluded_step_indices)
         if available_count <= 0:
@@ -75,8 +75,8 @@ class Demonstrations:
             feature_batch=self._features,
             query_feature=query_feature,
             feature_normalizer=self._feature_normalizer,
-            robot_distance_weight=robot_distance_weight,
-            environment_distance_weight=environment_distance_weight,
+            environment_distance_share=environment_distance_share,
+            rotation_distance_share=rotation_distance_share,
         )  # (step_count,)
 
         if len(excluded_step_indices) > 0:

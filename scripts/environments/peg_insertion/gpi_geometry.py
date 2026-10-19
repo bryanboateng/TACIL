@@ -10,8 +10,6 @@ from scripts.environments.maniskill.panda_action import (
     ACTION_GRIPPER_SLICE,
     ACTION_ROTATION_SLICE,
     ACTION_TRANSLATION_SLICE,
-    GRIPPER_RANGE_IN_METRES,
-    ROTATION_MAGNITUDE_IN_RADIANS,
     ROTATION_SCALE_IN_RADIANS,
     TRANSLATION_SCALE_IN_METRES,
     calculate_norms,
@@ -98,8 +96,8 @@ class PegInsertionGpiGeometry:
         feature_batch: torch.Tensor,  # (step_count, FEATURE_DIMENSIONALITY)
         query_feature: torch.Tensor,  # (FEATURE_DIMENSIONALITY,)
         feature_normalizer: MinMaxNormalizer,
-        robot_distance_weight: float,
-        environment_distance_weight: float,
+        environment_distance_share: float,
+        rotation_distance_share: float,
     ) -> torch.Tensor:  # (step_count,)
         del feature_normalizer
 
@@ -107,47 +105,38 @@ class PegInsertionGpiGeometry:
             feature_batch - query_feature
         )  # (step_count, FEATURE_DIMENSIONALITY)
 
-        robot_distance = (
+        robot_distance = (1.0 - rotation_distance_share) * (
             calculate_norms(
                 difference_batch=difference_batch,
                 feature_slice=_FEATURE_TCP_POSITION_SLICE,
             )
-            / TRANSLATION_SCALE_IN_METRES
-            + calculate_rotation_angles(
-                feature_batch=feature_batch,
-                query_feature=query_feature,
-                rotation_slice=_FEATURE_TCP_ROTATION_SLICE,
-            )
-            / ROTATION_MAGNITUDE_IN_RADIANS
             + calculate_norms(
                 difference_batch=difference_batch, feature_slice=_FEATURE_GRIPPER_SLICE
             )
-            / GRIPPER_RANGE_IN_METRES
+        ) + rotation_distance_share * calculate_rotation_angles(
+            feature_batch=feature_batch,
+            query_feature=query_feature,
+            rotation_slice=_FEATURE_TCP_ROTATION_SLICE,
         )  # (step_count,)
 
-        environment_distance = (
+        environment_distance = (1.0 - rotation_distance_share) * (
             calculate_norms(
                 difference_batch=difference_batch,
                 feature_slice=_FEATURE_PEG_POSITION_SLICE,
             )
-            / TRANSLATION_SCALE_IN_METRES
-            + calculate_rotation_angles(
-                feature_batch=feature_batch,
-                query_feature=query_feature,
-                rotation_slice=_FEATURE_PEG_ROTATION_SLICE,
-            )
-            / ROTATION_MAGNITUDE_IN_RADIANS
             + calculate_norms(
                 difference_batch=difference_batch,
                 feature_slice=_FEATURE_PEG_HALF_LENGTH_SLICE,
             )
-            / TRANSLATION_SCALE_IN_METRES
+        ) + rotation_distance_share * calculate_rotation_angles(
+            feature_batch=feature_batch,
+            query_feature=query_feature,
+            rotation_slice=_FEATURE_PEG_ROTATION_SLICE,
         )  # (step_count,)
 
         return (
-            robot_distance_weight * robot_distance
-            + environment_distance_weight * environment_distance
-        )
+            1.0 - environment_distance_share
+        ) * robot_distance + environment_distance_share * environment_distance
 
     def calculate_action(
         self,

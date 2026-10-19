@@ -48,8 +48,8 @@ def create_geometric_policy_factory(
                     steps_per_search=config.steps_per_search,
                     neighbour_count=config.neighbour_count,
                     action_smoothing=config.action_smoothing,
-                    robot_distance_weight=config.robot_distance_weight,
-                    environment_distance_weight=config.environment_distance_weight,
+                    environment_distance_share=config.environment_distance_share,
+                    rotation_distance_share=config.rotation_distance_share,
                     progression_weight=config.progression_weight,
                     attraction_weight=config.attraction_weight,
                 )
@@ -84,8 +84,8 @@ def _calculate_action(
     steps_per_search: int,
     neighbour_count: int,
     action_smoothing: float,
-    robot_distance_weight: float,
-    environment_distance_weight: float,
+    environment_distance_share: float,
+    rotation_distance_share: float,
     progression_weight: float,
     attraction_weight: float,
 ) -> npt.NDArray[np.float32]:  # (action_dimensionality,)
@@ -114,8 +114,8 @@ def _calculate_action(
         demonstrations=demonstrations,
         steps_per_search=steps_per_search,
         neighbour_count=neighbour_count,
-        robot_distance_weight=robot_distance_weight,
-        environment_distance_weight=environment_distance_weight,
+        environment_distance_share=environment_distance_share,
+        rotation_distance_share=rotation_distance_share,
     )
 
     object_frame_action_batch = torch.stack(
@@ -196,16 +196,16 @@ def _consume_next_step_indices(
     demonstrations: Demonstrations,
     steps_per_search: int,
     neighbour_count: int,
-    robot_distance_weight: float,
-    environment_distance_weight: float,
+    environment_distance_share: float,
+    rotation_distance_share: float,
 ) -> tuple[list[int], list[float]]:  # indices, blending weights
     if steps_per_search == 1:
         step_indices, distances = demonstrations.find_nearest_step_indices(
             query_observation=observation,
             excluded_step_indices=episode_state.used_step_indices,
             neighbour_count=neighbour_count,
-            robot_distance_weight=robot_distance_weight,
-            environment_distance_weight=environment_distance_weight,
+            environment_distance_share=environment_distance_share,
+            rotation_distance_share=rotation_distance_share,
         )
         episode_state.used_step_indices.add(step_indices[0])
         inverse_distances = 1.0 / (distances + 1e-8)  # (neighbour_count,)
@@ -216,8 +216,8 @@ def _consume_next_step_indices(
             query_observation=observation,
             excluded_step_indices=episode_state.used_step_indices,
             neighbour_count=1,
-            robot_distance_weight=robot_distance_weight,
-            environment_distance_weight=environment_distance_weight,
+            environment_distance_share=environment_distance_share,
+            rotation_distance_share=rotation_distance_share,
         )
         episode_state.next_step_index = start_index
         episode_state.remaining_step_count = min(

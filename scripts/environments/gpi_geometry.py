@@ -19,8 +19,8 @@ class GpiGeometry(Protocol):
         feature_batch: torch.Tensor,  # (step_count, feature_dimensionality)
         query_feature: torch.Tensor,  # (feature_dimensionality,)
         feature_normalizer: MinMaxNormalizer,
-        robot_distance_weight: float,
-        environment_distance_weight: float,
+        environment_distance_share: float,
+        rotation_distance_share: float,
     ) -> torch.Tensor:  # (step_count,)
         ...
 

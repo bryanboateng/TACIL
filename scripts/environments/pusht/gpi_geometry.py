@@ -23,10 +23,10 @@ class PushTGpiGeometry:
         feature_batch: torch.Tensor,  # (step_count, STATE_DIMENSIONALITY)
         query_feature: torch.Tensor,  # (STATE_DIMENSIONALITY,)
         feature_normalizer: MinMaxNormalizer,
-        robot_distance_weight: float,
-        environment_distance_weight: float,
+        environment_distance_share: float,
+        rotation_distance_share: float,
     ) -> torch.Tensor:  # (step_count,)
-        del robot_distance_weight, environment_distance_weight
+        del environment_distance_share, rotation_distance_share
 
         normalized_feature_batch = feature_normalizer.normalize(
             value_batch=feature_batch

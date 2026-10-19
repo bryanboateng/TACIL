@@ -40,8 +40,8 @@ class Config:
     action_smoothing: float = 0.0
     progression_weight: float = 1.0
     attraction_weight: float = 1.0
-    robot_distance_weight: float = 1.0
-    environment_distance_weight: float = 1.0
+    environment_distance_share: float = 0.5
+    rotation_distance_share: float = 0.5
 
     def __post_init__(self) -> None:
         if self.steps_per_search < 1:
@@ -64,8 +64,13 @@ class Config:
         for name, value in (
             ("progression_weight", self.progression_weight),
             ("attraction_weight", self.attraction_weight),
-            ("robot_distance_weight", self.robot_distance_weight),
-            ("environment_distance_weight", self.environment_distance_weight),
         ):
             if value < 0:
                 raise ValueError(f"{name} must not be negative, but it is {value}.")
+
+        for name, value in (
+            ("environment_distance_share", self.environment_distance_share),
+            ("rotation_distance_share", self.rotation_distance_share),
+        ):
+            if not 0.0 <= value <= 1.0:
+                raise ValueError(f"{name} must lie in [0, 1], but it is {value}.")
