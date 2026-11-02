@@ -11,7 +11,7 @@ Same episode: without augmentation (left) and with TACIL (right).
 ## What TACIL does
 
 A policy trained by imitation learning does not know how to get back when a
-disturbance pushes it away from its demonstrations. CCIL adds corrective transitions
+disturbance pushes it away from its demonstrations. [CCIL](https://github.com/personalrobotics/CCIL) adds corrective transitions
 that lead back from states one step away from the demonstrations. TACIL extends
 this concept to corrective trajectories that lead back from states many steps away.
 This is accomplished by solving a learned dynamics ensemble backwards until the uncertainty
