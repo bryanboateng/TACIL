@@ -1,6 +1,4 @@
-# TACIL
-
-Trajectory Augmentation for Corrective Imitation Learning.
+# TACIL: Trajectory Augmentation for Corrective Imitation Learning.
 
 https://github.com/user-attachments/assets/e1bd3b67-b109-469d-b296-28d7a53bba49
 
